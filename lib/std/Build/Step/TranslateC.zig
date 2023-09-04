@@ -9,7 +9,7 @@ const TranslateC = @This();
 pub const base_id = .translate_c;
 
 step: Step,
-source: std.Build.FileSource,
+source: std.Build.LazyPath,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
 out_basename: []const u8,
@@ -18,7 +18,7 @@ optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
 
 pub const Options = struct {
-    source_file: std.Build.FileSource,
+    source_file: std.Build.LazyPath,
     target: CrossTarget,
     optimize: std.builtin.OptimizeMode,
 };
@@ -49,14 +49,18 @@ pub const AddExecutableOptions = struct {
     name: ?[]const u8 = null,
     version: ?std.SemanticVersion = null,
     target: ?CrossTarget = null,
-    optimize: ?std.builtin.Mode = null,
+    optimize: ?std.builtin.OptimizeMode = null,
     linkage: ?Step.Compile.Linkage = null,
 };
+
+pub fn getOutput(self: *TranslateC) std.Build.LazyPath {
+    return .{ .generated = &self.output_file };
+}
 
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Compile {
     return self.step.owner.addExecutable(.{
-        .root_source_file = .{ .generated = &self.output_file },
+        .root_source_file = self.getOutput(),
         .name = options.name orelse "translated_c",
         .version = options.version,
         .target = options.target orelse self.target,
@@ -70,7 +74,7 @@ pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Com
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
     return self.step.owner.addModule(name, .{
-        .source_file = .{ .generated = &self.output_file },
+        .source_file = self.getOutput(),
     });
 }
 
@@ -83,7 +87,7 @@ pub fn createModule(self: *TranslateC) *std.Build.Module {
 
     module.* = .{
         .builder = b,
-        .source_file = .{ .generated = &self.output_file },
+        .source_file = self.getOutput(),
         .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
     };
     return module;
@@ -96,7 +100,7 @@ pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
 pub fn addCheckFile(self: *TranslateC, expected_matches: []const []const u8) *Step.CheckFile {
     return Step.CheckFile.create(
         self.step.owner,
-        .{ .generated = &self.output_file },
+        self.getOutput(),
         .{ .expected_matches = expected_matches },
     );
 }

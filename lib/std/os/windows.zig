@@ -46,6 +46,7 @@ pub const OpenError = error{
     Unexpected,
     NameTooLong,
     WouldBlock,
+    NetworkNotFound,
 };
 
 pub const OpenFileOptions = struct {
@@ -130,6 +131,8 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+            .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
             .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => return error.AccessDenied,
@@ -167,7 +170,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
 }
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
-    const nameW = try sliceToPrefixedFileW(name);
+    const nameW = try sliceToPrefixedFileW(null, name);
     return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
@@ -700,6 +703,8 @@ pub const CreateSymbolicLinkError = error{
     FileNotFound,
     NameTooLong,
     NoDevice,
+    NetworkNotFound,
+    BadPathName,
     Unexpected,
 };
 
@@ -712,7 +717,7 @@ pub const CreateSymbolicLinkError = error{
 pub fn CreateSymbolicLink(
     dir: ?HANDLE,
     sym_link_path: []const u16,
-    target_path: []const u16,
+    target_path: [:0]const u16,
     is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const SYMLINK_DATA = extern struct {
@@ -741,30 +746,64 @@ pub fn CreateSymbolicLink(
     };
     defer CloseHandle(symlink_handle);
 
+    // Relevant portions of the documentation:
+    // > Relative links are specified using the following conventions:
+    // > - Root relative—for example, "\Windows\System32" resolves to "current drive:\Windows\System32".
+    // > - Current working directory–relative—for example, if the current working directory is
+    // >   C:\Windows\System32, "C:File.txt" resolves to "C:\Windows\System32\File.txt".
+    // > Note: If you specify a current working directory–relative link, it is created as an absolute
+    // > link, due to the way the current working directory is processed based on the user and the thread.
+    // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsymboliclinkw
+    var is_target_absolute = false;
+    const final_target_path = target_path: {
+        switch (getNamespacePrefix(u16, target_path)) {
+            .none => switch (getUnprefixedPathType(u16, target_path)) {
+                // Rooted paths need to avoid getting put through wToPrefixedFileW
+                // (and they are treated as relative in this context)
+                // Note: It seems that rooted paths in symbolic links are relative to
+                //       the drive that the symbolic exists on, not to the CWD's drive.
+                //       So, if the symlink is on C:\ and the CWD is on D:\,
+                //       it will still resolve the path relative to the root of
+                //       the C:\ drive.
+                .rooted => break :target_path target_path,
+                else => {},
+            },
+            // Already an NT path, no need to do anything to it
+            .nt => break :target_path target_path,
+            else => {},
+        }
+        var prefixed_target_path = try wToPrefixedFileW(dir, target_path);
+        // We do this after prefixing to ensure that drive-relative paths are treated as absolute
+        is_target_absolute = std.fs.path.isAbsoluteWindowsWTF16(prefixed_target_path.span());
+        break :target_path prefixed_target_path.span();
+    };
+
     // prepare reparse data buffer
     var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    const buf_len = @sizeOf(SYMLINK_DATA) + target_path.len * 4;
+    const buf_len = @sizeOf(SYMLINK_DATA) + final_target_path.len * 4;
     const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
+    const target_is_absolute = std.fs.path.isAbsoluteWindowsWTF16(final_target_path);
     const symlink_data = SYMLINK_DATA{
         .ReparseTag = IO_REPARSE_TAG_SYMLINK,
         .ReparseDataLength = @as(u16, @intCast(buf_len - header_len)),
         .Reserved = 0,
-        .SubstituteNameOffset = @as(u16, @intCast(target_path.len * 2)),
-        .SubstituteNameLength = @as(u16, @intCast(target_path.len * 2)),
+        .SubstituteNameOffset = @as(u16, @intCast(final_target_path.len * 2)),
+        .SubstituteNameLength = @as(u16, @intCast(final_target_path.len * 2)),
         .PrintNameOffset = 0,
-        .PrintNameLength = @as(u16, @intCast(target_path.len * 2)),
-        .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
+        .PrintNameLength = @as(u16, @intCast(final_target_path.len * 2)),
+        .Flags = if (!target_is_absolute) SYMLINK_FLAG_RELATIVE else 0,
     };
 
     @memcpy(buffer[0..@sizeOf(SYMLINK_DATA)], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @as([*]const u8, @ptrCast(target_path)));
-    const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
-    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @as([*]const u8, @ptrCast(target_path)));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
+    const paths_start = @sizeOf(SYMLINK_DATA) + final_target_path.len * 2;
+    @memcpy(buffer[paths_start..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
 pub const ReadLinkError = error{
     FileNotFound,
+    NetworkNotFound,
     AccessDenied,
     Unexpected,
     NameTooLong,
@@ -812,6 +851,8 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
+        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
         .INVALID_PARAMETER => unreachable,
         .SHARING_VIOLATION => return error.AccessDenied,
         .ACCESS_DENIED => return error.AccessDenied,
@@ -854,12 +895,15 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 }
 
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
-    const prefix = [_]u16{ '\\', '?', '?', '\\' };
-    var start_index: usize = 0;
-    if (!is_relative and std.mem.startsWith(u16, path, &prefix)) {
-        start_index = prefix.len;
-    }
-    const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
+    const win32_namespace_path = path: {
+        if (is_relative) break :path path;
+        const win32_path = ntToWin32Namespace(path) catch |err| switch (err) {
+            error.NameTooLong => unreachable,
+            error.NotNtPath => break :path path,
+        };
+        break :path win32_path.span();
+    };
+    const out_len = std.unicode.utf16leToUtf8(out_buffer, win32_namespace_path) catch unreachable;
     return out_buffer[0..out_len];
 }
 
@@ -873,6 +917,7 @@ pub const DeleteFileError = error{
     NotDir,
     IsDir,
     DirNotEmpty,
+    NetworkNotFound,
 };
 
 pub const DeleteFileOptions = struct {
@@ -931,6 +976,8 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
+        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
         .INVALID_PARAMETER => unreachable,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
@@ -945,8 +992,9 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
     // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
     // us INVALID_PARAMETER.
+    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
     var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -962,6 +1010,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             .FileDispositionInformationEx,
         );
         switch (rc) {
+            .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
             .INVALID_PARAMETER => {},
             // For all other statuses, fall down to the switch below to handle them.
@@ -997,8 +1046,8 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
-    const old_path_w = try sliceToPrefixedFileW(old_path);
-    const new_path_w = try sliceToPrefixedFileW(new_path);
+    const old_path_w = try sliceToPrefixedFileW(null, old_path);
+    const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
 }
 
@@ -1179,7 +1228,17 @@ pub fn GetFinalPathNameByHandle(
 
             const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
             const volume_name_u16 = final_path[0..file_path_begin_index];
+            const device_name_u16 = volume_name_u16[expected_prefix.len..];
             const file_name_u16 = final_path[file_path_begin_index..];
+
+            // MUP is Multiple UNC Provider, and indicates that the path is a UNC
+            // path. In this case, the canonical UNC path can be gotten by just
+            // dropping the \Device\Mup\ and making sure the path begins with \\
+            if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
+                out_buffer[0] = '\\';
+                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                return out_buffer[0 .. 1 + file_name_u16.len];
+            }
 
             // Get DOS volume name. DOS volume names are actually symbolic link objects to the
             // actual NT volume. For example:
@@ -1207,6 +1266,7 @@ pub fn GetFinalPathNameByHandle(
                 error.PipeBusy => unreachable,
                 error.PathAlreadyExists => unreachable,
                 error.WouldBlock => unreachable,
+                error.NetworkNotFound => unreachable,
                 else => |e| return e,
             };
             defer CloseHandle(mgmt_handle);
@@ -1306,7 +1366,7 @@ pub const GetFileAttributesError = error{
 };
 
 pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
-    const filename_w = try sliceToPrefixedFileW(filename);
+    const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
 
@@ -2109,16 +2169,16 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated path.
-pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
-    return sliceToPrefixedFileW(mem.sliceTo(s, 0));
+pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) !PathSpace {
+    return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
 /// Same as `wToPrefixedFileW` but accepts a UTF-8 encoded path.
-pub fn sliceToPrefixedFileW(path: []const u8) !PathSpace {
+pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) !PathSpace {
     var temp_path: PathSpace = undefined;
     temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, path);
     temp_path.data[temp_path.len] = 0;
-    return wToPrefixedFileW(temp_path.span());
+    return wToPrefixedFileW(dir, temp_path.span());
 }
 
 /// Converts the `path` to WTF16, null-terminated. If the path contains any
@@ -2128,11 +2188,11 @@ pub fn sliceToPrefixedFileW(path: []const u8) !PathSpace {
 /// Similar to RtlDosPathNameToNtPathName_U with a few differences:
 /// - Does not allocate on the heap.
 /// - Relative paths are kept as relative unless they contain too many ..
-///   components, in which case they are treated as drive-relative and resolved
-///   against the CWD.
+///   components, in which case they are resolved against the `dir` if it
+///   is non-null, or the CWD if it is null.
 /// - Special case device names like COM1, NUL, etc are not handled specially (TODO)
 /// - . and space are not stripped from the end of relative paths (potential TODO)
-pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
+pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) !PathSpace {
     const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
     switch (getNamespacePrefix(u16, path)) {
         // TODO: Figure out a way to design an API that can avoid the copy for .nt,
@@ -2183,8 +2243,7 @@ pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
 
                     @memcpy(path_space.data[0..path.len], path);
                     // Try to normalize, but if we get too many parent directories,
-                    // then this is effectively a 'drive relative' path, so we need to
-                    // start over and use RtlGetFullPathName_U instead.
+                    // then we need to start over and use RtlGetFullPathName_U instead.
                     path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
                         error.TooManyParentDirs => break :relative,
                     };
@@ -2213,8 +2272,37 @@ pub fn wToPrefixedFileW(path: [:0]const u16) !PathSpace {
                 else => nt_prefix.len,
             };
             const buf_len = @as(u32, @intCast(path_space.data.len - path_buf_offset));
+            const path_to_get: [:0]const u16 = path_to_get: {
+                // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
+                // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
+                if (path_type != .relative or dir == null) {
+                    break :path_to_get path;
+                }
+                // We can also skip GetFinalPathNameByHandle if the handle matches
+                // the handle returned by fs.cwd()
+                if (dir.? == std.fs.cwd().fd) {
+                    break :path_to_get path;
+                }
+                // At this point, we know we have a relative path that had too many
+                // `..` components to be resolved by normalizePath, so we need to
+                // convert it into an absolute path and let RtlGetFullPathName_U
+                // canonicalize it. We do this by getting the path of the `dir`
+                // and appending the relative path to it.
+                var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
+                const dir_path = try GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf);
+                if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
+                    return error.NameTooLong;
+                }
+                // We don't have to worry about potentially doubling up path separators
+                // here since RtlGetFullPathName_U will handle canonicalizing it.
+                dir_path_buf[dir_path.len] = '\\';
+                @memcpy(dir_path_buf[dir_path.len + 1 ..][0..path.len], path);
+                const full_len = dir_path.len + 1 + path.len;
+                dir_path_buf[full_len] = 0;
+                break :path_to_get dir_path_buf[0..full_len :0];
+            };
             const path_byte_len = ntdll.RtlGetFullPathName_U(
-                path.ptr,
+                path_to_get.ptr,
                 buf_len * 2,
                 path_space.data[path_buf_offset..].ptr,
                 null,
@@ -2257,25 +2345,26 @@ pub const NamespacePrefix = enum {
     nt,
 };
 
+/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
 pub fn getNamespacePrefix(comptime T: type, path: []const T) NamespacePrefix {
     if (path.len < 4) return .none;
-    var all_backslash = switch (path[0]) {
+    var all_backslash = switch (mem.littleToNative(T, path[0])) {
         '\\' => true,
         '/' => false,
         else => return .none,
     };
-    all_backslash = all_backslash and switch (path[3]) {
+    all_backslash = all_backslash and switch (mem.littleToNative(T, path[3])) {
         '\\' => true,
         '/' => false,
         else => return .none,
     };
-    switch (path[1]) {
-        '?' => if (path[2] == '?' and all_backslash) return .nt else return .none,
+    switch (mem.littleToNative(T, path[1])) {
+        '?' => if (mem.littleToNative(T, path[2]) == '?' and all_backslash) return .nt else return .none,
         '\\' => {},
         '/' => all_backslash = false,
         else => return .none,
     }
-    return switch (path[2]) {
+    return switch (mem.littleToNative(T, path[2])) {
         '?' => if (all_backslash) .verbatim else .fake_verbatim,
         '.' => .local_device,
         else => .none,
@@ -2308,12 +2397,9 @@ pub const UnprefixedPathType = enum {
     root_local_device,
 };
 
-inline fn isSepW(c: u16) bool {
-    return c == '/' or c == '\\';
-}
-
 /// Get the path type of a path that is known to not have any namespace prefixes
 /// (`\\?\`, `\\.\`, `\??\`).
+/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
 pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
     if (path.len < 1) return .relative;
 
@@ -2321,18 +2407,19 @@ pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathTy
         std.debug.assert(getNamespacePrefix(T, path) == .none);
     }
 
-    if (isSepW(path[0])) {
+    const windows_path = std.fs.path.PathType.windows;
+    if (windows_path.isSep(T, mem.littleToNative(T, path[0]))) {
         // \x
-        if (path.len < 2 or !isSepW(path[1])) return .rooted;
+        if (path.len < 2 or !windows_path.isSep(T, mem.littleToNative(T, path[1]))) return .rooted;
         // exactly \\. or \\? with nothing trailing
-        if (path.len == 3 and (path[2] == '.' or path[2] == '?')) return .root_local_device;
+        if (path.len == 3 and (mem.littleToNative(T, path[2]) == '.' or mem.littleToNative(T, path[2]) == '?')) return .root_local_device;
         // \\x
         return .unc_absolute;
     } else {
         // x
-        if (path.len < 2 or path[1] != ':') return .relative;
+        if (path.len < 2 or mem.littleToNative(T, path[1]) != ':') return .relative;
         // x:\
-        if (path.len > 2 and isSepW(path[2])) return .drive_absolute;
+        if (path.len > 2 and windows_path.isSep(T, mem.littleToNative(T, path[2]))) return .drive_absolute;
         // x:
         return .drive_relative;
     }
@@ -2355,6 +2442,73 @@ test getUnprefixedPathType {
     try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\"));
     try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\abc"));
     try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:/a/b/c"));
+}
+
+/// Similar to `RtlNtPathNameToDosPathName` but does not do any heap allocation.
+/// The possible transformations are:
+///   \??\C:\Some\Path -> C:\Some\Path
+///   \??\UNC\server\share\foo -> \\server\share\foo
+/// If the path does not have the NT namespace prefix, then `error.NotNtPath` is returned.
+///
+/// Functionality is based on the ReactOS test cases found here:
+/// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
+///
+/// `path` should be encoded as UTF-16LE.
+pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
+    if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
+
+    var path_space: PathSpace = undefined;
+    const namespace_prefix = getNamespacePrefix(u16, path);
+    switch (namespace_prefix) {
+        .nt => {
+            var dest_index: usize = 0;
+            var after_prefix = path[4..]; // after the `\??\`
+            // The prefix \??\UNC\ means this is a UNC path, in which case the
+            // `\??\UNC\` should be replaced by `\\` (two backslashes)
+            // TODO: the "UNC" should technically be matched case-insensitively, but
+            //       it's unlikely to matter since most/all paths passed into this
+            //       function will have come from the OS meaning it should have
+            //       the 'canonical' uppercase UNC.
+            const is_unc = after_prefix.len >= 4 and
+                std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
+                std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
+            if (is_unc) {
+                path_space.data[0] = comptime std.mem.nativeToLittle(u16, '\\');
+                dest_index += 1;
+                // We want to include the last `\` of `\??\UNC\`
+                after_prefix = path[7..];
+            }
+            @memcpy(path_space.data[dest_index..][0..after_prefix.len], after_prefix);
+            path_space.len = dest_index + after_prefix.len;
+            path_space.data[path_space.len] = 0;
+            return path_space;
+        },
+        else => return error.NotNtPath,
+    }
+}
+
+test "ntToWin32Namespace" {
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+
+    try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));
+    try testNtToWin32Namespace(L("\\\\"), L("\\??\\UNC\\"));
+    try testNtToWin32Namespace(L("\\\\path1"), L("\\??\\UNC\\path1"));
+    try testNtToWin32Namespace(L("\\\\path1\\path2"), L("\\??\\UNC\\path1\\path2"));
+
+    try testNtToWin32Namespace(L(""), L("\\??\\"));
+    try testNtToWin32Namespace(L("C:"), L("\\??\\C:"));
+    try testNtToWin32Namespace(L("C:\\"), L("\\??\\C:\\"));
+    try testNtToWin32Namespace(L("C:\\test"), L("\\??\\C:\\test"));
+    try testNtToWin32Namespace(L("C:\\test\\"), L("\\??\\C:\\test\\"));
+
+    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("foo")));
+    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("C:\\test")));
+    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("\\\\.\\test")));
+}
+
+fn testNtToWin32Namespace(expected: []const u16, path: []const u16) !void {
+    const converted = try ntToWin32Namespace(path);
+    try std.testing.expectEqualSlices(u16, expected, converted.span());
 }
 
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
@@ -2488,6 +2642,8 @@ pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *anyopaque;
 pub const PWSTR = [*:0]WCHAR;
 pub const PCWSTR = [*:0]const WCHAR;
+/// Allocated by SysAllocString, freed by SysFreeString
+pub const BSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const UINT = c_uint;
 pub const ULONG_PTR = usize;
@@ -2702,8 +2858,29 @@ const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
 const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
 const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
+// FILE_RENAME_INFORMATION.Flags
+pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
+pub const FILE_RENAME_POSIX_SEMANTICS = 0x00000002;
+pub const FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE = 0x00000004;
+pub const FILE_RENAME_SUPPRESS_STORAGE_RESERVE_INHERITANCE = 0x00000008;
+pub const FILE_RENAME_NO_INCREASE_AVAILABLE_SPACE = 0x00000010;
+pub const FILE_RENAME_NO_DECREASE_AVAILABLE_SPACE = 0x00000020;
+pub const FILE_RENAME_PRESERVE_AVAILABLE_SPACE = 0x00000030;
+pub const FILE_RENAME_IGNORE_READONLY_ATTRIBUTE = 0x00000040;
+pub const FILE_RENAME_FORCE_RESIZE_TARGET_SR = 0x00000080;
+pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
+pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
+
 pub const FILE_RENAME_INFORMATION = extern struct {
-    ReplaceIfExists: BOOLEAN,
+    Flags: BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
+// FileRenameInformationEx (since .win10_rs1)
+pub const FILE_RENAME_INFORMATION_EX = extern struct {
+    Flags: ULONG,
     RootDirectory: ?HANDLE,
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
@@ -3245,6 +3422,7 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
+pub const S_FALSE = 0x00000001;
 pub const E_NOTIMPL = @as(c_long, @bitCast(@as(c_ulong, 0x80004001)));
 pub const E_NOINTERFACE = @as(c_long, @bitCast(@as(c_ulong, 0x80004002)));
 pub const E_POINTER = @as(c_long, @bitCast(@as(c_ulong, 0x80004003)));
@@ -3555,15 +3733,11 @@ pub const RTL_RUN_ONCE = extern struct {
 
 pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
 
-pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
-pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
-pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;
-pub const COINIT_SPEED_OVER_MEMORY = COINIT.COINIT_SPEED_OVER_MEMORY;
-pub const COINIT = enum(c_int) {
-    COINIT_APARTMENTTHREADED = 2,
-    COINIT_MULTITHREADED = 0,
-    COINIT_DISABLE_OLE1DDE = 4,
-    COINIT_SPEED_OVER_MEMORY = 8,
+pub const COINIT = struct {
+    pub const APARTMENTTHREADED = 2;
+    pub const MULTITHREADED = 0;
+    pub const DISABLE_OLE1DDE = 4;
+    pub const SPEED_OVER_MEMORY = 8;
 };
 
 pub const MEMORY_BASIC_INFORMATION = extern struct {

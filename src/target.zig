@@ -366,6 +366,15 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
 
+        if (eqlIgnoreCase(ignore_case, name, "uuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
+            return true;
+
         return false;
     }
 
@@ -432,7 +441,7 @@ pub fn hasDebugInfo(target: std.Target) bool {
     return true;
 }
 
-pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.Mode {
+pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMode {
     if (target.cpu.arch.isWasm() and target.os.tag == .freestanding) {
         return .ReleaseSmall;
     } else {
@@ -510,7 +519,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
 }
 
 pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.isDarwin();
+    return target.os.tag == .windows or target.isDarwin() or std.dwarf.abi.supportsUnwinding(target);
 }
 
 pub fn defaultAddressSpace(

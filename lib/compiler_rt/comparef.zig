@@ -89,11 +89,22 @@ pub inline fn cmp_f80(comptime RT: type, a: f80, b: f80) RT {
     } else {
         const a_fraction = a_rep.fraction | (@as(u80, a_rep.exp) << sig_bits);
         const b_fraction = b_rep.fraction | (@as(u80, b_rep.exp) << sig_bits);
-        if (a_fraction < b_fraction) {
+        if ((a_fraction < b_fraction) == (a_rep.exp & sign_bit == 0)) {
             return .Less;
         } else {
             return .Greater;
         }
+    }
+}
+
+test "cmp_f80" {
+    inline for (.{ LE, GE }) |RT| {
+        try std.testing.expect(cmp_f80(RT, 1.0, 1.0) == RT.Equal);
+        try std.testing.expect(cmp_f80(RT, 0.0, -0.0) == RT.Equal);
+        try std.testing.expect(cmp_f80(RT, 2.0, 4.0) == RT.Less);
+        try std.testing.expect(cmp_f80(RT, 2.0, -4.0) == RT.Greater);
+        try std.testing.expect(cmp_f80(RT, -2.0, -4.0) == RT.Greater);
+        try std.testing.expect(cmp_f80(RT, -2.0, 4.0) == RT.Less);
     }
 }
 

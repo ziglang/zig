@@ -11,7 +11,7 @@ const mem = std.mem;
 step: Step,
 expected_matches: []const []const u8,
 expected_exact: ?[]const u8,
-source: std.Build.FileSource,
+source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
 
 pub const base_id = .check_file;
@@ -23,7 +23,7 @@ pub const Options = struct {
 
 pub fn create(
     owner: *std.Build,
-    source: std.Build.FileSource,
+    source: std.Build.LazyPath,
     options: Options,
 ) *CheckFile {
     const self = owner.allocator.create(CheckFile) catch @panic("OOM");

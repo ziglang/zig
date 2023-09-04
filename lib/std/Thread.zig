@@ -695,7 +695,7 @@ const PosixThreadImpl = struct {
         defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
-        const stack_size = @max(config.stack_size, c.PTHREAD_STACK_MIN);
+        const stack_size = @max(config.stack_size, 16 * 1024);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
         assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 
@@ -1275,12 +1275,14 @@ const LinuxThreadImpl = struct {
                 .entry_number = os.linux.tls.tls_image.gdt_entry_number,
                 .base_addr = tls_ptr,
                 .limit = 0xfffff,
-                .seg_32bit = 1,
-                .contents = 0, // Data
-                .read_exec_only = 0,
-                .limit_in_pages = 1,
-                .seg_not_present = 0,
-                .useable = 1,
+                .flags = .{
+                    .seg_32bit = 1,
+                    .contents = 0, // Data
+                    .read_exec_only = 0,
+                    .limit_in_pages = 1,
+                    .seg_not_present = 0,
+                    .useable = 1,
+                },
             };
         }
 

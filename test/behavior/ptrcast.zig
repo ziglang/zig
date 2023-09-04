@@ -284,3 +284,12 @@ test "@ptrCast undefined value at comptime" {
         _ = x;
     }
 }
+
+test "comptime @ptrCast with packed struct leaves value unmodified" {
+    const S = packed struct { three: u3 };
+    const st: S = .{ .three = 6 };
+    try expect(st.three == 6);
+    const p: *const [1]u3 = @ptrCast(&st);
+    try expect(p.*[0] == 6);
+    try expect(st.three == 6);
+}

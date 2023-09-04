@@ -21,7 +21,6 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*an
 pub extern "c" fn lwp_gettid() c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
-pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
 pub const pthread_mutex_t = extern struct {
     inner: ?*anyopaque = null,
@@ -33,6 +32,10 @@ pub const pthread_cond_t = extern struct {
 pub const pthread_attr_t = extern struct { // copied from freebsd
     __size: [56]u8,
     __align: c_long,
+};
+
+pub const pthread_rwlock_t = extern struct {
+    ptr: ?*anyopaque = null,
 };
 
 pub const sem_t = ?*opaque {};
@@ -55,6 +58,56 @@ pub const uid_t = u32;
 pub const gid_t = u32;
 pub const time_t = isize;
 pub const suseconds_t = c_long;
+
+pub const ucontext_t = extern struct {
+    sigmask: sigset_t,
+    mcontext: mcontext_t,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    cofunc: ?*fn (?*ucontext_t, ?*anyopaque) void,
+    arg: ?*void,
+    _spare: [4]c_int,
+};
+
+pub const mcontext_t = extern struct {
+    onstack: register_t, // XXX - sigcontext compat.
+    rdi: register_t,
+    rsi: register_t,
+    rdx: register_t,
+    rcx: register_t,
+    r8: register_t,
+    r9: register_t,
+    rax: register_t,
+    rbx: register_t,
+    rbp: register_t,
+    r10: register_t,
+    r11: register_t,
+    r12: register_t,
+    r13: register_t,
+    r14: register_t,
+    r15: register_t,
+    xflags: register_t,
+    trapno: register_t,
+    addr: register_t,
+    flags: register_t,
+    err: register_t,
+    rip: register_t,
+    cs: register_t,
+    rflags: register_t,
+    rsp: register_t, // machine state
+    ss: register_t,
+
+    len: c_uint, // sizeof(mcontext_t)
+    fpformat: c_uint,
+    ownedfp: c_uint,
+    reserved: c_uint,
+    unused: [8]c_uint,
+
+    // NOTE! 64-byte aligned as of here. Also must match savefpu structure.
+    fpregs: [256]c_int align(64),
+};
+
+pub const register_t = isize;
 
 pub const E = enum(u16) {
     /// No error occurred.
@@ -889,13 +942,13 @@ pub const cmsghdr = extern struct {
     cmsg_type: c_int,
 };
 pub const msghdr = extern struct {
-    name: ?*anyopaque,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: c_int,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: c_int,
+    msg_name: ?*anyopaque,
+    msg_namelen: socklen_t,
+    msg_iov: [*]iovec,
+    msg_iovlen: c_int,
+    msg_control: ?*anyopaque,
+    msg_controllen: socklen_t,
+    msg_flags: c_int,
 };
 pub const cmsgcred = extern struct {
     cmcred_pid: pid_t,
@@ -1144,24 +1197,3 @@ pub const POLL = struct {
     pub const HUP = 0x0010;
     pub const NVAL = 0x0020;
 };
-
-pub const SIGEV = struct {
-    pub const NONE = 0;
-    pub const SIGNAL = 1;
-    pub const THREAD = 2;
-};
-
-pub const sigevent = extern struct {
-    sigev_notify: c_int,
-    __sigev_u: extern union {
-        __sigev_signo: c_int,
-        __sigev_notify_kqueue: c_int,
-        __sigev_notify_attributes: ?*pthread_attr_t,
-    },
-    sigev_value: sigval,
-    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
-};
-
-pub const PTHREAD_STACK_MIN = 16 * 1024;
-
-pub const timer_t = *opaque {};

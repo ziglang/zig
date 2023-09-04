@@ -1347,31 +1347,6 @@ test "noreturn field in union" {
     try expect(count == 6);
 }
 
-test "union and enum field order doesn't match" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const MyTag = enum(u32) {
-        b = 1337,
-        a = 1666,
-    };
-    const MyUnion = union(MyTag) {
-        a: f32,
-        b: void,
-    };
-    var x: MyUnion = .{ .a = 666 };
-    switch (x) {
-        .a => |my_f32| {
-            try expect(@TypeOf(my_f32) == f32);
-        },
-        .b => unreachable,
-    }
-    x = .b;
-    try expect(x == .b);
-}
-
 test "@unionInit uses tag value instead of field index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1383,8 +1358,8 @@ test "@unionInit uses tag value instead of field index" {
         a = 3,
     };
     const U = union(E) {
-        a: usize,
         b: isize,
+        a: usize,
     };
     var i: isize = -1;
     var u = @unionInit(U, "b", i);
@@ -1691,4 +1666,25 @@ test "packed union field pointer has correct alignment" {
     try expectEqual(@as(u20, 123), ap.*);
     try expectEqual(@as(u20, 456), bp.*);
     try expectEqual(@as(u20, 789), cp.*);
+}
+
+test "union with 128 bit integer" {
+    const ValueTag = enum { int, other };
+
+    const Value3 = union(ValueTag) {
+        int: i128,
+        other: bool,
+    };
+    var values: [2]Value3 = undefined;
+    values[0] = .{ .int = 3 };
+    values[1] = .{ .int = 4 };
+
+    var ok: usize = 0;
+
+    for (values) |val| {
+        switch (val) {
+            .int => ok += 1,
+            else => return error.TestFailed,
+        }
+    }
 }

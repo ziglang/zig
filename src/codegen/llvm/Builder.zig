@@ -13,6 +13,7 @@ llvm: if (build_options.have_llvm) struct {
     types: std.ArrayListUnmanaged(*llvm.Type),
     globals: std.ArrayListUnmanaged(*llvm.Value),
     constants: std.ArrayListUnmanaged(*llvm.Value),
+    replacements: std.AutoHashMapUnmanaged(*llvm.Value, Global.Index),
 } else void,
 
 source_filename: String,
@@ -50,10 +51,12 @@ constant_extra: std.ArrayListUnmanaged(u32),
 constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 
 pub const expected_args_len = 16;
+pub const expected_attrs_len = 16;
 pub const expected_fields_len = 32;
 pub const expected_gep_indices_len = 8;
 pub const expected_cases_len = 8;
 pub const expected_incoming_len = 8;
+pub const expected_intrinsic_name_len = 64;
 
 pub const Options = struct {
     allocator: Allocator,
@@ -151,11 +154,14 @@ pub const Type = enum(u32) {
     i80,
     i128,
     ptr,
+    @"ptr addrspace(4)",
 
     none = std.math.maxInt(u32),
     _,
 
     pub const err_int = Type.i16;
+    pub const ptr_amdgpu_constant =
+        @field(Type, std.fmt.comptimePrint("ptr{ }", .{AddrSpace.amdgpu.constant}));
 
     pub const Tag = enum(u4) {
         simple,
@@ -391,7 +397,7 @@ pub const Type = enum(u32) {
             .double, .i64, .x86_mmx => 64,
             .x86_fp80, .i80 => 80,
             .fp128, .ppc_fp128, .i128 => 128,
-            .ptr => @panic("TODO: query data layout"),
+            .ptr, .@"ptr addrspace(4)" => @panic("TODO: query data layout"),
             _ => {
                 const item = builder.type_items.items[@intFromEnum(self)];
                 return switch (item.tag) {
@@ -572,7 +578,9 @@ pub const Type = enum(u32) {
 
     pub fn isSized(self: Type, builder: *const Builder) Allocator.Error!bool {
         var visited: IsSizedVisited = .{};
-        return self.isSizedVisited(&visited, builder);
+        const result = try self.isSizedVisited(&visited, builder);
+        if (builder.useLibLlvm()) assert(result == self.toLlvm(builder).isSized().toBool());
+        return result;
     }
 
     const FormatData = struct {
@@ -688,7 +696,7 @@ pub const Type = enum(u32) {
                 }
             },
             .integer => try writer.print("i{d}", .{item.data}),
-            .pointer => try writer.print("ptr{}", .{@as(AddrSpace, @enumFromInt(item.data))}),
+            .pointer => try writer.print("ptr{ }", .{@as(AddrSpace, @enumFromInt(item.data))}),
             .target => {
                 var extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
                 const types = extra.trail.next(extra.data.types_len, Type, data.builder);
@@ -793,6 +801,7 @@ pub const Type = enum(u32) {
             .i80,
             .i128,
             .ptr,
+            .@"ptr addrspace(4)",
             => true,
             .none => unreachable,
             _ => {
@@ -1149,13 +1158,13 @@ pub const Attribute = union(Kind) {
                 .sret,
                 .elementtype,
                 => |ty| try writer.print(" {s}({%})", .{ @tagName(attribute), ty.fmt(data.builder) }),
-                .@"align" => |alignment| try writer.print("{}", .{alignment}),
+                .@"align" => |alignment| try writer.print("{ }", .{alignment}),
                 .dereferenceable,
                 .dereferenceable_or_null,
                 => |size| try writer.print(" {s}({d})", .{ @tagName(attribute), size }),
                 .nofpclass => |fpclass| {
                     const Int = @typeInfo(FpClass).Struct.backing_integer.?;
-                    try writer.print("{s}(", .{@tagName(attribute)});
+                    try writer.print(" {s}(", .{@tagName(attribute)});
                     var any = false;
                     var remaining: Int = @bitCast(fpclass);
                     inline for (@typeInfo(FpClass).Struct.decls) |decl| {
@@ -1173,13 +1182,13 @@ pub const Attribute = union(Kind) {
                 },
                 .alignstack => |alignment| try writer.print(
                     if (comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null)
-                        "{s}={d}"
+                        " {s}={d}"
                     else
-                        "{s}({d})",
+                        " {s}({d})",
                     .{ @tagName(attribute), alignment.toByteUnits() orelse return },
                 ),
                 .allockind => |allockind| {
-                    try writer.print("{s}(\"", .{@tagName(attribute)});
+                    try writer.print(" {s}(\"", .{@tagName(attribute)});
                     var any = false;
                     inline for (@typeInfo(AllocKind).Struct.fields) |field| {
                         if (comptime std.mem.eql(u8, field.name, "_")) continue;
@@ -1194,22 +1203,30 @@ pub const Attribute = union(Kind) {
                     try writer.writeAll("\")");
                 },
                 .allocsize => |allocsize| {
-                    try writer.print("{s}({d}", .{ @tagName(attribute), allocsize.elem_size });
+                    try writer.print(" {s}({d}", .{ @tagName(attribute), allocsize.elem_size });
                     if (allocsize.num_elems != AllocSize.none)
                         try writer.print(",{d}", .{allocsize.num_elems});
                     try writer.writeByte(')');
                 },
-                .memory => |memory| try writer.print("{s}({s}, argmem: {s}, inaccessiblemem: {s})", .{
-                    @tagName(attribute),
-                    @tagName(memory.other),
-                    @tagName(memory.argmem),
-                    @tagName(memory.inaccessiblemem),
-                }),
+                .memory => |memory| {
+                    try writer.print(" {s}(", .{@tagName(attribute)});
+                    var any = memory.other != .none or
+                        (memory.argmem == .none and memory.inaccessiblemem == .none);
+                    if (any) try writer.writeAll(@tagName(memory.other));
+                    inline for (.{ "argmem", "inaccessiblemem" }) |kind| {
+                        if (@field(memory, kind) != memory.other) {
+                            if (any) try writer.writeAll(", ");
+                            try writer.print("{s}: {s}", .{ kind, @tagName(@field(memory, kind)) });
+                            any = true;
+                        }
+                    }
+                    try writer.writeByte(')');
+                },
                 .uwtable => |uwtable| if (uwtable != .none) {
-                    try writer.writeAll(@tagName(attribute));
+                    try writer.print(" {s}", .{@tagName(attribute)});
                     if (uwtable != UwTable.default) try writer.print("({s})", .{@tagName(uwtable)});
                 },
-                .vscale_range => |vscale_range| try writer.print("{s}({d},{d})", .{
+                .vscale_range => |vscale_range| try writer.print(" {s}({d},{d})", .{
                     @tagName(attribute),
                     vscale_range.min.toByteUnits().?,
                     vscale_range.max.toByteUnits() orelse 0,
@@ -1333,20 +1350,28 @@ pub const Attribute = union(Kind) {
         //sanitize_memtag,
         sanitize_address_dyninit,
 
-        string = std.math.maxInt(u31) - 1,
-        none = std.math.maxInt(u31),
+        string = std.math.maxInt(u31),
+        none = std.math.maxInt(u32),
         _,
 
         pub const len = @typeInfo(Kind).Enum.fields.len - 2;
 
         pub fn fromString(str: String) Kind {
             assert(!str.isAnon());
-            return @enumFromInt(@intFromEnum(str));
+            const kind: Kind = @enumFromInt(@intFromEnum(str));
+            assert(kind != .none);
+            return kind;
         }
 
         fn toString(self: Kind) ?String {
+            assert(self != .none);
             const str: String = @enumFromInt(@intFromEnum(self));
             return if (str.isAnon()) null else str;
+        }
+
+        fn toLlvm(self: Kind, builder: *const Builder) *c_uint {
+            assert(builder.useLibLlvm());
+            return &builder.llvm.attribute_kind_ids.?[@intFromEnum(self)];
         }
     };
 
@@ -1422,12 +1447,16 @@ pub const Attribute = union(Kind) {
     };
 
     pub const Memory = packed struct(u32) {
-        argmem: Effect,
-        inaccessiblemem: Effect,
-        other: Effect,
+        argmem: Effect = .none,
+        inaccessiblemem: Effect = .none,
+        other: Effect = .none,
         _: u26 = 0,
 
         pub const Effect = enum(u2) { none, read, write, readwrite };
+
+        fn all(effect: Effect) Memory {
+            return .{ .argmem = effect, .inaccessiblemem = effect, .other = effect };
+        }
     };
 
     pub const UwTable = enum(u32) {
@@ -1681,17 +1710,17 @@ pub const FunctionAttributes = enum(u32) {
 };
 
 pub const Linkage = enum {
-    external,
     private,
     internal,
-    available_externally,
-    linkonce,
     weak,
-    common,
-    appending,
-    extern_weak,
-    linkonce_odr,
     weak_odr,
+    linkonce,
+    linkonce_odr,
+    available_externally,
+    appending,
+    common,
+    extern_weak,
+    external,
 
     pub fn format(
         self: Linkage,
@@ -1700,6 +1729,22 @@ pub const Linkage = enum {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self != .external) try writer.print(" {s}", .{@tagName(self)});
+    }
+
+    fn toLlvm(self: Linkage) llvm.Linkage {
+        return switch (self) {
+            .private => .Private,
+            .internal => .Internal,
+            .weak => .WeakAny,
+            .weak_odr => .WeakODR,
+            .linkonce => .LinkOnceAny,
+            .linkonce_odr => .LinkOnceODR,
+            .available_externally => .AvailableExternally,
+            .appending => .Appending,
+            .common => .Common,
+            .extern_weak => .ExternalWeak,
+            .external => .External,
+        };
     }
 };
 
@@ -1731,6 +1776,14 @@ pub const Visibility = enum {
     ) @TypeOf(writer).Error!void {
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
+
+    fn toLlvm(self: Visibility) llvm.Visibility {
+        return switch (self) {
+            .default => .Default,
+            .hidden => .Hidden,
+            .protected => .Protected,
+        };
+    }
 };
 
 pub const DllStorageClass = enum {
@@ -1746,6 +1799,14 @@ pub const DllStorageClass = enum {
     ) @TypeOf(writer).Error!void {
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
+
+    fn toLlvm(self: DllStorageClass) llvm.DLLStorageClass {
+        return switch (self) {
+            .default => .Default,
+            .dllimport => .DLLImport,
+            .dllexport => .DLLExport,
+        };
+    }
 };
 
 pub const ThreadLocal = enum {
@@ -1757,19 +1818,27 @@ pub const ThreadLocal = enum {
 
     pub fn format(
         self: ThreadLocal,
-        comptime _: []const u8,
+        comptime prefix: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self == .default) return;
-        try writer.writeAll(" thread_local");
-        if (self != .generaldynamic) {
-            try writer.writeByte('(');
-            try writer.writeAll(@tagName(self));
-            try writer.writeByte(')');
-        }
+        try writer.print("{s}thread_local", .{prefix});
+        if (self != .generaldynamic) try writer.print("({s})", .{@tagName(self)});
+    }
+
+    fn toLlvm(self: ThreadLocal) llvm.ThreadLocalMode {
+        return switch (self) {
+            .default => .NotThreadLocal,
+            .generaldynamic => .GeneralDynamicTLSModel,
+            .localdynamic => .LocalDynamicTLSModel,
+            .initialexec => .InitialExecTLSModel,
+            .localexec => .LocalExecTLSModel,
+        };
     }
 };
+
+pub const Mutability = enum { global, constant };
 
 pub const UnnamedAddr = enum {
     default,
@@ -1865,7 +1934,7 @@ pub const AddrSpace = enum(u24) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self != .default) try writer.print("{s} addrspace({d})", .{ prefix, @intFromEnum(self) });
+        if (self != .default) try writer.print("{s}addrspace({d})", .{ prefix, @intFromEnum(self) });
     }
 };
 
@@ -1906,7 +1975,7 @@ pub const Alignment = enum(u6) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        try writer.print("{s} align {d}", .{ prefix, self.toByteUnits() orelse return });
+        try writer.print("{s}align {d}", .{ prefix, self.toByteUnits() orelse return });
     }
 };
 
@@ -2029,6 +2098,11 @@ pub const CallConv = enum(u10) {
             _ => try writer.print(" cc{d}", .{@intFromEnum(self)}),
         }
     }
+
+    fn toLlvm(self: CallConv) llvm.CallConv {
+        // These enum values appear in LLVM IR, and so are guaranteed to be stable.
+        return @enumFromInt(@intFromEnum(self));
+    }
 };
 
 pub const Global = struct {
@@ -2065,10 +2139,6 @@ pub const Global = struct {
             return self.unwrap(builder) == other.unwrap(builder);
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
-            return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
-        }
-
         pub fn ptr(self: Index, builder: *Builder) *Global {
             return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
@@ -2077,12 +2147,40 @@ pub const Global = struct {
             return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).type;
         }
 
         pub fn toConst(self: Index) Constant {
             return @enumFromInt(@intFromEnum(Constant.first_global) + @intFromEnum(self));
+        }
+
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setLinkage(linkage.toLlvm());
+            self.ptr(builder).linkage = linkage;
+            self.updateDsoLocal(builder);
+        }
+
+        pub fn setVisibility(self: Index, visibility: Visibility, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setVisibility(visibility.toLlvm());
+            self.ptr(builder).visibility = visibility;
+            self.updateDsoLocal(builder);
+        }
+
+        pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setDLLStorageClass(class.toLlvm());
+            self.ptr(builder).dll_storage_class = class;
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setUnnamedAddr(
+                llvm.Bool.fromBool(unnamed_addr != .default),
+            );
+            self.ptr(builder).unnamed_addr = unnamed_addr;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -2120,7 +2218,34 @@ pub const Global = struct {
 
         pub fn replace(self: Index, other: Index, builder: *Builder) Allocator.Error!void {
             try builder.ensureUnusedGlobalCapacity(.empty);
+            if (builder.useLibLlvm())
+                try builder.llvm.replacements.ensureUnusedCapacity(builder.gpa, 1);
             self.replaceAssumeCapacity(other, builder);
+        }
+
+        pub fn delete(self: Index, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).eraseGlobalValue();
+            self.ptr(builder).kind = .{ .replaced = .none };
+        }
+
+        fn updateDsoLocal(self: Index, builder: *Builder) void {
+            const self_ptr = self.ptr(builder);
+            switch (self_ptr.linkage) {
+                .private, .internal => {
+                    self_ptr.visibility = .default;
+                    self_ptr.dll_storage_class = .default;
+                    self_ptr.preemption = .implicit_dso_local;
+                },
+                .extern_weak => if (self_ptr.preemption == .implicit_dso_local) {
+                    self_ptr.preemption = .dso_local;
+                },
+                else => switch (self_ptr.visibility) {
+                    .default => if (self_ptr.preemption == .implicit_dso_local) {
+                        self_ptr.preemption = .dso_local;
+                    },
+                    else => self_ptr.preemption = .implicit_dso_local,
+                },
+            }
         }
 
         fn renameAssumeCapacity(self: Index, new_name: String, builder: *Builder) void {
@@ -2149,7 +2274,7 @@ pub const Global = struct {
             if (!builder.useLibLlvm()) return;
             const index = @intFromEnum(self.unwrap(builder));
             const name_slice = self.name(builder).slice(builder) orelse "";
-            builder.llvm.globals.items[index].setValueName2(name_slice.ptr, name_slice.len);
+            builder.llvm.globals.items[index].setValueName(name_slice.ptr, name_slice.len);
         }
 
         fn replaceAssumeCapacity(self: Index, other: Index, builder: *Builder) void {
@@ -2159,13 +2284,8 @@ pub const Global = struct {
             if (builder.useLibLlvm()) {
                 const self_llvm = self.toLlvm(builder);
                 self_llvm.replaceAllUsesWith(other.toLlvm(builder));
-                switch (self.ptr(builder).kind) {
-                    .alias,
-                    .variable,
-                    => self_llvm.deleteGlobal(),
-                    .function => self_llvm.deleteFunction(),
-                    .replaced => unreachable,
-                }
+                self_llvm.removeGlobalValue();
+                builder.llvm.replacements.putAssumeCapacityNoClobber(self_llvm, other);
             }
             self.ptr(builder).kind = .{ .replaced = other.unwrap(builder) };
         }
@@ -2177,41 +2297,16 @@ pub const Global = struct {
             };
         }
     };
-
-    pub fn updateAttributes(self: *Global) void {
-        switch (self.linkage) {
-            .private, .internal => {
-                self.visibility = .default;
-                self.dll_storage_class = .default;
-                self.preemption = .implicit_dso_local;
-            },
-            .extern_weak => if (self.preemption == .implicit_dso_local) {
-                self.preemption = .dso_local;
-            },
-            else => switch (self.visibility) {
-                .default => if (self.preemption == .implicit_dso_local) {
-                    self.preemption = .dso_local;
-                },
-                else => self.preemption = .implicit_dso_local,
-            },
-        }
-    }
 };
 
 pub const Alias = struct {
     global: Global.Index,
     thread_local: ThreadLocal = .default,
-    init: Constant = .no_init,
+    aliasee: Constant = .no_init,
 
     pub const Index = enum(u32) {
         none = std.math.maxInt(u32),
         _,
-
-        pub fn getAliasee(self: Index, builder: *const Builder) Global.Index {
-            const aliasee = self.ptrConst(builder).init.getBase(builder);
-            assert(aliasee != .none);
-            return aliasee;
-        }
 
         pub fn ptr(self: Index, builder: *Builder) *Alias {
             return &builder.aliases.items[@intFromEnum(self)];
@@ -2219,6 +2314,14 @@ pub const Alias = struct {
 
         pub fn ptrConst(self: Index, builder: *const Builder) *const Alias {
             return &builder.aliases.items[@intFromEnum(self)];
+        }
+
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
+        }
+
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
         pub fn typeOf(self: Index, builder: *const Builder) Type {
@@ -2233,7 +2336,18 @@ pub const Alias = struct {
             return self.toConst(builder).toValue();
         }
 
-        pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
+        pub fn getAliasee(self: Index, builder: *const Builder) Global.Index {
+            const aliasee = self.ptrConst(builder).aliasee.getBase(builder);
+            assert(aliasee != .none);
+            return aliasee;
+        }
+
+        pub fn setAliasee(self: Index, aliasee: Constant, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setAliasee(aliasee.toLlvm(builder));
+            self.ptr(builder).aliasee = aliasee;
+        }
+
+        fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             return self.ptrConst(builder).global.toLlvm(builder);
         }
     };
@@ -2242,7 +2356,7 @@ pub const Alias = struct {
 pub const Variable = struct {
     global: Global.Index,
     thread_local: ThreadLocal = .default,
-    mutability: enum { global, constant } = .global,
+    mutability: Mutability = .global,
     init: Constant = .no_init,
     section: String = .none,
     alignment: Alignment = .default,
@@ -2259,6 +2373,14 @@ pub const Variable = struct {
             return &builder.variables.items[@intFromEnum(self)];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
+        }
+
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).global.typeOf(builder);
         }
@@ -2271,10 +2393,1403 @@ pub const Variable = struct {
             return self.toConst(builder).toValue();
         }
 
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
+        }
+
+        pub fn setThreadLocal(self: Index, thread_local: ThreadLocal, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setThreadLocalMode(thread_local.toLlvm());
+            self.ptr(builder).thread_local = thread_local;
+        }
+
+        pub fn setMutability(self: Index, mutability: Mutability, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setGlobalConstant(
+                llvm.Bool.fromBool(mutability == .constant),
+            );
+            self.ptr(builder).mutability = mutability;
+        }
+
+        pub fn setInitializer(
+            self: Index,
+            initializer: Constant,
+            builder: *Builder,
+        ) Allocator.Error!void {
+            if (initializer != .no_init) {
+                const variable = self.ptrConst(builder);
+                const global = variable.global.ptr(builder);
+                const initializer_type = initializer.typeOf(builder);
+                if (builder.useLibLlvm() and global.type != initializer_type) {
+                    try builder.llvm.replacements.ensureUnusedCapacity(builder.gpa, 1);
+                    // LLVM does not allow us to change the type of globals. So we must
+                    // create a new global with the correct type, copy all its attributes,
+                    // and then update all references to point to the new global,
+                    // delete the original, and rename the new one to the old one's name.
+                    // This is necessary because LLVM does not support const bitcasting
+                    // a struct with padding bytes, which is needed to lower a const union value
+                    // to LLVM, when a field other than the most-aligned is active. Instead,
+                    // we must lower to an unnamed struct, and pointer cast at usage sites
+                    // of the global. Such an unnamed struct is the cause of the global type
+                    // mismatch, because we don't have the LLVM type until the *value* is created,
+                    // whereas the global needs to be created based on the type alone, because
+                    // lowering the value may reference the global as a pointer.
+                    // Related: https://github.com/ziglang/zig/issues/13265
+                    const old_global = &builder.llvm.globals.items[@intFromEnum(variable.global)];
+                    const new_global = builder.llvm.module.?.addGlobalInAddressSpace(
+                        initializer_type.toLlvm(builder),
+                        "",
+                        @intFromEnum(global.addr_space),
+                    );
+                    new_global.setLinkage(global.linkage.toLlvm());
+                    new_global.setUnnamedAddr(llvm.Bool.fromBool(global.unnamed_addr != .default));
+                    new_global.setAlignment(@intCast(variable.alignment.toByteUnits() orelse 0));
+                    if (variable.section != .none)
+                        new_global.setSection(variable.section.slice(builder).?);
+                    old_global.*.replaceAllUsesWith(new_global);
+                    builder.llvm.replacements.putAssumeCapacityNoClobber(old_global.*, variable.global);
+                    new_global.takeName(old_global.*);
+                    old_global.*.removeGlobalValue();
+                    old_global.* = new_global;
+                    self.ptr(builder).mutability = .global;
+                }
+                global.type = initializer_type;
+            }
+            if (builder.useLibLlvm()) self.toLlvm(builder).setInitializer(switch (initializer) {
+                .no_init => null,
+                else => initializer.toLlvm(builder),
+            });
+            self.ptr(builder).init = initializer;
+        }
+
+        pub fn setSection(self: Index, section: String, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setSection(section.slice(builder).?);
+            self.ptr(builder).section = section;
+        }
+
+        pub fn setAlignment(self: Index, alignment: Alignment, builder: *Builder) void {
+            if (builder.useLibLlvm())
+                self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
+            self.ptr(builder).alignment = alignment;
+        }
+
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             return self.ptrConst(builder).global.toLlvm(builder);
         }
     };
+};
+
+pub const Intrinsic = enum {
+    // Variable Argument Handling
+    va_start,
+    va_end,
+    va_copy,
+
+    // Code Generator
+    returnaddress,
+    addressofreturnaddress,
+    sponentry,
+    frameaddress,
+    prefetch,
+    @"thread.pointer",
+
+    // Standard C/C++ Library
+    abs,
+    smax,
+    smin,
+    umax,
+    umin,
+    memcpy,
+    @"memcpy.inline",
+    memmove,
+    memset,
+    @"memset.inline",
+    sqrt,
+    powi,
+    sin,
+    cos,
+    pow,
+    exp,
+    exp2,
+    ldexp,
+    frexp,
+    log,
+    log10,
+    log2,
+    fma,
+    fabs,
+    minnum,
+    maxnum,
+    minimum,
+    maximum,
+    copysign,
+    floor,
+    ceil,
+    trunc,
+    rint,
+    nearbyint,
+    round,
+    roundeven,
+    lround,
+    llround,
+    lrint,
+    llrint,
+
+    // Bit Manipulation
+    bitreverse,
+    bswap,
+    ctpop,
+    ctlz,
+    cttz,
+    fshl,
+    fshr,
+
+    // Arithmetic with Overflow
+    @"sadd.with.overflow",
+    @"uadd.with.overflow",
+    @"ssub.with.overflow",
+    @"usub.with.overflow",
+    @"smul.with.overflow",
+    @"umul.with.overflow",
+
+    // Saturation Arithmetic
+    @"sadd.sat",
+    @"uadd.sat",
+    @"ssub.sat",
+    @"usub.sat",
+    @"sshl.sat",
+    @"ushl.sat",
+
+    // Fixed Point Arithmetic
+    @"smul.fix",
+    @"umul.fix",
+    @"smul.fix.sat",
+    @"umul.fix.sat",
+    @"sdiv.fix",
+    @"udiv.fix",
+    @"sdiv.fix.sat",
+    @"udiv.fix.sat",
+
+    // Specialised Arithmetic
+    canonicalize,
+    fmuladd,
+
+    // Vector Reduction
+    @"vector.reduce.add",
+    @"vector.reduce.fadd",
+    @"vector.reduce.mul",
+    @"vector.reduce.fmul",
+    @"vector.reduce.and",
+    @"vector.reduce.or",
+    @"vector.reduce.xor",
+    @"vector.reduce.smax",
+    @"vector.reduce.smin",
+    @"vector.reduce.umax",
+    @"vector.reduce.umin",
+    @"vector.reduce.fmax",
+    @"vector.reduce.fmin",
+    @"vector.reduce.fmaximum",
+    @"vector.reduce.fminimum",
+    @"vector.insert",
+    @"vector.extract",
+
+    // Floating-Point Test
+    @"is.fpclass",
+
+    // General
+    @"var.annotation",
+    @"ptr.annotation",
+    annotation,
+    @"codeview.annotation",
+    trap,
+    debugtrap,
+    ubsantrap,
+    stackprotector,
+    stackguard,
+    objectsize,
+    expect,
+    @"expect.with.probability",
+    assume,
+    @"ssa.copy",
+    @"type.test",
+    @"type.checked.load",
+    @"type.checked.load.relative",
+    @"arithmetic.fence",
+    donothing,
+    @"load.relative",
+    sideeffect,
+    @"is.constant",
+    ptrmask,
+    @"threadlocal.address",
+    vscale,
+
+    // AMDGPU
+    @"amdgcn.workitem.id.x",
+    @"amdgcn.workitem.id.y",
+    @"amdgcn.workitem.id.z",
+    @"amdgcn.workgroup.id.x",
+    @"amdgcn.workgroup.id.y",
+    @"amdgcn.workgroup.id.z",
+    @"amdgcn.dispatch.ptr",
+
+    // WebAssembly
+    @"wasm.memory.size",
+    @"wasm.memory.grow",
+
+    const Signature = struct {
+        ret_len: u8,
+        params: []const Parameter,
+        attrs: []const Attribute = &.{},
+
+        const Parameter = struct {
+            kind: Kind,
+            attrs: []const Attribute = &.{},
+
+            const Kind = union(enum) {
+                type: Type,
+                overloaded,
+                matches: u8,
+                matches_scalar: u8,
+                matches_changed_scalar: struct {
+                    index: u8,
+                    scalar: Type,
+                },
+            };
+        };
+    };
+
+    const signatures = std.enums.EnumArray(Intrinsic, Signature).init(.{
+        .va_start = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .va_end = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .va_copy = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+
+        .returnaddress = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .addressofreturnaddress = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .sponentry = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .frameaddress = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .prefetch = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .readonly } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.readwrite) } },
+        },
+        .@"thread.pointer" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .abs = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .smax = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .smin = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .umax = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .umin = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .memcpy = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .@"memcpy.inline" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
+                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .memmove = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .readonly } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
+        },
+        .memset = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .{ .type = .i8 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
+        },
+        .@"memset.inline" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
+                .{ .kind = .{ .type = .i8 } },
+                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
+        },
+        .sqrt = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .powi = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .sin = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .cos = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .pow = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp2 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ldexp = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .frexp = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log10 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .log2 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fma = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fabs = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .minnum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .maxnum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .minimum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .maximum = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .copysign = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .floor = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ceil = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .trunc = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .rint = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .nearbyint = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .round = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .roundeven = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .lround = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .llround = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .lrint = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .llrint = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .bitreverse = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .bswap = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ctpop = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ctlz = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .cttz = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fshl = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fshr = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"sadd.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"uadd.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ssub.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"usub.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"smul.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.with.overflow" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"sadd.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"uadd.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ssub.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"usub.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sshl.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"ushl.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"smul.fix" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.fix" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"smul.fix.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"umul.fix.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sdiv.fix" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"udiv.fix" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"sdiv.fix.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"udiv.fix.sat" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .canonicalize = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .fmuladd = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"vector.reduce.add" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fadd" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.mul" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmul" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .{ .matches_scalar = 2 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.and" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.or" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.xor" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.smax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.smin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.umax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.umin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmax" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmin" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fmaximum" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.reduce.fminimum" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_scalar = 1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.insert" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"vector.extract" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"is.fpclass" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 1, .scalar = .i1 } } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"var.annotation" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 1 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 1 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"ptr.annotation" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 2 } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 2 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .annotation = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 2 } },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"codeview.annotation" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .noduplicate, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .trap = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{ .cold, .noreturn, .nounwind, .{ .memory = .{ .inaccessiblemem = .write } } },
+        },
+        .debugtrap = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{.nounwind},
+        },
+        .ubsantrap = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .i8 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .cold, .noreturn, .nounwind },
+        },
+        .stackprotector = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .stackguard = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+        .objectsize = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .expect = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"expect.with.probability" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .{ .type = .double }, .attrs = &.{.immarg} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .assume = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 }, .attrs = &.{.noundef} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .write } } },
+        },
+        .@"ssa.copy" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 }, .attrs = &.{.returned} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.test" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.checked.load" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"type.checked.load.relative" = .{
+            .ret_len = 2,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"arithmetic.fence" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .donothing = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"load.relative" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .argmem = .read } } },
+        },
+        .sideeffect = .{
+            .ret_len = 0,
+            .params = &.{},
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = .{ .inaccessiblemem = .readwrite } } },
+        },
+        .@"is.constant" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i1 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .convergent, .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .ptrmask = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"threadlocal.address" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded, .attrs = &.{.nonnull} },
+                .{ .kind = .{ .matches = 0 }, .attrs = &.{.nonnull} },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .vscale = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"amdgcn.workitem.id.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workitem.id.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workitem.id.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.workgroup.id.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"amdgcn.dispatch.ptr" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{
+                    .kind = .{ .type = Type.ptr_amdgpu_constant },
+                    .attrs = &.{.{ .@"align" = Builder.Alignment.fromByteUnits(4) }},
+                },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"wasm.memory.size" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"wasm.memory.grow" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
+        },
+    });
 };
 
 pub const Function = struct {
@@ -2301,6 +3816,14 @@ pub const Function = struct {
             return &builder.functions.items[@intFromEnum(self)];
         }
 
+        pub fn name(self: Index, builder: *const Builder) String {
+            return self.ptrConst(builder).global.name(builder);
+        }
+
+        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+            return self.ptrConst(builder).global.rename(new_name, builder);
+        }
+
         pub fn typeOf(self: Index, builder: *const Builder) Type {
             return self.ptrConst(builder).global.typeOf(builder);
         }
@@ -2311,6 +3834,110 @@ pub const Function = struct {
 
         pub fn toValue(self: Index, builder: *const Builder) Value {
             return self.toConst(builder).toValue();
+        }
+
+        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
+            return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
+            return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
+        }
+
+        pub fn setCallConv(self: Index, call_conv: CallConv, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setFunctionCallConv(call_conv.toLlvm());
+            self.ptr(builder).call_conv = call_conv;
+        }
+
+        pub fn setAttributes(
+            self: Index,
+            new_function_attributes: FunctionAttributes,
+            builder: *Builder,
+        ) void {
+            if (builder.useLibLlvm()) {
+                const llvm_function = self.toLlvm(builder);
+                const old_function_attributes = self.ptrConst(builder).attributes;
+                for (0..@max(
+                    old_function_attributes.slice(builder).len,
+                    new_function_attributes.slice(builder).len,
+                )) |function_attribute_index| {
+                    const llvm_attribute_index =
+                        @as(llvm.AttributeIndex, @intCast(function_attribute_index)) -% 1;
+                    const old_attributes_slice =
+                        old_function_attributes.get(function_attribute_index, builder).slice(builder);
+                    const new_attributes_slice =
+                        new_function_attributes.get(function_attribute_index, builder).slice(builder);
+                    var old_attribute_index: usize = 0;
+                    var new_attribute_index: usize = 0;
+                    while (true) {
+                        const old_attribute_kind = if (old_attribute_index < old_attributes_slice.len)
+                            old_attributes_slice[old_attribute_index].getKind(builder)
+                        else
+                            .none;
+                        const new_attribute_kind = if (new_attribute_index < new_attributes_slice.len)
+                            new_attributes_slice[new_attribute_index].getKind(builder)
+                        else
+                            .none;
+                        switch (std.math.order(
+                            @intFromEnum(old_attribute_kind),
+                            @intFromEnum(new_attribute_kind),
+                        )) {
+                            .lt => {
+                                // Removed
+                                if (old_attribute_kind.toString()) |attribute_name| {
+                                    const attribute_name_slice = attribute_name.slice(builder).?;
+                                    llvm_function.removeStringAttributeAtIndex(
+                                        llvm_attribute_index,
+                                        attribute_name_slice.ptr,
+                                        @intCast(attribute_name_slice.len),
+                                    );
+                                } else {
+                                    const llvm_kind_id = old_attribute_kind.toLlvm(builder).*;
+                                    assert(llvm_kind_id != 0);
+                                    llvm_function.removeEnumAttributeAtIndex(
+                                        llvm_attribute_index,
+                                        llvm_kind_id,
+                                    );
+                                }
+                                old_attribute_index += 1;
+                                continue;
+                            },
+                            .eq => {
+                                // Iteration finished
+                                if (old_attribute_kind == .none) break;
+                                // No change
+                                if (old_attributes_slice[old_attribute_index] ==
+                                    new_attributes_slice[new_attribute_index])
+                                {
+                                    old_attribute_index += 1;
+                                    new_attribute_index += 1;
+                                    continue;
+                                }
+                                old_attribute_index += 1;
+                            },
+                            .gt => {},
+                        }
+                        // New or changed
+                        llvm_function.addAttributeAtIndex(
+                            llvm_attribute_index,
+                            new_attributes_slice[new_attribute_index].toLlvm(builder),
+                        );
+                        new_attribute_index += 1;
+                    }
+                }
+            }
+            self.ptr(builder).attributes = new_function_attributes;
+        }
+
+        pub fn setSection(self: Index, section: String, builder: *Builder) void {
+            if (builder.useLibLlvm()) self.toLlvm(builder).setSection(section.slice(builder).?);
+            self.ptr(builder).section = section;
+        }
+
+        pub fn setAlignment(self: Index, alignment: Alignment, builder: *Builder) void {
+            if (builder.useLibLlvm())
+                self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
+            self.ptr(builder).alignment = alignment;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -2340,12 +3967,15 @@ pub const Function = struct {
             arg,
             ashr,
             @"ashr exact",
+            atomicrmw,
             bitcast,
             block,
             br,
             br_cond,
             call,
             @"call fast",
+            cmpxchg,
+            @"cmpxchg weak",
             extractelement,
             extractvalue,
             fadd,
@@ -2412,24 +4042,8 @@ pub const Function = struct {
             insertelement,
             insertvalue,
             inttoptr,
-            @"llvm.maxnum.",
-            @"llvm.minnum.",
-            @"llvm.sadd.sat.",
-            @"llvm.smax.",
-            @"llvm.smin.",
-            @"llvm.smul.fix.sat.",
-            @"llvm.sshl.sat.",
-            @"llvm.ssub.sat.",
-            @"llvm.uadd.sat.",
-            @"llvm.umax.",
-            @"llvm.umin.",
-            @"llvm.umul.fix.sat.",
-            @"llvm.ushl.sat.",
-            @"llvm.usub.sat.",
             load,
             @"load atomic",
-            @"load atomic volatile",
-            @"load volatile",
             lshr,
             @"lshr exact",
             mul,
@@ -2460,8 +4074,6 @@ pub const Function = struct {
             srem,
             store,
             @"store atomic",
-            @"store atomic volatile",
-            @"store volatile",
             sub,
             @"sub nsw",
             @"sub nuw",
@@ -2474,7 +4086,6 @@ pub const Function = struct {
             @"udiv exact",
             urem,
             uitofp,
-            unimplemented,
             @"unreachable",
             va_arg,
             xor,
@@ -2515,8 +4126,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => false,
@@ -2528,7 +4137,6 @@ pub const Function = struct {
                     .@"notail call fast",
                     .@"tail call",
                     .@"tail call fast",
-                    .unimplemented,
                     => self.typeOfWip(wip) != .void,
                     else => true,
                 };
@@ -2554,20 +4162,6 @@ pub const Function = struct {
                     .@"frem fast",
                     .fsub,
                     .@"fsub fast",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -2612,6 +4206,7 @@ pub const Function = struct {
                     ),
                     .arg => wip.function.typeOf(wip.builder)
                         .functionParameters(wip.builder)[instruction.data],
+                    .atomicrmw => wip.extraData(AtomicRmw, instruction.data).val.typeOfWip(wip),
                     .block => .label,
                     .br,
                     .br_cond,
@@ -2620,8 +4215,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => .none,
@@ -2634,6 +4227,12 @@ pub const Function = struct {
                     .@"tail call",
                     .@"tail call fast",
                     => wip.extraData(Call, instruction.data).ty.functionReturn(wip.builder),
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => wip.builder.structTypeAssumeCapacity(.normal, &.{
+                        wip.extraData(CmpXchg, instruction.data).cmp.typeOfWip(wip),
+                        .i1,
+                    }) catch unreachable,
                     .extractelement => wip.extraData(ExtractElement, instruction.data)
                         .val.typeOfWip(wip).childType(wip.builder),
                     .extractvalue => {
@@ -2705,8 +4304,6 @@ pub const Function = struct {
                     .insertvalue => wip.extraData(InsertValue, instruction.data).val.typeOfWip(wip),
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => wip.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
@@ -2721,7 +4318,6 @@ pub const Function = struct {
                             wip.builder,
                         );
                     },
-                    .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => wip.extraData(VaArg, instruction.data).type,
                 };
             }
@@ -2751,20 +4347,6 @@ pub const Function = struct {
                     .@"frem fast",
                     .fsub,
                     .@"fsub fast",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -2809,6 +4391,8 @@ pub const Function = struct {
                     ),
                     .arg => function.global.typeOf(builder)
                         .functionParameters(builder)[instruction.data],
+                    .atomicrmw => function.extraData(AtomicRmw, instruction.data)
+                        .val.typeOf(function_index, builder),
                     .block => .label,
                     .br,
                     .br_cond,
@@ -2817,8 +4401,6 @@ pub const Function = struct {
                     .@"ret void",
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     .@"switch",
                     .@"unreachable",
                     => .none,
@@ -2831,6 +4413,13 @@ pub const Function = struct {
                     .@"tail call",
                     .@"tail call fast",
                     => function.extraData(Call, instruction.data).ty.functionReturn(builder),
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => builder.structTypeAssumeCapacity(.normal, &.{
+                        function.extraData(CmpXchg, instruction.data)
+                            .cmp.typeOf(function_index, builder),
+                        .i1,
+                    }) catch unreachable,
                     .extractelement => function.extraData(ExtractElement, instruction.data)
                         .val.typeOf(function_index, builder).childType(builder),
                     .extractvalue => {
@@ -2905,8 +4494,6 @@ pub const Function = struct {
                         .val.typeOf(function_index, builder),
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => function.extraData(Load, instruction.data).type,
                     .phi,
                     .@"phi fast",
@@ -2921,7 +4508,6 @@ pub const Function = struct {
                             builder,
                         );
                     },
-                    .unimplemented => @enumFromInt(instruction.data),
                     .va_arg => function.extraData(VaArg, instruction.data).type,
                 };
             }
@@ -2964,12 +4550,14 @@ pub const Function = struct {
                 return .{ .data = .{ .instruction = self, .function = function, .builder = builder } };
             }
 
-            pub fn toLlvm(self: Instruction.Index, wip: *const WipFunction) *llvm.Value {
+            fn toLlvm(self: Instruction.Index, wip: *const WipFunction) *llvm.Value {
                 assert(wip.builder.useLibLlvm());
-                return wip.llvm.instructions.items[@intFromEnum(self)];
+                const llvm_value = wip.llvm.instructions.items[@intFromEnum(self)];
+                const global = wip.builder.llvm.replacements.get(llvm_value) orelse return llvm_value;
+                return global.toLlvm(wip.builder);
             }
 
-            fn llvmName(self: Instruction.Index, wip: *const WipFunction) [*:0]const u8 {
+            fn llvmName(self: Instruction.Index, wip: *const WipFunction) [:0]const u8 {
                 return if (wip.builder.strip)
                     ""
                 else
@@ -3042,15 +4630,70 @@ pub const Function = struct {
         };
 
         pub const Load = struct {
+            info: MemoryAccessInfo,
             type: Type,
             ptr: Value,
-            info: MemoryAccessInfo,
         };
 
         pub const Store = struct {
+            info: MemoryAccessInfo,
             val: Value,
             ptr: Value,
+        };
+
+        pub const CmpXchg = struct {
             info: MemoryAccessInfo,
+            ptr: Value,
+            cmp: Value,
+            new: Value,
+
+            pub const Kind = enum { strong, weak };
+        };
+
+        pub const AtomicRmw = struct {
+            info: MemoryAccessInfo,
+            ptr: Value,
+            val: Value,
+
+            pub const Operation = enum(u5) {
+                xchg,
+                add,
+                sub,
+                @"and",
+                nand,
+                @"or",
+                xor,
+                max,
+                min,
+                umax,
+                umin,
+                fadd,
+                fsub,
+                fmax,
+                fmin,
+                none = std.math.maxInt(u5),
+
+                fn toLlvm(self: Operation) llvm.AtomicRMWBinOp {
+                    return switch (self) {
+                        .xchg => .Xchg,
+                        .add => .Add,
+                        .sub => .Sub,
+                        .@"and" => .And,
+                        .nand => .Nand,
+                        .@"or" => .Or,
+                        .xor => .Xor,
+                        .max => .Max,
+                        .min => .Min,
+                        .umax => .UMax,
+                        .umin => .UMin,
+                        .fadd => .FAdd,
+                        .fsub => .FSub,
+                        .fmax => .FMax,
+                        .fmin => .FMin,
+                        .none => unreachable,
+                    };
+                }
+            };
         };
 
         pub const GetElementPtr = struct {
@@ -3478,20 +5121,6 @@ pub const WipFunction = struct {
             .@"frem fast",
             .fsub,
             .@"fsub fast",
-            .@"llvm.maxnum.",
-            .@"llvm.minnum.",
-            .@"llvm.sadd.sat.",
-            .@"llvm.smax.",
-            .@"llvm.smin.",
-            .@"llvm.smul.fix.sat.",
-            .@"llvm.sshl.sat.",
-            .@"llvm.ssub.sat.",
-            .@"llvm.uadd.sat.",
-            .@"llvm.umax.",
-            .@"llvm.umin.",
-            .@"llvm.umul.fix.sat.",
-            .@"llvm.ushl.sat.",
-            .@"llvm.usub.sat.",
             .lshr,
             .@"lshr exact",
             .mul,
@@ -3547,20 +5176,6 @@ pub const WipFunction = struct {
                 .fmul, .@"fmul fast" => &llvm.Builder.buildFMul,
                 .frem, .@"frem fast" => &llvm.Builder.buildFRem,
                 .fsub, .@"fsub fast" => &llvm.Builder.buildFSub,
-                .@"llvm.maxnum." => &llvm.Builder.buildMaxNum,
-                .@"llvm.minnum." => &llvm.Builder.buildMinNum,
-                .@"llvm.sadd.sat." => &llvm.Builder.buildSAddSat,
-                .@"llvm.smax." => &llvm.Builder.buildSMax,
-                .@"llvm.smin." => &llvm.Builder.buildSMin,
-                .@"llvm.smul.fix.sat." => &llvm.Builder.buildSMulFixSat,
-                .@"llvm.sshl.sat." => &llvm.Builder.buildSShlSat,
-                .@"llvm.ssub.sat." => &llvm.Builder.buildSSubSat,
-                .@"llvm.uadd.sat." => &llvm.Builder.buildUAddSat,
-                .@"llvm.umax." => &llvm.Builder.buildUMax,
-                .@"llvm.umin." => &llvm.Builder.buildUMin,
-                .@"llvm.umul.fix.sat." => &llvm.Builder.buildUMulFixSat,
-                .@"llvm.ushl.sat." => &llvm.Builder.buildUShlSat,
-                .@"llvm.usub.sat." => &llvm.Builder.buildUSubSat,
                 .lshr => &llvm.Builder.buildLShr,
                 .@"lshr exact" => &llvm.Builder.buildLShrExact,
                 .mul => &llvm.Builder.buildMul,
@@ -3814,21 +5429,21 @@ pub const WipFunction = struct {
 
     pub fn load(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         ty: Type,
         ptr: Value,
         alignment: Alignment,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.loadAtomic(kind, ty, ptr, .system, .none, alignment, name);
+        return self.loadAtomic(access_kind, ty, ptr, .system, .none, alignment, name);
     }
 
     pub fn loadAtomic(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         ty: Type,
         ptr: Value,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
         alignment: Alignment,
         name: []const u8,
@@ -3837,22 +5452,21 @@ pub const WipFunction = struct {
         try self.ensureUnusedExtraCapacity(1, Instruction.Load, 0);
         const instruction = try self.addInst(name, .{
             .tag = switch (ordering) {
-                .none => switch (kind) {
-                    .normal => .load,
-                    .@"volatile" => .@"load volatile",
-                },
-                else => switch (kind) {
-                    .normal => .@"load atomic",
-                    .@"volatile" => .@"load atomic volatile",
-                },
+                .none => .load,
+                else => .@"load atomic",
             },
             .data = self.addExtraAssumeCapacity(Instruction.Load{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = switch (ordering) {
+                        .none => .system,
+                        else => sync_scope,
+                    },
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
                 .type = ty,
                 .ptr = ptr,
-                .info = .{ .scope = switch (ordering) {
-                    .none => .system,
-                    else => scope,
-                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
@@ -3861,7 +5475,8 @@ pub const WipFunction = struct {
                 ptr.toLlvm(self),
                 instruction.llvmName(self),
             );
-            if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (ordering != .none) llvm_instruction.setOrdering(ordering.toLlvm());
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
         }
@@ -3880,10 +5495,10 @@ pub const WipFunction = struct {
 
     pub fn storeAtomic(
         self: *WipFunction,
-        kind: MemoryAccessKind,
+        access_kind: MemoryAccessKind,
         val: Value,
         ptr: Value,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
         alignment: Alignment,
     ) Allocator.Error!Instruction.Index {
@@ -3891,31 +5506,27 @@ pub const WipFunction = struct {
         try self.ensureUnusedExtraCapacity(1, Instruction.Store, 0);
         const instruction = try self.addInst(null, .{
             .tag = switch (ordering) {
-                .none => switch (kind) {
-                    .normal => .store,
-                    .@"volatile" => .@"store volatile",
-                },
-                else => switch (kind) {
-                    .normal => .@"store atomic",
-                    .@"volatile" => .@"store atomic volatile",
-                },
+                .none => .store,
+                else => .@"store atomic",
             },
             .data = self.addExtraAssumeCapacity(Instruction.Store{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = switch (ordering) {
+                        .none => .system,
+                        else => sync_scope,
+                    },
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
                 .val = val,
                 .ptr = ptr,
-                .info = .{ .scope = switch (ordering) {
-                    .none => .system,
-                    else => scope,
-                }, .ordering = ordering, .alignment = alignment },
             }),
         });
         if (self.builder.useLibLlvm()) {
             const llvm_instruction = self.llvm.builder.buildStore(val.toLlvm(self), ptr.toLlvm(self));
-            switch (kind) {
-                .normal => {},
-                .@"volatile" => llvm_instruction.setVolatile(.True),
-            }
-            if (ordering != .none) llvm_instruction.setOrdering(@enumFromInt(@intFromEnum(ordering)));
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (ordering != .none) llvm_instruction.setOrdering(ordering.toLlvm());
             if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
             self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
         }
@@ -3924,7 +5535,7 @@ pub const WipFunction = struct {
 
     pub fn fence(
         self: *WipFunction,
-        scope: SyncScope,
+        sync_scope: SyncScope,
         ordering: AtomicOrdering,
     ) Allocator.Error!Instruction.Index {
         assert(ordering != .none);
@@ -3932,19 +5543,128 @@ pub const WipFunction = struct {
         const instruction = try self.addInst(null, .{
             .tag = .fence,
             .data = @bitCast(MemoryAccessInfo{
-                .scope = scope,
-                .ordering = ordering,
-                .alignment = undefined,
+                .sync_scope = sync_scope,
+                .success_ordering = ordering,
             }),
         });
         if (self.builder.useLibLlvm()) self.llvm.instructions.appendAssumeCapacity(
             self.llvm.builder.buildFence(
-                @enumFromInt(@intFromEnum(ordering)),
-                llvm.Bool.fromBool(scope == .singlethread),
+                ordering.toLlvm(),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
                 "",
             ),
         );
         return instruction;
+    }
+
+    pub fn cmpxchg(
+        self: *WipFunction,
+        kind: Instruction.CmpXchg.Kind,
+        access_kind: MemoryAccessKind,
+        ptr: Value,
+        cmp: Value,
+        new: Value,
+        sync_scope: SyncScope,
+        success_ordering: AtomicOrdering,
+        failure_ordering: AtomicOrdering,
+        alignment: Alignment,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        assert(ptr.typeOfWip(self).isPointer(self.builder));
+        const ty = cmp.typeOfWip(self);
+        assert(ty == new.typeOfWip(self));
+        assert(success_ordering != .none);
+        assert(failure_ordering != .none);
+
+        _ = try self.builder.structType(.normal, &.{ ty, .i1 });
+        try self.ensureUnusedExtraCapacity(1, Instruction.CmpXchg, 0);
+        const instruction = try self.addInst(name, .{
+            .tag = switch (kind) {
+                .strong => .cmpxchg,
+                .weak => .@"cmpxchg weak",
+            },
+            .data = self.addExtraAssumeCapacity(Instruction.CmpXchg{
+                .info = .{
+                    .access_kind = access_kind,
+                    .sync_scope = sync_scope,
+                    .success_ordering = success_ordering,
+                    .failure_ordering = failure_ordering,
+                    .alignment = alignment,
+                },
+                .ptr = ptr,
+                .cmp = cmp,
+                .new = new,
+            }),
+        });
+        if (self.builder.useLibLlvm()) {
+            const llvm_instruction = self.llvm.builder.buildAtomicCmpXchg(
+                ptr.toLlvm(self),
+                cmp.toLlvm(self),
+                new.toLlvm(self),
+                success_ordering.toLlvm(),
+                failure_ordering.toLlvm(),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
+            );
+            if (kind == .weak) llvm_instruction.setWeak(.True);
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
+            const llvm_name = instruction.llvmName(self);
+            if (llvm_name.len > 0) llvm_instruction.setValueName(
+                llvm_name.ptr,
+                @intCast(llvm_name.len),
+            );
+            self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
+        }
+        return instruction.toValue();
+    }
+
+    pub fn atomicrmw(
+        self: *WipFunction,
+        access_kind: MemoryAccessKind,
+        operation: Instruction.AtomicRmw.Operation,
+        ptr: Value,
+        val: Value,
+        sync_scope: SyncScope,
+        ordering: AtomicOrdering,
+        alignment: Alignment,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        assert(ptr.typeOfWip(self).isPointer(self.builder));
+        assert(ordering != .none);
+
+        try self.ensureUnusedExtraCapacity(1, Instruction.AtomicRmw, 0);
+        const instruction = try self.addInst(name, .{
+            .tag = .atomicrmw,
+            .data = self.addExtraAssumeCapacity(Instruction.AtomicRmw{
+                .info = .{
+                    .access_kind = access_kind,
+                    .atomic_rmw_operation = operation,
+                    .sync_scope = sync_scope,
+                    .success_ordering = ordering,
+                    .alignment = alignment,
+                },
+                .ptr = ptr,
+                .val = val,
+            }),
+        });
+        if (self.builder.useLibLlvm()) {
+            const llvm_instruction = self.llvm.builder.buildAtomicRmw(
+                operation.toLlvm(),
+                ptr.toLlvm(self),
+                val.toLlvm(self),
+                ordering.toLlvm(),
+                llvm.Bool.fromBool(sync_scope == .singlethread),
+            );
+            if (access_kind == .@"volatile") llvm_instruction.setVolatile(.True);
+            if (alignment.toByteUnits()) |bytes| llvm_instruction.setAlignment(@intCast(bytes));
+            const llvm_name = instruction.llvmName(self);
+            if (llvm_name.len > 0) llvm_instruction.setValueName(
+                llvm_name.ptr,
+                @intCast(llvm_name.len),
+            );
+            self.llvm.instructions.appendAssumeCapacity(llvm_instruction);
+        }
+        return instruction.toValue();
     }
 
     pub fn gep(
@@ -4119,25 +5839,19 @@ pub const WipFunction = struct {
 
     pub fn fcmp(
         self: *WipFunction,
+        fast: FastMathKind,
         cond: FloatCondition,
         lhs: Value,
         rhs: Value,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.cmpTag(switch (cond) {
-            inline else => |tag| @field(Instruction.Tag, "fcmp " ++ @tagName(tag)),
-        }, @intFromEnum(cond), lhs, rhs, name);
-    }
-
-    pub fn fcmpFast(
-        self: *WipFunction,
-        cond: FloatCondition,
-        lhs: Value,
-        rhs: Value,
-        name: []const u8,
-    ) Allocator.Error!Value {
-        return self.cmpTag(switch (cond) {
-            inline else => |tag| @field(Instruction.Tag, "fcmp fast " ++ @tagName(tag)),
+        return self.cmpTag(switch (fast) {
+            inline else => |fast_tag| switch (cond) {
+                inline else => |cond_tag| @field(Instruction.Tag, "fcmp " ++ switch (fast_tag) {
+                    .normal => "",
+                    .fast => "fast ",
+                } ++ @tagName(cond_tag)),
+            },
         }, @intFromEnum(cond), lhs, rhs, name);
     }
 
@@ -4154,7 +5868,7 @@ pub const WipFunction = struct {
             vals: []const Value,
             blocks: []const Block.Index,
             wip: *WipFunction,
-        ) if (build_options.have_llvm) Allocator.Error!void else void {
+        ) (if (build_options.have_llvm) Allocator.Error else error{})!void {
             const incoming_len = self.block.ptrConst(wip).incoming;
             assert(vals.len == incoming_len and blocks.len == incoming_len);
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
@@ -4195,22 +5909,16 @@ pub const WipFunction = struct {
 
     pub fn select(
         self: *WipFunction,
+        fast: FastMathKind,
         cond: Value,
         lhs: Value,
         rhs: Value,
         name: []const u8,
     ) Allocator.Error!Value {
-        return self.selectTag(.select, cond, lhs, rhs, name);
-    }
-
-    pub fn selectFast(
-        self: *WipFunction,
-        cond: Value,
-        lhs: Value,
-        rhs: Value,
-        name: []const u8,
-    ) Allocator.Error!Value {
-        return self.selectTag(.@"select fast", cond, lhs, rhs, name);
+        return self.selectTag(switch (fast) {
+            .normal => .select,
+            .fast => .@"select fast",
+        }, cond, lhs, rhs, name);
     }
 
     pub fn call(
@@ -4234,7 +5942,16 @@ pub const WipFunction = struct {
             .void => null,
             else => name,
         }, .{
-            .tag = .call,
+            .tag = switch (kind) {
+                .normal => .call,
+                .fast => .@"call fast",
+                .musttail => .@"musttail call",
+                .musttail_fast => .@"musttail call fast",
+                .notail => .@"notail call",
+                .notail_fast => .@"notail call fast",
+                .tail => .@"tail call",
+                .tail_fast => .@"tail call fast",
+            },
             .data = self.addExtraAssumeCapacity(Instruction.Call{
                 .info = .{ .call_conv = call_conv },
                 .attributes = function_attributes,
@@ -4276,7 +5993,7 @@ pub const WipFunction = struct {
                     else => instruction.llvmName(self),
                 },
             );
-            llvm_instruction.setInstructionCallConv(@enumFromInt(@intFromEnum(call_conv)));
+            llvm_instruction.setInstructionCallConv(call_conv.toLlvm());
             llvm_instruction.setTailCallKind(switch (kind) {
                 .normal, .fast => .None,
                 .musttail, .musttail_fast => .MustTail,
@@ -4284,9 +6001,8 @@ pub const WipFunction = struct {
                 .tail, .tail_fast => .Tail,
             });
             for (0.., function_attributes.slice(self.builder)) |index, attributes| {
-                const attribute_index = @as(llvm.AttributeIndex, @intCast(index)) -% 1;
                 for (attributes.slice(self.builder)) |attribute| llvm_instruction.addCallSiteAttribute(
-                    attribute_index,
+                    @as(llvm.AttributeIndex, @intCast(index)) -% 1,
                     attribute.toLlvm(self.builder),
                 );
             }
@@ -4299,7 +6015,7 @@ pub const WipFunction = struct {
         self: *WipFunction,
         function_attributes: FunctionAttributes,
         ty: Type,
-        kind: Constant.Asm.Info,
+        kind: Constant.Assembly.Info,
         assembly: String,
         constraints: String,
         args: []const Value,
@@ -4307,6 +6023,80 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const callee = try self.builder.asmValue(ty, kind, assembly, constraints);
         return self.call(.normal, CallConv.default, function_attributes, ty, callee, args, name);
+    }
+
+    pub fn callIntrinsic(
+        self: *WipFunction,
+        fast: FastMathKind,
+        function_attributes: FunctionAttributes,
+        id: Intrinsic,
+        overload: []const Type,
+        args: []const Value,
+        name: []const u8,
+    ) Allocator.Error!Value {
+        const intrinsic = try self.builder.getIntrinsic(id, overload);
+        return self.call(
+            fast.toCallKind(),
+            CallConv.default,
+            function_attributes,
+            intrinsic.typeOf(self.builder),
+            intrinsic.toValue(self.builder),
+            args,
+            name,
+        );
+    }
+
+    pub fn callMemCpy(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        src: Value,
+        src_align: Alignment,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
+        const value = try self.callIntrinsic(
+            .normal,
+            try self.builder.fnAttrs(&.{
+                .none,
+                .none,
+                try self.builder.attrs(&dst_attrs),
+                try self.builder.attrs(&src_attrs),
+            }),
+            .memcpy,
+            &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, src, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
+    }
+
+    pub fn callMemSet(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        val: Value,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        const value = try self.callIntrinsic(
+            .normal,
+            try self.builder.fnAttrs(&.{ .none, .none, try self.builder.attrs(&dst_attrs) }),
+            .memset,
+            &.{ dst.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, val, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
     }
 
     pub fn vaArg(self: *WipFunction, list: Value, ty: Type, name: []const u8) Allocator.Error!Value {
@@ -4326,30 +6116,6 @@ pub const WipFunction = struct {
             ),
         );
         return instruction.toValue();
-    }
-
-    pub const WipUnimplemented = struct {
-        instruction: Instruction.Index,
-
-        pub fn finish(self: WipUnimplemented, val: *llvm.Value, wip: *WipFunction) Value {
-            assert(wip.builder.useLibLlvm());
-            wip.llvm.instructions.items[@intFromEnum(self.instruction)] = val;
-            return self.instruction.toValue();
-        }
-    };
-
-    pub fn unimplemented(
-        self: *WipFunction,
-        ty: Type,
-        name: []const u8,
-    ) Allocator.Error!WipUnimplemented {
-        try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
-        const instruction = try self.addInst(name, .{
-            .tag = .unimplemented,
-            .data = @intFromEnum(ty),
-        });
-        if (self.builder.useLibLlvm()) _ = self.llvm.instructions.addOneAssumeCapacity();
-        return .{ .instruction = instruction };
     }
 
     pub fn finish(self: *WipFunction) Allocator.Error!void {
@@ -4554,20 +6320,6 @@ pub const WipFunction = struct {
                     .@"icmp ugt",
                     .@"icmp ule",
                     .@"icmp ult",
-                    .@"llvm.maxnum.",
-                    .@"llvm.minnum.",
-                    .@"llvm.sadd.sat.",
-                    .@"llvm.smax.",
-                    .@"llvm.smin.",
-                    .@"llvm.smul.fix.sat.",
-                    .@"llvm.sshl.sat.",
-                    .@"llvm.ssub.sat.",
-                    .@"llvm.uadd.sat.",
-                    .@"llvm.umax.",
-                    .@"llvm.umin.",
-                    .@"llvm.umul.fix.sat.",
-                    .@"llvm.ushl.sat.",
-                    .@"llvm.usub.sat.",
                     .lshr,
                     .@"lshr exact",
                     .mul,
@@ -4630,19 +6382,19 @@ pub const WipFunction = struct {
                     .arg,
                     .block,
                     => unreachable,
+                    .atomicrmw => {
+                        const extra = self.extraData(Instruction.AtomicRmw, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.AtomicRmw{
+                            .info = extra.info,
+                            .ptr = instructions.map(extra.ptr),
+                            .val = instructions.map(extra.val),
+                        });
+                    },
                     .br,
                     .fence,
                     .@"ret void",
-                    .unimplemented,
                     .@"unreachable",
                     => {},
-                    .extractelement => {
-                        const extra = self.extraData(Instruction.ExtractElement, instruction.data);
-                        instruction.data = wip_extra.addExtra(Instruction.ExtractElement{
-                            .val = instructions.map(extra.val),
-                            .index = instructions.map(extra.index),
-                        });
-                    },
                     .br_cond => {
                         const extra = self.extraData(Instruction.BrCond, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.BrCond{
@@ -4670,6 +6422,24 @@ pub const WipFunction = struct {
                             .args_len = extra.data.args_len,
                         });
                         wip_extra.appendMappedValues(args, instructions);
+                    },
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => {
+                        const extra = self.extraData(Instruction.CmpXchg, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.CmpXchg{
+                            .info = extra.info,
+                            .ptr = instructions.map(extra.ptr),
+                            .cmp = instructions.map(extra.cmp),
+                            .new = instructions.map(extra.new),
+                        });
+                    },
+                    .extractelement => {
+                        const extra = self.extraData(Instruction.ExtractElement, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.ExtractElement{
+                            .val = instructions.map(extra.val),
+                            .index = instructions.map(extra.index),
+                        });
                     },
                     .extractvalue => {
                         var extra = self.extraDataTrail(Instruction.ExtractValue, instruction.data);
@@ -4716,8 +6486,6 @@ pub const WipFunction = struct {
                     },
                     .load,
                     .@"load atomic",
-                    .@"load atomic volatile",
-                    .@"load volatile",
                     => {
                         const extra = self.extraData(Instruction.Load, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.Load{
@@ -4759,8 +6527,6 @@ pub const WipFunction = struct {
                     },
                     .store,
                     .@"store atomic",
-                    .@"store atomic volatile",
-                    .@"store volatile",
                     => {
                         const extra = self.extraData(Instruction.Store, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.Store{
@@ -5196,6 +6962,24 @@ pub const FloatCondition = enum(u4) {
     ult = 12,
     ule = 13,
     une = 14,
+
+    fn toLlvm(self: FloatCondition) llvm.RealPredicate {
+        return switch (self) {
+            .oeq => .OEQ,
+            .ogt => .OGT,
+            .oge => .OGE,
+            .olt => .OLT,
+            .ole => .OLE,
+            .one => .ONE,
+            .ord => .ORD,
+            .uno => .UNO,
+            .ueq => .UEQ,
+            .ugt => .UGT,
+            .uge => .UGE,
+            .ult => .ULT,
+            .uno => .UNE,
+        };
+    }
 };
 
 pub const IntegerCondition = enum(u6) {
@@ -5209,11 +6993,34 @@ pub const IntegerCondition = enum(u6) {
     sge = 39,
     slt = 40,
     sle = 41,
+
+    fn toLlvm(self: IntegerCondition) llvm.IntPredicate {
+        return switch (self) {
+            .eq => .EQ,
+            .ne => .NE,
+            .ugt => .UGT,
+            .uge => .UGE,
+            .ult => .ULT,
+            .sgt => .SGT,
+            .sge => .SGE,
+            .slt => .SLT,
+            .sle => .SLE,
+        };
+    }
 };
 
 pub const MemoryAccessKind = enum(u1) {
     normal,
     @"volatile",
+
+    pub fn format(
+        self: MemoryAccessKind,
+        comptime prefix: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (self != .normal) try writer.print("{s}{s}", .{ prefix, @tagName(self) });
+    }
 };
 
 pub const SyncScope = enum(u1) {
@@ -5227,7 +7034,7 @@ pub const SyncScope = enum(u1) {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (self != .system) try writer.print(
-            \\{s} syncscope("{s}")
+            \\{s}syncscope("{s}")
         , .{ prefix, @tagName(self) });
     }
 };
@@ -5247,15 +7054,30 @@ pub const AtomicOrdering = enum(u3) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (self != .none) try writer.print("{s} {s}", .{ prefix, @tagName(self) });
+        if (self != .none) try writer.print("{s}{s}", .{ prefix, @tagName(self) });
+    }
+
+    fn toLlvm(self: AtomicOrdering) llvm.AtomicOrdering {
+        return switch (self) {
+            .none => .NotAtomic,
+            .unordered => .Unordered,
+            .monotonic => .Monotonic,
+            .acquire => .Acquire,
+            .release => .Release,
+            .acq_rel => .AcquireRelease,
+            .seq_cst => .SequentiallyConsistent,
+        };
     }
 };
 
 const MemoryAccessInfo = packed struct(u32) {
-    scope: SyncScope,
-    ordering: AtomicOrdering,
-    alignment: Alignment,
-    _: u22 = undefined,
+    access_kind: MemoryAccessKind = .normal,
+    atomic_rmw_operation: Function.Instruction.AtomicRmw.Operation = .none,
+    sync_scope: SyncScope,
+    success_ordering: AtomicOrdering,
+    failure_ordering: AtomicOrdering = .none,
+    alignment: Alignment = .default,
+    _: u13 = undefined,
 };
 
 pub const FastMath = packed struct(u32) {
@@ -5276,6 +7098,18 @@ pub const FastMath = packed struct(u32) {
         .afn = true,
         .realloc = true,
     };
+};
+
+pub const FastMathKind = enum {
+    normal,
+    fast,
+
+    pub fn toCallKind(self: FastMathKind) Function.Instruction.Call.Kind {
+        return switch (self) {
+            .normal => .normal,
+            .fast => .fast,
+        };
+    }
 };
 
 pub const Constant = enum(u32) {
@@ -5347,6 +7181,7 @@ pub const Constant = enum(u32) {
         @"and",
         @"or",
         xor,
+        select,
         @"asm",
         @"asm sideeffect",
         @"asm alignstack",
@@ -5458,7 +7293,13 @@ pub const Constant = enum(u32) {
         rhs: Constant,
     };
 
-    pub const Asm = extern struct {
+    pub const Select = extern struct {
+        cond: Constant,
+        lhs: Constant,
+        rhs: Constant,
+    };
+
+    pub const Assembly = extern struct {
         type: Type,
         assembly: String,
         constraints: String,
@@ -5482,7 +7323,7 @@ pub const Constant = enum(u32) {
     }
 
     pub fn toValue(self: Constant) Value {
-        return @enumFromInt(@intFromEnum(Value.first_constant) + @intFromEnum(self));
+        return @enumFromInt(Value.first_constant + @intFromEnum(self));
     }
 
     pub fn typeOf(self: Constant, builder: *Builder) Type {
@@ -5589,6 +7430,7 @@ pub const Constant = enum(u32) {
                     .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
+                    .select => builder.constantExtraData(Select, item.data).lhs.typeOf(builder),
                     .@"asm",
                     .@"asm sideeffect",
                     .@"asm alignstack",
@@ -5683,7 +7525,7 @@ pub const Constant = enum(u32) {
                 }
             },
             .global => |global| switch (global.ptrConst(builder).kind) {
-                .alias => |alias| cur = alias.ptrConst(builder).init,
+                .alias => |alias| cur = alias.ptrConst(builder).aliasee,
                 .variable, .function => return global,
                 .replaced => unreachable,
             },
@@ -5757,9 +7599,34 @@ pub const Constant = enum(u32) {
                         .bfloat => 16,
                         else => unreachable,
                     } }),
-                    .float => try writer.print("0x{X:0>16}", .{
-                        @as(u64, @bitCast(@as(f64, @as(f32, @bitCast(item.data))))),
-                    }),
+                    .float => {
+                        const Float = struct {
+                            fn Repr(comptime T: type) type {
+                                return packed struct(std.meta.Int(.unsigned, @bitSizeOf(T))) {
+                                    mantissa: std.meta.Int(.unsigned, std.math.floatMantissaBits(T)),
+                                    exponent: std.meta.Int(.unsigned, std.math.floatExponentBits(T)),
+                                    sign: u1,
+                                };
+                            }
+                        };
+                        const Exponent32 = std.meta.FieldType(Float.Repr(f32), .exponent);
+                        const Exponent64 = std.meta.FieldType(Float.Repr(f64), .exponent);
+                        const repr: Float.Repr(f32) = @bitCast(item.data);
+                        try writer.print("0x{X:0>16}", .{@as(u64, @bitCast(Float.Repr(f64){
+                            .mantissa = std.math.shl(
+                                std.meta.FieldType(Float.Repr(f64), .mantissa),
+                                repr.mantissa,
+                                std.math.floatMantissaBits(f64) - std.math.floatMantissaBits(f32),
+                            ),
+                            .exponent = switch (repr.exponent) {
+                                std.math.minInt(Exponent32) => std.math.minInt(Exponent64),
+                                else => @as(Exponent64, repr.exponent) +
+                                    (std.math.floatExponentMax(f64) - std.math.floatExponentMax(f32)),
+                                std.math.maxInt(Exponent32) => std.math.maxInt(Exponent64),
+                            },
+                            .sign = repr.sign,
+                        }))});
+                    },
                     .double => {
                         const extra = data.builder.constantExtraData(Double, item.data);
                         try writer.print("0x{X:0>8}{X:0>8}", .{ extra.hi, extra.lo });
@@ -5953,6 +7820,15 @@ pub const Constant = enum(u32) {
                             extra.rhs.fmt(data.builder),
                         });
                     },
+                    .select => |tag| {
+                        const extra = data.builder.constantExtraData(Select, item.data);
+                        try writer.print("{s} ({%}, {%}, {%})", .{
+                            @tagName(tag),
+                            extra.cond.fmt(data.builder),
+                            extra.lhs.fmt(data.builder),
+                            extra.rhs.fmt(data.builder),
+                        });
+                    },
                     .@"asm",
                     .@"asm sideeffect",
                     .@"asm alignstack",
@@ -5970,7 +7846,7 @@ pub const Constant = enum(u32) {
                     .@"asm alignstack inteldialect unwind",
                     .@"asm sideeffect alignstack inteldialect unwind",
                     => |tag| {
-                        const extra = data.builder.constantExtraData(Asm, item.data);
+                        const extra = data.builder.constantExtraData(Assembly, item.data);
                         try writer.print("{s} {\"}, {\"}", .{
                             @tagName(tag),
                             extra.assembly.fmt(data.builder),
@@ -5988,27 +7864,31 @@ pub const Constant = enum(u32) {
 
     pub fn toLlvm(self: Constant, builder: *const Builder) *llvm.Value {
         assert(builder.useLibLlvm());
-        return switch (self.unwrap()) {
+        const llvm_value = switch (self.unwrap()) {
             .constant => |constant| builder.llvm.constants.items[constant],
-            .global => |global| global.toLlvm(builder),
+            .global => |global| return global.toLlvm(builder),
         };
+        const global = builder.llvm.replacements.get(llvm_value) orelse return llvm_value;
+        return global.toLlvm(builder);
     }
 };
 
 pub const Value = enum(u32) {
     none = std.math.maxInt(u31),
+    false = first_constant + @intFromEnum(Constant.false),
+    true = first_constant + @intFromEnum(Constant.true),
     _,
 
-    const first_constant: Value = @enumFromInt(1 << 31);
+    const first_constant = 1 << 31;
 
     pub fn unwrap(self: Value) union(enum) {
         instruction: Function.Instruction.Index,
         constant: Constant,
     } {
-        return if (@intFromEnum(self) < @intFromEnum(first_constant))
+        return if (@intFromEnum(self) < first_constant)
             .{ .instruction = @enumFromInt(@intFromEnum(self)) }
         else
-            .{ .constant = @enumFromInt(@intFromEnum(self) - @intFromEnum(first_constant)) };
+            .{ .constant = @enumFromInt(@intFromEnum(self) - first_constant) };
     }
 
     pub fn typeOfWip(self: Value, wip: *const WipFunction) Type {
@@ -6126,6 +8006,7 @@ pub fn init(options: Options) InitError!Builder {
         .types = .{},
         .globals = .{},
         .constants = .{},
+        .replacements = .{},
     };
     errdefer self.deinit();
 
@@ -6135,7 +8016,7 @@ pub fn init(options: Options) InitError!Builder {
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
     self.initializeLLVMTarget(options.target.cpu.arch);
     if (self.useLibLlvm()) self.llvm.module = llvm.Module.createWithName(
-        (self.source_filename.slice(&self) orelse "").ptr,
+        (self.source_filename.slice(&self) orelse ""),
         self.llvm.context,
     );
 
@@ -6180,8 +8061,11 @@ pub fn init(options: Options) InitError!Builder {
         inline for (.{ 1, 8, 16, 29, 32, 64, 80, 128 }) |bits|
             assert(self.intTypeAssumeCapacity(bits) ==
                 @field(Type, std.fmt.comptimePrint("i{d}", .{bits})));
-        inline for (.{0}) |addr_space|
-            assert(self.ptrTypeAssumeCapacity(@enumFromInt(addr_space)) == .ptr);
+        inline for (.{ 0, 4 }) |addr_space_index| {
+            const addr_space: AddrSpace = @enumFromInt(addr_space_index);
+            assert(self.ptrTypeAssumeCapacity(addr_space) ==
+                @field(Type, std.fmt.comptimePrint("ptr{ }", .{addr_space})));
+        }
     }
 
     {
@@ -6202,6 +8086,20 @@ pub fn init(options: Options) InitError!Builder {
 }
 
 pub fn deinit(self: *Builder) void {
+    if (self.useLibLlvm()) {
+        var replacement_it = self.llvm.replacements.keyIterator();
+        while (replacement_it.next()) |replacement| replacement.*.deleteGlobalValue();
+        self.llvm.replacements.deinit(self.gpa);
+        self.llvm.constants.deinit(self.gpa);
+        self.llvm.globals.deinit(self.gpa);
+        self.llvm.types.deinit(self.gpa);
+        self.llvm.attributes.deinit(self.gpa);
+        if (self.llvm.attribute_kind_ids) |attribute_kind_ids| self.gpa.destroy(attribute_kind_ids);
+        if (self.llvm.di_builder) |di_builder| di_builder.dispose();
+        if (self.llvm.module) |module| module.dispose();
+        self.llvm.context.dispose();
+    }
+
     self.module_asm.deinit(self.gpa);
 
     self.string_map.deinit(self.gpa);
@@ -6231,16 +8129,6 @@ pub fn deinit(self: *Builder) void {
     self.constant_extra.deinit(self.gpa);
     self.constant_limbs.deinit(self.gpa);
 
-    if (self.useLibLlvm()) {
-        self.llvm.constants.deinit(self.gpa);
-        self.llvm.globals.deinit(self.gpa);
-        self.llvm.types.deinit(self.gpa);
-        self.llvm.attributes.deinit(self.gpa);
-        if (self.llvm.attribute_kind_ids) |attribute_kind_ids| self.gpa.destroy(attribute_kind_ids);
-        if (self.llvm.di_builder) |di_builder| di_builder.dispose();
-        if (self.llvm.module) |module| module.dispose();
-        self.llvm.context.dispose();
-    }
     self.* = undefined;
 }
 
@@ -6364,7 +8252,7 @@ pub fn initializeLLVMTarget(self: *const Builder, arch: std.Target.Cpu.Arch) voi
                 llvm.LLVMInitializeXtensaTarget();
                 llvm.LLVMInitializeXtensaTargetInfo();
                 llvm.LLVMInitializeXtensaTargetMC();
-                llvm.LLVMInitializeXtensaAsmPrinter();
+                // There is no LLVMInitializeXtensaAsmPrinter function.
                 llvm.LLVMInitializeXtensaAsmParser();
             }
         },
@@ -6501,9 +8389,9 @@ pub fn fnType(
     kind: Type.Function.Kind,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Function, params.len);
-    return switch (kind) {
-        inline else => |comptime_kind| self.fnTypeAssumeCapacity(ret, params, comptime_kind),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.fnTypeAssumeCapacity(ret, params, comptime_kind),
+    }
 }
 
 pub fn intType(self: *Builder, bits: u24) Allocator.Error!Type {
@@ -6523,9 +8411,9 @@ pub fn vectorType(
     child: Type,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Vector, 0);
-    return switch (kind) {
-        inline else => |comptime_kind| self.vectorTypeAssumeCapacity(comptime_kind, len, child),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.vectorTypeAssumeCapacity(comptime_kind, len, child),
+    }
 }
 
 pub fn arrayType(self: *Builder, len: u64, child: Type) Allocator.Error!Type {
@@ -6540,9 +8428,9 @@ pub fn structType(
     fields: []const Type,
 ) Allocator.Error!Type {
     try self.ensureUnusedTypeCapacity(1, Type.Structure, fields.len);
-    return switch (kind) {
-        inline else => |comptime_kind| self.structTypeAssumeCapacity(comptime_kind, fields),
-    };
+    switch (kind) {
+        inline else => |comptime_kind| return self.structTypeAssumeCapacity(comptime_kind, fields),
+    }
 }
 
 pub fn opaqueType(self: *Builder, name: String) Allocator.Error!Type {
@@ -6562,7 +8450,7 @@ pub fn namedTypeSetBody(
     self: *Builder,
     named_type: Type,
     body_type: Type,
-) if (build_options.have_llvm) Allocator.Error!void else void {
+) (if (build_options.have_llvm) Allocator.Error else error{})!void {
     const named_item = self.type_items.items[@intFromEnum(named_type)];
     self.type_extra.items[named_item.data + std.meta.fieldIndex(Type.NamedStructure, "body").?] =
         @intFromEnum(body_type);
@@ -6594,16 +8482,16 @@ pub fn attr(self: *Builder, attribute: Attribute) Allocator.Error!Attribute.Inde
         gop.value_ptr.* = {};
         if (self.useLibLlvm()) self.llvm.attributes.appendAssumeCapacity(switch (attribute) {
             else => llvm_attr: {
-                const kind_id = &self.llvm.attribute_kind_ids.?[@intFromEnum(attribute)];
-                if (kind_id.* == 0) {
+                const llvm_kind_id = attribute.getKind().toLlvm(self);
+                if (llvm_kind_id.* == 0) {
                     const name = @tagName(attribute);
-                    kind_id.* = llvm.getEnumAttributeKindForName(name.ptr, name.len);
-                    assert(kind_id.* != 0);
+                    llvm_kind_id.* = llvm.getEnumAttributeKindForName(name.ptr, name.len);
+                    assert(llvm_kind_id.* != 0);
                 }
                 break :llvm_attr switch (attribute) {
                     else => switch (attribute) {
                         inline else => |value| self.llvm.context.createEnumAttribute(
-                            kind_id.*,
+                            llvm_kind_id.*,
                             switch (@TypeOf(value)) {
                                 void => 0,
                                 u32 => value,
@@ -6637,7 +8525,7 @@ pub fn attr(self: *Builder, attribute: Attribute) Allocator.Error!Attribute.Inde
                     .inalloca,
                     .sret,
                     .elementtype,
-                    => |ty| self.llvm.context.createTypeAttribute(kind_id.*, ty.toLlvm(self)),
+                    => |ty| self.llvm.context.createTypeAttribute(llvm_kind_id.*, ty.toLlvm(self)),
                     .string, .none => unreachable,
                 };
             },
@@ -6697,10 +8585,10 @@ pub fn addGlobalAssumeCapacity(self: *Builder, name: String, global: Global) Glo
         const global_gop = self.globals.getOrPutAssumeCapacity(id);
         if (!global_gop.found_existing) {
             global_gop.value_ptr.* = global;
-            global_gop.value_ptr.updateAttributes();
-            const index: Global.Index = @enumFromInt(global_gop.index);
-            index.updateName(self);
-            return index;
+            const global_index: Global.Index = @enumFromInt(global_gop.index);
+            global_index.updateDsoLocal(self);
+            global_index.updateName(self);
+            return global_index;
         }
 
         const unique_gop = self.next_unique_global_id.getOrPutAssumeCapacity(name);
@@ -6714,17 +8602,221 @@ pub fn getGlobal(self: *const Builder, name: String) ?Global.Index {
     return @enumFromInt(self.globals.getIndex(name) orelse return null);
 }
 
+pub fn addAlias(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+    aliasee: Constant,
+) Allocator.Error!Alias.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.aliases.ensureUnusedCapacity(self.gpa, 1);
+    return self.addAliasAssumeCapacity(name, ty, addr_space, aliasee);
+}
+
+pub fn addAliasAssumeCapacity(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+    aliasee: Constant,
+) Alias.Index {
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(self.llvm.module.?.addAlias(
+        ty.toLlvm(self),
+        @intFromEnum(addr_space),
+        aliasee.toLlvm(self),
+        name.slice(self).?,
+    ));
+    const alias_index: Alias.Index = @enumFromInt(self.aliases.items.len);
+    self.aliases.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
+        .type = ty,
+        .kind = .{ .alias = alias_index },
+    }), .aliasee = aliasee });
+    return alias_index;
+}
+
+pub fn addVariable(
+    self: *Builder,
+    name: String,
+    ty: Type,
+    addr_space: AddrSpace,
+) Allocator.Error!Variable.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.variables.ensureUnusedCapacity(self.gpa, 1);
+    return self.addVariableAssumeCapacity(ty, name, addr_space);
+}
+
+pub fn addVariableAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Variable.Index {
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(
+        self.llvm.module.?.addGlobalInAddressSpace(
+            ty.toLlvm(self),
+            name.slice(self).?,
+            @intFromEnum(addr_space),
+        ),
+    );
+    const variable_index: Variable.Index = @enumFromInt(self.variables.items.len);
+    self.variables.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
+        .type = ty,
+        .kind = .{ .variable = variable_index },
+    }) });
+    return variable_index;
+}
+
+pub fn addFunction(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Allocator.Error!Function.Index {
+    assert(!name.isAnon());
+    try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
+    try self.ensureUnusedGlobalCapacity(name);
+    try self.functions.ensureUnusedCapacity(self.gpa, 1);
+    return self.addFunctionAssumeCapacity(ty, name, addr_space);
+}
+
+pub fn addFunctionAssumeCapacity(
+    self: *Builder,
+    ty: Type,
+    name: String,
+    addr_space: AddrSpace,
+) Function.Index {
+    assert(ty.isFunction(self));
+    if (self.useLibLlvm()) self.llvm.globals.appendAssumeCapacity(
+        self.llvm.module.?.addFunctionInAddressSpace(
+            name.slice(self).?,
+            ty.toLlvm(self),
+            @intFromEnum(addr_space),
+        ),
+    );
+    const function_index: Function.Index = @enumFromInt(self.functions.items.len);
+    self.functions.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
+        .addr_space = addr_space,
+        .type = ty,
+        .kind = .{ .function = function_index },
+    }) });
+    return function_index;
+}
+
+pub fn getIntrinsic(
+    self: *Builder,
+    id: Intrinsic,
+    overload: []const Type,
+) Allocator.Error!Function.Index {
+    const ExpectedContents = extern union {
+        name: [expected_intrinsic_name_len]u8,
+        attrs: extern struct {
+            params: [expected_args_len]Type,
+            fn_attrs: [FunctionAttributes.params_index + expected_args_len]Attributes,
+            attrs: [expected_attrs_len]Attribute.Index,
+            fields: [expected_fields_len]Type,
+        },
+    };
+    var stack align(@max(@alignOf(std.heap.StackFallbackAllocator(0)), @alignOf(ExpectedContents))) =
+        std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+    const allocator = stack.get();
+
+    const name = name: {
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        try buffer.writer().print("llvm.{s}", .{@tagName(id)});
+        for (overload) |ty| try buffer.writer().print(".{m}", .{ty.fmt(self)});
+        break :name try self.string(buffer.items);
+    };
+    if (self.getGlobal(name)) |global| return global.ptrConst(self).kind.function;
+
+    const signature = Intrinsic.signatures.get(id);
+    const param_types = try allocator.alloc(Type, signature.params.len);
+    defer allocator.free(param_types);
+    const function_attributes = try allocator.alloc(
+        Attributes,
+        FunctionAttributes.params_index + (signature.params.len - signature.ret_len),
+    );
+    defer allocator.free(function_attributes);
+
+    var attributes: struct {
+        builder: *Builder,
+        list: std.ArrayList(Attribute.Index),
+
+        fn deinit(state: *@This()) void {
+            state.list.deinit();
+            state.* = undefined;
+        }
+
+        fn get(state: *@This(), attributes: []const Attribute) Allocator.Error!Attributes {
+            try state.list.resize(attributes.len);
+            for (state.list.items, attributes) |*item, attribute|
+                item.* = try state.builder.attr(attribute);
+            return state.builder.attrs(state.list.items);
+        }
+    } = .{ .builder = self, .list = std.ArrayList(Attribute.Index).init(allocator) };
+    defer attributes.deinit();
+
+    var overload_index: usize = 0;
+    function_attributes[FunctionAttributes.function_index] = try attributes.get(signature.attrs);
+    function_attributes[FunctionAttributes.return_index] = .none; // needed for void return
+    for (0.., param_types, signature.params) |param_index, *param_type, signature_param| {
+        switch (signature_param.kind) {
+            .type => |ty| param_type.* = ty,
+            .overloaded => {
+                param_type.* = overload[overload_index];
+                overload_index += 1;
+            },
+            .matches, .matches_scalar, .matches_changed_scalar => {},
+        }
+        function_attributes[
+            if (param_index < signature.ret_len)
+                FunctionAttributes.return_index
+            else
+                FunctionAttributes.params_index + (param_index - signature.ret_len)
+        ] = try attributes.get(signature_param.attrs);
+    }
+    assert(overload_index == overload.len);
+    for (param_types, signature.params) |*param_type, signature_param| {
+        param_type.* = switch (signature_param.kind) {
+            .type, .overloaded => continue,
+            .matches => |param_index| param_types[param_index],
+            .matches_scalar => |param_index| param_types[param_index].scalarType(self),
+            .matches_changed_scalar => |info| try param_types[info.index]
+                .changeScalar(info.scalar, self),
+        };
+    }
+
+    const function_index = try self.addFunction(try self.fnType(switch (signature.ret_len) {
+        0 => .void,
+        1 => param_types[0],
+        else => try self.structType(.normal, param_types[0..signature.ret_len]),
+    }, param_types[signature.ret_len..], .normal), name, .default);
+    function_index.ptr(self).attributes = try self.fnAttrs(function_attributes);
+    return function_index;
+}
+
 pub fn intConst(self: *Builder, ty: Type, value: anytype) Allocator.Error!Constant {
+    const int_value = switch (@typeInfo(@TypeOf(value))) {
+        .Int, .ComptimeInt => value,
+        .Enum => @intFromEnum(value),
+        else => @compileError("intConst expected an integral value, got " ++ @typeName(@TypeOf(value))),
+    };
     var limbs: [
-        switch (@typeInfo(@TypeOf(value))) {
+        switch (@typeInfo(@TypeOf(int_value))) {
             .Int => |info| std.math.big.int.calcTwosCompLimbCount(info.bits),
-            .ComptimeInt => std.math.big.int.calcLimbLen(value),
-            else => @compileError(
-                "intConst expected an integral value, got " ++ @typeName(@TypeOf(value)),
-            ),
+            .ComptimeInt => std.math.big.int.calcLimbLen(int_value),
+            else => unreachable,
         }
     ]std.math.big.Limb = undefined;
-    return self.bigIntConst(ty, std.math.big.int.Mutable.init(&limbs, value).toConst());
+    return self.bigIntConst(ty, std.math.big.int.Mutable.init(&limbs, int_value).toConst());
 }
 
 pub fn intValue(self: *Builder, ty: Type, value: anytype) Allocator.Error!Value {
@@ -7132,25 +9224,73 @@ pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant)
     return (try self.binConst(tag, lhs, rhs)).toValue();
 }
 
+pub fn selectConst(
+    self: *Builder,
+    cond: Constant,
+    lhs: Constant,
+    rhs: Constant,
+) Allocator.Error!Constant {
+    try self.ensureUnusedConstantCapacity(1, Constant.Select, 0);
+    return self.selectConstAssumeCapacity(cond, lhs, rhs);
+}
+
+pub fn selectValue(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Allocator.Error!Value {
+    return (try self.selectConst(cond, lhs, rhs)).toValue();
+}
+
 pub fn asmConst(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Asm, 0);
+    try self.ensureUnusedConstantCapacity(1, Constant.Assembly, 0);
     return self.asmConstAssumeCapacity(ty, info, assembly, constraints);
 }
 
 pub fn asmValue(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Allocator.Error!Value {
     return (try self.asmConst(ty, info, assembly, constraints)).toValue();
+}
+
+pub fn verify(self: *Builder) error{}!bool {
+    if (self.useLibLlvm()) {
+        var error_message: [*:0]const u8 = undefined;
+        // verifyModule always allocs the error_message even if there is no error
+        defer llvm.disposeMessage(error_message);
+
+        if (self.llvm.module.?.verify(.ReturnStatus, &error_message).toBool()) {
+            log.err("failed verification of LLVM module:\n{s}\n", .{error_message});
+            return false;
+        }
+    }
+    return true;
+}
+
+pub fn writeBitcodeToFile(self: *Builder, path: []const u8) Allocator.Error!bool {
+    const path_z = try self.gpa.dupeZ(u8, path);
+    defer self.gpa.free(path_z);
+    return self.writeBitcodeToFileZ(path_z);
+}
+
+pub fn writeBitcodeToFileZ(self: *Builder, path: [*:0]const u8) bool {
+    if (self.useLibLlvm()) {
+        const error_code = self.llvm.module.?.writeBitcodeToFile(path);
+        if (error_code != 0) {
+            log.err("failed dumping LLVM module to \"{s}\": {d}", .{ path, error_code });
+            return false;
+        }
+    } else {
+        log.err("writing bitcode without libllvm not implemented", .{});
+        return false;
+    }
+    return true;
 }
 
 pub fn dump(self: *Builder) void {
@@ -7244,7 +9384,7 @@ pub fn printUnbuffered(
             if (variable.global.getReplacement(self) != .none) continue;
             const global = variable.global.ptrConst(self);
             try writer.print(
-                \\{} ={}{}{}{}{}{}{}{} {s} {%}{ }{,}
+                \\{} ={}{}{}{}{ }{}{ }{} {s} {%}{ }{, }
                 \\
             , .{
                 variable.global.fmt(self),
@@ -7265,526 +9405,521 @@ pub fn printUnbuffered(
         need_newline = true;
     }
 
-    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
-    defer attribute_groups.deinit(self.gpa);
-
-    if (self.functions.items.len > 0) {
+    if (self.aliases.items.len > 0) {
         if (need_newline) try writer.writeByte('\n');
-        for (0.., self.functions.items) |function_i, function| {
-            if (function_i > 0) try writer.writeByte('\n');
-            const function_index: Function.Index = @enumFromInt(function_i);
-            if (function.global.getReplacement(self) != .none) continue;
-            const global = function.global.ptrConst(self);
-            const params_len = global.type.functionParameters(self).len;
-            const function_attributes = function.attributes.func(self);
-            if (function_attributes != .none) try writer.print(
-                \\; Function Attrs:{}
-                \\
-            , .{function_attributes.fmt(self)});
+        for (self.aliases.items) |alias| {
+            if (alias.global.getReplacement(self) != .none) continue;
+            const global = alias.global.ptrConst(self);
             try writer.print(
-                \\{s}{}{}{}{}{}{"} {} {}(
+                \\{} ={}{}{}{}{ }{} alias {%}, {%}
+                \\
             , .{
-                if (function.instructions.len > 0) "define" else "declare",
+                alias.global.fmt(self),
                 global.linkage,
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
-                function.call_conv,
-                function.attributes.ret(self).fmt(self),
-                global.type.functionReturn(self).fmt(self),
-                function.global.fmt(self),
+                alias.thread_local,
+                global.unnamed_addr,
+                global.type.fmt(self),
+                alias.aliasee.fmt(self),
             });
-            for (0..params_len) |arg| {
-                if (arg > 0) try writer.writeAll(", ");
-                try writer.print(
-                    \\{%}{"}
-                , .{
-                    global.type.functionParameters(self)[arg].fmt(self),
-                    function.attributes.param(arg, self).fmt(self),
-                });
-                if (function.instructions.len > 0)
-                    try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)});
-            }
-            switch (global.type.functionKind(self)) {
-                .normal => {},
-                .vararg => {
-                    if (params_len > 0) try writer.writeAll(", ");
-                    try writer.writeAll("...");
-                },
-            }
-            try writer.print("){}{}", .{ global.unnamed_addr, global.addr_space });
-            if (function_attributes != .none) try writer.print(" #{d}", .{
-                (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
-            });
-            try writer.print("{}", .{function.alignment});
-            if (function.instructions.len > 0) {
-                var block_incoming_len: u32 = undefined;
-                try writer.writeAll(" {\n");
-                for (params_len..function.instructions.len) |instruction_i| {
-                    const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
-                    const instruction = function.instructions.get(@intFromEnum(instruction_index));
-                    switch (instruction.tag) {
-                        .add,
-                        .@"add nsw",
-                        .@"add nuw",
-                        .@"add nuw nsw",
-                        .@"and",
-                        .ashr,
-                        .@"ashr exact",
-                        .fadd,
-                        .@"fadd fast",
-                        .@"fcmp false",
-                        .@"fcmp fast false",
-                        .@"fcmp fast oeq",
-                        .@"fcmp fast oge",
-                        .@"fcmp fast ogt",
-                        .@"fcmp fast ole",
-                        .@"fcmp fast olt",
-                        .@"fcmp fast one",
-                        .@"fcmp fast ord",
-                        .@"fcmp fast true",
-                        .@"fcmp fast ueq",
-                        .@"fcmp fast uge",
-                        .@"fcmp fast ugt",
-                        .@"fcmp fast ule",
-                        .@"fcmp fast ult",
-                        .@"fcmp fast une",
-                        .@"fcmp fast uno",
-                        .@"fcmp oeq",
-                        .@"fcmp oge",
-                        .@"fcmp ogt",
-                        .@"fcmp ole",
-                        .@"fcmp olt",
-                        .@"fcmp one",
-                        .@"fcmp ord",
-                        .@"fcmp true",
-                        .@"fcmp ueq",
-                        .@"fcmp uge",
-                        .@"fcmp ugt",
-                        .@"fcmp ule",
-                        .@"fcmp ult",
-                        .@"fcmp une",
-                        .@"fcmp uno",
-                        .fdiv,
-                        .@"fdiv fast",
-                        .fmul,
-                        .@"fmul fast",
-                        .frem,
-                        .@"frem fast",
-                        .fsub,
-                        .@"fsub fast",
-                        .@"icmp eq",
-                        .@"icmp ne",
-                        .@"icmp sge",
-                        .@"icmp sgt",
-                        .@"icmp sle",
-                        .@"icmp slt",
-                        .@"icmp uge",
-                        .@"icmp ugt",
-                        .@"icmp ule",
-                        .@"icmp ult",
-                        .lshr,
-                        .@"lshr exact",
-                        .mul,
-                        .@"mul nsw",
-                        .@"mul nuw",
-                        .@"mul nuw nsw",
-                        .@"or",
-                        .sdiv,
-                        .@"sdiv exact",
-                        .srem,
-                        .shl,
-                        .@"shl nsw",
-                        .@"shl nuw",
-                        .@"shl nuw nsw",
-                        .sub,
-                        .@"sub nsw",
-                        .@"sub nuw",
-                        .@"sub nuw nsw",
-                        .udiv,
-                        .@"udiv exact",
-                        .urem,
-                        .xor,
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Binary, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                            });
-                        },
-                        .addrspacecast,
-                        .bitcast,
-                        .fpext,
-                        .fptosi,
-                        .fptoui,
-                        .fptrunc,
-                        .inttoptr,
-                        .ptrtoint,
-                        .sext,
-                        .sitofp,
-                        .trunc,
-                        .uitofp,
-                        .zext,
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Cast, instruction.data);
-                            try writer.print("  %{} = {s} {%} to {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.type.fmt(self),
-                            });
-                        },
-                        .alloca,
-                        .@"alloca inalloca",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Alloca, instruction.data);
-                            try writer.print("  %{} = {s} {%}{,%}{,}{,}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.type.fmt(self),
-                                extra.len.fmt(function_index, self),
-                                extra.info.alignment,
-                                extra.info.addr_space,
-                            });
-                        },
-                        .arg => unreachable,
-                        .block => {
-                            block_incoming_len = instruction.data;
-                            const name = instruction_index.name(&function);
-                            if (@intFromEnum(instruction_index) > params_len)
-                                try writer.writeByte('\n');
-                            try writer.print("{}:\n", .{name.fmt(self)});
-                        },
-                        .br => |tag| {
-                            const target: Function.Block.Index = @enumFromInt(instruction.data);
-                            try writer.print("  {s} {%}\n", .{
-                                @tagName(tag), target.toInst(&function).fmt(function_index, self),
-                            });
-                        },
-                        .br_cond => {
-                            const extra =
-                                function.extraData(Function.Instruction.BrCond, instruction.data);
-                            try writer.print("  br {%}, {%}, {%}\n", .{
-                                extra.cond.fmt(function_index, self),
-                                extra.then.toInst(&function).fmt(function_index, self),
-                                extra.@"else".toInst(&function).fmt(function_index, self),
-                            });
-                        },
-                        .call,
-                        .@"call fast",
-                        .@"musttail call",
-                        .@"musttail call fast",
-                        .@"notail call",
-                        .@"notail call fast",
-                        .@"tail call",
-                        .@"tail call fast",
-                        => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Call, instruction.data);
-                            const args = extra.trail.next(extra.data.args_len, Value, &function);
-                            try writer.writeAll("  ");
-                            const ret_ty = extra.data.ty.functionReturn(self);
-                            switch (ret_ty) {
-                                .void => {},
-                                else => try writer.print("%{} = ", .{
-                                    instruction_index.name(&function).fmt(self),
-                                }),
-                                .none => unreachable,
-                            }
-                            try writer.print("{s}{}{}{} {%} {}(", .{
-                                @tagName(tag),
-                                extra.data.info.call_conv,
-                                extra.data.attributes.ret(self).fmt(self),
-                                extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
-                                switch (extra.data.ty.functionKind(self)) {
-                                    .normal => ret_ty,
-                                    .vararg => extra.data.ty,
-                                }.fmt(self),
-                                extra.data.callee.fmt(function_index, self),
-                            });
-                            for (0.., args) |arg_index, arg| {
-                                if (arg_index > 0) try writer.writeAll(", ");
-                                try writer.print("{%}{} {}", .{
-                                    arg.typeOf(function_index, self).fmt(self),
-                                    extra.data.attributes.param(arg_index, self).fmt(self),
-                                    arg.fmt(function_index, self),
-                                });
-                            }
-                            try writer.writeByte(')');
-                            const call_function_attributes = extra.data.attributes.func(self);
-                            if (call_function_attributes != .none) try writer.print(" #{d}", .{
-                                (try attribute_groups.getOrPutValue(
-                                    self.gpa,
-                                    call_function_attributes,
-                                    {},
-                                )).index,
-                            });
-                            try writer.writeByte('\n');
-                        },
-                        .extractelement => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.ExtractElement,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.index.fmt(function_index, self),
-                            });
-                        },
-                        .extractvalue => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.ExtractValue,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                            try writer.print("  %{} = {s} {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {d}", .{index});
-                            try writer.writeByte('\n');
-                        },
-                        .fence => |tag| {
-                            const info: MemoryAccessInfo = @bitCast(instruction.data);
-                            try writer.print("  {s}{}{}", .{ @tagName(tag), info.scope, info.ordering });
-                        },
-                        .fneg,
-                        .@"fneg fast",
-                        .ret,
-                        => |tag| {
-                            const val: Value = @enumFromInt(instruction.data);
-                            try writer.print("  {s} {%}\n", .{
-                                @tagName(tag),
-                                val.fmt(function_index, self),
-                            });
-                        },
-                        .getelementptr,
-                        .@"getelementptr inbounds",
-                        => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.GetElementPtr,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, Value, &function);
-                            try writer.print("  %{} = {s} {%}, {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.type.fmt(self),
-                                extra.data.base.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {%}", .{
-                                index.fmt(function_index, self),
-                            });
-                            try writer.writeByte('\n');
-                        },
-                        .insertelement => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.InsertElement,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.elem.fmt(function_index, self),
-                                extra.index.fmt(function_index, self),
-                            });
-                        },
-                        .insertvalue => |tag| {
-                            var extra = function.extraDataTrail(
-                                Function.Instruction.InsertValue,
-                                instruction.data,
-                            );
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                            try writer.print("  %{} = {s} {%}, {%}", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                                extra.data.elem.fmt(function_index, self),
-                            });
-                            for (indices) |index| try writer.print(", {d}", .{index});
-                            try writer.writeByte('\n');
-                        },
-                        .@"llvm.maxnum.",
-                        .@"llvm.minnum.",
-                        .@"llvm.sadd.sat.",
-                        .@"llvm.smax.",
-                        .@"llvm.smin.",
-                        .@"llvm.smul.fix.sat.",
-                        .@"llvm.sshl.sat.",
-                        .@"llvm.ssub.sat.",
-                        .@"llvm.uadd.sat.",
-                        .@"llvm.umax.",
-                        .@"llvm.umin.",
-                        .@"llvm.umul.fix.sat.",
-                        .@"llvm.ushl.sat.",
-                        .@"llvm.usub.sat.",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Binary, instruction.data);
-                            const ty = instruction_index.typeOf(function_index, self);
-                            try writer.print("  %{} = call {%} @{s}{m}({%}, {%}{s})\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                ty.fmt(self),
-                                @tagName(tag),
-                                ty.fmt(self),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                                switch (tag) {
-                                    .@"llvm.smul.fix.sat.",
-                                    .@"llvm.umul.fix.sat.",
-                                    => ", i32 0",
-                                    else => "",
-                                },
-                            });
-                        },
-                        .load,
-                        .@"load atomic",
-                        .@"load atomic volatile",
-                        .@"load volatile",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Load, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}{}{}{,}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.type.fmt(self),
-                                extra.ptr.fmt(function_index, self),
-                                extra.info.scope,
-                                extra.info.ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .phi,
-                        .@"phi fast",
-                        => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Phi, instruction.data);
-                            const vals = extra.trail.next(block_incoming_len, Value, &function);
-                            const blocks =
-                                extra.trail.next(block_incoming_len, Function.Block.Index, &function);
-                            try writer.print("  %{} = {s} {%} ", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                vals[0].typeOf(function_index, self).fmt(self),
-                            });
-                            for (0.., vals, blocks) |incoming_index, incoming_val, incoming_block| {
-                                if (incoming_index > 0) try writer.writeAll(", ");
-                                try writer.print("[ {}, {} ]", .{
-                                    incoming_val.fmt(function_index, self),
-                                    incoming_block.toInst(&function).fmt(function_index, self),
-                                });
-                            }
-                            try writer.writeByte('\n');
-                        },
-                        .@"ret void",
-                        .@"unreachable",
-                        => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
-                        .select,
-                        .@"select fast",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Select, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.cond.fmt(function_index, self),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                            });
-                        },
-                        .shufflevector => |tag| {
-                            const extra = function.extraData(
-                                Function.Instruction.ShuffleVector,
-                                instruction.data,
-                            );
-                            try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.lhs.fmt(function_index, self),
-                                extra.rhs.fmt(function_index, self),
-                                extra.mask.fmt(function_index, self),
-                            });
-                        },
-                        .store,
-                        .@"store atomic",
-                        .@"store atomic volatile",
-                        .@"store volatile",
-                        => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.Store, instruction.data);
-                            try writer.print("  {s} {%}, {%}{}{}{,}\n", .{
-                                @tagName(tag),
-                                extra.val.fmt(function_index, self),
-                                extra.ptr.fmt(function_index, self),
-                                extra.info.scope,
-                                extra.info.ordering,
-                                extra.info.alignment,
-                            });
-                        },
-                        .@"switch" => |tag| {
-                            var extra =
-                                function.extraDataTrail(Function.Instruction.Switch, instruction.data);
-                            const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
-                            const blocks =
-                                extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
-                            try writer.print("  {s} {%}, {%} [\n", .{
-                                @tagName(tag),
-                                extra.data.val.fmt(function_index, self),
-                                extra.data.default.toInst(&function).fmt(function_index, self),
-                            });
-                            for (vals, blocks) |case_val, case_block| try writer.print(
-                                "    {%}, {%}\n",
-                                .{
-                                    case_val.fmt(self),
-                                    case_block.toInst(&function).fmt(function_index, self),
-                                },
-                            );
-                            try writer.writeAll("  ]\n");
-                        },
-                        .unimplemented => |tag| {
-                            const ty: Type = @enumFromInt(instruction.data);
-                            if (true) {
-                                try writer.writeAll("  ");
-                                switch (ty) {
-                                    .none, .void => {},
-                                    else => try writer.print("%{} = ", .{
-                                        instruction_index.name(&function).fmt(self),
-                                    }),
-                                }
-                                try writer.print("{s} {%}\n", .{ @tagName(tag), ty.fmt(self) });
-                            } else switch (ty) {
-                                .none, .void => {},
-                                else => try writer.print("  %{} = load {%}, ptr undef\n", .{
-                                    instruction_index.name(&function).fmt(self),
-                                    ty.fmt(self),
-                                }),
-                            }
-                        },
-                        .va_arg => |tag| {
-                            const extra =
-                                function.extraData(Function.Instruction.VaArg, instruction.data);
-                            try writer.print("  %{} = {s} {%}, {%}\n", .{
-                                instruction_index.name(&function).fmt(self),
-                                @tagName(tag),
-                                extra.list.fmt(function_index, self),
-                                extra.type.fmt(self),
-                            });
-                        },
-                    }
-                }
-                try writer.writeByte('}');
-            }
-            try writer.writeByte('\n');
         }
+        need_newline = true;
+    }
+
+    var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
+    defer attribute_groups.deinit(self.gpa);
+
+    for (0.., self.functions.items) |function_i, function| {
+        if (function.global.getReplacement(self) != .none) continue;
+        if (need_newline) try writer.writeByte('\n');
+        const function_index: Function.Index = @enumFromInt(function_i);
+        const global = function.global.ptrConst(self);
+        const params_len = global.type.functionParameters(self).len;
+        const function_attributes = function.attributes.func(self);
+        if (function_attributes != .none) try writer.print(
+            \\; Function Attrs:{}
+            \\
+        , .{function_attributes.fmt(self)});
+        try writer.print(
+            \\{s}{}{}{}{}{}{"} {} {}(
+        , .{
+            if (function.instructions.len > 0) "define" else "declare",
+            global.linkage,
+            global.preemption,
+            global.visibility,
+            global.dll_storage_class,
+            function.call_conv,
+            function.attributes.ret(self).fmt(self),
+            global.type.functionReturn(self).fmt(self),
+            function.global.fmt(self),
+        });
+        for (0..params_len) |arg| {
+            if (arg > 0) try writer.writeAll(", ");
+            try writer.print(
+                \\{%}{"}
+            , .{
+                global.type.functionParameters(self)[arg].fmt(self),
+                function.attributes.param(arg, self).fmt(self),
+            });
+            if (function.instructions.len > 0)
+                try writer.print(" {}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
+            else
+                try writer.print(" %{d}", .{arg});
+        }
+        switch (global.type.functionKind(self)) {
+            .normal => {},
+            .vararg => {
+                if (params_len > 0) try writer.writeAll(", ");
+                try writer.writeAll("...");
+            },
+        }
+        try writer.print("){}{ }", .{ global.unnamed_addr, global.addr_space });
+        if (function_attributes != .none) try writer.print(" #{d}", .{
+            (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
+        });
+        try writer.print("{ }", .{function.alignment});
+        if (function.instructions.len > 0) {
+            var block_incoming_len: u32 = undefined;
+            try writer.writeAll(" {\n");
+            for (params_len..function.instructions.len) |instruction_i| {
+                const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
+                const instruction = function.instructions.get(@intFromEnum(instruction_index));
+                switch (instruction.tag) {
+                    .add,
+                    .@"add nsw",
+                    .@"add nuw",
+                    .@"add nuw nsw",
+                    .@"and",
+                    .ashr,
+                    .@"ashr exact",
+                    .fadd,
+                    .@"fadd fast",
+                    .@"fcmp false",
+                    .@"fcmp fast false",
+                    .@"fcmp fast oeq",
+                    .@"fcmp fast oge",
+                    .@"fcmp fast ogt",
+                    .@"fcmp fast ole",
+                    .@"fcmp fast olt",
+                    .@"fcmp fast one",
+                    .@"fcmp fast ord",
+                    .@"fcmp fast true",
+                    .@"fcmp fast ueq",
+                    .@"fcmp fast uge",
+                    .@"fcmp fast ugt",
+                    .@"fcmp fast ule",
+                    .@"fcmp fast ult",
+                    .@"fcmp fast une",
+                    .@"fcmp fast uno",
+                    .@"fcmp oeq",
+                    .@"fcmp oge",
+                    .@"fcmp ogt",
+                    .@"fcmp ole",
+                    .@"fcmp olt",
+                    .@"fcmp one",
+                    .@"fcmp ord",
+                    .@"fcmp true",
+                    .@"fcmp ueq",
+                    .@"fcmp uge",
+                    .@"fcmp ugt",
+                    .@"fcmp ule",
+                    .@"fcmp ult",
+                    .@"fcmp une",
+                    .@"fcmp uno",
+                    .fdiv,
+                    .@"fdiv fast",
+                    .fmul,
+                    .@"fmul fast",
+                    .frem,
+                    .@"frem fast",
+                    .fsub,
+                    .@"fsub fast",
+                    .@"icmp eq",
+                    .@"icmp ne",
+                    .@"icmp sge",
+                    .@"icmp sgt",
+                    .@"icmp sle",
+                    .@"icmp slt",
+                    .@"icmp uge",
+                    .@"icmp ugt",
+                    .@"icmp ule",
+                    .@"icmp ult",
+                    .lshr,
+                    .@"lshr exact",
+                    .mul,
+                    .@"mul nsw",
+                    .@"mul nuw",
+                    .@"mul nuw nsw",
+                    .@"or",
+                    .sdiv,
+                    .@"sdiv exact",
+                    .srem,
+                    .shl,
+                    .@"shl nsw",
+                    .@"shl nuw",
+                    .@"shl nuw nsw",
+                    .sub,
+                    .@"sub nsw",
+                    .@"sub nuw",
+                    .@"sub nuw nsw",
+                    .udiv,
+                    .@"udiv exact",
+                    .urem,
+                    .xor,
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Binary, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                        });
+                    },
+                    .addrspacecast,
+                    .bitcast,
+                    .fpext,
+                    .fptosi,
+                    .fptoui,
+                    .fptrunc,
+                    .inttoptr,
+                    .ptrtoint,
+                    .sext,
+                    .sitofp,
+                    .trunc,
+                    .uitofp,
+                    .zext,
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Cast, instruction.data);
+                        try writer.print("  %{} = {s} {%} to {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.type.fmt(self),
+                        });
+                    },
+                    .alloca,
+                    .@"alloca inalloca",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Alloca, instruction.data);
+                        try writer.print("  %{} = {s} {%}{,%}{, }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.type.fmt(self),
+                            extra.len.fmt(function_index, self),
+                            extra.info.alignment,
+                            extra.info.addr_space,
+                        });
+                    },
+                    .arg => unreachable,
+                    .atomicrmw => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.AtomicRmw, instruction.data);
+                        try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            @tagName(extra.info.atomic_rmw_operation),
+                            extra.ptr.fmt(function_index, self),
+                            extra.val.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .block => {
+                        block_incoming_len = instruction.data;
+                        const name = instruction_index.name(&function);
+                        if (@intFromEnum(instruction_index) > params_len)
+                            try writer.writeByte('\n');
+                        try writer.print("{}:\n", .{name.fmt(self)});
+                    },
+                    .br => |tag| {
+                        const target: Function.Block.Index = @enumFromInt(instruction.data);
+                        try writer.print("  {s} {%}\n", .{
+                            @tagName(tag), target.toInst(&function).fmt(function_index, self),
+                        });
+                    },
+                    .br_cond => {
+                        const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
+                        try writer.print("  br {%}, {%}, {%}\n", .{
+                            extra.cond.fmt(function_index, self),
+                            extra.then.toInst(&function).fmt(function_index, self),
+                            extra.@"else".toInst(&function).fmt(function_index, self),
+                        });
+                    },
+                    .call,
+                    .@"call fast",
+                    .@"musttail call",
+                    .@"musttail call fast",
+                    .@"notail call",
+                    .@"notail call fast",
+                    .@"tail call",
+                    .@"tail call fast",
+                    => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.Call, instruction.data);
+                        const args = extra.trail.next(extra.data.args_len, Value, &function);
+                        try writer.writeAll("  ");
+                        const ret_ty = extra.data.ty.functionReturn(self);
+                        switch (ret_ty) {
+                            .void => {},
+                            else => try writer.print("%{} = ", .{
+                                instruction_index.name(&function).fmt(self),
+                            }),
+                            .none => unreachable,
+                        }
+                        try writer.print("{s}{}{}{} {%} {}(", .{
+                            @tagName(tag),
+                            extra.data.info.call_conv,
+                            extra.data.attributes.ret(self).fmt(self),
+                            extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
+                            switch (extra.data.ty.functionKind(self)) {
+                                .normal => ret_ty,
+                                .vararg => extra.data.ty,
+                            }.fmt(self),
+                            extra.data.callee.fmt(function_index, self),
+                        });
+                        for (0.., args) |arg_index, arg| {
+                            if (arg_index > 0) try writer.writeAll(", ");
+                            try writer.print("{%}{} {}", .{
+                                arg.typeOf(function_index, self).fmt(self),
+                                extra.data.attributes.param(arg_index, self).fmt(self),
+                                arg.fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte(')');
+                        const call_function_attributes = extra.data.attributes.func(self);
+                        if (call_function_attributes != .none) try writer.print(" #{d}", .{
+                            (try attribute_groups.getOrPutValue(
+                                self.gpa,
+                                call_function_attributes,
+                                {},
+                            )).index,
+                        });
+                        try writer.writeByte('\n');
+                    },
+                    .cmpxchg,
+                    .@"cmpxchg weak",
+                    => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.CmpXchg, instruction.data);
+                        try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.ptr.fmt(function_index, self),
+                            extra.cmp.fmt(function_index, self),
+                            extra.new.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.failure_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .extractelement => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.ExtractElement, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.index.fmt(function_index, self),
+                        });
+                    },
+                    .extractvalue => |tag| {
+                        var extra = function.extraDataTrail(
+                            Function.Instruction.ExtractValue,
+                            instruction.data,
+                        );
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
+                        try writer.print("  %{} = {s} {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {d}", .{index});
+                        try writer.writeByte('\n');
+                    },
+                    .fence => |tag| {
+                        const info: MemoryAccessInfo = @bitCast(instruction.data);
+                        try writer.print("  {s}{ }{ }", .{
+                            @tagName(tag),
+                            info.sync_scope,
+                            info.success_ordering,
+                        });
+                    },
+                    .fneg,
+                    .@"fneg fast",
+                    => |tag| {
+                        const val: Value = @enumFromInt(instruction.data);
+                        try writer.print("  %{} = {s} {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            val.fmt(function_index, self),
+                        });
+                    },
+                    .getelementptr,
+                    .@"getelementptr inbounds",
+                    => |tag| {
+                        var extra = function.extraDataTrail(
+                            Function.Instruction.GetElementPtr,
+                            instruction.data,
+                        );
+                        const indices = extra.trail.next(extra.data.indices_len, Value, &function);
+                        try writer.print("  %{} = {s} {%}, {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.type.fmt(self),
+                            extra.data.base.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {%}", .{
+                            index.fmt(function_index, self),
+                        });
+                        try writer.writeByte('\n');
+                    },
+                    .insertelement => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.InsertElement, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.val.fmt(function_index, self),
+                            extra.elem.fmt(function_index, self),
+                            extra.index.fmt(function_index, self),
+                        });
+                    },
+                    .insertvalue => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.InsertValue, instruction.data);
+                        const indices = extra.trail.next(extra.data.indices_len, u32, &function);
+                        try writer.print("  %{} = {s} {%}, {%}", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                            extra.data.elem.fmt(function_index, self),
+                        });
+                        for (indices) |index| try writer.print(", {d}", .{index});
+                        try writer.writeByte('\n');
+                    },
+                    .load,
+                    .@"load atomic",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Load, instruction.data);
+                        try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.type.fmt(self),
+                            extra.ptr.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .phi,
+                    .@"phi fast",
+                    => |tag| {
+                        var extra = function.extraDataTrail(Function.Instruction.Phi, instruction.data);
+                        const vals = extra.trail.next(block_incoming_len, Value, &function);
+                        const blocks =
+                            extra.trail.next(block_incoming_len, Function.Block.Index, &function);
+                        try writer.print("  %{} = {s} {%} ", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            vals[0].typeOf(function_index, self).fmt(self),
+                        });
+                        for (0.., vals, blocks) |incoming_index, incoming_val, incoming_block| {
+                            if (incoming_index > 0) try writer.writeAll(", ");
+                            try writer.print("[ {}, {} ]", .{
+                                incoming_val.fmt(function_index, self),
+                                incoming_block.toInst(&function).fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte('\n');
+                    },
+                    .ret => |tag| {
+                        const val: Value = @enumFromInt(instruction.data);
+                        try writer.print("  {s} {%}\n", .{
+                            @tagName(tag),
+                            val.fmt(function_index, self),
+                        });
+                    },
+                    .@"ret void",
+                    .@"unreachable",
+                    => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
+                    .select,
+                    .@"select fast",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Select, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.cond.fmt(function_index, self),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                        });
+                    },
+                    .shufflevector => |tag| {
+                        const extra =
+                            function.extraData(Function.Instruction.ShuffleVector, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.lhs.fmt(function_index, self),
+                            extra.rhs.fmt(function_index, self),
+                            extra.mask.fmt(function_index, self),
+                        });
+                    },
+                    .store,
+                    .@"store atomic",
+                    => |tag| {
+                        const extra = function.extraData(Function.Instruction.Store, instruction.data);
+                        try writer.print("  {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                            @tagName(tag),
+                            extra.info.access_kind,
+                            extra.val.fmt(function_index, self),
+                            extra.ptr.fmt(function_index, self),
+                            extra.info.sync_scope,
+                            extra.info.success_ordering,
+                            extra.info.alignment,
+                        });
+                    },
+                    .@"switch" => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.Switch, instruction.data);
+                        const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
+                        const blocks =
+                            extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
+                        try writer.print("  {s} {%}, {%} [\n", .{
+                            @tagName(tag),
+                            extra.data.val.fmt(function_index, self),
+                            extra.data.default.toInst(&function).fmt(function_index, self),
+                        });
+                        for (vals, blocks) |case_val, case_block| try writer.print(
+                            "    {%}, {%}\n",
+                            .{
+                                case_val.fmt(self),
+                                case_block.toInst(&function).fmt(function_index, self),
+                            },
+                        );
+                        try writer.writeAll("  ]\n");
+                    },
+                    .va_arg => |tag| {
+                        const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
+                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                            instruction_index.name(&function).fmt(self),
+                            @tagName(tag),
+                            extra.list.fmt(function_index, self),
+                            extra.type.fmt(self),
+                        });
+                    },
+                }
+            }
+            try writer.writeByte('}');
+        }
+        try writer.writeByte('\n');
         need_newline = true;
     }
 
@@ -7850,7 +9985,7 @@ fn fnTypeAssumeCapacity(
     ret: Type,
     params: []const Type,
     comptime kind: Type.Function.Kind,
-) if (build_options.have_llvm) Allocator.Error!Type else Type {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .function,
         .vararg => .vararg_function,
@@ -7880,7 +10015,7 @@ fn fnTypeAssumeCapacity(
         gop.key_ptr.* = {};
         gop.value_ptr.* = {};
         self.type_items.appendAssumeCapacity(.{
-            .tag = .function,
+            .tag = tag,
             .data = self.addTypeExtraAssumeCapacity(Type.Function{
                 .ret = ret,
                 .params_len = @intCast(params.len),
@@ -7957,8 +10092,8 @@ fn vectorTypeAssumeCapacity(
             .data = self.addTypeExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(switch (kind) {
-            .normal => llvm.Type.vectorType,
-            .scalable => llvm.Type.scalableVectorType,
+            .normal => &llvm.Type.vectorType,
+            .scalable => &llvm.Type.scalableVectorType,
         }(child.toLlvm(self), @intCast(len)));
     }
     return @enumFromInt(gop.index);
@@ -8034,7 +10169,7 @@ fn structTypeAssumeCapacity(
     self: *Builder,
     comptime kind: Type.Structure.Kind,
     fields: []const Type,
-) if (build_options.have_llvm) Allocator.Error!Type else Type {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .structure,
         .@"packed" => .packed_structure,
@@ -8262,7 +10397,7 @@ fn bigIntConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     value: std.math.big.int.Const,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) Allocator.Error!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     assert(type_item.tag == .integer);
     const bits = type_item.data;
@@ -8573,10 +10708,10 @@ fn ppc_fp128ConstAssumeCapacity(self: *Builder, val: [2]f64) Constant {
             }),
         });
         if (self.useLibLlvm()) {
-            const llvm_limbs: *const [2]u64 = @ptrCast(&val);
+            const llvm_limbs: [2]u64 = @bitCast(val);
             self.llvm.constants.appendAssumeCapacity(
                 Type.i128.toLlvm(self)
-                    .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), llvm_limbs)
+                    .constIntOfArbitraryPrecision(@intCast(llvm_limbs.len), &llvm_limbs)
                     .constBitCast(Type.ppc_fp128.toLlvm(self)),
             );
         }
@@ -8608,7 +10743,7 @@ fn structConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     var extra = self.typeExtraDataTrail(Type.Structure, switch (type_item.tag) {
         .structure, .packed_structure => type_item.data,
@@ -8656,7 +10791,7 @@ fn arrayConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     const type_extra: struct { len: u64, child: Type } = switch (type_item.tag) {
         inline .small_array, .array => |kind| extra: {
@@ -8724,7 +10859,7 @@ fn vectorConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     vals: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     assert(ty.isVector(self));
     assert(ty.vectorLen(self) == vals.len);
     for (vals) |val| assert(ty.childType(self) == val.typeOf(self));
@@ -8758,7 +10893,7 @@ fn splatConstAssumeCapacity(
     self: *Builder,
     ty: Type,
     val: Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     assert(ty.scalarType(self) == val.typeOf(self));
 
     if (!ty.isVector(self)) return val;
@@ -9033,6 +11168,7 @@ fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty:
             .ptrtoint => &llvm.Value.constPtrToInt,
             .inttoptr => &llvm.Value.constIntToPtr,
             .bitcast => &llvm.Value.constBitCast,
+            .addrspacecast => &llvm.Value.constAddrSpaceCast,
             else => unreachable,
         }(val.toLlvm(self), ty.toLlvm(self)));
     }
@@ -9046,7 +11182,7 @@ fn gepConstAssumeCapacity(
     base: Constant,
     inrange: ?u16,
     indices: []const Constant,
-) if (build_options.have_llvm) Allocator.Error!Constant else Constant {
+) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
     const tag: Constant.Tag = switch (kind) {
         .normal => .getelementptr,
         .inbounds => .@"getelementptr inbounds",
@@ -9138,8 +11274,8 @@ fn gepConstAssumeCapacity(
             for (llvm_indices, indices) |*llvm_index, index| llvm_index.* = index.toLlvm(self);
 
             self.llvm.constants.appendAssumeCapacity(switch (kind) {
-                .normal => llvm.Type.constGEP,
-                .inbounds => llvm.Type.constInBoundsGEP,
+                .normal => &llvm.Type.constGEP,
+                .inbounds => &llvm.Type.constInBoundsGEP,
             }(ty.toLlvm(self), base.toLlvm(self), llvm_indices.ptr, @intCast(llvm_indices.len)));
         }
     }
@@ -9177,7 +11313,7 @@ fn icmpConstAssumeCapacity(
             .data = self.addConstantExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
-            llvm.constICmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+            llvm.constICmp(cond.toLlvm(), lhs.toLlvm(self), rhs.toLlvm(self)),
         );
     }
     return @enumFromInt(gop.index);
@@ -9214,7 +11350,7 @@ fn fcmpConstAssumeCapacity(
             .data = self.addConstantExtraAssumeCapacity(data),
         });
         if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
-            llvm.constFCmp(@enumFromInt(@intFromEnum(cond)), lhs.toLlvm(self), rhs.toLlvm(self)),
+            llvm.constFCmp(cond.toLlvm(), lhs.toLlvm(self), rhs.toLlvm(self)),
         );
     }
     return @enumFromInt(gop.index);
@@ -9400,16 +11536,52 @@ fn binConstAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
+comptime {
+    _ = &selectValue;
+}
+
+fn selectConstAssumeCapacity(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Constant {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant.Select) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(Constant.Tag.select)),
+                std.mem.asBytes(&key),
+            ));
+        }
+        pub fn eql(ctx: @This(), lhs_key: Constant.Select, _: void, rhs_index: usize) bool {
+            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .select) return false;
+            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Select, rhs_data);
+            return std.meta.eql(lhs_key, rhs_extra);
+        }
+    };
+    const data = Constant.Select{ .cond = cond, .lhs = lhs, .rhs = rhs };
+    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.constant_items.appendAssumeCapacity(.{
+            .tag = .select,
+            .data = self.addConstantExtraAssumeCapacity(data),
+        });
+        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
+            cond.toLlvm(self).constSelect(lhs.toLlvm(self), rhs.toLlvm(self)),
+        );
+    }
+    return @enumFromInt(gop.index);
+}
+
 fn asmConstAssumeCapacity(
     self: *Builder,
     ty: Type,
-    info: Constant.Asm.Info,
+    info: Constant.Assembly.Info,
     assembly: String,
     constraints: String,
 ) Constant {
     assert(ty.functionKind(self) == .normal);
 
-    const Key = struct { tag: Constant.Tag, extra: Constant.Asm };
+    const Key = struct { tag: Constant.Tag, extra: Constant.Assembly };
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
@@ -9421,7 +11593,7 @@ fn asmConstAssumeCapacity(
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             if (lhs_key.tag != ctx.builder.constant_items.items(.tag)[rhs_index]) return false;
             const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Asm, rhs_data);
+            const rhs_extra = ctx.builder.constantExtraData(Constant.Assembly, rhs_data);
             return std.meta.eql(lhs_key.extra, rhs_extra);
         }
     };

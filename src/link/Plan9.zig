@@ -100,11 +100,23 @@ syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
+/// Indices of the three "special" symbols into atoms
+etext_edata_end_atom_indices: [3]?Atom.Index = .{ null, null, null },
+
 const Reloc = struct {
     target: Atom.Index,
     offset: u64,
     addend: u32,
-    pcrel: bool = false,
+    type: enum {
+        pcrel,
+        nonpcrel,
+        // for getting the value of the etext symbol; we ignore target
+        special_etext,
+        // for getting the value of the edata symbol; we ignore target
+        special_edata,
+        // for getting the value of the end symbol; we ignore target
+        special_end,
+    } = .nonpcrel,
 };
 
 const Bases = struct {
@@ -467,15 +479,10 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
 pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
     const decl = mod.declPtr(decl_index);
 
-    if (decl.val.getExternFunc(mod)) |_| {
-        return; // TODO Should we do more when front-end analyzed extern decl?
+    if (decl.isExtern(mod)) {
+        log.debug("found extern decl: {s}", .{mod.intern_pool.stringToSlice(decl.name)});
+        return;
     }
-    if (decl.val.getVariable(mod)) |variable| {
-        if (variable.is_extern) {
-            return; // TODO Should we do more when front-end analyzed extern decl?
-        }
-    }
-
     const atom_idx = try self.seeDecl(decl_index);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -574,6 +581,13 @@ pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
     }
 }
 
+fn externCount(self: *Plan9) usize {
+    var extern_atom_count: usize = 0;
+    for (self.etext_edata_end_atom_indices) |idx| {
+        if (idx != null) extern_atom_count += 1;
+    }
+    return extern_atom_count;
+}
 // counts decls, unnamed consts, and lazy syms
 fn atomCount(self: *Plan9) usize {
     var fn_decl_count: usize = 0;
@@ -594,7 +608,8 @@ fn atomCount(self: *Plan9) usize {
     while (it_lazy.next()) |kv| {
         lazy_atom_count += kv.value_ptr.numberOfAtoms();
     }
-    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count;
+    const extern_atom_count = self.externCount();
+    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count;
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -647,7 +662,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     defer self.base.allocator.free(got_table);
 
     // + 4 for header, got, symbols, linecountinfo
-    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.atomCount() + 4);
+    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.atomCount() + 4 - self.externCount());
     defer self.base.allocator.free(iovecs);
 
     const file = self.base.file.?;
@@ -729,8 +744,17 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             self.syms.items[text_atom.sym_index.?].value = off;
         }
     }
-    // etext symbol
-    self.syms.items[2].value = self.getAddr(text_i, .t);
+    // fix the sym for etext
+    if (self.etext_edata_end_atom_indices[0]) |etext_atom_idx| {
+        const etext_atom = self.getAtom(etext_atom_idx);
+        const val = self.getAddr(text_i, .t);
+        self.syms.items[etext_atom.sym_index.?].value = val;
+        if (!self.sixtyfour_bit) {
+            mem.writeInt(u32, got_table[etext_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+        } else {
+            mem.writeInt(u64, got_table[etext_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+        }
+    }
     // global offset table is in data
     iovecs[iovecs_i] = .{ .iov_base = got_table.ptr, .iov_len = got_table.len };
     iovecs_i += 1;
@@ -800,15 +824,34 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             self.syms.items[data_atom.sym_index.?].value = off;
         }
         // edata symbol
-        self.syms.items[0].value = self.getAddr(data_i, .b);
-        // end
-        self.syms.items[1].value = self.getAddr(data_i, .b);
+        if (self.etext_edata_end_atom_indices[1]) |edata_atom_idx| {
+            const edata_atom = self.getAtom(edata_atom_idx);
+            const val = self.getAddr(data_i, .b);
+            self.syms.items[edata_atom.sym_index.?].value = val;
+            if (!self.sixtyfour_bit) {
+                mem.writeInt(u32, got_table[edata_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+            } else {
+                mem.writeInt(u64, got_table[edata_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+            }
+        }
+        // end symbol (same as edata because native backends don't do .bss yet)
+        if (self.etext_edata_end_atom_indices[2]) |end_atom_idx| {
+            const end_atom = self.getAtom(end_atom_idx);
+            const val = self.getAddr(data_i, .b);
+            self.syms.items[end_atom.sym_index.?].value = val;
+            if (!self.sixtyfour_bit) {
+                mem.writeInt(u32, got_table[end_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+            } else {
+                log.debug("write end (got_table[0x{x}] = 0x{x})", .{ end_atom.got_index.? * 8, val });
+                mem.writeInt(u64, got_table[end_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+            }
+        }
     }
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     try self.writeSyms(&sym_buf);
     const syms = try sym_buf.toOwnedSlice();
     defer self.base.allocator.free(syms);
-    assert(2 + self.atomCount() == iovecs_i); // we didn't write all the decls
+    assert(2 + self.atomCount() - self.externCount() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .iov_base = syms.ptr, .iov_len = syms.len };
     iovecs_i += 1;
     iovecs[iovecs_i] = .{ .iov_base = linecountinfo.items.ptr, .iov_len = linecountinfo.items.len };
@@ -836,28 +879,46 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             const source_atom_index = kv.key_ptr.*;
             const source_atom = self.getAtom(source_atom_index);
             const source_atom_symbol = self.syms.items[source_atom.sym_index.?];
+            const code = source_atom.code.getCode(self);
+            const endian = self.base.options.target.cpu.arch.endian();
             for (kv.value_ptr.items) |reloc| {
-                const target_atom_index = reloc.target;
-                const target_atom = self.getAtomPtr(target_atom_index);
-                const target_symbol = self.syms.items[target_atom.sym_index.?];
-                const target_offset = target_atom.offset.?;
-
                 const offset = reloc.offset;
                 const addend = reloc.addend;
+                if (reloc.type == .pcrel or reloc.type == .nonpcrel) {
+                    const target_atom_index = reloc.target;
+                    const target_atom = self.getAtomPtr(target_atom_index);
+                    const target_symbol = self.syms.items[target_atom.sym_index.?];
+                    const target_offset = target_atom.offset.?;
 
-                const code = source_atom.code.getCode(self);
-
-                if (reloc.pcrel) {
-                    const disp = @as(i32, @intCast(target_offset)) - @as(i32, @intCast(source_atom.offset.?)) - 4 - @as(i32, @intCast(offset));
-                    mem.writeInt(i32, code[@as(usize, @intCast(offset))..][0..4], @as(i32, @intCast(disp)), self.base.options.target.cpu.arch.endian());
-                } else {
-                    if (!self.sixtyfour_bit) {
-                        mem.writeInt(u32, code[@as(usize, @intCast(offset))..][0..4], @as(u32, @intCast(target_offset + addend)), self.base.options.target.cpu.arch.endian());
-                    } else {
-                        mem.writeInt(u64, code[@as(usize, @intCast(offset))..][0..8], target_offset + addend, self.base.options.target.cpu.arch.endian());
+                    switch (reloc.type) {
+                        .pcrel => {
+                            const disp = @as(i32, @intCast(target_offset)) - @as(i32, @intCast(source_atom.offset.?)) - 4 - @as(i32, @intCast(offset));
+                            mem.writeInt(i32, code[@as(usize, @intCast(offset))..][0..4], @as(i32, @intCast(disp)), endian);
+                        },
+                        .nonpcrel => {
+                            if (!self.sixtyfour_bit) {
+                                mem.writeInt(u32, code[@intCast(offset)..][0..4], @as(u32, @intCast(target_offset + addend)), endian);
+                            } else {
+                                mem.writeInt(u64, code[@intCast(offset)..][0..8], target_offset + addend, endian);
+                            }
+                        },
+                        else => unreachable,
                     }
+                    log.debug("relocating the address of '{s}' + {d} into '{s}' + {d} (({s}[{d}] = 0x{x} + 0x{x})", .{ target_symbol.name, addend, source_atom_symbol.name, offset, source_atom_symbol.name, offset, target_offset, addend });
+                } else {
+                    const addr = switch (reloc.type) {
+                        .special_etext => self.syms.items[self.getAtom(self.etext_edata_end_atom_indices[0].?).sym_index.?].value,
+                        .special_edata => self.syms.items[self.getAtom(self.etext_edata_end_atom_indices[1].?).sym_index.?].value,
+                        .special_end => self.syms.items[self.getAtom(self.etext_edata_end_atom_indices[2].?).sym_index.?].value,
+                        else => unreachable,
+                    };
+                    if (!self.sixtyfour_bit) {
+                        mem.writeInt(u32, code[@intCast(offset)..][0..4], @as(u32, @intCast(addr + addend)), endian);
+                    } else {
+                        mem.writeInt(u64, code[@intCast(offset)..][0..8], addr + addend, endian);
+                    }
+                    log.debug("relocating the address of '{s}' + {d} into '{s}' + {d} (({s}[{d}] = 0x{x} + 0x{x})", .{ @tagName(reloc.type), addend, source_atom_symbol.name, offset, source_atom_symbol.name, offset, addr, addend });
                 }
-                log.debug("relocating the address of '{s}' + {d} into '{s}' + {d} (({s}[{d}] = 0x{x} + 0x{x})", .{ target_symbol.name, addend, source_atom_symbol.name, offset, source_atom_symbol.name, offset, target_offset, addend });
             }
         }
     }
@@ -983,7 +1044,24 @@ pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !Atom.Index {
             .exports = .{},
         };
     }
-    return gop.value_ptr.index;
+    const atom_idx = gop.value_ptr.index;
+    // handle externs here because they might not get updateDecl called on them
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+    const name = mod.intern_pool.stringToSlice(decl.name);
+    if (decl.isExtern(mod)) {
+        // this is a "phantom atom" - it is never actually written to disk, just convenient for us to store stuff about externs
+        if (std.mem.eql(u8, name, "etext")) {
+            self.etext_edata_end_atom_indices[0] = atom_idx;
+        } else if (std.mem.eql(u8, name, "edata")) {
+            self.etext_edata_end_atom_indices[1] = atom_idx;
+        } else if (std.mem.eql(u8, name, "end")) {
+            self.etext_edata_end_atom_indices[2] = atom_idx;
+        }
+        try self.updateFinish(decl_index);
+        log.debug("seeDecl(extern) for {s} (got_addr=0x{x})", .{ name, self.getAtom(atom_idx).getOffsetTableAddress(self) });
+    } else log.debug("seeDecl for {s}", .{name});
+    return atom_idx;
 }
 
 pub fn updateDeclExports(
@@ -1157,23 +1235,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     self.bases = defaultBaseAddrs(options.target.cpu.arch);
 
-    // first 4 symbols in our table are edata, end, etext, and got
     try self.syms.appendSlice(self.base.allocator, &.{
-        .{
-            .value = 0xcafebabe,
-            .type = .B,
-            .name = "edata",
-        },
-        .{
-            .value = 0xcafebabe,
-            .type = .B,
-            .name = "end",
-        },
-        .{
-            .value = 0xcafebabe,
-            .type = .T,
-            .name = "etext",
-        },
         // we include the global offset table to make it easier for debugging
         .{
             .value = self.getAddr(0, .d), // the global offset table starts at 0
@@ -1202,11 +1264,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const mod = self.base.options.module.?;
     const ip = &mod.intern_pool;
     const writer = buf.writer();
-    // write the first four symbols (edata, etext, end, __GOT)
+    // write __GOT
     try self.writeSym(writer, self.syms.items[0]);
-    try self.writeSym(writer, self.syms.items[1]);
-    try self.writeSym(writer, self.syms.items[2]);
-    try self.writeSym(writer, self.syms.items[3]);
     // write the f symbols
     {
         var it = self.file_segments.iterator();
@@ -1296,6 +1355,14 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             }
         }
     }
+    // special symbols
+    for (self.etext_edata_end_atom_indices) |idx| {
+        if (idx) |atom_idx| {
+            const atom = self.getAtom(atom_idx);
+            const sym = self.syms.items[atom.sym_index.?];
+            try self.writeSym(writer, sym);
+        }
+    }
 }
 
 /// Must be called only after a successful call to `updateDecl`.
@@ -1312,26 +1379,35 @@ pub fn getDeclVAddr(
 ) !u64 {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    // we might already know the vaddr
-    if (decl.ty.zigTypeTag(mod) == .Fn) {
-        var start = self.bases.text;
-        var it_file = self.fn_decl_table.iterator();
-        while (it_file.next()) |fentry| {
-            var symidx_and_submap = fentry.value_ptr;
-            var submap_it = symidx_and_submap.functions.iterator();
-            while (submap_it.next()) |entry| {
-                if (entry.key_ptr.* == decl_index) return start;
-                start += entry.value_ptr.code.len;
-            }
+    log.debug("getDeclVAddr for {s}", .{mod.intern_pool.stringToSlice(decl.name)});
+    if (decl.isExtern(mod)) {
+        const extern_name = mod.intern_pool.stringToSlice(decl.name);
+        if (std.mem.eql(u8, extern_name, "etext")) {
+            try self.addReloc(reloc_info.parent_atom_index, .{
+                .target = undefined,
+                .offset = reloc_info.offset,
+                .addend = reloc_info.addend,
+                .type = .special_etext,
+            });
+        } else if (std.mem.eql(u8, extern_name, "edata")) {
+            try self.addReloc(reloc_info.parent_atom_index, .{
+                .target = undefined,
+                .offset = reloc_info.offset,
+                .addend = reloc_info.addend,
+                .type = .special_edata,
+            });
+        } else if (std.mem.eql(u8, extern_name, "end")) {
+            try self.addReloc(reloc_info.parent_atom_index, .{
+                .target = undefined,
+                .offset = reloc_info.offset,
+                .addend = reloc_info.addend,
+                .type = .special_end,
+            });
         }
-    } else {
-        var start = self.bases.data + self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
-        var it = self.data_decl_table.iterator();
-        while (it.next()) |kv| {
-            if (decl_index == kv.key_ptr.*) return start;
-            start += kv.value_ptr.len;
-        }
+        // TODO handle other extern variables and functions
+        return undefined;
     }
+    // otherwise, we just add a relocation
     const atom_index = try self.seeDecl(decl_index);
     // the parent_atom_index in this case is just the decl_index of the parent
     try self.addReloc(reloc_info.parent_atom_index, .{
@@ -1339,7 +1415,7 @@ pub fn getDeclVAddr(
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
     });
-    return 0xcafebabe;
+    return undefined;
 }
 
 pub fn addReloc(self: *Plan9, parent_index: Atom.Index, reloc: Reloc) !void {

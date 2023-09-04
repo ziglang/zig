@@ -36,19 +36,29 @@
         text-decoration: none;
       }
 
+      pre a {
+        text-decoration: underline;
+        color: unset;
+      }
+
       a:hover {
         text-decoration: underline;
       }
 
+      a[href^="src/"] {
+        border-bottom: 2px dotted var(--tx-color);
+      }
+
       .hidden {
-        display: none;
+        display: none !important;
       }
 
       /* layout */
       .canvas {
+        display:flex;
+        flex-direction: column;
         width: 100vw;
         height: 100vh;
-        overflow: hidden;
         margin: 0;
         padding: 0;
         font-family: var(--ui);
@@ -58,11 +68,21 @@
 
       .flex-main {
         display: flex;
-        width: 100%;
-        height: 100%;
+        flex-direction: column;
         justify-content: center;
+        margin: 0 1rem;
+
+        height: 100%;
+        overflow: hidden;
+        
 
         z-index: 100;
+      }
+
+      .flex-horizontal {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
       }
 
       .flex-filler {
@@ -104,23 +124,27 @@
         z-index: 400;
       }
 
-      /* sidebar */
+      .understated {
+        color: var(--search-other-results-color);
+      }
+
       .sidebar {
-        font-size: 1rem;
         background-color: var(--bg-color);
         box-shadow: 0 0 1rem var(--sidebar-sh-color);
+        clip-path: inset(0px -15px 0px 0px);
       }
 
-      .sidebar .logo {
-        padding: 1rem 0.35rem 0.35rem 0.35rem;
+      .logo {
+        width: 168px;
+        margin-right: 1rem;
       }
 
-      .sidebar .logo > svg {
+      .logo > svg {
         display: block;
         overflow: visible;
       }
 
-      .sidebar ul.guides-api-switch {
+      ul.guides-api-switch {
         display: flex;
         flex-direction: row;
         justify-content: center;
@@ -130,7 +154,7 @@
         padding: 0;
       }
 
-      .sidebar .guides-api-switch a {
+      .guides-api-switch a {
         display: block;
         padding: 0.5rem 1rem;      
         color: var(--sidebar-modlnk-tx-color);
@@ -157,11 +181,24 @@
         background-color: var(--sidebar-modlnk-bg-color-hover);
       }
 
-      .sidebar .guides-api-switch .active {
+      .guides-api-switch .active {
         color: var(--sidebar-modlnk-tx-color-active);
         background-color: var(--sidebar-modlnk-bg-color-active);
       }
 
+      #guidesMenu {
+        height: 100%;
+        overflow: hidden;
+        width: 30%;
+        margin-right: 2rem;
+      }
+      
+      #activeGuide {
+        overflow-y: scroll;
+        height: 100%;
+        width: 70%;
+        padding-right: 1rem;
+      }
       .sidebar h2 {
         margin: 0.5rem;
         padding: 0;
@@ -202,8 +239,16 @@
         font-family: var(--mono);
       }
 
+      #guideTocList {
+        padding: 0 1rem;
+      }
+      
+      #guideTocList ul {
+        padding-left: 1rem;
+        margin: 0;
+      }
+
       #guides {
-        padding: 0rem 0.7rem 2.4rem 1.4rem;
         box-sizing: border-box;
         font-size: 1rem;
         background-color: var(--bg-color);
@@ -212,15 +257,35 @@
 
       /* docs section */
       .docs {
+        flex-grow: 2;
         padding: 0rem 0.7rem 2.4rem 1.4rem;
         font-size: 1rem;
         background-color: var(--bg-color);
         overflow-wrap: break-word;
+        height: 100%;
+        overflow-y: scroll;
       }
 
-      .docs .search {
+      #noDocsNamespaces {
+      	margin: 1rem;
+      	border: 1px solid var(--search-other-results-color);
+      	padding: 0.5rem 1rem;
+      	background-color: var(--help-bg-color);
+      }
+
+      .column {
+        flex-basis: 0;
+        flex-grow: 1;
+        min-width: 24rem;
+      }
+
+      
+      .search-container {
+        flex-grow: 2;
+      }
+
+      .search {
         width: 100%;
-        margin-bottom: 0.8rem;
         padding: 0.5rem;
         font-family: var(--ui);
         font-size: 1rem;
@@ -238,7 +303,7 @@
         -webkit-appearance: none;
       }
 
-      .docs .search:focus {
+      .search:focus {
         background-color: var(--search-bg-color-focus);
         border-bottom-color: #ffbb4d;
         box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
@@ -284,7 +349,8 @@
         transform: translate(0, 0);
       }
 
-      #searchHelp {
+      #sectSearchResults {
+        box-sizing: border-box;
       }
 
       #searchHelp summary {
@@ -333,15 +399,15 @@
       }
       
       
-      .docs a {
+      a {
         color: var(--link-color);
       }
 
-      .docs p {
+      p {
         margin: 0.8rem 0;
       }
 
-      .docs pre {
+      pre {
         font-family: var(--mono);
         font-size: 1em;
         background-color: #F5F5F5;
@@ -349,53 +415,55 @@
         overflow-x: auto;
       }
 
-      .docs pre.inline {
+      pre.inline {
         background-color: var(--bg-color);
         padding: 0;
         display: inline;
       }
 
 
-      .docs code {
+      code {
         font-family: var(--mono);
         font-size: 1em;
       }
 
-      .docs h1 {
+      h1 {
         font-size: 1.4em;
         margin: 0.8em 0;
         padding: 0;
         border-bottom: 0.0625rem dashed;
       }
 
-      .docs h2 {
+      h2 {
         font-size: 1.3em;
         margin: 0.5em 0;
         padding: 0;
         border-bottom: 0.0625rem solid;
       }
-      #listNav {
+      .listNav {
         list-style-type: none;
         margin: 0;
         padding: 0;
         overflow: hidden;
-        background-color: #f1f1f1;
+        boackground-color: #f1f1f1;
+        display: flex;
+        flex-direction: row;
       }
-      #listNav li {
-        float:left;
+      .listNav li {
+      
       }
-      #listNav li a {
+      .listNav li a {
         display: block;
         color: #000;
         text-align: center;
         padding: .5em .8em;
         text-decoration: none;
       }
-      #listNav li a:hover {
+      .listNav li a:hover {
         background-color: #555;
         color: #fff;
       }
-      #listNav li a.active {
+      .listNav li a.active {
         background-color: #FFBB4D;
         color: #000;
       }
@@ -586,6 +654,10 @@
           color: #458;
           font-weight: bold;
       }
+      .tok-decl-ref {
+          color: #0086b3;
+          font-weight: bold;
+      }
 
       /* dark mode */
       @media (prefers-color-scheme: dark) {
@@ -593,7 +665,7 @@
           --tx-color: #bbb;
           --bg-color: #111;
           --link-color: #88f;
-          --sidebar-sh-color: rgba(128, 128, 128, 0.09);
+          --sidebar-sh-color: rgba(128, 128, 128, 0.5);
           --sidebar-mod-bg-color: #333;
           --sidebar-modlnk-tx-color: #fff;
           --sidebar-modlnk-tx-color-hover: #fff;
@@ -610,23 +682,23 @@
         --warning-popover-bg-color: #600000;
         }
 
-        .docs pre {
+        pre {
           background-color:#2A2A2A;
         }
         .fieldDocs {
           border-color:#2A2A2A;
         }
-        #listNav {
+        .listNav {
           background-color: #333;
         }
-        #listNav li a {
+        .listNav li a {
           color: #fff;
         }
-        #listNav li a:hover {
+        .listNav li a:hover {
           background-color: #555;
           color: #fff;
         }
-        #listNav li a.active {
+        .listNav li a.active {
           background-color: #FFBB4D;
           color: #000;
         }
@@ -659,6 +731,9 @@
         }
         .tok-type {
             color: #68f;
+        }
+        .tok-decl-ref {
+            color: lightblue;
         }
       }
 
@@ -748,7 +823,8 @@
       pre {
         --zig-keyword: #333;
         --zig-builtin: #0086b3;
-        --zig-identifier: 'black';
+        --zig-identifier: black;
+        --zig-decl-identifier: #0086b3;
         --zig-string-literal: #d14;
         --zig-type: #458;
         --zig-fn: #900;
@@ -758,13 +834,13 @@
         pre {
           --zig-keyword: #eee;
           --zig-builtin: #ff894c;
-          --zig-identifier: 'purple';
+          --zig-identifier: #bbbbbb;
+          --zig-decl-identifier: lightblue;
           --zig-string-literal: #2e5;
           --zig-type: #68f;
           --zig-fn: #e33;
         }
       }
-    
 
     .zig_keyword_addrspace,
     .zig_keyword_align,
@@ -834,13 +910,19 @@
     }
 
     .zig_doc_comment,
-    .zig_container_doc_comment {
+    .zig_container_doc_comment,
+    .zig_line_comment {
       color: #545454;
       font-style: italic;
     }
 
     .zig_identifier {
       color: var(--zig-identifier);
+      font-weight: bold;
+    }
+    
+    .zig_decl_identifier {
+      color: var(--zig-decl-identifier);
       font-weight: bold;
     }
 
@@ -869,9 +951,8 @@
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
     <div id="main" class="flex-main">
-      <div class="flex-filler"></div>
-      <div class="flex-left sidebar">
-        <nav>
+      <div class="flex-horizontal" style="justify-content: center;padding:0.5rem;">
+        <div class="flex-left">
           <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
             <g fill="#F7A41D">
@@ -912,45 +993,35 @@
             </g>
             </svg>
           </div>
-          <div id="sectGudeApiSwitch">
+          <div id="sectGuideApiSwitch">
             <ul class="guides-api-switch">
               <li><a id="ApiSwitch" class="active" href="#A;">API</a></li>
               <li><a id="guideSwitch" class="" href="#G;">Guides</a></li>
             </ul>
           </div>
-          <div id="guidesMenu" class="hidden">
-            <div id="guidesList"></div>
-          </div>
-          <div id="apiMenu" class="hidden">
-            <div id="sectMainMod" class="hidden">
-              <h2><span>Main Module</span></h2>
-              <ul class="modules">
-                <li><a id="mainMod" class="" href=""></a></li>
-              </ul>
             </div>
-            <div id="sectMods" class="hidden">
-              <h2><span>Dependencies</span></h2>
-              <ul id="listMods" class="modules"></ul>
-            </div>
-            <div id="sectInfo" class="hidden">
-              <h2><span>Zig Version</span></h2>
-              <p class="str" id="tdZigVer"></p>
-            </div>
-          </div>
-        </nav>
-      </div>
-      <div class="flex-right">
-        <div class="wrap">
-          <section class="docs" style="padding-top: 1.5rem; padding-bottom:0;">
-          <div style="position: relative">
+        <div class="flex-right" style="padding-top: 0.5rem;overflow:visible;">
+          <div class="search-container" style="position:relative;">
             <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
             <div id="dotsPopover">
               Use spaces instead of dots. See $resource for more info.
             </div>
           </div>
-          </section>
+          <div id="sectNavAPI" style="margin-top: 0.5rem;"><ul id="listNavAPI" class="listNav"></ul></div>
+          <div id="sectNavGuides" class="hidden" style="margin-top:0.5rem;background-color:#333;">
+            <ul id="listNavGuides" class="listNav">
+              <li>
+                <a href="#G;" class="active">Index</a>
+              </li>
+              <li style="flex-grow:1;">
+                <a href="#G;" class="active" onclick="scrollGuidesTop(event);"></a>
+              </li>
+            </ul>
         </div>
+        </div>
+      </div>
+      <div style="height:100%; overflow:hidden; margin: 0 1rem;">
         <div id="sectSearchResults" class="docs hidden">
           <details id="searchHelp">
             <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
@@ -963,14 +1034,14 @@
                   case-sensitive.</li>
                 <li>Given <code>ArrayListUnmanaged</code>:
                   <ul>
-                    <li>the following words (and their prefixes) will match:
+                    <li>the following search terms (and their prefixes) will match:
                       <ul>
                         <li><code>array</code></li>
                         <li><code>list</code></li>
                         <li><code>unmanaged</code></li>
                       </ul>
                     </li>
-                    <li>the following words will <b>NOT</b> match:
+                    <li>the following search terms will <b>NOT</b> match:
                       <ul>
                         <li><code>stun</code></li>
                         <li><code>ray</code></li>
@@ -983,7 +1054,7 @@
               </ul> 
 
               <h3>Multiple terms</h3>
-              
+            
               <ul>
                 <li>When a search query contains multiple terms, order doesn't matter when 
                     all terms match within a single decl name (e.g. "map auto" will match <code>AutoHashMap</code>).</li>
@@ -1013,13 +1084,17 @@
           </ul>
           <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
         </div>
-        <div id="guides" class="wrap hidden">
+        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+          <div id="guidesMenu" class="sidebar">
+            <h2 id="guidesMenuTitle">Table of Contents</h2>
+            <div id="guideTocListEmpty" style="margin:0 1rem;"><i>No content to display.</i></div>
+            <div id="guideTocList" style="height:100%;overflow-y:scroll;"></div>
+          </div>
           <div id="activeGuide" class="hidden"></div>
         </div> 
-        <div id="docs" class="wrap hidden">
-          <section class="docs">
+        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+          <section id="docs-scroll" class="docs">
             <p id="status">Loading...</p>
-            <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
               <div class="mobile-scroll-container"><pre id="fnProtoCode" class="scroll-item"></pre></div>
               <div id="fnSourceLink" style="display:flex;flex-direction:row;justify-content:flex-end;"></div>
@@ -1051,13 +1126,25 @@
               <h2>Fields</h2>
               <div id="listFields"></div>
             </div>
-            <div id="sectTypes" class="hidden">
-              <h2>Types</h2>
-              <ul id="listTypes"></ul>
-            </div>
             <div id="sectNamespaces" class="hidden">
-              <h2>Namespaces</h2>
-              <ul id="listNamespaces"></ul>
+              <div style="position:relative;">
+                <h2 style="position:sticky; top:0; background-color:var(--bg-color)">Namespaces</h2>
+                <div class="flex-horizontal" style="justify-content:space-around;align-items:flex-start;flex-wrap:wrap;">
+                  <ul id="listNamespacesLeft" class="column"></ul>
+                  <ul id="listNamespacesRight" class="column"></ul>
+                </div>
+              </div>
+              <h3>Other Namespaces <span style="font-size:1.1rem; cursor:pointer;" title="This box contains namespaces that are exported without a doc comment.">&#9432;</span></h3>
+              <div id="noDocsNamespaces"></div>
+            </div>
+            <div id="sectTypes" class="hidden">
+              <div style="position:relative;">
+                <h2 style="position:sticky; top:0; background-color:var(--bg-color)">Types</h2>
+                <div class="flex-horizontal" style="justify-content:space-around;align-items:flex-start;flex-wrap:wrap;">
+                  <ul id="listTypesLeft" class="column"></ul>
+                  <ul id="listTypesRight" class="column"></ul>
+                </div>
+              </div>
             </div>
             <div id="sectGlobalVars" class="hidden">
               <h2>Global Variables</h2>

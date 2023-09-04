@@ -1,10 +1,7 @@
 const std = @import("std.zig");
-const io = std.io;
-const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
-const File = std.fs.File;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 pub const AT_NULL = 0;

@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
-const build_options = @import("build_options");
 
 const is_darwin = builtin.target.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
@@ -34,6 +33,7 @@ pub const LibCInstallation = struct {
         LibCKernel32LibNotFound,
         UnsupportedArchitecture,
         WindowsSdkNotFound,
+        DarwinSdkNotFound,
         ZigIsTheCCompiler,
     };
 
@@ -172,6 +172,7 @@ pub const LibCInstallation = struct {
 
     pub const FindNativeOptions = struct {
         allocator: Allocator,
+        target: std.Target,
 
         /// If enabled, will print human-friendly errors to stderr.
         verbose: bool = false,
@@ -182,11 +183,20 @@ pub const LibCInstallation = struct {
         var self: LibCInstallation = .{};
 
         if (is_darwin) {
-            @panic("Darwin is handled separately via std.zig.system.darwin module");
-        } else if (is_windows) {
-            if (!build_options.have_llvm)
-                return error.WindowsSdkNotFound;
+            if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
+                return error.DarwinSdkNotFound;
+            const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
+                return error.DarwinSdkNotFound;
+            defer args.allocator.free(sdk);
 
+            self.include_dir = try fs.path.join(args.allocator, &.{
+                sdk, "usr/include",
+            });
+            self.sys_include_dir = try fs.path.join(args.allocator, &.{
+                sdk, "usr/include",
+            });
+            return self;
+        } else if (is_windows) {
             var sdk: ZigWindowsSDK = ZigWindowsSDK.find(args.allocator) catch |err| switch (err) {
                 error.NotFound => return error.WindowsSdkNotFound,
                 error.PathTooLong => return error.WindowsSdkNotFound,

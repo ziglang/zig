@@ -185,8 +185,9 @@ pub fn generateSymbol(
     defer tracy.end();
 
     const mod = bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+    switch (ip.indexToKey(typed_value.val.toIntern())) {
         .runtime_value => |rt| typed_value.val = rt.val.toValue(),
         else => {},
     }
@@ -205,7 +206,7 @@ pub fn generateSymbol(
         return .ok;
     }
 
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+    switch (ip.indexToKey(typed_value.val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -385,7 +386,7 @@ pub fn generateSymbol(
                 try code.appendNTimes(0, padding);
             }
         },
-        .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
+        .aggregate => |aggregate| switch (ip.indexToKey(typed_value.ty.toIntern())) {
             .array_type => |array_type| switch (aggregate.storage) {
                 .bytes => |bytes| try code.appendSlice(bytes),
                 .elems, .repeated_elem => {
@@ -442,7 +443,7 @@ pub fn generateSymbol(
                     if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
                     const field_val = switch (aggregate.storage) {
-                        .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                        .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                             .ty = field_ty,
                             .storage = .{ .u64 = bytes[index] },
                         } }),
@@ -484,7 +485,7 @@ pub fn generateSymbol(
                         const field_ty = field.ty;
 
                         const field_val = switch (aggregate.storage) {
-                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
                                 .storage = .{ .u64 = bytes[index] },
                             } }),
@@ -513,18 +514,26 @@ pub fn generateSymbol(
                     }
                 } else {
                     const struct_begin = code.items.len;
-                    for (struct_obj.fields.values(), 0..) |field, index| {
-                        const field_ty = field.ty;
+                    const fields = struct_obj.fields.values();
+
+                    var it = typed_value.ty.iterateStructOffsets(mod);
+
+                    while (it.next()) |field_offset| {
+                        const field_ty = fields[field_offset.field].ty;
+
                         if (!field_ty.hasRuntimeBits(mod)) continue;
 
-                        const field_val = switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
-                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                        const field_val = switch (ip.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
+                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
-                                .storage = .{ .u64 = bytes[index] },
+                                .storage = .{ .u64 = bytes[field_offset.field] },
                             } }),
-                            .elems => |elems| elems[index],
+                            .elems => |elems| elems[field_offset.field],
                             .repeated_elem => |elem| elem,
                         };
+
+                        const padding = math.cast(usize, field_offset.offset - (code.items.len - struct_begin)) orelse return error.Overflow;
+                        if (padding > 0) try code.appendNTimes(0, padding);
 
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = field_ty,
@@ -533,16 +542,10 @@ pub fn generateSymbol(
                             .ok => {},
                             .fail => |em| return Result{ .fail = em },
                         }
-                        const unpadded_field_end = code.items.len - struct_begin;
-
-                        // Pad struct members if required
-                        const padded_field_end = typed_value.ty.structFieldOffset(index + 1, mod);
-                        const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse return error.Overflow;
-
-                        if (padding > 0) {
-                            try code.appendNTimes(0, padding);
-                        }
                     }
+
+                    const padding = math.cast(usize, std.mem.alignForward(u64, it.offset, @max(it.big_align, 1)) - (code.items.len - struct_begin)) orelse return error.Overflow;
+                    if (padding > 0) try code.appendNTimes(0, padding);
                 }
             },
             else => unreachable,
@@ -568,10 +571,9 @@ pub fn generateSymbol(
                 }
             }
 
-            const union_ty = mod.typeToUnion(typed_value.ty).?;
+            const union_obj = mod.typeToUnion(typed_value.ty).?;
             const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
-            assert(union_ty.haveFieldTypes());
-            const field_ty = union_ty.fields.values()[field_index].ty;
+            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
             if (!field_ty.hasRuntimeBits(mod)) {
                 try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
             } else {
@@ -591,7 +593,7 @@ pub fn generateSymbol(
 
             if (layout.tag_size > 0 and layout.tag_align < layout.payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = union_ty.tag_ty,
+                    .ty = union_obj.enum_tag_ty.toType(),
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},

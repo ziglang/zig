@@ -494,9 +494,6 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/sources/reallocarray.c",
     "wasi/libc-bottom-half/sources/sbrk.c",
     "wasi/libc-bottom-half/sources/truncate.c",
-    // TODO apparently, due to a bug in LLD, the weak refs are garbled
-    // unless chdir.c is last in the archive
-    // https://reviews.llvm.org/D85567
     "wasi/libc-bottom-half/sources/chdir.c",
 };
 

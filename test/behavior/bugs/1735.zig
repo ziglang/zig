@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const mystruct = struct {
     pending: ?listofstructs,
 };
-pub fn TailQueue(comptime T: type) type {
+pub fn DoublyLinkedList(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -27,7 +27,7 @@ pub fn TailQueue(comptime T: type) type {
         }
     };
 }
-const listofstructs = TailQueue(mystruct);
+const listofstructs = DoublyLinkedList(mystruct);
 
 const a = struct {
     const Self = @This();

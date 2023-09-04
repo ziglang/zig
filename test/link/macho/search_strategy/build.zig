@@ -17,8 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // -search_dylibs_first
-        const exe = createScenario(b, optimize, target, "search_dylibs_first");
-        exe.search_strategy = .dylibs_first;
+        const exe = createScenario(b, optimize, target, "search_dylibs_first", .mode_first);
 
         const check = exe.checkObject();
         check.checkStart();
@@ -34,8 +33,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // -search_paths_first
-        const exe = createScenario(b, optimize, target, "search_paths_first");
-        exe.search_strategy = .paths_first;
+        const exe = createScenario(b, optimize, target, "search_paths_first", .paths_first);
 
         const run = b.addRunArtifact(exe);
         run.skip_foreign_checks = true;
@@ -49,17 +47,15 @@ fn createScenario(
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     name: []const u8,
+    search_strategy: std.Build.Step.Compile.SystemLib.SearchStrategy,
 ) *std.Build.Step.Compile {
     const static = b.addStaticLibrary(.{
         .name = name,
         .optimize = optimize,
         .target = target,
     });
-    static.addCSourceFile("a.c", &.{});
+    static.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     static.linkLibC();
-    static.override_dest_dir = std.Build.InstallDir{
-        .custom = "static",
-    };
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
@@ -67,22 +63,22 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
-    dylib.override_dest_dir = std.Build.InstallDir{
-        .custom = "dynamic",
-    };
 
     const exe = b.addExecutable(.{
         .name = name,
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
-    exe.linkSystemLibraryName(name);
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
+    exe.linkSystemLibrary2(name, .{
+        .use_pkg_config = .no,
+        .search_strategy = search_strategy,
+    });
     exe.linkLibC();
-    exe.addLibraryPathDirectorySource(static.getOutputDirectorySource());
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(static.getEmittedBinDirectory());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     return exe;
 }

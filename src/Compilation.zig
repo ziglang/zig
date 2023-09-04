@@ -124,6 +124,7 @@ zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
+libc_framework_dir_list: []const []const u8,
 thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
@@ -448,6 +449,7 @@ pub const ClangPreprocessorMode = enum {
     stdout,
 };
 
+pub const Framework = link.Framework;
 pub const SystemLib = link.SystemLib;
 pub const CacheMode = link.CacheMode;
 
@@ -496,7 +498,7 @@ pub const InitOptions = struct {
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
     cache_mode: CacheMode = .incremental,
-    optimize_mode: std.builtin.Mode = .Debug,
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
@@ -505,7 +507,7 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    frameworks: std.StringArrayHashMapUnmanaged(SystemLib) = .{},
+    frameworks: []const Framework = &.{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -636,16 +638,12 @@ pub const InitOptions = struct {
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
     /// (Darwin) Install name of the dylib
     install_name: ?[]const u8 = null,
     /// (Darwin) Path to entitlements file
     entitlements: ?[]const u8 = null,
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
-    /// (Darwin) search strategy for system libraries
-    search_strategy: ?link.File.MachO.SearchStrategy = null,
     /// (Darwin) set minimum space for future expansion of the load commands
     headerpad_size: ?u32 = null,
     /// (Darwin) set enough space as if all paths were MATPATHLEN
@@ -832,7 +830,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
-                options.frameworks.count() != 0 or
+                options.frameworks.len != 0 or
                 options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
@@ -853,16 +851,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
 
             break :blk false;
-        };
-
-        const sysroot = blk: {
-            if (options.sysroot) |sysroot| {
-                break :blk sysroot;
-            } else if (options.native_darwin_sdk) |sdk| {
-                break :blk sdk.path;
-            } else {
-                break :blk null;
-            }
         };
 
         const lto = blk: {
@@ -948,8 +936,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.is_native_abi,
             link_libc,
             options.libc_installation,
-            options.native_darwin_sdk != null,
         );
+
+        const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const must_pie = target_util.requiresPIE(options.target);
         const pie: bool = if (options.want_pie) |explicit| pie: {
@@ -1038,7 +1027,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             return error.TargetRequiresSingleThreaded;
         }
 
-        const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
+        const llvm_cpu_features: ?[*:0]const u8 = if (use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
             for (options.target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
                 const index = @as(Target.Cpu.Feature.Set.Index, @intCast(index_usize));
@@ -1058,6 +1047,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             buf.shrinkAndFree(buf.items.len);
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
+
+        if (options.verbose_llvm_cpu_features) {
+            if (llvm_cpu_features) |cf| print: {
+                std.debug.getStderrMutex().lock();
+                defer std.debug.getStderrMutex().unlock();
+                const stderr = std.io.getStdErr().writer();
+                nosuspend stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                nosuspend stderr.print("  target: {s}\n", .{try options.target.zigTriple(arena)}) catch break :print;
+                nosuspend stderr.print("  cpu: {s}\n", .{options.target.cpu.model.name}) catch break :print;
+                nosuspend stderr.print("  features: {s}\n", .{cf}) catch {};
+            }
+        }
 
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
@@ -1563,11 +1564,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
-            .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
-            .search_strategy = options.search_strategy,
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
@@ -1601,6 +1600,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
+            .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
             .sanitize_c = sanitize_c,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
@@ -1727,15 +1727,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             // When linking mingw-w64 there are some import libs we always need.
             for (mingw.always_link_libs) |name| {
-                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
+                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{
+                    .needed = false,
+                    .weak = false,
+                    .path = null,
+                });
             }
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
             const count = comp.bin_file.options.system_libs.count();
             try comp.work_queue.ensureUnusedCapacity(count);
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
+            for (0..count) |i| {
                 comp.work_queue.writeItemAssumeCapacity(.{ .windows_import_lib = i });
             }
         }
@@ -2276,7 +2279,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 9;
+pub const link_hash_implementation_version = 10;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2286,7 +2289,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 9);
+    comptime assert(link_hash_implementation_version == 10);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2367,17 +2370,17 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
         if (comp.bin_file.options.libc_installation) |libc_installation| {
-            man.hash.addBytes(libc_installation.crt_dir.?);
+            man.hash.addOptionalBytes(libc_installation.crt_dir);
             if (target.abi == .msvc) {
-                man.hash.addBytes(libc_installation.msvc_lib_dir.?);
-                man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
+                man.hash.addOptionalBytes(libc_installation.msvc_lib_dir);
+                man.hash.addOptionalBytes(libc_installation.kernel32_lib_dir);
             }
         }
         man.hash.addOptionalBytes(comp.bin_file.options.dynamic_linker);
     }
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
     man.hash.addOptional(comp.bin_file.options.version);
-    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.system_libs);
+    try link.hashAddSystemLibs(man, comp.bin_file.options.system_libs);
     man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
     man.hash.addOptional(comp.bin_file.options.allow_shlib_undefined);
     man.hash.add(comp.bin_file.options.bind_global_refs_locally);
@@ -2395,10 +2398,9 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
-    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.frameworks);
+    try link.hashAddFrameworks(man, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
-    man.hash.addOptional(comp.bin_file.options.search_strategy);
     man.hash.addOptional(comp.bin_file.options.headerpad_size);
     man.hash.add(comp.bin_file.options.headerpad_max_install_names);
     man.hash.add(comp.bin_file.options.dead_strip_dylibs);
@@ -2619,6 +2621,9 @@ pub fn totalErrorCount(self: *Compilation) u32 {
     }
     total += @intFromBool(self.link_error_flags.missing_libc);
 
+    // Misc linker errors
+    total += self.bin_file.miscErrors().len;
+
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
@@ -2769,6 +2774,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }));
     }
 
+    for (self.bin_file.miscErrors()) |link_err| {
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(link_err.msg),
+            .notes_len = @intCast(link_err.notes.len),
+        });
+        const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
+        for (link_err.notes, 0..) |note, i| {
+            bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
+                .msg = try bundle.addString(note.msg),
+            }));
+        }
+    }
+
     if (self.bin_file.options.module) |module| {
         if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
@@ -2868,51 +2886,52 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .{};
     defer ref_traces.deinit(gpa);
 
-    for (module_err_msg.reference_trace) |module_reference| {
-        if (module_reference.hidden != 0) {
-            try ref_traces.append(gpa, .{
-                .decl_name = module_reference.hidden,
-                .src_loc = .none,
-            });
-            break;
-        } else if (module_reference.decl == .none) {
-            try ref_traces.append(gpa, .{
-                .decl_name = 0,
-                .src_loc = .none,
-            });
-            break;
+    const remaining_references: ?u32 = remaining: {
+        if (mod.comp.reference_trace) |_| {
+            if (module_err_msg.hidden_references > 0) break :remaining module_err_msg.hidden_references;
+        } else {
+            if (module_err_msg.reference_trace.len > 0) break :remaining 0;
         }
+        break :remaining null;
+    };
+    try ref_traces.ensureTotalCapacityPrecise(gpa, module_err_msg.reference_trace.len +
+        @intFromBool(remaining_references != null));
+
+    for (module_err_msg.reference_trace) |module_reference| {
         const source = try module_reference.src_loc.file_scope.getSource(gpa);
         const span = try module_reference.src_loc.span(gpa);
         const loc = std.zig.findLineColumn(source.bytes, span.main);
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
-        try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
+        ref_traces.appendAssumeCapacity(.{
+            .decl_name = try eb.addString(ip.stringToSlice(module_reference.decl)),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = 0,
             }),
         });
     }
+    if (remaining_references) |remaining| ref_traces.appendAssumeCapacity(
+        .{ .decl_name = remaining, .src_loc = .none },
+    );
 
     const src_loc = try eb.addSourceLocation(.{
         .src_path = try eb.addString(file_path),
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
-        .line = @as(u32, @intCast(err_loc.line)),
-        .column = @as(u32, @intCast(err_loc.column)),
+        .line = @intCast(err_loc.line),
+        .column = @intCast(err_loc.column),
         .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
             0
         else
             try eb.addString(err_loc.source_line),
-        .reference_trace_len = @as(u32, @intCast(ref_traces.items.len)),
+        .reference_trace_len = @intCast(ref_traces.items.len),
     });
 
     for (ref_traces.items) |rt| {
@@ -2938,8 +2957,8 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
@@ -2948,7 +2967,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         }
     }
 
-    const notes_len = @as(u32, @intCast(notes.entries.len));
+    const notes_len: u32 = @intCast(notes.entries.len);
 
     try eb.addRootErrorMessage(.{
         .msg = try eb.addString(module_err_msg.msg),
@@ -4341,6 +4360,14 @@ pub fn addCCArgs(
                 try argv.append("-ObjC++");
             }
 
+            for (comp.libc_framework_dir_list) |framework_dir| {
+                try argv.appendSlice(&.{ "-iframework", framework_dir });
+            }
+
+            for (comp.bin_file.options.framework_dirs) |framework_dir| {
+                try argv.appendSlice(&.{ "-F", framework_dir });
+            }
+
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
             // and other compiler specific items.
@@ -4823,6 +4850,8 @@ test "classifyFileExt" {
 const LibCDirs = struct {
     libc_include_dir_list: []const []const u8,
     libc_installation: ?*const LibCInstallation,
+    libc_framework_dir_list: []const []const u8,
+    sysroot: ?[]const u8,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
@@ -4853,6 +4882,8 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
     return LibCDirs{
         .libc_include_dir_list = list,
         .libc_installation = null,
+        .libc_framework_dir_list = &.{},
+        .sysroot = null,
     };
 }
 
@@ -4863,12 +4894,13 @@ fn detectLibCIncludeDirs(
     is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
-    has_macos_sdk: bool,
 ) !LibCDirs {
     if (!link_libc) {
         return LibCDirs{
             .libc_include_dir_list = &[0][]u8{},
             .libc_installation = null,
+            .libc_framework_dir_list = &.{},
+            .sysroot = null,
         };
     }
 
@@ -4879,28 +4911,19 @@ fn detectLibCIncludeDirs(
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
     if (is_native_abi and !target.isMinGW()) {
-        if (target.isDarwin()) {
-            return if (has_macos_sdk)
-                // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-                LibCDirs{
-                    .libc_include_dir_list = &[0][]u8{},
-                    .libc_installation = null,
-                }
-            else
-                getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
-        }
         const libc = try arena.create(LibCInstallation);
-        libc.* = LibCInstallation.findNative(.{ .allocator = arena }) catch |err| switch (err) {
+        libc.* = LibCInstallation.findNative(.{ .allocator = arena, .target = target }) catch |err| switch (err) {
             error.CCompilerExitCode,
             error.CCompilerCrashed,
             error.CCompilerCannotFindHeaders,
             error.UnableToSpawnCCompiler,
+            error.DarwinSdkNotFound,
             => |e| {
                 // We tried to integrate with the native system C compiler,
                 // however, it is not installed. So we must rely on our bundled
                 // libc files.
                 if (target_util.canBuildLibC(target)) {
-                    return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+                    return detectLibCFromBuilding(arena, zig_lib_dir, target);
                 }
                 return e;
             },
@@ -4912,7 +4935,7 @@ fn detectLibCIncludeDirs(
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
     if (target_util.canBuildLibC(target)) {
-        return detectLibCFromBuilding(arena, zig_lib_dir, target, has_macos_sdk);
+        return detectLibCFromBuilding(arena, zig_lib_dir, target);
     }
 
     // If zig can't build the libc for the target and we are targeting the
@@ -4926,18 +4949,21 @@ fn detectLibCIncludeDirs(
 
     if (use_system_abi) {
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true, .target = target });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
         .libc_include_dir_list = &[0][]u8{},
         .libc_installation = null,
+        .libc_framework_dir_list = &.{},
+        .sysroot = null,
     };
 }
 
 fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
     var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
+    var framework_list = std.ArrayList([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 
@@ -4965,9 +4991,20 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         list.appendAssumeCapacity(config_dir);
     }
 
+    var sysroot: ?[]const u8 = null;
+
+    if (target.isDarwin()) d: {
+        const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
+        const down2 = std.fs.path.dirname(down1) orelse break :d;
+        try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
+        sysroot = down2;
+    }
+
     return LibCDirs{
         .libc_include_dir_list = list.items,
         .libc_installation = lci,
+        .libc_framework_dir_list = framework_list.items,
+        .sysroot = sysroot,
     };
 }
 
@@ -4975,69 +5012,61 @@ fn detectLibCFromBuilding(
     arena: Allocator,
     zig_lib_dir: []const u8,
     target: std.Target,
-    has_macos_sdk: bool,
 ) !LibCDirs {
-    switch (target.os.tag) {
-        .macos => return if (has_macos_sdk)
-            // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
-            LibCDirs{
-                .libc_include_dir_list = &[0][]u8{},
-                .libc_installation = null,
-            }
-        else
-            getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target),
-        else => {
-            const generic_name = target_util.libCGenericName(target);
-            // Some architectures are handled by the same set of headers.
-            const arch_name = if (target.abi.isMusl())
-                musl.archNameHeaders(target.cpu.arch)
-            else if (target.cpu.arch.isThumb())
-                // ARM headers are valid for Thumb too.
-                switch (target.cpu.arch) {
-                    .thumb => "arm",
-                    .thumbeb => "armeb",
-                    else => unreachable,
-                }
-            else
-                @tagName(target.cpu.arch);
-            const os_name = @tagName(target.os.tag);
-            // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
-            const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
-            const s = std.fs.path.sep_str;
-            const arch_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
-                .{ zig_lib_dir, arch_name, os_name, abi_name },
-            );
-            const generic_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
-                .{ zig_lib_dir, generic_name },
-            );
-            const generic_arch_name = target_util.osArchName(target);
-            const arch_os_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
-                .{ zig_lib_dir, generic_arch_name, os_name },
-            );
-            const generic_os_include_dir = try std.fmt.allocPrint(
-                arena,
-                "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-                .{ zig_lib_dir, os_name },
-            );
+    if (target.isDarwin())
+        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
 
-            const list = try arena.alloc([]const u8, 4);
-            list[0] = arch_include_dir;
-            list[1] = generic_include_dir;
-            list[2] = arch_os_include_dir;
-            list[3] = generic_os_include_dir;
+    const generic_name = target_util.libCGenericName(target);
+    // Some architectures are handled by the same set of headers.
+    const arch_name = if (target.abi.isMusl())
+        musl.archNameHeaders(target.cpu.arch)
+    else if (target.cpu.arch.isThumb())
+        // ARM headers are valid for Thumb too.
+        switch (target.cpu.arch) {
+            .thumb => "arm",
+            .thumbeb => "armeb",
+            else => unreachable,
+        }
+    else
+        @tagName(target.cpu.arch);
+    const os_name = @tagName(target.os.tag);
+    // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
+    const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
+    const s = std.fs.path.sep_str;
+    const arch_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
+        .{ zig_lib_dir, arch_name, os_name, abi_name },
+    );
+    const generic_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
+        .{ zig_lib_dir, generic_name },
+    );
+    const generic_arch_name = target_util.osArchName(target);
+    const arch_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
+        .{ zig_lib_dir, generic_arch_name, os_name },
+    );
+    const generic_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+        .{ zig_lib_dir, os_name },
+    );
 
-            return LibCDirs{
-                .libc_include_dir_list = list,
-                .libc_installation = null,
-            };
-        },
-    }
+    const list = try arena.alloc([]const u8, 4);
+    list[0] = arch_include_dir;
+    list[1] = generic_include_dir;
+    list[2] = arch_os_include_dir;
+    list[3] = generic_os_include_dir;
+
+    return LibCDirs{
+        .libc_include_dir_list = list,
+        .libc_installation = null,
+        .libc_framework_dir_list = &.{},
+        .sysroot = null,
+    };
 }
 
 pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
@@ -5175,14 +5204,17 @@ pub fn lockAndParseLldStderr(comp: *Compilation, comptime prefix: []const u8, st
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
+    const stderr = std.io.getStdErr().writer();
     for (argv[0 .. argv.len - 1]) |arg| {
-        std.debug.print("{s} ", .{arg});
+        nosuspend stderr.print("{s} ", .{arg}) catch return;
     }
-    std.debug.print("{s}\n", .{argv[argv.len - 1]});
+    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    if (build_options.have_llvm and comp.bin_file.options.use_llvm) return .stage2_llvm;
+    if (comp.bin_file.options.use_llvm) return .stage2_llvm;
     const target = comp.bin_file.options.target;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
@@ -5348,7 +5380,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\    .ofmt = object_format,
         \\}};
         \\pub const object_format = std.Target.ObjectFormat.{};
-        \\pub const mode = std.builtin.Mode.{};
+        \\pub const mode = std.builtin.OptimizeMode.{};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -5491,6 +5523,7 @@ fn buildOutputFromZig(
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
         .want_valgrind = false,
         .want_tsan = false,
+        .want_unwind_tables = comp.bin_file.options.eh_frame_hdr,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
@@ -5617,6 +5650,11 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
     if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
+        gop.value_ptr.* = .{
+            .needed = true,
+            .weak = false,
+            .path = null,
+        };
         try comp.work_queue.writeItem(.{
             .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
         });
@@ -5625,7 +5663,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
 
 /// This decides the optimization mode for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
-pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
+pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
     if (comp.debug_compiler_runtime_libs) {
         return comp.bin_file.options.optimize_mode;
     }
@@ -5639,9 +5677,5 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
 /// This decides whether to strip debug info for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtStrip(comp: Compilation) bool {
-    if (comp.debug_compiler_runtime_libs) {
-        return comp.bin_file.options.strip;
-    } else {
-        return true;
-    }
+    return comp.bin_file.options.strip;
 }

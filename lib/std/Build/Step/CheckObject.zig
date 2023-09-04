@@ -15,14 +15,14 @@ const Step = std.Build.Step;
 pub const base_id = .check_object;
 
 step: Step,
-source: std.Build.FileSource,
+source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 obj_format: std.Target.ObjectFormat,
 
 pub fn create(
     owner: *std.Build,
-    source: std.Build.FileSource,
+    source: std.Build.LazyPath,
     obj_format: std.Target.ObjectFormat,
 ) *CheckObject {
     const gpa = owner.allocator;
@@ -44,7 +44,7 @@ pub fn create(
 
 const SearchPhrase = struct {
     string: []const u8,
-    file_source: ?std.Build.FileSource = null,
+    file_source: ?std.Build.LazyPath = null,
 
     fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
         const file_source = phrase.file_source orelse return phrase.string;
@@ -302,13 +302,13 @@ pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
     self.checkExactInner(phrase, null);
 }
 
-/// Like `checkExact()` but takes an additional argument `FileSource` which will be
+/// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+pub fn checkExactPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
     self.checkExactInner(phrase, file_source);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
@@ -321,7 +321,7 @@ pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
 
 /// Like `checkContains()` but takes an additional argument `FileSource` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkContainsFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
+pub fn checkContainsPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
     self.checkContainsInner(phrase, file_source);
 }
 
@@ -478,8 +478,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 },
                 .not_present => {
                     while (it.next()) |line| {
-                        if (act.notPresent(b, step, line)) break;
-                    } else {
+                        if (act.notPresent(b, step, line)) continue;
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================
@@ -764,6 +763,60 @@ const MachODumper = struct {
                     dlc.nundefsym,
                     dlc.indirectsymoff,
                     dlc.nindirectsyms,
+                });
+            },
+
+            .BUILD_VERSION => {
+                const blc = lc.cast(macho.build_version_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\platform {s}
+                    \\minos {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                    \\ntools {d}
+                , .{
+                    @tagName(blc.platform),
+                    blc.minos >> 16,
+                    @as(u8, @truncate(blc.minos >> 8)),
+                    @as(u8, @truncate(blc.minos)),
+                    blc.sdk >> 16,
+                    @as(u8, @truncate(blc.sdk >> 8)),
+                    @as(u8, @truncate(blc.sdk)),
+                    blc.ntools,
+                });
+                for (lc.getBuildVersionTools()) |tool| {
+                    try writer.writeByte('\n');
+                    switch (tool.tool) {
+                        .CLANG, .SWIFT, .LD, .LLD, .ZIG => try writer.print("tool {s}\n", .{@tagName(tool.tool)}),
+                        else => |x| try writer.print("tool {d}\n", .{@intFromEnum(x)}),
+                    }
+                    try writer.print(
+                        \\version {d}.{d}.{d}
+                    , .{
+                        tool.version >> 16,
+                        @as(u8, @truncate(tool.version >> 8)),
+                        @as(u8, @truncate(tool.version)),
+                    });
+                }
+            },
+
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_WATCHOS,
+            .VERSION_MIN_TVOS,
+            => {
+                const vlc = lc.cast(macho.version_min_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\version {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                , .{
+                    vlc.version >> 16,
+                    @as(u8, @truncate(vlc.version >> 8)),
+                    @as(u8, @truncate(vlc.version)),
+                    vlc.sdk >> 16,
+                    @as(u8, @truncate(vlc.sdk >> 8)),
+                    @as(u8, @truncate(vlc.sdk)),
                 });
             },
 

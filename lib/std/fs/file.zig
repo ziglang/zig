@@ -73,6 +73,8 @@ pub const File = struct {
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
         Unexpected,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.OpenError || os.FlockError;
 
     pub const OpenMode = enum {

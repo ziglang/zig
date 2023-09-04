@@ -3,7 +3,6 @@ const std = @import("std.zig");
 const debug = std.debug;
 const fs = std.fs;
 const io = std.io;
-const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const leb = @import("leb128.zig");
@@ -741,7 +740,7 @@ pub const DwarfInfo = struct {
     fn scanAllFunctions(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var stream = io.fixedBufferStream(di.section(.debug_info).?);
         const in = stream.reader();
-        const seekable = &stream.seekableStream();
+        const seekable = stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         var tmp_arena = std.heap.ArenaAllocator.init(allocator);
@@ -909,8 +908,8 @@ pub const DwarfInfo = struct {
 
     fn scanAllCompileUnits(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var stream = io.fixedBufferStream(di.section(.debug_info).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
         while (this_unit_offset < try seekable.getEndPos()) {
@@ -1175,8 +1174,8 @@ pub const DwarfInfo = struct {
 
     fn parseAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, offset: u64) !AbbrevTable {
         var stream = io.fixedBufferStream(di.section(.debug_abbrev).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
 
         try seekable.seekTo(offset);
         var result = AbbrevTable.init(allocator);
@@ -1256,8 +1255,8 @@ pub const DwarfInfo = struct {
         target_address: u64,
     ) !debug.LineInfo {
         var stream = io.fixedBufferStream(di.section(.debug_line).?);
-        const in = &stream.reader();
-        const seekable = &stream.seekableStream();
+        const in = stream.reader();
+        const seekable = stream.seekableStream();
 
         const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
@@ -1638,7 +1637,7 @@ pub const DwarfInfo = struct {
                     }
                 }
 
-                std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+                std.mem.sortUnstable(FrameDescriptionEntry, di.fde_list.items, {}, struct {
                     fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
                         _ = ctx;
                         return a.pc_begin < b.pc_begin;
@@ -1656,7 +1655,7 @@ pub const DwarfInfo = struct {
     /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
     /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
     pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, explicit_fde_offset: ?usize) !usize {
-        if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
+        if (!comptime abi.supportsUnwinding(builtin.target)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
         // Find the FDE and CIE

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -35,7 +35,7 @@ project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 11)
+set(ZIG_VERSION_MINOR 12)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -123,6 +123,13 @@ if(ZIG_AR_WORKAROUND)
 endif()
 
 set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
+
+# Detect system libcxx name.
+if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
+    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.zig")
+else()
+    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
+endif()
 
 find_package(llvm 16)
 find_package(clang 16)
@@ -273,11 +280,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/math/frexp.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isinf.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/isnan.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/ln.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log2.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/nan.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/signbit.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/sqrt.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/mem.zig"
@@ -517,6 +522,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/AstRlAnnotate.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
@@ -589,7 +595,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/UnwindInfo.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/ZldAtom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Rebase.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dead_strip.zig"
@@ -691,7 +696,9 @@ target_link_libraries(zigcpp LINK_PUBLIC
 )
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
-if(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
+  set(ZIG_HOST_TARGET_ARCH "x86")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
@@ -700,18 +707,33 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
+string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
   include(CheckSymbolExists)
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
   endif()
 endif()
+string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
 endif()
-set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}" CACHE STRING "Host zig target triple.")
+
+if(MSVC)
+  set(ZIG_HOST_TARGET_ABI "-msvc")
+elseif(MINGW)
+  set(ZIG_HOST_TARGET_ABI "-gnu")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)hf?(eb)?$")
+  string(REGEX REPLACE "^(arm|thumb)hf?((eb)?)$" "\\1\\2" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+  set(ZIG_HOST_TARGET_ABI "-eabihf")
+else()
+  set(ZIG_HOST_TARGET_ABI "")
+endif()
+
+set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host zig target triple.")
 
 if(MSVC)
   set(ZIG_WASM2C_COMPILE_FLAGS "")
@@ -724,6 +746,8 @@ else()
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
+  elseif(MINGW)
+    set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
@@ -752,6 +776,9 @@ if(MSVC)
   target_link_options(zig1 PRIVATE /STACK:0x10000000)
 else()
   target_link_libraries(zig1 LINK_PUBLIC m)
+  if(MINGW)
+    target_link_options(zig1 PRIVATE -Wl,--stack,0x10000000)
+  endif()
 endif()
 
 set(BUILD_ZIG2_ARGS

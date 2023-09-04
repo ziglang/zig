@@ -479,3 +479,41 @@ test "inline for on tuple pointer" {
 
     try expectEqual(S{ 0, 1, 2 }, s);
 }
+
+test "ref counter that starts at zero" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    for ([_]usize{ 0, 1, 2 }, 0..) |i, j| {
+        try expectEqual(i, j);
+        try expectEqual((&i).*, (&j).*);
+    }
+    inline for (.{ 0, 1, 2 }, 0..) |i, j| {
+        try expectEqual(i, j);
+        try expectEqual((&i).*, (&j).*);
+    }
+}
+
+test "inferred alloc ptr of for loop" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    {
+        var cond = false;
+        var opt = for (0..1) |_| {
+            if (cond) break cond;
+        } else null;
+        try expectEqual(@as(?bool, null), opt);
+    }
+    {
+        var cond = true;
+        var opt = for (0..1) |_| {
+            if (cond) break cond;
+        } else null;
+        try expectEqual(@as(?bool, true), opt);
+    }
+}

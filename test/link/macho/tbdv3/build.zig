@@ -23,7 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    lib.addCSourceFile("a.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     lib.linkLibC();
 
     const tbd_file = b.addWriteFile("liba.tbd",
@@ -43,10 +43,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkSystemLibrary("a");
-    exe.addLibraryPathDirectorySource(tbd_file.getDirectorySource());
-    exe.addRPathDirectorySource(lib.getOutputDirectorySource());
+    exe.addLibraryPath(tbd_file.getDirectory());
+    exe.addRPath(lib.getEmittedBinDirectory());
     exe.linkLibC();
 
     const run = b.addRunArtifact(exe);

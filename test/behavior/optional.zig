@@ -498,3 +498,8 @@ test "cast slice to const slice nested in error union and optional" {
     };
     try std.testing.expectError(error.Foo, S.outer());
 }
+
+test "variable of optional of noreturn" {
+    var null_opv: ?noreturn = null;
+    try std.testing.expectEqual(@as(?noreturn, null), null_opv);
+}

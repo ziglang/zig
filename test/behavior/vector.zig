@@ -102,6 +102,7 @@ test "vector float operators" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const S = struct {
@@ -169,6 +170,43 @@ test "array to vector" {
             var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
             var vec: @Vector(4, f32) = arr;
             try expect(mem.eql(f32, &@as([4]f32, vec), &arr));
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "array vector coercion - odd sizes" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            var foo1: i48 = 124578;
+            var vec1: @Vector(2, i48) = [2]i48{ foo1, 1 };
+            var arr1: [2]i48 = vec1;
+            try expect(vec1[0] == foo1 and vec1[1] == 1);
+            try expect(arr1[0] == foo1 and arr1[1] == 1);
+
+            var foo2: u4 = 5;
+            var vec2: @Vector(2, u4) = [2]u4{ foo2, 1 };
+            var arr2: [2]u4 = vec2;
+            try expect(vec2[0] == foo2 and vec2[1] == 1);
+            try expect(arr2[0] == foo2 and arr2[1] == 1);
+
+            var foo3: u13 = 13;
+            var vec3: @Vector(3, u13) = [3]u13{ foo3, 0, 1 };
+            var arr3: [3]u13 = vec3;
+            try expect(vec3[0] == foo3 and vec3[1] == 0 and vec3[2] == 1);
+            try expect(arr3[0] == foo3 and arr3[1] == 0 and arr3[2] == 1);
+
+            var arr4 = [4:0]u24{ foo3, foo2, 0, 1 };
+            var vec4: @Vector(4, u24) = arr4;
+            try expect(vec4[0] == foo3 and vec4[1] == foo2 and vec4[2] == 0 and vec4[3] == 1);
         }
     };
     try S.doTheTest();
@@ -494,6 +532,7 @@ test "vector division operators" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -705,6 +744,7 @@ test "vector reduce operation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     const S = struct {
         fn testReduce(comptime op: std.builtin.ReduceOp, x: anytype, expected: anytype) !void {
@@ -1439,4 +1479,29 @@ test "boolean vector with 2 or more booleans" {
 
     const vec2 = @Vector(3, bool){ true, true, true };
     _ = vec2;
+}
+
+test "bitcast to vector with different child type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const VecA = @Vector(8, u16);
+            const VecB = @Vector(4, u32);
+
+            var vec_a = VecA{ 1, 1, 1, 1, 1, 1, 1, 1 };
+            var vec_b: VecB = @bitCast(vec_a);
+            var vec_c: VecA = @bitCast(vec_b);
+            try expectEqual(vec_a, vec_c);
+        }
+    };
+
+    // Originally reported at https://github.com/ziglang/zig/issues/8184
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

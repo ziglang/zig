@@ -35,13 +35,13 @@ const syscall_bits = switch (native_arch) {
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64 => @import("linux/arm64.zig"),
+    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
     .arm, .thumb => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
-    .powerpc => @import("linux/powerpc.zig"),
+    .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
@@ -98,13 +98,13 @@ pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86 => syscalls.X86,
     .x86_64 => syscalls.X64,
-    .aarch64 => syscalls.Arm64,
+    .aarch64, .aarch64_be => syscalls.Arm64,
     .arm, .thumb => syscalls.Arm,
     .riscv64 => syscalls.RiscV64,
     .sparc64 => syscalls.Sparc64,
     .mips, .mipsel => syscalls.Mips,
     .mips64, .mips64el => syscalls.Mips64,
-    .powerpc => syscalls.PowerPC,
+    .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
@@ -154,8 +154,22 @@ pub usingnamespace @import("linux/io_uring.zig");
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
-/// See `std.elf` for the constants.
-pub fn getauxval(index: usize) usize {
+pub usingnamespace if (switch (builtin.zig_backend) {
+    // Calling extern functions is not yet supported with these backends
+    .stage2_x86_64, .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    else => !builtin.link_libc,
+}) struct {
+    /// See `std.elf` for the constants.
+    /// This matches the libc getauxval function.
+    pub extern fn getauxval(index: usize) usize;
+    comptime {
+        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
+    }
+} else struct {
+    pub const getauxval = getauxvalImpl;
+};
+
+fn getauxvalImpl(index: usize) callconv(.C) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -1154,6 +1168,10 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
     }
 }
 
+pub fn setsid() pid_t {
+    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.setsid)))));
+}
+
 pub fn getpid() pid_t {
     return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.getpid)))));
 }
@@ -1176,14 +1194,12 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restore_rt_ptr = &restore_rt;
-        const restore_ptr = &restore;
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) restore_rt_ptr else restore_ptr;
+        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
         ksa = k_sigaction{
             .handler = new.handler.handler,
             .flags = new.flags | SA.RESTORER,
             .mask = undefined,
-            .restorer = @as(k_sigaction_funcs.restorer, @ptrCast(restorer_fn)),
+            .restorer = @ptrCast(restorer_fn),
         };
         @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
     }
@@ -1520,28 +1536,6 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     return 0;
 }
 
-pub fn getcpu(cpu: *u32, node: *u32) usize {
-    return syscall3(.getcpu, @intFromPtr(cpu), @intFromPtr(node), 0);
-}
-
-pub fn sched_getcpu() usize {
-    var cpu: u32 = undefined;
-    const rc = syscall3(.getcpu, @intFromPtr(&cpu), 0, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return rc;
-    return @as(usize, @intCast(cpu));
-}
-
-/// libc has no wrapper for this syscall
-pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
-    return syscall6(.mbind, @intFromPtr(addr), len, @as(usize, @bitCast(@as(isize, mode))), @intFromPtr(nodemask), maxnode, flags);
-}
-
-pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
-    const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
-    if (@as(isize, @bitCast(rc)) < 0) return rc;
-    return 0;
-}
-
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
@@ -1589,43 +1583,6 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(.timerfd_settime, @as(usize, @bitCast(@as(isize, fd))), flags, @intFromPtr(new_value), @intFromPtr(old_value));
-}
-
-pub const sigevent = extern struct {
-    value: sigval,
-    signo: i32,
-    inotify: i32,
-    libc_priv_impl: opaque {},
-};
-
-// Flags for sigevent sigev_inotify's field
-pub const SIGEV = enum(i32) {
-    NONE = 0,
-    SIGNAL = 1,
-    THREAD = 2,
-    THREAD_ID = 4,
-};
-
-pub const timer_t = ?*anyopaque;
-
-pub fn timer_create(clockid: i32, sevp: *sigevent, timerid: *timer_t) usize {
-    var t: timer_t = undefined;
-    const rc = syscall3(.timer_create, @as(usize, @bitCast(@as(isize, clockid))), @intFromPtr(sevp), @intFromPtr(&t));
-    if (@as(isize, @bitCast(rc)) < 0) return rc;
-    timerid.* = t;
-    return rc;
-}
-
-pub fn timer_delete(timerid: timer_t) usize {
-    return syscall1(.timer_delete, timerid);
-}
-
-pub fn timer_gettime(timerid: timer_t, curr_value: *itimerspec) usize {
-    return syscall2(.timer_gettime, @intFromPtr(timerid), @intFromPtr(curr_value));
-}
-
-pub fn timer_settime(timerid: timer_t, flags: i32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timer_settime, @intFromPtr(timerid), @as(usize, @bitCast(@as(isize, flags))), @intFromPtr(new_value), @intFromPtr(old_value));
 }
 
 // Flags for the 'setitimer' system call
@@ -3597,43 +3554,12 @@ pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
-fn cpu_mask(s: usize) cpu_count_t {
-    var x = s & (CPU_SETSIZE * 8);
-    return @as(cpu_count_t, @intCast(1)) << @as(u4, @intCast(x));
-}
-
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
     return sum;
-}
-
-pub fn CPU_ZERO(set: *cpu_set_t) void {
-    @memset(set, 0);
-}
-
-pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] |= cpu_mask(x);
-    }
-}
-
-pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x) != 0;
-    }
-    return false;
-}
-
-pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] &= !cpu_mask(x);
-    }
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {

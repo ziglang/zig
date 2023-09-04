@@ -149,6 +149,7 @@ test {
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
+    _ = @import("behavior/call_tail.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
@@ -192,6 +193,7 @@ test {
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/packed-struct.zig");
     _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+    _ = @import("behavior/packed-union.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/prefetch.zig");

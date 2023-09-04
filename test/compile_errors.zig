@@ -183,4 +183,40 @@ pub fn addCases(ctx: *Cases) !void {
             ":1:1: note: invalid byte: '\\xff'",
         });
     }
+
+    {
+        const case = ctx.obj("imported generic method call with invalid param", .{});
+
+        case.addError(
+            \\pub const import = @import("import.zig");
+            \\
+            \\export fn callComptimeBoolFunctionWithRuntimeBool(x: bool) void {
+            \\    import.comptimeBoolFunction(x);
+            \\}
+            \\
+            \\export fn callComptimeAnytypeFunctionWithRuntimeBool(x: bool) void {
+            \\    import.comptimeAnytypeFunction(x);
+            \\}
+            \\
+            \\export fn callAnytypeFunctionWithRuntimeComptimeOnlyType(x: u32) void {
+            \\    const S = struct { x: u32, y: type };
+            \\    import.anytypeFunction(S{ .x = x, .y = u32 });
+            \\}
+        , &[_][]const u8{
+            ":4:33: error: runtime-known argument passed to comptime parameter",
+            ":1:38: note: declared comptime here",
+            ":8:36: error: runtime-known argument passed to comptime parameter",
+            ":2:41: note: declared comptime here",
+            ":13:29: error: runtime-known argument passed to parameter of comptime-only type",
+            ":3:24: note: declared here",
+            ":12:35: note: struct requires comptime because of this field",
+            ":12:35: note: types are not available at runtime",
+        });
+
+        case.addSourceFile("import.zig",
+            \\pub fn comptimeBoolFunction(comptime _: bool) void {}
+            \\pub fn comptimeAnytypeFunction(comptime _: anytype) void {}
+            \\pub fn anytypeFunction(_: anytype) void {}
+        );
+    }
 }

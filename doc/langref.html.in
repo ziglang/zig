@@ -351,6 +351,7 @@
           <a href="https://ziglang.org/documentation/0.8.1/">0.8.1</a> |
           <a href="https://ziglang.org/documentation/0.9.1/">0.9.1</a> |
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
+          <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -3018,7 +3019,7 @@ test "basic slices" {
     slice[10] += 1;
 
     // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
-    // asserts that the slice has len >= 1.
+    // asserts that the slice has len > 0.
 }
       {#code_end#}
       <p>This is one reason we prefer slices to pointers.</p>
@@ -8467,9 +8468,10 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@extern#}
-      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) *T{#endsyntax#}</pre>
+      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) T{#endsyntax#}</pre>
       <p>
       Creates a reference to an external symbol in the output object file.
+      T must be a pointer type.
       </p>
       {#see_also|@export#}
       {#header_close#}
@@ -10817,11 +10819,11 @@ pub fn build(b: *std.Build) void {
 
       {#header_open|Compiling C Source Code#}
       <pre>{#syntax#}
-lib.addCSourceFile("src/lib.c", &[_][]const u8{
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-});
+lib.addCSourceFile(.{ .file = .{ .path = "src/lib.c" }, .flags = &.{
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    } });
       {#endsyntax#}</pre>
       {#header_close#}
 
@@ -11178,7 +11180,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99"} });
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -11245,10 +11247,10 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99",} });
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
-    exe.install();
+    b.installArtifact(exe);
 }
       {#code_end#}
       {#shell_samp#}$ zig build

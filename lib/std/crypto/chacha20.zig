@@ -2,13 +2,14 @@
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
+const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
 const maxInt = math.maxInt;
-const Poly1305 = std.crypto.onetimeauth.Poly1305;
-const AuthenticationError = std.crypto.errors.AuthenticationError;
+const Poly1305 = crypto.onetimeauth.Poly1305;
+const AuthenticationError = crypto.errors.AuthenticationError;
 
 /// IETF-variant of the ChaCha20 stream cipher, as designed for TLS.
 pub const ChaCha20IETF = ChaChaIETF(20);
@@ -675,13 +676,15 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mac.final(tag);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
-        /// NOTE: the check of the authentication tag is currently not done in constant time
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
@@ -706,14 +709,13 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mem.writeIntLittle(u64, lens[0..8], ad.len);
             mem.writeIntLittle(u64, lens[8..16], c.len);
             mac.update(lens[0..]);
-            var computedTag: [16]u8 = undefined;
-            mac.final(computedTag[0..]);
+            var computed_tag: [16]u8 = undefined;
+            mac.final(computed_tag[0..]);
 
-            var acc: u8 = 0;
-            for (computedTag, 0..) |_, i| {
-                acc |= computedTag[i] ^ tag[i];
-            }
-            if (acc != 0) {
+            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            if (!verify) {
+                crypto.utils.secureZero(u8, &computed_tag);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
             ChaChaIETF(rounds_nb).xor(m[0..c.len], c, 1, k, npub);
@@ -738,12 +740,15 @@ fn XChaChaPoly1305(comptime rounds_nb: usize) type {
             return ChaChaPoly1305(rounds_nb).encrypt(c, tag, m, ad, extended.nonce, extended.key);
         }
 
-        /// m: message: output buffer should be of size c.len
-        /// c: ciphertext
-        /// tag: authentication tag
-        /// ad: Associated Data
-        /// npub: public nonce
-        /// k: private key
+        /// `m`: Message
+        /// `c`: Ciphertext
+        /// `tag`: Authentication tag
+        /// `ad`: Associated data
+        /// `npub`: Public nonce
+        /// `k`: Private key
+        /// Asserts `c.len == m.len`.
+        ///
+        /// Contents of `m` are undefined if an error is returned.
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             const extended = extend(k, npub, rounds_nb);
             return ChaChaPoly1305(rounds_nb).decrypt(m, c, tag, ad, extended.nonce, extended.key);

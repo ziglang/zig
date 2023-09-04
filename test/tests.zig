@@ -566,6 +566,7 @@ pub fn addStandaloneTests(
     b: *std.Build,
     optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
+    enable_ios_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
@@ -587,6 +588,8 @@ pub fn addStandaloneTests(
                     .target = case.target,
                 });
                 if (case.link_libc) exe.linkLibC();
+
+                _ = exe.getEmittedBin();
 
                 step.dependOn(&exe.step);
             }
@@ -613,10 +616,13 @@ pub fn addStandaloneTests(
             case.import.requires_symlinks;
         const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
             case.import.requires_macos_sdk;
+        const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
+            case.import.requires_ios_sdk;
         const bad =
             (requires_stage2 and omit_stage2) or
             (requires_symlinks and omit_symlinks) or
-            (requires_macos_sdk and !enable_macos_sdk);
+            (requires_macos_sdk and !enable_macos_sdk) or
+            (requires_ios_sdk and !enable_ios_sdk);
         if (!bad) {
             const dep = b.anonymousDependency(case.build_root, case.import, .{});
             const dep_step = dep.builder.default_step;
@@ -633,6 +639,7 @@ pub fn addStandaloneTests(
 pub fn addLinkTests(
     b: *std.Build,
     enable_macos_sdk: bool,
+    enable_ios_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
@@ -646,10 +653,13 @@ pub fn addLinkTests(
             case.import.requires_symlinks;
         const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
             case.import.requires_macos_sdk;
+        const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
+            case.import.requires_ios_sdk;
         const bad =
             (requires_stage2 and omit_stage2) or
             (requires_symlinks and omit_symlinks) or
-            (requires_macos_sdk and !enable_macos_sdk);
+            (requires_macos_sdk and !enable_macos_sdk) or
+            (requires_ios_sdk and !enable_ios_sdk);
         if (!bad) {
             const dep = b.anonymousDependency(case.build_root, case.import, .{});
             const dep_step = dep.builder.default_step;
@@ -759,7 +769,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileSourceArg(writefile.files.items[0].getFileSource());
+        run.addFileArg(writefile.files.items[0].getPath());
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
@@ -1006,6 +1016,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
+            .zig_lib_dir = .{ .path = "lib" },
         });
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
@@ -1017,8 +1028,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             "";
 
-        these_tests.overrideZigLibDir("lib");
-        these_tests.addIncludePath("test");
+        these_tests.addIncludePath(.{ .path = "test" });
 
         const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
             options.name,
@@ -1037,11 +1047,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
+                .zig_lib_dir = .{ .path = "lib" },
             });
-            compile_c.overrideZigLibDir("lib");
-            compile_c.addCSourceFileSource(.{
-                .source = these_tests.getOutputSource(),
-                .args = &.{
+            compile_c.addCSourceFile(.{
+                .file = these_tests.getEmittedBin(),
+                .flags = &.{
                     // TODO output -std=c89 compatible C code
                     "-std=c99",
                     "-pedantic",
@@ -1051,6 +1061,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     // TODO stop violating these pedantic errors. spotted on linux
                     "-Wno-address-of-packed-member",
                     "-Wno-gnu-folding-constant",
+                    "-Wno-incompatible-function-pointer-types",
                     "-Wno-incompatible-pointer-types",
                     "-Wno-overlength-strings",
                     // TODO stop violating these pedantic errors. spotted on darwin
@@ -1058,7 +1069,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-absolute-value",
                 },
             });
-            compile_c.addIncludePath("lib"); // for zig.h
+            compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
             if (test_target.target.getOsTag() == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
@@ -1102,7 +1113,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
-    const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };
+    const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
         if (optimize_mode != .Debug and skip_release) continue;
@@ -1131,7 +1142,10 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 test_step.target_info.dynamic_linker.max_byte = null;
             }
             test_step.linkLibC();
-            test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+            test_step.addCSourceFile(.{
+                .file = .{ .path = "test/c_abi/cfuncs.c" },
+                .flags = &.{"-std=c99"},
+            });
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
@@ -1150,6 +1164,7 @@ pub fn addCases(
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
     check_case_exe: *std.Build.Step.Compile,
+    build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;
@@ -1160,7 +1175,7 @@ pub fn addCases(
     defer dir.close();
 
     cases.addFromDir(dir);
-    try @import("cases.zig").addCases(&cases);
+    try @import("cases.zig").addCases(&cases, build_options);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(

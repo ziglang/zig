@@ -9,7 +9,7 @@ pub const panic = common.panic;
 
 comptime {
     if (!builtin.is_test) {
-        if (arch.isARM() or arch.isThumb()) {
+        if (arch.isArmOrThumb()) {
             @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });

@@ -21,9 +21,23 @@ const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
+/// These are *always* dynamically linked. Static libraries will be
+/// provided as positional arguments.
 pub const SystemLib = struct {
+    needed: bool,
+    weak: bool,
+    /// This can be null in two cases right now:
+    /// 1. Windows DLLs that zig ships such as advapi32.
+    /// 2. extern "foo" fn declarations where we find out about libraries too late
+    /// TODO: make this non-optional and resolve those two cases somehow.
+    path: ?[]const u8,
+};
+
+/// When adding a new field, remember to update `hashAddFrameworks`.
+pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
+    path: []const u8,
 };
 
 pub const SortSection = enum { name, alignment };
@@ -31,15 +45,23 @@ pub const SortSection = enum { name, alignment };
 pub const CacheMode = enum { incremental, whole };
 
 pub fn hashAddSystemLibs(
-    hh: *Cache.HashHelper,
+    man: *Cache.Manifest,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
-) void {
+) !void {
     const keys = hm.keys();
-    hh.add(keys.len);
-    hh.addListOfBytes(keys);
+    man.hash.addListOfBytes(keys);
     for (hm.values()) |value| {
-        hh.add(value.needed);
-        hh.add(value.weak);
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        if (value.path) |p| _ = try man.addFile(p, null);
+    }
+}
+
+pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
+    for (hm) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
     }
 }
 
@@ -77,7 +99,7 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    optimize_mode: std.builtin.Mode,
+    optimize_mode: std.builtin.OptimizeMode,
     machine_code_model: std.builtin.CodeModel,
     root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
@@ -183,9 +205,12 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
+    frameworks: []const Framework,
+    /// These are *always* dynamically linked. Static libraries will be
+    /// provided as positional arguments.
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
+    // TODO: remove this. libraries are resolved by the frontend.
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
@@ -213,9 +238,6 @@ pub const Options = struct {
     /// (Zig compiler development) Enable dumping of linker's state as JSON.
     enable_link_snapshots: bool = false,
 
-    /// (Darwin) Path and version of the native SDK if detected.
-    native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null,
-
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
@@ -224,9 +246,6 @@ pub const Options = struct {
 
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
-
-    /// (Darwin) search strategy for system libraries
-    search_strategy: ?File.MachO.SearchStrategy = null,
 
     /// (Darwin) set minimum space for future expansion of the load commands
     headerpad_size: ?u32 = null,
@@ -253,7 +272,6 @@ pub const Options = struct {
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
-        self.frameworks = .{};
         self.system_libs = .{};
         self.force_undefined_symbols = .{};
         return copied_state;
@@ -619,7 +637,6 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
         base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
@@ -676,19 +693,15 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
-        EmptyStubFile,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,
-        FrameworkNotFound,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,
@@ -705,27 +718,19 @@ pub const File = struct {
         LLD_LinkingIsTODO_ForSpirV,
         LibCInstallationMissingCRTDir,
         LibCInstallationNotAvailable,
-        LibraryNotFound,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
         MalformedDwarf,
         MalformedSection,
         MemoryTooBig,
         MemoryTooSmall,
-        MismatchedCpuArchitecture,
         MissAlignment,
         MissingEndForBody,
         MissingEndForExpression,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,
-        MultipleSymbolDefinitions,
         NoObjectsToLink,
-        NotObject,
         NotObjectFile,
         NotSupported,
         OutOfMemory,
@@ -737,21 +742,15 @@ pub const File = struct {
         SymbolMismatchingType,
         TODOImplementPlan9Objs,
         TODOImplementWritingLibFiles,
-        TODOImplementWritingStaticLibFiles,
         UnableToSpawnSelf,
         UnableToSpawnWasm,
         UnableToWriteArchive,
         UndefinedLocal,
-        /// TODO: merge with UndefinedSymbolReference
         UndefinedSymbol,
-        /// TODO: merge with UndefinedSymbol
-        UndefinedSymbolReference,
         Underflow,
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
-        UnhandledSymbolType,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,
@@ -845,6 +844,13 @@ pub const File = struct {
             .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
             .wasm, .spirv, .nvptx => return ErrorFlags{},
+        }
+    }
+
+    pub fn miscErrors(base: *File) []const ErrorMsg {
+        switch (base.tag) {
+            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
+            else => return &.{},
         }
     }
 
@@ -966,6 +972,8 @@ pub const File = struct {
     }
 
     pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+        const emit = base.options.emit orelse return;
+
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -973,8 +981,8 @@ pub const File = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
-        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
+        const directory = emit.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         // If there is no Zig code to compile, then we should skip flushing the output file
@@ -1107,6 +1115,19 @@ pub const File = struct {
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
+    };
+
+    pub const ErrorMsg = struct {
+        msg: []const u8,
+        notes: []ErrorMsg = &.{},
+
+        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
+            for (self.notes) |*note| {
+                note.deinit(gpa);
+            }
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
     };
 
     pub const LazySymbol = struct {

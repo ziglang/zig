@@ -40,3 +40,4 @@ pub export fn entry3() void {
 // :19:5: error: switch on non-exhaustive enum must include 'else' or '_' prong
 // :26:5: error: '_' prong only allowed when switching on non-exhaustive enums
 // :29:11: note: '_' prong here
+// :26:5: note: consider using 'else'

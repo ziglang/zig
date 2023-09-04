@@ -52,7 +52,7 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     return exe;
 }

@@ -6,7 +6,6 @@ const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
 const c = std.c;
-const maxInt = std.math.maxInt;
 const Allocator = std.mem.Allocator;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
@@ -21,6 +20,7 @@ pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
+pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
 
 const memory_pool = @import("heap/memory_pool.zig");
 pub const MemoryPool = memory_pool.MemoryPool;
@@ -227,6 +227,11 @@ pub const page_allocator = if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,
         .vtable = &WasmPageAllocator.vtable,
+    }
+else if (builtin.target.os.tag == .plan9)
+    Allocator{
+        .ptr = undefined,
+        .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
     }
 else if (builtin.target.os.tag == .freestanding)
     root.os.heap.page_allocator

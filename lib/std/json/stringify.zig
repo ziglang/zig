@@ -33,6 +33,9 @@ pub const StringifyOptions = struct {
 
     /// Should unicode characters be escaped in strings?
     escape_unicode: bool = false,
+
+    /// When true, renders numbers outside the range `+-1<<53` (the precise integer range of f64) as JSON strings in base 10.
+    emit_nonportable_numbers_as_strings: bool = false,
 };
 
 /// Writes the given value to the `std.io.Writer` stream.
@@ -152,7 +155,7 @@ pub fn writeStreamArbitraryDepth(
 ///    | <object>
 ///    | <array>
 ///    | write
-///    | writePreformatted
+///    | print
 ///  <object> = beginObject ( objectField <value> )* endObject
 ///  <array> = beginArray ( <value> )* endArray
 /// ```
@@ -161,7 +164,7 @@ pub fn writeStreamArbitraryDepth(
 ///  * Zig `bool` -> JSON `true` or `false`.
 ///  * Zig `?T` -> `null` or the rendering of `T`.
 ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
-///      * If the value is outside the range `±1<<53` (the precise integer rage of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
+///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
 ///  * Zig floats -> JSON number or string.
 ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
 ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
@@ -178,6 +181,7 @@ pub fn writeStreamArbitraryDepth(
 ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
 ///  * Zig `enum` -> JSON string naming the active tag.
 ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+///  * Zig untyped enum literal -> JSON string naming the active tag.
 ///  * Zig error -> JSON string naming the error.
 ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
 ///
@@ -378,13 +382,14 @@ pub fn WriteStream(
             return self.indent_level == 0 and self.next_punctuation == .comma;
         }
 
-        /// An alternative to calling `write` that outputs the given bytes verbatim.
+        /// An alternative to calling `write` that formats a value with `std.fmt`.
         /// This function does the usual punctuation and indentation formatting
-        /// assuming the given slice represents a single complete value;
+        /// assuming the resulting formatted string represents a single complete value;
         /// e.g. `"1"`, `"[]"`, `"[1,2]"`, not `"1,2"`.
-        pub fn writePreformatted(self: *Self, value_slice: []const u8) Error!void {
+        /// This function may be useful for doing your own number formatting.
+        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
             try self.valueStart();
-            try self.stream.writeAll(value_slice);
+            try self.stream.print(fmt, args);
             self.valueDone();
         }
 
@@ -398,21 +403,15 @@ pub fn WriteStream(
         pub fn write(self: *Self, value: anytype) Error!void {
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => |info| {
-                    if (info.bits < 53) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
-                    if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
-                        try self.valueStart();
-                        try self.stream.print("{}", .{value});
-                        self.valueDone();
-                        return;
-                    }
+                .Int => {
                     try self.valueStart();
-                    try self.stream.print("\"{}\"", .{value});
+                    if (self.options.emit_nonportable_numbers_as_strings and
+                        (value <= -(1 << 53) or value >= (1 << 53)))
+                    {
+                        try self.stream.print("\"{}\"", .{value});
+                    } else {
+                        try self.stream.print("{}", .{value});
+                    }
                     self.valueDone();
                     return;
                 },
@@ -451,7 +450,7 @@ pub fn WriteStream(
                         return try self.write(null);
                     }
                 },
-                .Enum => {
+                .Enum, .EnumLiteral => {
                     if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                         return value.jsonStringify(self);
                     }
@@ -584,6 +583,7 @@ pub fn WriteStream(
         pub const emitNumber = @compileError("Deprecated; Use .write() instead.");
         pub const emitString = @compileError("Deprecated; Use .write() instead.");
         pub const emitJson = @compileError("Deprecated; Use .write() instead.");
+        pub const writePreformatted = @compileError("Deprecated; Use .print(\"{s}\", .{s}) instead.");
     };
 }
 

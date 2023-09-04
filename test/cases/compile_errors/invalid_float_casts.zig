@@ -22,4 +22,4 @@ export fn qux() void {
 // :3:40: error: unable to cast runtime value to 'comptime_float'
 // :7:18: error: expected integer type, found 'f32'
 // :11:32: error: expected integer type, found 'f32'
-// :15:29: error: expected float type, found 'u32'
+// :15:29: error: expected float or vector type, found 'u32'

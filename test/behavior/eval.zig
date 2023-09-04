@@ -533,6 +533,7 @@ test "runtime 128 bit integer division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
@@ -1702,4 +1703,14 @@ test "@inComptime" {
     try expectEqual(true, comptime @inComptime());
     try expectEqual(false, S.inComptime());
     try expectEqual(true, comptime S.inComptime());
+}
+
+// comptime partial array assign
+comptime {
+    var foo = [3]u8{ 0x55, 0x55, 0x55 };
+    var bar = [2]u8{ 1, 2 };
+    foo[0..2].* = bar;
+    assert(foo[0] == 1);
+    assert(foo[1] == 2);
+    assert(foo[2] == 0x55);
 }

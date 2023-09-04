@@ -27,7 +27,6 @@ llvm_object: *LlvmObject,
 ptx_file_name: []const u8,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
-    if (!build_options.have_llvm) return error.PtxArchNotSupported;
     if (!options.use_llvm) return error.PtxArchNotSupported;
 
     if (!options.target.cpu.arch.isNvptx()) return error.PtxArchNotSupported;
@@ -55,7 +54,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
 }
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*NvPtx {
-    if (!build_options.have_llvm) @panic("nvptx target requires a zig compiler with llvm enabled.");
     if (!options.use_llvm) return error.PtxArchNotSupported;
     assert(options.target.ofmt == .nvptx);
 
@@ -64,18 +62,15 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn deinit(self: *NvPtx) void {
-    if (!build_options.have_llvm) return;
     self.llvm_object.destroy(self.base.allocator);
     self.base.allocator.free(self.ptx_file_name);
 }
 
 pub fn updateFunc(self: *NvPtx, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
-    if (!build_options.have_llvm) return;
     try self.llvm_object.updateFunc(module, func_index, air, liveness);
 }
 
 pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
-    if (!build_options.have_llvm) return;
     return self.llvm_object.updateDecl(module, decl_index);
 }
 
@@ -85,7 +80,6 @@ pub fn updateDeclExports(
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    if (!build_options.have_llvm) return;
     if (build_options.skip_non_native and builtin.object_format != .nvptx) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -93,7 +87,6 @@ pub fn updateDeclExports(
 }
 
 pub fn freeDecl(self: *NvPtx, decl_index: Module.Decl.Index) void {
-    if (!build_options.have_llvm) return;
     return self.llvm_object.freeDecl(decl_index);
 }
 
@@ -102,14 +95,14 @@ pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) li
 }
 
 pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (!build_options.have_llvm) return;
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+    const outfile = comp.bin_file.options.emit orelse return;
+
     const tracy = trace(@src());
     defer tracy.end();
 
-    const outfile = comp.bin_file.options.emit.?;
     // We modify 'comp' before passing it to LLVM, but restore value afterwards.
     // We tell LLVM to not try to build a .o, only an "assembly" file.
     // This is required by the LLVM PTX backend.

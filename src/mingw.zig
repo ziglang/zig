@@ -283,7 +283,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const def_file_path = findDef(comp, arena, lib_name) catch |err| switch (err) {
+    const def_file_path = findDef(arena, comp.getTarget(), comp.zig_lib_directory, lib_name) catch |err| switch (err) {
         error.FileNotFound => {
             log.debug("no {s}.def file available to make a DLL import {s}.lib", .{ lib_name, lib_name });
             // In this case we will end up putting foo.lib onto the linker line and letting the linker
@@ -431,10 +431,28 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 }
 
-/// This function body is verbose but all it does is test 3 different paths and see if a .def file exists.
-fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8 {
-    const target = comp.getTarget();
+pub fn libExists(
+    allocator: Allocator,
+    target: std.Target,
+    zig_lib_directory: Cache.Directory,
+    lib_name: []const u8,
+) !bool {
+    const s = findDef(allocator, target, zig_lib_directory, lib_name) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    defer allocator.free(s);
+    return true;
+}
 
+/// This function body is verbose but all it does is test 3 different paths and
+/// see if a .def file exists.
+fn findDef(
+    allocator: Allocator,
+    target: std.Target,
+    zig_lib_directory: Cache.Directory,
+    lib_name: []const u8,
+) ![]u8 {
     const lib_path = switch (target.cpu.arch) {
         .x86 => "lib32",
         .x86_64 => "lib64",
@@ -451,7 +469,7 @@ fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8
     {
         // Try the archtecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
-        if (comp.zig_lib_directory.path) |p| {
+        if (zig_lib_directory.path) |p| {
             try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
         } else {
             try override_path.writer().print(fmt_path, .{ lib_path, lib_name });
@@ -468,7 +486,7 @@ fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8
         // Try the generic version.
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
-        if (comp.zig_lib_directory.path) |p| {
+        if (zig_lib_directory.path) |p| {
             try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
             try override_path.writer().print(fmt_path, .{lib_name});
@@ -485,7 +503,7 @@ fn findDef(comp: *Compilation, allocator: Allocator, lib_name: []const u8) ![]u8
         // Try the generic version and preprocess it.
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
-        if (comp.zig_lib_directory.path) |p| {
+        if (zig_lib_directory.path) |p| {
             try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
             try override_path.writer().print(fmt_path, .{lib_name});

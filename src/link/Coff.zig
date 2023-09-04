@@ -225,7 +225,7 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.target.ofmt == .coff);
 
-    if (build_options.have_llvm and options.use_llvm) {
+    if (options.use_llvm) {
         return createEmpty(allocator, options);
     }
 
@@ -267,8 +267,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         .data_directories = comptime mem.zeroes([coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory),
     };
 
-    const use_llvm = build_options.have_llvm and options.use_llvm;
-    if (use_llvm) {
+    if (options.use_llvm) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
@@ -277,9 +276,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
 pub fn deinit(self: *Coff) void {
     const gpa = self.base.allocator;
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
-    }
+    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
 
     for (self.objects.items) |*object| {
         object.deinit(gpa);
@@ -1036,10 +1033,8 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| {
-            return llvm_object.updateFunc(mod, func_index, air, liveness);
-        }
+    if (self.llvm_object) |llvm_object| {
+        return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
     const tracy = trace(@src());
     defer tracy.end();
@@ -1147,9 +1142,7 @@ pub fn updateDecl(
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1390,9 +1383,7 @@ fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
 }
 
 pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    }
+    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
 
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1419,7 +1410,7 @@ pub fn updateDeclExports(
 
     const ip = &mod.intern_pool;
 
-    if (build_options.have_llvm) {
+    if (self.base.options.use_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (exports) |exp| {
@@ -1448,9 +1439,11 @@ pub fn updateDeclExports(
                 }
             }
         }
-
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
+
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+
+    if (self.base.options.emit == null) return;
 
     const gpa = self.base.allocator;
 
@@ -1581,10 +1574,8 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
 
 pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
-        if (build_options.have_llvm) {
-            if (self.llvm_object) |llvm_object| {
-                return try llvm_object.flushModule(comp, prog_node);
-            }
+        if (self.llvm_object) |llvm_object| {
+            return try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
@@ -1602,10 +1593,8 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
+    if (self.llvm_object) |llvm_object| {
+        return try llvm_object.flushModule(comp, prog_node);
     }
 
     var sub_prog_node = prog_node.start("COFF Flush", 0);

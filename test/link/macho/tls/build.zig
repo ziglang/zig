@@ -21,7 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    lib.addCSourceFile("a.c", &.{});
+    lib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     lib.linkLibC();
 
     const test_exe = b.addTest(.{

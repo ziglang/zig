@@ -36,7 +36,7 @@ pub const ConnectionPool = struct {
         is_tls: bool,
     };
 
-    const Queue = std.TailQueue(Connection);
+    const Queue = std.DoublyLinkedList(Connection);
     pub const Node = Queue.Node;
 
     mutex: std.Thread.Mutex = .{},

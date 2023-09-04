@@ -1,6 +1,12 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 
+pub const fd_t = i32;
+
+pub const STDIN_FILENO = 0;
+pub const STDOUT_FILENO = 1;
+pub const STDERR_FILENO = 2;
+pub const PATH_MAX = 1023;
 pub const syscall_bits = switch (builtin.cpu.arch) {
     .x86_64 => @import("plan9/x86_64.zig"),
     else => @compileError("more plan9 syscall implementations (needs more inline asm in stage2"),
@@ -11,6 +17,43 @@ pub fn getErrno(r: usize) E {
     const signed_r = @as(isize, @bitCast(r));
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
     return @as(E, @enumFromInt(int));
+}
+// The max bytes that can be in the errstr buff
+pub const ERRMAX = 128;
+var errstr_buf: [ERRMAX]u8 = undefined;
+/// Gets whatever the last errstr was
+pub fn errstr() []const u8 {
+    _ = syscall_bits.syscall2(.ERRSTR, @intFromPtr(&errstr_buf), ERRMAX);
+    return std.mem.span(@as([*:0]u8, @ptrCast(&errstr_buf)));
+}
+pub const Plink = anyopaque;
+pub const Tos = extern struct {
+    /// Per process profiling
+    prof: extern struct {
+        /// known to be 0(ptr)
+        pp: *Plink,
+        /// known to be 4(ptr)
+        next: *Plink,
+        last: *Plink,
+        first: *Plink,
+        pid: u32,
+        what: u32,
+    },
+    /// cycle clock frequency if there is one, 0 otherwise
+    cyclefreq: u64,
+    /// cycles spent in kernel
+    kcycles: i64,
+    /// cycles spent in process (kernel + user)
+    pcycles: i64,
+    /// might as well put the pid here
+    pid: u32,
+    clock: u32,
+    // top of stack is here
+};
+
+pub var tos: *Tos = undefined; // set in start.zig
+pub fn getpid() u32 {
+    return tos.pid;
 }
 pub const SIG = struct {
     /// hangup
@@ -57,7 +100,8 @@ pub const SIG = struct {
 };
 pub const sigset_t = c_long;
 pub const empty_sigset = 0;
-pub const siginfo_t = c_long; // TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we incude it here to be compatible.
+pub const siginfo_t = c_long;
+// TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we incude it here to be compatible.
 pub const Sigaction = extern struct {
     pub const handler_fn = *const fn (c_int) callconv(.C) void;
     pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
@@ -68,6 +112,9 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_int,
+};
+pub const AT = struct {
+    pub const FDCWD = -100; // we just make up a constant; FDCWD and openat don't actually exist in plan9
 };
 // TODO implement sigaction
 // right now it is just a shim to allow using start.zig code
@@ -132,20 +179,48 @@ pub const SYS = enum(usize) {
     _NSEC = 53,
 };
 
-pub fn pwrite(fd: usize, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PWRITE, fd, @intFromPtr(buf), count, offset);
+pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
+    return syscall_bits.syscall4(.PWRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(@as(isize, -1)));
+}
+pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: isize) usize {
+    return syscall_bits.syscall4(.PWRITE, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(offset));
 }
 
-pub fn pread(fd: usize, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PREAD, fd, @intFromPtr(buf), count, offset);
+pub fn read(fd: i32, buf: [*]const u8, count: usize) usize {
+    return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(@as(isize, -1)));
+}
+pub fn pread(fd: i32, buf: [*]const u8, count: usize, offset: isize) usize {
+    return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(offset));
 }
 
-pub fn open(path: [*:0]const u8, omode: OpenMode) usize {
-    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @intFromEnum(omode));
+pub fn open(path: [*:0]const u8, flags: u32) usize {
+    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @bitCast(@as(isize, flags)));
 }
 
-pub fn create(path: [*:0]const u8, omode: OpenMode, perms: usize) usize {
-    return syscall_bits.syscall3(.CREATE, @intFromPtr(path), @intFromEnum(omode), perms);
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, _: mode_t) usize {
+    // we skip perms because only create supports perms
+    if (dirfd == AT.FDCWD) { // openat(AT_FDCWD, ...) == open(...)
+        return open(path, flags);
+    }
+    var dir_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var total_path_buf: [std.fs.MAX_PATH_BYTES + 1]u8 = undefined;
+    const rc = fd2path(dirfd, &dir_path_buf, std.fs.MAX_PATH_BYTES);
+    if (rc != 0) return rc;
+    var fba = std.heap.FixedBufferAllocator.init(&total_path_buf);
+    var alloc = fba.allocator();
+    const dir_path = std.mem.span(@as([*:0]u8, @ptrCast(&dir_path_buf)));
+    const total_path = std.fs.path.join(alloc, &.{ dir_path, std.mem.span(path) }) catch unreachable; // the allocation shouldn't fail because it should not exceed MAX_PATH_BYTES
+    fba.reset();
+    const total_path_z = alloc.dupeZ(u8, total_path) catch unreachable; // should not exceed MAX_PATH_BYTES + 1
+    return open(total_path_z.ptr, flags);
+}
+
+pub fn fd2path(fd: i32, buf: [*]u8, nbuf: usize) usize {
+    return syscall_bits.syscall3(.FD2PATH, @bitCast(@as(isize, fd)), @intFromPtr(buf), nbuf);
+}
+
+pub fn create(path: [*:0]const u8, omode: mode_t, perms: usize) usize {
+    return syscall_bits.syscall3(.CREATE, @intFromPtr(path), @bitCast(@as(isize, omode)), perms);
 }
 
 pub fn exit(status: u8) noreturn {
@@ -163,16 +238,53 @@ pub fn exits(status: ?[*:0]const u8) noreturn {
     unreachable;
 }
 
-pub fn close(fd: usize) usize {
-    return syscall_bits.syscall1(.CLOSE, fd);
+pub fn close(fd: i32) usize {
+    return syscall_bits.syscall1(.CLOSE, @bitCast(@as(isize, fd)));
 }
-pub const OpenMode = enum(usize) {
-    OREAD = 0, //* open for read
-    OWRITE = 1, //* write
-    ORDWR = 2, //* read and write
-    OEXEC = 3, //* execute, == read but check execute permission
-    OTRUNC = 16, //* or'ed in (except for exec), truncate file first
-    OCEXEC = 32, //* or'ed in (per file descriptor), close on exec
-    ORCLOSE = 64, //* or'ed in, remove on close
-    OEXCL = 0x1000, //* or'ed in, exclusive create
+pub const mode_t = i32;
+pub const O = struct {
+    pub const READ = 0; // open for read
+    pub const RDONLY = 0;
+    pub const WRITE = 1; // write
+    pub const WRONLY = 1;
+    pub const RDWR = 2; // read and write
+    pub const EXEC = 3; // execute, == read but check execute permission
+    pub const TRUNC = 16; // or'ed in (except for exec), truncate file first
+    pub const CEXEC = 32; // or'ed in (per file descriptor), close on exec
+    pub const RCLOSE = 64; // or'ed in, remove on close
+    pub const EXCL = 0x1000; // or'ed in, exclusive create
 };
+
+pub const ExecData = struct {
+    pub extern const etext: anyopaque;
+    pub extern const edata: anyopaque;
+    pub extern const end: anyopaque;
+};
+
+/// Brk sets the system's idea of the lowest bss location not
+/// used by the program (called the break) to addr rounded up to
+/// the next multiple of 8 bytes.  Locations not less than addr
+/// and below the stack pointer may cause a memory violation if
+/// accessed. -9front brk(2)
+pub fn brk_(addr: usize) i32 {
+    return @intCast(syscall_bits.syscall1(.BRK_, addr));
+}
+var bloc: usize = 0;
+var bloc_max: usize = 0;
+
+pub fn sbrk(n: usize) usize {
+    if (bloc == 0) {
+        // we are at the start
+        bloc = @intFromPtr(&ExecData.end);
+        bloc_max = @intFromPtr(&ExecData.end);
+    }
+    var bl = std.mem.alignForward(usize, bloc, std.mem.page_size);
+    const n_aligned = std.mem.alignForward(usize, n, std.mem.page_size);
+    if (bl + n_aligned > bloc_max) {
+        // we need to allocate
+        if (brk_(bl + n_aligned) < 0) return 0;
+        bloc_max = bl + n_aligned;
+    }
+    bloc = bloc + n_aligned;
+    return bl;
+}
