@@ -12127,10 +12127,6 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
     var decl_count: u32 = 0;
     for (members) |member_node| {
         const name_token = switch (node_tags[member_node]) {
-            .fn_proto_simple,
-            .fn_proto_multi,
-            .fn_proto_one,
-            .fn_proto,
             .global_var_decl,
             .local_var_decl,
             .simple_var_decl,
@@ -12140,7 +12136,12 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 break :blk main_tokens[member_node] + 1;
             },
 
-            .fn_decl => blk: {
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            .fn_decl,
+            => blk: {
                 decl_count += 1;
                 const ident = main_tokens[member_node] + 1;
                 if (token_tags[ident] != .identifier) {
