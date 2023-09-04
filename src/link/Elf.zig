@@ -3370,16 +3370,6 @@ fn logSymtab(self: Elf) void {
     }
 }
 
-pub fn getProgramHeader(self: *const Elf, shdr_index: u16) elf.Elf64_Phdr {
-    const index = self.sections.items(.phdr_index)[shdr_index];
-    return self.program_headers.items[index];
-}
-
-pub fn getProgramHeaderPtr(self: *Elf, shdr_index: u16) *elf.Elf64_Phdr {
-    const index = self.sections.items(.phdr_index)[shdr_index];
-    return &self.program_headers.items[index];
-}
-
 /// Returns pointer-to-symbol described at sym_index.
 pub fn symbol(self: *const Elf, sym_index: u32) *elf.Elf64_Sym {
     return &self.locals.items[sym_index];
