@@ -474,7 +474,10 @@ pub const Wip = struct {
             .span_start = other_sl.span_start,
             .span_main = other_sl.span_main,
             .span_end = other_sl.span_end,
-            .source_line = try wip.addString(other.nullTerminatedString(other_sl.source_line)),
+            .source_line = if (other_sl.source_line != 0)
+                try wip.addString(other.nullTerminatedString(other_sl.source_line))
+            else
+                0,
             .reference_trace_len = other_sl.reference_trace_len,
         });
 
