@@ -1048,6 +1048,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
 
+        if (options.verbose_llvm_cpu_features) {
+            if (llvm_cpu_features) |cf| print: {
+                std.debug.getStderrMutex().lock();
+                defer std.debug.getStderrMutex().unlock();
+                const stderr = std.io.getStdErr().writer();
+                nosuspend stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                nosuspend stderr.print("  target: {s}\n", .{try options.target.zigTriple(arena)}) catch break :print;
+                nosuspend stderr.print("  cpu: {s}\n", .{options.target.cpu.model.name}) catch break :print;
+                nosuspend stderr.print("  features: {s}\n", .{cf}) catch {};
+            }
+        }
+
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
