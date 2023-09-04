@@ -2683,7 +2683,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             .msg = try bundle.addString(value.msg),
             .notes_len = if (value.children) |b| b.errorMessageCount() else 0,
         });
-        if (value.children) |b| try bundle.addBundle(b);
+        if (value.children) |b| try bundle.addBundleAsNotes(b);
     }
     if (self.alloc_failure_occurred) {
         try bundle.addRootErrorMessage(.{
