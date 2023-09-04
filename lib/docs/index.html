@@ -70,7 +70,6 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        margin: 0 1rem;
 
         height: 100%;
         overflow: hidden;
@@ -91,14 +90,12 @@
       }
 
       .flex-left {
-        width: 12rem;
-        max-width: 15vw;
-        min-width: 9.5rem;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         overflow-wrap: break-word;
         flex-shrink: 0;
         flex-grow: 0;
+        margin-right: 0.5rem;
 
         z-index: 300;
       }
@@ -135,13 +132,11 @@
       }
 
       .logo {
-        width: 168px;
-        margin-right: 1rem;
+        margin: 0.5rem;
       }
 
       .logo > svg {
         display: block;
-        overflow: visible;
       }
 
       ul.guides-api-switch {
@@ -276,7 +271,7 @@
       .column {
         flex-basis: 0;
         flex-grow: 1;
-        min-width: 24rem;
+        min-width: min(24rem, 90%);
       }
 
       
@@ -750,9 +745,6 @@
           padding-left: 1.4rem;
           padding-right: 1.4rem;
         }
-        .logo {
-          max-width: 6.5rem;
-        }
         .flex-main > .flex-filler {
           display: none;
         }
@@ -951,7 +943,7 @@
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
     <div id="main" class="flex-main">
-      <div class="flex-horizontal" style="justify-content: center;padding:0.5rem;">
+      <div class="flex-horizontal" style="justify-content: center; padding: 0 0.5rem;">
         <div class="flex-left">
           <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
@@ -1021,7 +1013,7 @@
         </div>
         </div>
       </div>
-      <div style="height:100%; overflow:hidden; margin: 0 1rem;">
+      <div style="height:100%; overflow:hidden;">
         <div id="sectSearchResults" class="docs hidden">
           <details id="searchHelp">
             <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
@@ -1084,7 +1076,7 @@
           </ul>
           <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
         </div>
-        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <div id="guidesMenu" class="sidebar">
             <h2 id="guidesMenuTitle">Table of Contents</h2>
             <div id="guideTocListEmpty" style="margin:0 1rem;"><i>No content to display.</i></div>
@@ -1092,7 +1084,7 @@
           </div>
           <div id="activeGuide" class="hidden"></div>
         </div> 
-        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <section id="docs-scroll" class="docs">
             <p id="status">Loading...</p>
             <div id="fnProto" class="hidden">
