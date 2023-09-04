@@ -4315,7 +4315,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (func_value.getFunction(mod)) |func| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                const atom = elf_file.getAtom(atom_index);
+                const atom = elf_file.atom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
                 try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });

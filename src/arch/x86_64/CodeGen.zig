@@ -8150,7 +8150,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         }) |owner_decl| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(owner_decl);
-                const atom = elf_file.getAtom(atom_index);
+                const atom = elf_file.atom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = atom.getOffsetTableAddress(elf_file);
                 try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
@@ -10217,7 +10217,7 @@ fn genLazySymbolRef(
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = elf_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const atom = elf_file.getAtom(atom_index);
+        const atom = elf_file.atom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         const got_addr = atom.getOffsetTableAddress(elf_file);
         const got_mem =

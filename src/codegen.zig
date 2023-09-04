@@ -855,7 +855,7 @@ fn genDeclRef(
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
-        const atom = elf_file.getAtom(atom_index);
+        const atom = elf_file.atom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(elf_file) });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
@@ -892,7 +892,7 @@ fn genUnnamedConst(
         return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
+        return GenResult.mcv(.{ .memory = elf_file.symbol(local_sym_index).st_value });
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

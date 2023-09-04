@@ -280,10 +280,10 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: File.
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    const this_atom = self.getAtom(this_atom_index);
-    const target = this_atom.getSymbolIndex().?;
-    const vaddr = this_atom.getSymbol(self).st_value;
-    const atom_index = self.getAtomIndexForSymbol(reloc_info.parent_atom_index).?;
+    const this_atom = self.atom(this_atom_index);
+    const target = this_atom.symbolIndex().?;
+    const vaddr = this_atom.symbol(self).st_value;
+    const atom_index = self.atomIndexForSymbol(reloc_info.parent_atom_index).?;
     try Atom.addRelocation(self, atom_index, .{
         .target = target,
         .offset = reloc_info.offset,
@@ -849,8 +849,8 @@ fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = if (maybe_last_atom_index) |last_atom_index| blk: {
-            const last = self.getAtom(last_atom_index);
-            const sym = last.getSymbol(self);
+            const last = self.atom(last_atom_index);
+            const sym = last.symbol(self);
             break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
         } else if (shdr_index == self.got_section_index.?) blk: {
             break :blk shdr.sh_size;
@@ -1010,8 +1010,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         while (it.next()) |entry| {
             const atom_index = entry.key_ptr.*;
             const relocs = entry.value_ptr.*;
-            const atom = self.getAtom(atom_index);
-            const source_sym = atom.getSymbol(self);
+            const atom_ptr = self.atom(atom_index);
+            const source_sym = atom_ptr.symbol(self);
             const source_shdr = self.sections.items(.shdr)[source_sym.st_shndx];
 
             log.debug("relocating '{?s}'", .{self.strtab.get(source_sym.st_name)});
@@ -1471,9 +1471,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(entry);
         }
 
-        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+        for (self.base.options.force_undefined_symbols.keys()) |sym| {
             try argv.append("-u");
-            try argv.append(symbol);
+            try argv.append(sym);
         }
 
         switch (self.base.options.hash_style) {
@@ -2071,13 +2071,13 @@ fn writeElfHeader(self: *Elf) !void {
 }
 
 fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
-    const atom = self.getAtom(atom_index);
-    log.debug("freeAtom {d} ({s})", .{ atom_index, atom.getName(self) });
+    const atom_ptr = self.atom(atom_index);
+    log.debug("freeAtom {d} ({s})", .{ atom_index, atom_ptr.name(self) });
 
     Atom.freeRelocations(self, atom_index);
 
     const gpa = self.base.allocator;
-    const shndx = atom.getSymbol(self).st_shndx;
+    const shndx = atom_ptr.symbol(self).st_shndx;
     const free_list = &self.sections.items(.free_list)[shndx];
     var already_have_free_list_node = false;
     {
@@ -2088,7 +2088,7 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
                 _ = free_list.swapRemove(i);
                 continue;
             }
-            if (free_list.items[i] == atom.prev_index) {
+            if (free_list.items[i] == atom_ptr.prev_index) {
                 already_have_free_list_node = true;
             }
             i += 1;
@@ -2098,7 +2098,7 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
     const maybe_last_atom_index = &self.sections.items(.last_atom_index)[shndx];
     if (maybe_last_atom_index.*) |last_atom_index| {
         if (last_atom_index == atom_index) {
-            if (atom.prev_index) |prev_index| {
+            if (atom_ptr.prev_index) |prev_index| {
                 // TODO shrink the section size here
                 maybe_last_atom_index.* = prev_index;
             } else {
@@ -2107,9 +2107,9 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
         }
     }
 
-    if (atom.prev_index) |prev_index| {
-        const prev = self.getAtomPtr(prev_index);
-        prev.next_index = atom.next_index;
+    if (atom_ptr.prev_index) |prev_index| {
+        const prev = self.atom(prev_index);
+        prev.next_index = atom_ptr.next_index;
 
         if (!already_have_free_list_node and prev.*.freeListEligible(self)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
@@ -2117,23 +2117,23 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
             free_list.append(gpa, prev_index) catch {};
         }
     } else {
-        self.getAtomPtr(atom_index).prev_index = null;
+        atom_ptr.prev_index = null;
     }
 
-    if (atom.next_index) |next_index| {
-        self.getAtomPtr(next_index).prev_index = atom.prev_index;
+    if (atom_ptr.next_index) |next_index| {
+        self.atom(next_index).prev_index = atom_ptr.prev_index;
     } else {
-        self.getAtomPtr(atom_index).next_index = null;
+        atom_ptr.next_index = null;
     }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-    const sym_index = atom.getSymbolIndex().?;
+    const sym_index = atom_ptr.symbolIndex().?;
 
     log.debug("adding %{d} to local symbols free list", .{sym_index});
     self.locals_free_list.append(gpa, sym_index) catch {};
     self.locals.items[sym_index] = null_sym;
     _ = self.atom_by_index_table.remove(sym_index);
-    self.getAtomPtr(atom_index).sym_index = 0;
+    atom_ptr.sym_index = 0;
     self.got_table.freeEntry(gpa, sym_index);
 }
 
@@ -2144,10 +2144,10 @@ fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
 }
 
 fn growAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
-    const atom = self.getAtom(atom_index);
-    const sym = atom.getSymbol(self);
+    const atom_ptr = self.atom(atom_index);
+    const sym = atom_ptr.symbol(self);
     const align_ok = mem.alignBackward(u64, sym.st_value, alignment) == sym.st_value;
-    const need_realloc = !align_ok or new_block_size > atom.capacity(self);
+    const need_realloc = !align_ok or new_block_size > atom_ptr.capacity(self);
     if (!need_realloc) return sym.st_value;
     return self.allocateAtom(atom_index, new_block_size, alignment);
 }
@@ -2155,10 +2155,10 @@ fn growAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: 
 pub fn createAtom(self: *Elf) !Atom.Index {
     const gpa = self.base.allocator;
     const atom_index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom = try self.atoms.addOne(gpa);
+    const atom_ptr = try self.atoms.addOne(gpa);
     const sym_index = try self.allocateSymbol();
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
-    atom.* = .{
+    atom_ptr.* = .{
         .sym_index = sym_index,
         .prev_index = null,
         .next_index = null,
@@ -2168,8 +2168,7 @@ pub fn createAtom(self: *Elf) !Atom.Index {
 }
 
 fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
-    const atom = self.getAtom(atom_index);
-    const sym = atom.getSymbol(self);
+    const sym = self.atom(atom_index).symbol(self);
     const phdr_index = self.sections.items(.phdr_index)[sym.st_shndx];
     const phdr = &self.program_headers.items[phdr_index];
     const shdr = &self.sections.items(.shdr)[sym.st_shndx];
@@ -2191,10 +2190,10 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
         var i: usize = if (self.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
-            const big_atom = self.getAtom(big_atom_index);
+            const big_atom = self.atom(big_atom_index);
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
-            const big_atom_sym = big_atom.getSymbol(self);
+            const big_atom_sym = big_atom.symbol(self);
             const capacity = big_atom.capacity(self);
             const ideal_capacity = padToIdeal(capacity);
             const ideal_capacity_end_vaddr = std.math.add(u64, big_atom_sym.st_value, ideal_capacity) catch ideal_capacity;
@@ -2225,8 +2224,8 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             }
             break :blk new_start_vaddr;
         } else if (maybe_last_atom_index.*) |last_index| {
-            const last = self.getAtom(last_index);
-            const last_sym = last.getSymbol(self);
+            const last = self.atom(last_index);
+            const last_sym = last.symbol(self);
             const ideal_capacity = padToIdeal(last_sym.st_size);
             const ideal_capacity_end_vaddr = last_sym.st_value + ideal_capacity;
             const new_start_vaddr = mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
@@ -2239,7 +2238,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
     };
 
     const expand_section = if (atom_placement) |placement_index|
-        self.getAtom(placement_index).next_index == null
+        self.atom(placement_index).next_index == null
     else
         true;
     if (expand_section) {
@@ -2263,23 +2262,22 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (atom.prev_index) |prev_index| {
-        const prev = self.getAtomPtr(prev_index);
-        prev.next_index = atom.next_index;
+    const atom_ptr = self.atom(atom_index);
+    if (atom_ptr.prev_index) |prev_index| {
+        const prev = self.atom(prev_index);
+        prev.next_index = atom_ptr.next_index;
     }
-    if (atom.next_index) |next_index| {
-        const next = self.getAtomPtr(next_index);
-        next.prev_index = atom.prev_index;
+    if (atom_ptr.next_index) |next_index| {
+        const next = self.atom(next_index);
+        next.prev_index = atom_ptr.prev_index;
     }
 
     if (atom_placement) |big_atom_index| {
-        const big_atom = self.getAtomPtr(big_atom_index);
-        const atom_ptr = self.getAtomPtr(atom_index);
+        const big_atom = self.atom(big_atom_index);
         atom_ptr.prev_index = big_atom_index;
         atom_ptr.next_index = big_atom.next_index;
         big_atom.next_index = atom_index;
     } else {
-        const atom_ptr = self.getAtomPtr(atom_index);
         atom_ptr.prev_index = null;
         atom_ptr.next_index = null;
     }
@@ -2320,7 +2318,7 @@ fn allocateGlobal(self: *Elf) !u32 {
             log.debug("  (reusing global index {d})", .{index});
             break :blk index;
         } else {
-            log.debug("  (allocating symbol index {d})", .{self.globals.items.len});
+            log.debug("  (allocating global index {d})", .{self.globals.items.len});
             const index = @as(u32, @intCast(self.globals.items.len));
             _ = self.globals.addOneAssumeCapacity();
             break :blk index;
@@ -2332,8 +2330,8 @@ fn allocateGlobal(self: *Elf) !u32 {
 
 fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
-    for (unnamed_consts.items) |atom| {
-        self.freeAtom(atom);
+    for (unnamed_consts.items) |atom_index| {
+        self.freeAtom(atom_index);
     }
     unnamed_consts.clearAndFree(self.base.allocator);
 }
@@ -2373,13 +2371,13 @@ pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Inde
         .flushed => {},
     }
     metadata.state.* = .pending_flush;
-    const atom = metadata.atom.*;
+    const atom_index = metadata.atom.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom_index, switch (sym.kind) {
         .code => self.text_section_index.?,
         .const_data => self.rodata_section_index.?,
     });
-    return atom;
+    return atom_index;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
@@ -2432,18 +2430,18 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
-    const atom = self.getAtom(atom_index);
-    const local_sym_index = atom.getSymbolIndex().?;
+    const atom_ptr = self.atom(atom_index);
+    const local_sym_index = atom_ptr.symbolIndex().?;
+    const local_sym = atom_ptr.symbol(self);
 
     const shdr_index = decl_metadata.shdr;
-    if (atom.getSymbol(self).st_size != 0 and self.base.child_pid == null) {
-        const local_sym = atom.getSymbolPtr(self);
+    if (atom_ptr.symbol(self).st_size != 0 and self.base.child_pid == null) {
         local_sym.st_name = try self.strtab.insert(gpa, decl_name);
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
         local_sym.st_shndx = shdr_index;
 
-        const capacity = atom.capacity(self);
+        const capacity = atom_ptr.capacity(self);
         const need_realloc = code.len > capacity or
             !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
 
@@ -2463,7 +2461,6 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
         }
         local_sym.st_size = code.len;
     } else {
-        const local_sym = atom.getSymbolPtr(self);
         local_sym.* = .{
             .st_name = try self.strtab.insert(gpa, decl_name),
             .st_info = (elf.STB_LOCAL << 4) | stt_bits,
@@ -2479,11 +2476,10 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
         local_sym.st_value = vaddr;
         local_sym.st_size = code.len;
 
-        const got_entry_index = try atom.getOrCreateOffsetTableEntry(self);
+        const got_entry_index = try atom_ptr.getOrCreateOffsetTableEntry(self);
         try self.writeOffsetTableEntry(got_entry_index);
     }
 
-    const local_sym = atom.getSymbolPtr(self);
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
@@ -2594,7 +2590,6 @@ pub fn updateDecl(
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     Atom.freeRelocations(self, atom_index);
-    const atom = self.getAtom(atom_index);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2611,14 +2606,14 @@ pub fn updateDecl(
         }, &code_buffer, .{
             .dwarf = ds,
         }, .{
-            .parent_atom_index = atom.getSymbolIndex().?,
+            .parent_atom_index = self.atom(atom_index).symbolIndex().?,
         })
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
-            .parent_atom_index = atom.getSymbolIndex().?,
+            .parent_atom_index = self.atom(atom_index).symbolIndex().?,
         });
 
     const code = switch (res) {
@@ -2669,8 +2664,8 @@ fn updateLazySymbolAtom(
     };
     const name = self.strtab.get(name_str_index).?;
 
-    const atom = self.getAtom(atom_index);
-    const local_sym_index = atom.getSymbolIndex().?;
+    const atom_ptr = self.atom(atom_index);
+    const local_sym_index = atom_ptr.symbolIndex().?;
 
     const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
         mod.declPtr(owner_decl).srcLoc(mod)
@@ -2698,7 +2693,7 @@ fn updateLazySymbolAtom(
     };
 
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const local_sym = atom.getSymbolPtr(self);
+    const local_sym = atom_ptr.symbol(self);
     local_sym.* = .{
         .st_name = name_str_index,
         .st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT,
@@ -2714,7 +2709,7 @@ fn updateLazySymbolAtom(
     local_sym.st_value = vaddr;
     local_sym.st_size = code.len;
 
-    const got_entry_index = try atom.getOrCreateOffsetTableEntry(self);
+    const got_entry_index = try atom_ptr.getOrCreateOffsetTableEntry(self);
     try self.writeOffsetTableEntry(got_entry_index);
 
     const section_offset = vaddr - self.program_headers.items[phdr_index].p_vaddr;
@@ -2750,7 +2745,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
         .none = {},
     }, .{
-        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
+        .parent_atom_index = self.atom(atom_index).symbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2765,7 +2760,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const required_alignment = typed_value.ty.abiAlignment(mod);
     const shdr_index = self.rodata_section_index.?;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const local_sym = self.getAtom(atom_index).getSymbolPtr(self);
+    const local_sym = self.atom(atom_index).symbol(self);
     local_sym.st_name = name_str_index;
     local_sym.st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT;
     local_sym.st_other = 0;
@@ -2782,7 +2777,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
-    return self.getAtom(atom_index).getSymbolIndex().?;
+    return self.atom(atom_index).symbolIndex().?;
 }
 
 pub fn updateDeclExports(
@@ -2805,8 +2800,8 @@ pub fn updateDeclExports(
 
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
+    const atom_ptr = self.atom(atom_index);
+    const decl_sym = atom_ptr.symbol(self);
     const decl_metadata = self.decls.getPtr(decl_index).?;
     const shdr_index = decl_metadata.shdr;
 
@@ -2843,12 +2838,12 @@ pub fn updateDeclExports(
         };
         const stt_bits: u8 = @as(u4, @truncate(decl_sym.st_info));
 
-        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
+        const sym_index = if (decl_metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
             const sym_index = try self.allocateSymbol();
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
-        const sym = self.getSymbolPtr(sym_index);
+        const sym = self.symbol(sym_index);
         sym.* = .{
             .st_name = try self.strtab.insert(gpa, exp_name),
             .st_info = (stb_bits << 4) | stt_bits,
@@ -2857,8 +2852,8 @@ pub fn updateDeclExports(
             .st_value = decl_sym.st_value,
             .st_size = decl_sym.st_size,
         };
-        const sym_name = self.getSymbolName(sym_index);
-        const gop = try self.getOrPutGlobalPtr(sym_name);
+        const sym_name = self.symbolName(sym_index);
+        const gop = try self.getOrPutGlobal(sym_name);
         gop.value_ptr.* = sym_index;
     }
 }
@@ -2889,8 +2884,8 @@ pub fn deleteDeclExport(
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const exp_name = mod.intern_pool.stringToSlice(name);
-    const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
-    const sym = self.getSymbolPtr(sym_index.*);
+    const sym_index = metadata.@"export"(self, exp_name) orelse return;
+    const sym = self.symbol(sym_index.*);
     log.debug("deleting export '{s}'", .{exp_name});
     sym.* = null_sym;
     self.locals_free_list.append(gpa, sym_index.*) catch {};
@@ -2960,7 +2955,7 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
     const phdr = &self.program_headers.items[self.phdr_got_index.?];
     const vaddr = phdr.p_vaddr + @as(u64, entry_size) * index;
     const got_entry = self.got_table.entries.items[index];
-    const got_value = self.getSymbol(got_entry).st_value;
+    const got_value = self.symbol(got_entry).st_value;
     switch (entry_size) {
         2 => {
             var buf: [2]u8 = undefined;
@@ -3046,8 +3041,8 @@ fn writeSymbols(self: *Elf) !void {
                 }
             }
 
-            for (buf[self.locals.items.len..], self.globals.items) |*sym, global| {
-                elf32SymFromSym(self.getSymbol(global), sym);
+            for (buf[self.locals.items.len..], self.globals.items) |*sym, glob| {
+                elf32SymFromSym(self.symbol(glob).*, sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
@@ -3064,8 +3059,8 @@ fn writeSymbols(self: *Elf) !void {
                 }
             }
 
-            for (buf[self.locals.items.len..], self.globals.items) |*sym, global| {
-                sym.* = self.getSymbol(global);
+            for (buf[self.locals.items.len..], self.globals.items) |*sym, glob| {
+                sym.* = self.symbol(glob).*;
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
@@ -3369,8 +3364,8 @@ fn logSymtab(self: Elf) void {
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
     log.debug("globals:", .{});
-    for (self.globals.items, 0..) |global, id| {
-        const sym = self.getSymbol(global);
+    for (self.globals.items, 0..) |glob, id| {
+        const sym = self.symbol(glob);
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
 }
@@ -3386,45 +3381,34 @@ pub fn getProgramHeaderPtr(self: *Elf, shdr_index: u16) *elf.Elf64_Phdr {
 }
 
 /// Returns pointer-to-symbol described at sym_index.
-pub fn getSymbolPtr(self: *Elf, sym_index: u32) *elf.Elf64_Sym {
+pub fn symbol(self: *const Elf, sym_index: u32) *elf.Elf64_Sym {
     return &self.locals.items[sym_index];
 }
 
-/// Returns symbol at sym_index.
-pub fn getSymbol(self: *const Elf, sym_index: u32) elf.Elf64_Sym {
-    return self.locals.items[sym_index];
-}
-
 /// Returns name of the symbol at sym_index.
-pub fn getSymbolName(self: *const Elf, sym_index: u32) []const u8 {
+pub fn symbolName(self: *const Elf, sym_index: u32) []const u8 {
     const sym = self.locals.items[sym_index];
     return self.strtab.get(sym.st_name).?;
 }
 
 /// Returns pointer to the global entry for `name` if one exists.
-pub fn getGlobalPtr(self: *Elf, name: []const u8) ?*u32 {
+pub fn global(self: *const Elf, name: []const u8) ?*u32 {
     const global_index = self.resolver.get(name) orelse return null;
     return &self.globals.items[global_index];
 }
 
-/// Returns the global entry for `name` if one exists.
-pub fn getGlobal(self: *const Elf, name: []const u8) ?u32 {
-    const global_index = self.resolver.get(name) orelse return null;
-    return self.globals.items[global_index];
-}
-
 /// Returns the index of the global entry for `name` if one exists.
-pub fn getGlobalIndex(self: *const Elf, name: []const u8) ?u32 {
+pub fn globalIndex(self: *const Elf, name: []const u8) ?u32 {
     return self.resolver.get(name);
 }
 
 /// Returns global entry at `index`.
-pub fn getGlobalByIndex(self: *const Elf, index: u32) u32 {
+pub fn globalByIndex(self: *const Elf, index: u32) u32 {
     assert(index < self.globals.items.len);
     return self.globals.items[index];
 }
 
-const GetOrPutGlobalPtrResult = struct {
+const GetOrPutGlobalResult = struct {
     found_existing: bool,
     value_ptr: *u32,
 };
@@ -3432,31 +3416,26 @@ const GetOrPutGlobalPtrResult = struct {
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and
 /// returns a pointer to it.
-pub fn getOrPutGlobalPtr(self: *Elf, name: []const u8) !GetOrPutGlobalPtrResult {
-    if (self.getGlobalPtr(name)) |ptr| {
-        return GetOrPutGlobalPtrResult{ .found_existing = true, .value_ptr = ptr };
+pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
+    if (self.global(name)) |ptr| {
+        return GetOrPutGlobalResult{ .found_existing = true, .value_ptr = ptr };
     }
     const gpa = self.base.allocator;
     const global_index = try self.allocateGlobal();
     const global_name = try gpa.dupe(u8, name);
     _ = try self.resolver.put(gpa, global_name, global_index);
     const ptr = &self.globals.items[global_index];
-    return GetOrPutGlobalPtrResult{ .found_existing = false, .value_ptr = ptr };
+    return GetOrPutGlobalResult{ .found_existing = false, .value_ptr = ptr };
 }
 
-pub fn getAtom(self: *const Elf, atom_index: Atom.Index) Atom {
-    assert(atom_index < self.atoms.items.len);
-    return self.atoms.items[atom_index];
-}
-
-pub fn getAtomPtr(self: *Elf, atom_index: Atom.Index) *Atom {
+pub fn atom(self: *Elf, atom_index: Atom.Index) *Atom {
     assert(atom_index < self.atoms.items.len);
     return &self.atoms.items[atom_index];
 }
 
 /// Returns atom if there is an atom referenced by the symbol.
 /// Returns null on failure.
-pub fn getAtomIndexForSymbol(self: *Elf, sym_index: u32) ?Atom.Index {
+pub fn atomIndexForSymbol(self: *Elf, sym_index: u32) ?Atom.Index {
     return self.atom_by_index_table.get(sym_index);
 }
 
@@ -3512,16 +3491,9 @@ const DeclMetadata = struct {
     /// A list of all exports aliases of this Decl.
     exports: std.ArrayListUnmanaged(u32) = .{},
 
-    fn getExport(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?u32 {
-        for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, elf_file.getSymbolName(exp))) return exp;
-        }
-        return null;
-    }
-
-    fn getExportPtr(m: *DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
+    fn @"export"(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, elf_file.getSymbolName(exp.*))) return exp;
+            if (mem.eql(u8, name, elf_file.symbolName(exp.*))) return exp;
         }
         return null;
     }
