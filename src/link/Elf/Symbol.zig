@@ -32,9 +32,8 @@ extra_index: u32 = 0,
 
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
-    if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
-    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.shndx == 0 
-        and file_ptr != .linker_defined and file_ptr != .zig_module;
+    // if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
+    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.output_section_index == 0 and file_ptr != .linker_defined and file_ptr != .zig_module;
 }
 
 pub fn isLocal(symbol: Symbol) bool {
@@ -42,34 +41,30 @@ pub fn isLocal(symbol: Symbol) bool {
 }
 
 pub inline fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
-    return symbol.@"type"(elf_file) == elf.STT_GNU_IFUNC;
+    return symbol.type(elf_file) == elf.STT_GNU_IFUNC;
 }
 
 pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
-    const file_ptr = symbol.file(elf_file).?;
     const s_sym = symbol.sourceSymbol(elf_file);
-    if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared) return elf.STT_FUNC;
+    // const file_ptr = symbol.file(elf_file).?;
+    // if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared) return elf.STT_FUNC;
     return s_sym.st_type();
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
-    return elf_file.strtab.getAssumeExists(symbol.name);
+    return elf_file.strtab.getAssumeExists(symbol.name_offset);
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
-    return elf_file.atom(symbol.atom);
+    return elf_file.atom(symbol.atom_index);
 }
 
 pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
-    return elf_file.file(symbol.file);
+    return elf_file.file(symbol.file_index);
 }
 
-pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
-    const file_ptr = symbol.file(elf_file).?;
-    return switch (file_ptr) {
-        .linker_defined, .zig_module => |x| x.symtab.items[symbol.sym_idx],
-        inline else => |x| x.symtab[symbol.sym_idx],
-    };
+pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) *elf.Elf64_Sym {
+    return symbol.file(elf_file).?.sourceSymbol(symbol.symbol_index);
 }
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
@@ -82,9 +77,29 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
+/// If entry already exists, returns index to it.
+/// Otherwise, creates a new entry in the Global Offset Table for this Symbol.
+pub fn getOrCreateOffsetTableEntry(self: Symbol, elf_file: *Elf) !Symbol.Index {
+    if (elf_file.got_table.lookup.get(self.symbol_index)) |index| return index;
+    const index = try elf_file.got_table.allocateEntry(elf_file.base.allocator, self.symbol_index);
+    elf_file.got_table_count_dirty = true;
+    return index;
+}
+
+pub fn getOffsetTableAddress(self: Symbol, elf_file: *Elf) u64 {
+    const got_entry_index = elf_file.got_table.lookup.get(self.symbol_index).?;
+    const target = elf_file.base.options.target;
+    const ptr_bits = target.ptrBitWidth();
+    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+    const got = elf_file.program_headers.items[elf_file.phdr_got_index.?];
+    return got.p_vaddr + got_entry_index * ptr_bytes;
+}
+
 pub fn address(symbol: Symbol, opts: struct {
     plt: bool = true,
 }, elf_file: *Elf) u64 {
+    _ = elf_file;
+    _ = opts;
     // if (symbol.flags.copy_rel) {
     //     return elf_file.sectionAddress(elf_file.copy_rel_sect_index.?) + symbol.value;
     // }
@@ -100,11 +115,11 @@ pub fn address(symbol: Symbol, opts: struct {
     return symbol.value;
 }
 
-pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
-    if (!symbol.flags.got) return 0;
-    const extra = symbol.extra(elf_file).?;
-    return elf_file.gotEntryAddress(extra.got);
-}
+// pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
+//     if (!symbol.flags.got) return 0;
+//     const extra = symbol.extra(elf_file).?;
+//     return elf_file.gotEntryAddress(extra.got);
+// }
 
 // pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
 //     if (!symbol.flags.tlsgd) return 0;
@@ -136,22 +151,22 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
 //         @min(alignment, try std.math.powi(u64, 2, @ctz(s_sym.st_value)));
 // }
 
-pub fn addExtra(symbol: *Symbol, extra: Extra, elf_file: *Elf) !void {
-    symbol.extra = try elf_file.addSymbolExtra(extra);
+pub fn addExtra(symbol: *Symbol, extras: Extra, elf_file: *Elf) !void {
+    symbol.extra = try elf_file.addSymbolExtra(extras);
 }
 
 pub fn extra(symbol: Symbol, elf_file: *Elf) ?Extra {
-    return elf_file.symbolExtra(symbol.extra);
+    return elf_file.symbolExtra(symbol.extra_index);
 }
 
-pub fn setExtra(symbol: Symbol, extra: Extra, elf_file: *Elf) void {
-    elf_file.setSymbolExtra(symbol.extra, extra);
+pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
+    elf_file.setSymbolExtra(symbol.extra_index, extras);
 }
 
 pub fn asElfSym(symbol: Symbol, st_name: u32, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     const s_sym = symbol.sourceSymbol(elf_file);
-    const st_type = symbol.@"type"(elf_file);
+    const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
         if (symbol.isLocal()) break :blk 0;
         if (symbol.flags.weak) break :blk elf.STB_WEAK;
@@ -161,7 +176,7 @@ pub fn asElfSym(symbol: Symbol, st_name: u32, elf_file: *Elf) elf.Elf64_Sym {
     const st_shndx = blk: {
         // if (symbol.flags.copy_rel) break :blk elf_file.copy_rel_sect_index.?;
         // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined and file_ptr != .zig_module) 
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined and file_ptr != .zig_module)
             break :blk elf.SHN_ABS;
         break :blk symbol.shndx;
     };
@@ -221,13 +236,13 @@ fn formatName(
     _ = unused_fmt_string;
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
-    try writer.writeAll(symbol.getName(elf_file));
-    switch (symbol.ver_idx & elf.VERSYM_VERSION) {
+    try writer.writeAll(symbol.name(elf_file));
+    switch (symbol.version_index & elf.VERSYM_VERSION) {
         elf.VER_NDX_LOCAL, elf.VER_NDX_GLOBAL => {},
         else => {
             unreachable;
             // const shared = symbol.getFile(elf_file).?.shared;
-            // try writer.print("@{s}", .{shared.getVersionString(symbol.ver_idx)});
+            // try writer.print("@{s}", .{shared.getVersionString(symbol.version_index)});
         },
     }
 }
@@ -248,29 +263,27 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
-    try writer.print("%{d} : {s} : @{x}", .{ symbol.sym_idx, symbol.fmtName(ctx.elf_file), symbol.value });
-    if (symbol.getFile(ctx.elf_file)) |file| {
+    try writer.print("%{d} : {s} : @{x}", .{ symbol.symbol_index, symbol.fmtName(ctx.elf_file), symbol.value });
+    if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
-            if (symbol.getSourceSymbol(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
+            if (symbol.sourceSymbol(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");
             }
-        } else if (symbol.shndx != 0) {
-            try writer.print(" : sect({d})", .{symbol.shndx});
+        } else if (symbol.output_section_index != 0) {
+            try writer.print(" : sect({d})", .{symbol.output_section_index});
         }
-        if (symbol.getAtom(ctx.elf_file)) |atom| {
-            try writer.print(" : atom({d})", .{atom.atom_index});
+        if (symbol.atom(ctx.elf_file)) |atom_ptr| {
+            try writer.print(" : atom({d})", .{atom_ptr.atom_index});
         }
         var buf: [2]u8 = .{'_'} ** 2;
         if (symbol.flags.@"export") buf[0] = 'E';
         if (symbol.flags.import) buf[1] = 'I';
         try writer.print(" : {s}", .{&buf});
         if (symbol.flags.weak) try writer.writeAll(" : weak");
-        switch (file) {
-            .internal => |x| try writer.print(" : internal({d})", .{x.index}),
-            .object => |x| try writer.print(" : object({d})", .{x.index}),
-            .shared => |x| try writer.print(" : shared({d})", .{x.index}),
+        switch (file_ptr) {
+            inline else => |x| try writer.print(" : {s}({d})", .{ @tagName(file_ptr), x.index }),
         }
     } else try writer.writeAll(" : unresolved");
 }
@@ -331,7 +344,8 @@ const elf = std.elf;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
-const InternalObject = @import("InternalObject.zig");
-const Object = @import("Object.zig");
-const SharedObject = @import("SharedObject.zig");
+const LinkerDefined = @import("LinkerDefined.zig");
+// const Object = @import("Object.zig");
+// const SharedObject = @import("SharedObject.zig");
 const Symbol = @This();
+const ZigModule = @import("ZigModule.zig");

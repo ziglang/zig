@@ -10,6 +10,12 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn sourceSymbol(file: File, symbol_index: Symbol.Index) *elf.Elf64_Sym {
+        return switch (file) {
+            inline else => |x| x.sourceSymbol(symbol_index),
+        };
+    }
+
     pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
         return .{ .data = file };
     }
@@ -107,4 +113,5 @@ const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 // const Object = @import("Object.zig");
 // const SharedObject = @import("SharedObject.zig");
+const Symbol = @import("Symbol.zig");
 const ZigModule = @import("ZigModule.zig");

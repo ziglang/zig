@@ -8149,10 +8149,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             else => null,
         }) |owner_decl| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const atom_index = try elf_file.getOrCreateAtomForDecl(owner_decl);
-                const atom = elf_file.atom(atom_index);
-                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                const got_addr = atom.getOffsetTableAddress(elf_file);
+                const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
+                const sym = elf_file.symbol(sym_index);
+                _ = try sym.getOrCreateOffsetTableEntry(elf_file);
+                const got_addr = sym.getOffsetTableAddress(elf_file);
                 try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
                     .base = .{ .reg = .ds },
                     .disp = @intCast(got_addr),
@@ -10215,11 +10215,11 @@ fn genLazySymbolRef(
     lazy_sym: link.File.LazySymbol,
 ) InnerError!void {
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = elf_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+        const sym_index = elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const atom = elf_file.atom(atom_index);
-        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-        const got_addr = atom.getOffsetTableAddress(elf_file);
+        const sym = elf_file.symbol(sym_index);
+        _ = try sym.getOrCreateOffsetTableEntry(elf_file);
+        const got_addr = sym.getOffsetTableAddress(elf_file);
         const got_mem =
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(got_addr) });
         switch (tag) {

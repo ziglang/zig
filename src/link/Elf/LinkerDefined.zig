@@ -23,14 +23,14 @@ pub fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 
         .st_size = 0,
     });
     const off = try elf_file.internString("{s}", .{name});
-    const gop = try elf_file.getOrCreateGlobal(off);
+    const gop = try elf_file.getOrPutGlobal(off);
     self.symbols.addOneAssumeCapacity().* = gop.index;
     return gop.index;
 }
 
 pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     for (self.symbols.items, 0..) |index, i| {
-        const sym_idx = @as(u32, @intCast(i));
+        const sym_idx = @as(Symbol.Index, @intCast(i));
         const this_sym = self.symtab.items[sym_idx];
 
         if (this_sym.st_shndx == elf.SHN_UNDEF) continue;
@@ -86,15 +86,19 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 //     }
 // }
 
+pub fn sourceSymbol(self: *LinkerDefined, symbol_index: Symbol.Index) *elf.Elf64_Sym {
+    return &self.symtab.items[symbol_index];
+}
+
+pub fn globals(self: *LinkerDefined) []const Symbol.Index {
+    return self.symbols.items;
+}
+
 pub fn asFile(self: *LinkerDefined) File {
     return .{ .linker_defined = self };
 }
 
-pub inline fn getGlobals(self: *LinkerDefined) []const u32 {
-    return self.symbols.items;
-}
-
-pub fn fmtSymtab(self: *InternalObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
@@ -102,7 +106,7 @@ pub fn fmtSymtab(self: *InternalObject, elf_file: *Elf) std.fmt.Formatter(format
 }
 
 const FormatContext = struct {
-    self: *InternalObject,
+    self: *LinkerDefined,
     elf_file: *Elf,
 };
 
@@ -115,8 +119,8 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     try writer.writeAll("  globals\n");
-    for (ctx.self.getGlobals()) |index| {
-        const global = ctx.elf_file.getSymbol(index);
+    for (ctx.self.globals()) |index| {
+        const global = ctx.elf_file.symbol(index);
         try writer.print("    {}\n", .{global.fmt(ctx.elf_file)});
     }
 }

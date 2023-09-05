@@ -1,4 +1,4 @@
-base: File,
+base: link.File,
 dwarf: ?Dwarf = null,
 
 ptr_width: PtrWidth,
@@ -6,7 +6,7 @@ ptr_width: PtrWidth,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
 
-files: std.MutliArrayList(File.Entry) = .{},
+files: std.MultiArrayList(File.Entry) = .{},
 zig_module_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 
@@ -56,14 +56,12 @@ shstrtab_section_index: ?u16 = null,
 strtab_section_index: ?u16 = null,
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
-globals: std.ArrayListUnmanaged(Symbol.Index) = .{},
-resolver: std.StringHashMapUnmanaged(u32) = .{},
+resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
-symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
-globals_free_list: std.ArrayListUnmanaged(u32) = .{},
+symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
-got_table: TableSection(u32) = .{},
+got_table: TableSection(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
@@ -88,9 +86,6 @@ decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 
-/// Table of atoms indexed by the symbol index.
-atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .{},
-
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
 /// needs updating or is freed.
@@ -113,12 +108,10 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .{},
 unnamed_const_atoms: UnnamedConstTable = .{},
 
 /// A table of relocations indexed by the owning them `TextBlock`.
-/// Note that once we refactor `TextBlock`'s lifetime and ownership rules,
-/// this will be a table indexed by index into the list of Atoms.
 relocs: RelocTable = .{},
 
 const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Reloc));
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 /// When allocating, the ideal_capacity is calculated by
@@ -143,13 +136,12 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
 
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    self.base.file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
     });
 
-    self.base.file = file;
     self.shdr_table_dirty = true;
 
     // Index 0 is always a null symbol.
@@ -243,18 +235,9 @@ pub fn deinit(self: *Elf) void {
     self.strtab.deinit(gpa);
     self.symbols.deinit(gpa);
     self.symbols_free_list.deinit(gpa);
-    self.globals.deinit(gpa);
-    self.globals_free_list.deinit(gpa);
     self.got_table.deinit(gpa);
+    self.resolver.deinit(gpa);
     self.unresolved.deinit(gpa);
-
-    {
-        var it = self.resolver.keyIterator();
-        while (it.next()) |key_ptr| {
-            gpa.free(key_ptr.*);
-        }
-        self.resolver.deinit(gpa);
-    }
 
     {
         var it = self.decls.iterator();
@@ -265,7 +248,6 @@ pub fn deinit(self: *Elf) void {
     }
 
     self.atoms.deinit(gpa);
-    self.atom_by_index_table.deinit(gpa);
     self.lazy_syms.deinit(gpa);
 
     {
@@ -292,13 +274,12 @@ pub fn deinit(self: *Elf) void {
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
-    const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    const this_atom = self.atom(this_atom_index);
-    const target = this_atom.symbolIndex().?;
-    const vaddr = this_atom.symbol(self).st_value;
-    const atom_index = self.atomIndexForSymbol(reloc_info.parent_atom_index).?;
-    try Atom.addRelocation(self, atom_index, .{
-        .target = target,
+    const this_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
+    const this_sym = self.symbol(this_sym_index);
+    const vaddr = this_sym.value;
+    const parent_atom_index = self.symbol(reloc_info.parent_atom_index).atom_index;
+    try Atom.addRelocation(self, parent_atom_index, .{
+        .target = this_sym,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
         .prev_vaddr = vaddr,
@@ -851,7 +832,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 }
 
-fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
+pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     // TODO Also detect virtual address collisions.
     const shdr = &self.sections.items(.shdr)[shdr_index];
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
@@ -863,8 +844,7 @@ fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = if (maybe_last_atom_index) |last_atom_index| blk: {
             const last = self.atom(last_atom_index);
-            const sym = last.symbol(self);
-            break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
+            break :blk (last.value + last.size) - phdr.p_vaddr;
         } else if (shdr_index == self.got_section_index.?) blk: {
             break :blk shdr.sh_size;
         } else 0;
@@ -985,6 +965,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    _ = module;
 
     self.zig_module_index = blk: {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -992,9 +973,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         break :blk index;
     };
 
-    self.linker_defined = blk: {
+    self.linker_defined_index = blk: {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .linker_defined = .{} });
+        self.files.set(index, .{ .linker_defined = .{ .index = index } });
         break :blk index;
     };
 
@@ -2157,191 +2138,10 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
     const sym_index = atom_ptr.symbolIndex().?;
 
     log.debug("adding %{d} to local symbols free list", .{sym_index});
-    self.locals_free_list.append(gpa, sym_index) catch {};
-    self.locals.items[sym_index] = null_sym;
-    _ = self.atom_by_index_table.remove(sym_index);
+    self.symbols_free_list.append(gpa, sym_index) catch {};
+    self.symbols.items[sym_index] = .{};
     atom_ptr.sym_index = 0;
     self.got_table.freeEntry(gpa, sym_index);
-}
-
-fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
-    _ = self;
-    _ = atom_index;
-    _ = new_block_size;
-}
-
-fn growAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
-    const atom_ptr = self.atom(atom_index);
-    const sym = atom_ptr.symbol(self);
-    const align_ok = mem.alignBackward(u64, sym.st_value, alignment) == sym.st_value;
-    const need_realloc = !align_ok or new_block_size > atom_ptr.capacity(self);
-    if (!need_realloc) return sym.st_value;
-    return self.allocateAtom(atom_index, new_block_size, alignment);
-}
-
-pub fn createAtom(self: *Elf) !Atom.Index {
-    const gpa = self.base.allocator;
-    const atom_index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom_ptr = try self.atoms.addOne(gpa);
-    const sym_index = try self.allocateSymbol();
-    try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom_index);
-    atom_ptr.* = .{ .sym_index = sym_index };
-    log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
-    return atom_index;
-}
-
-fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
-    const sym = self.atom(atom_index).symbol(self);
-    const phdr_index = self.sections.items(.phdr_index)[sym.st_shndx];
-    const phdr = &self.program_headers.items[phdr_index];
-    const shdr = &self.sections.items(.shdr)[sym.st_shndx];
-    const free_list = &self.sections.items(.free_list)[sym.st_shndx];
-    const maybe_last_atom_index = &self.sections.items(.last_atom_index)[sym.st_shndx];
-    const new_atom_ideal_capacity = padToIdeal(new_block_size);
-
-    // We use these to indicate our intention to update metadata, placing the new atom,
-    // and possibly removing a free list node.
-    // It would be simpler to do it inside the for loop below, but that would cause a
-    // problem if an error was returned later in the function. So this action
-    // is actually carried out at the end of the function, when errors are no longer possible.
-    var atom_placement: ?Atom.Index = null;
-    var free_list_removal: ?usize = null;
-
-    // First we look for an appropriately sized free list node.
-    // The list is unordered. We'll just take the first thing that works.
-    const vaddr = blk: {
-        var i: usize = if (self.base.child_pid == null) 0 else free_list.items.len;
-        while (i < free_list.items.len) {
-            const big_atom_index = free_list.items[i];
-            const big_atom = self.atom(big_atom_index);
-            // We now have a pointer to a live atom that has too much capacity.
-            // Is it enough that we could fit this new atom?
-            const big_atom_sym = big_atom.symbol(self);
-            const capacity = big_atom.capacity(self);
-            const ideal_capacity = padToIdeal(capacity);
-            const ideal_capacity_end_vaddr = std.math.add(u64, big_atom_sym.st_value, ideal_capacity) catch ideal_capacity;
-            const capacity_end_vaddr = big_atom_sym.st_value + capacity;
-            const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackward(u64, new_start_vaddr_unaligned, alignment);
-            if (new_start_vaddr < ideal_capacity_end_vaddr) {
-                // Additional bookkeeping here to notice if this free list node
-                // should be deleted because the block that it points to has grown to take up
-                // more of the extra capacity.
-                if (!big_atom.freeListEligible(self)) {
-                    _ = free_list.swapRemove(i);
-                } else {
-                    i += 1;
-                }
-                continue;
-            }
-            // At this point we know that we will place the new block here. But the
-            // remaining question is whether there is still yet enough capacity left
-            // over for there to still be a free list node.
-            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
-            const keep_free_list_node = remaining_capacity >= min_text_capacity;
-
-            // Set up the metadata to be updated, after errors are no longer possible.
-            atom_placement = big_atom_index;
-            if (!keep_free_list_node) {
-                free_list_removal = i;
-            }
-            break :blk new_start_vaddr;
-        } else if (maybe_last_atom_index.*) |last_index| {
-            const last = self.atom(last_index);
-            const last_sym = last.symbol(self);
-            const ideal_capacity = padToIdeal(last_sym.st_size);
-            const ideal_capacity_end_vaddr = last_sym.st_value + ideal_capacity;
-            const new_start_vaddr = mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
-            // Set up the metadata to be updated, after errors are no longer possible.
-            atom_placement = last_index;
-            break :blk new_start_vaddr;
-        } else {
-            break :blk phdr.p_vaddr;
-        }
-    };
-
-    const expand_section = if (atom_placement) |placement_index|
-        self.atom(placement_index).next_index == null
-    else
-        true;
-    if (expand_section) {
-        const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
-        try self.growAllocSection(sym.st_shndx, needed_size);
-        maybe_last_atom_index.* = atom_index;
-
-        if (self.dwarf) |_| {
-            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
-            // range of the compilation unit. When we expand the text section, this range changes,
-            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            self.debug_info_header_dirty = true;
-            // This becomes dirty for the same reason. We could potentially make this more
-            // fine-grained with the addition of support for more compilation units. It is planned to
-            // model each package as a different compilation unit.
-            self.debug_aranges_section_dirty = true;
-        }
-    }
-    shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
-
-    // This function can also reallocate an atom.
-    // In this case we need to "unplug" it from its previous location before
-    // plugging it in to its new location.
-    const atom_ptr = self.atom(atom_index);
-    if (atom_ptr.prev_index) |prev_index| {
-        const prev = self.atom(prev_index);
-        prev.next_index = atom_ptr.next_index;
-    }
-    if (atom_ptr.next_index) |next_index| {
-        const next = self.atom(next_index);
-        next.prev_index = atom_ptr.prev_index;
-    }
-
-    if (atom_placement) |big_atom_index| {
-        const big_atom = self.atom(big_atom_index);
-        atom_ptr.prev_index = big_atom_index;
-        atom_ptr.next_index = big_atom.next_index;
-        big_atom.next_index = atom_index;
-    } else {
-        atom_ptr.prev_index = null;
-        atom_ptr.next_index = null;
-    }
-    if (free_list_removal) |i| {
-        _ = free_list.swapRemove(i);
-    }
-    return vaddr;
-}
-
-pub fn allocateSymbol(self: *Elf) !u32 {
-    try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
-    const index = blk: {
-        if (self.locals_free_list.popOrNull()) |index| {
-            log.debug("  (reusing symbol index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating symbol index {d})", .{self.locals.items.len});
-            const index = @as(u32, @intCast(self.locals.items.len));
-            _ = self.locals.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-    self.locals.items[index] = null_sym;
-    return index;
-}
-
-fn allocateGlobal(self: *Elf) !u32 {
-    try self.globals.ensureUnusedCapacity(self.base.allocator, 1);
-    const index = blk: {
-        if (self.globals_free_list.popOrNull()) |index| {
-            log.debug("  (reusing global index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating global index {d})", .{self.globals.items.len});
-            const index = @as(u32, @intCast(self.globals.items.len));
-            _ = self.globals.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-    self.globals.items[index] = 0;
-    return index;
 }
 
 fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
@@ -2372,40 +2172,50 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: link.File.LazySymbol) !Atom.Index {
+pub fn getOrCreateMetadataForLazySymbol(self: *Elf, sym: link.File.LazySymbol) !Symbol.Index {
     const mod = self.base.options.module.?;
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl(mod));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
-    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
-        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
-        .const_data => .{ .atom = &gop.value_ptr.rodata_atom, .state = &gop.value_ptr.rodata_state },
+    const metadata: struct {
+        symbol_index: *Symbol.Index,
+        state: *LazySymbolMetadata.State,
+    } = switch (sym.kind) {
+        .code => .{
+            .symbol_index = &gop.value_ptr.text_symbol_index,
+            .state = &gop.value_ptr.text_state,
+        },
+        .const_data => .{
+            .symbol_index = &gop.value_ptr.rodata_symbol_index,
+            .state = &gop.value_ptr.rodata_state,
+        },
     };
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     switch (metadata.state.*) {
-        .unused => metadata.atom.* = try self.createAtom(),
+        .unused => metadata.symbol_index.* = try zig_module.createAtom(switch (sym.kind) {
+            .code => self.text_section_index.?,
+            .const_data => self.rodata_section_index.?,
+        }, self),
         .pending_flush => return metadata.atom.*,
         .flushed => {},
     }
     metadata.state.* = .pending_flush;
-    const atom_index = metadata.atom.*;
+    const symbol_index = metadata.symbol_index.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom_index, switch (sym.kind) {
-        .code => self.text_section_index.?,
-        .const_data => self.rodata_section_index.?,
-    });
-    return atom_index;
+    if (sym.getDecl(mod) != .none) try self.updateLazySymbol(sym, symbol_index);
+    return symbol_index;
 }
 
-pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Symbol.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
+        const zig_module = self.file(self.zig_module_index.?).?.zig_module;
         gop.value_ptr.* = .{
-            .atom = try self.createAtom(),
-            .shdr = self.getDeclShdrIndex(decl_index),
+            .symbol_index = try zig_module.createAtom(self.getDeclShdrIndex(decl_index), self),
             .exports = .{},
         };
     }
-    return gop.value_ptr.atom;
+    return gop.value_ptr.symbol_index;
 }
 
 fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
@@ -2434,7 +2244,13 @@ fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
     return shdr_index;
 }
 
-fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, stt_bits: u8) !*elf.Elf64_Sym {
+fn updateDeclCode(
+    self: *Elf,
+    decl_index: Module.Decl.Index,
+    sym_index: Symbol.Index,
+    code: []const u8,
+    stt_bits: u8,
+) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2444,60 +2260,52 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
     const required_alignment = decl.getAlignment(mod);
 
-    const decl_metadata = self.decls.get(decl_index).?;
-    const atom_index = decl_metadata.atom;
-    const atom_ptr = self.atom(atom_index);
-    const local_sym_index = atom_ptr.symbolIndex().?;
-    const local_sym = atom_ptr.symbol(self);
+    const sym = self.symbol(sym_index);
+    const esym = sym.sourceSymbol(self);
+    const atom_ptr = sym.atom(self).?;
+    const shdr_index = sym.output_section_index;
 
-    const shdr_index = decl_metadata.shdr;
-    if (atom_ptr.symbol(self).st_size != 0 and self.base.child_pid == null) {
-        local_sym.st_name = try self.strtab.insert(gpa, decl_name);
-        local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
-        local_sym.st_other = 0;
-        local_sym.st_shndx = shdr_index;
+    sym.name_offset = try self.strtab.insert(gpa, decl_name);
+    esym.st_name = sym.name_offset;
+    esym.st_info |= stt_bits;
+    esym.st_size = code.len;
 
+    const old_size = atom_ptr.size;
+    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.size = code.len;
+
+    if (old_size > 0 and self.base.child_pid == null) {
         const capacity = atom_ptr.capacity(self);
-        const need_realloc = code.len > capacity or
-            !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
-
+        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
         if (need_realloc) {
-            const vaddr = try self.growAtom(atom_index, code.len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, local_sym.st_value, vaddr });
-            if (vaddr != local_sym.st_value) {
-                local_sym.st_value = vaddr;
+            const vaddr = try atom_ptr.grow(self);
+            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, sym.value, vaddr });
+            if (vaddr != sym.value) {
+                sym.value = vaddr;
+                esym.st_value = vaddr;
 
                 log.debug("  (writing new offset table entry)", .{});
-                const got_entry_index = self.got_table.lookup.get(local_sym_index).?;
-                self.got_table.entries.items[got_entry_index] = local_sym_index;
+                const got_entry_index = self.got_table.lookup.get(sym_index).?;
+                self.got_table.entries.items[got_entry_index] = sym_index;
                 try self.writeOffsetTableEntry(got_entry_index);
             }
-        } else if (code.len < local_sym.st_size) {
-            self.shrinkAtom(atom_index, code.len);
+        } else if (code.len < old_size) {
+            atom_ptr.shrink(self);
         }
-        local_sym.st_size = code.len;
     } else {
-        local_sym.* = .{
-            .st_name = try self.strtab.insert(gpa, decl_name),
-            .st_info = (elf.STB_LOCAL << 4) | stt_bits,
-            .st_other = 0,
-            .st_shndx = shdr_index,
-            .st_value = 0,
-            .st_size = 0,
-        };
-        const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
-        errdefer self.freeAtom(atom_index);
+        const vaddr = try atom_ptr.allocate(self);
+        errdefer self.freeAtom(atom_ptr);
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, vaddr });
 
-        local_sym.st_value = vaddr;
-        local_sym.st_size = code.len;
+        sym.value = vaddr;
+        esym.st_value = vaddr;
 
-        const got_entry_index = try atom_ptr.getOrCreateOffsetTableEntry(self);
+        const got_entry_index = try sym.getOrCreateOffsetTableEntry(self);
         try self.writeOffsetTableEntry(got_entry_index);
     }
 
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
+    const section_offset = sym.value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
 
     if (self.base.child_pid) |pid| {
@@ -2508,7 +2316,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
                     .iov_len = code.len,
                 }};
                 var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(local_sym.st_value)))),
+                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.value)))),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -2522,8 +2330,6 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     }
 
     try self.base.file.?.pwriteAll(code, file_offset);
-
-    return local_sym;
 }
 
 pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -2539,9 +2345,9 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     self.freeUnnamedConsts(decl_index);
-    Atom.freeRelocations(self, atom_index);
+    Atom.freeRelocations(self, self.symbol(sym_index).atom_index);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2564,13 +2370,14 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
             return;
         },
     };
-    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
+    try self.updateDeclCode(decl_index, sym_index, code, elf.STT_FUNC);
     if (decl_state) |*ds| {
+        const sym = self.symbol(sym_index);
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            local_sym.st_value,
-            local_sym.st_size,
+            sym.value,
+            sym.atom(self).?.size,
             ds,
         );
     }
@@ -2604,8 +2411,8 @@ pub fn updateDecl(
         }
     }
 
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    Atom.freeRelocations(self, atom_index);
+    const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
+    Atom.freeRelocations(self, self.symbol(sym_index).atom_index);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2622,14 +2429,14 @@ pub fn updateDecl(
         }, &code_buffer, .{
             .dwarf = ds,
         }, .{
-            .parent_atom_index = self.atom(atom_index).symbolIndex().?,
+            .parent_atom_index = sym_index,
         })
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
-            .parent_atom_index = self.atom(atom_index).symbolIndex().?,
+            .parent_atom_index = sym_index,
         });
 
     const code = switch (res) {
@@ -2641,13 +2448,14 @@ pub fn updateDecl(
         },
     };
 
-    const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
+    try self.updateDeclCode(decl_index, sym_index, code, elf.STT_OBJECT);
     if (decl_state) |*ds| {
+        const sym = self.symbol(sym_index);
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            local_sym.st_value,
-            local_sym.st_size,
+            sym.value,
+            sym.atom(self).?.size,
             ds,
         );
     }
@@ -2657,12 +2465,7 @@ pub fn updateDecl(
     return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
 }
 
-fn updateLazySymbolAtom(
-    self: *Elf,
-    sym: link.File.LazySymbol,
-    atom_index: Atom.Index,
-    shdr_index: u16,
-) !void {
+fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
@@ -2680,9 +2483,6 @@ fn updateLazySymbolAtom(
     };
     const name = self.strtab.get(name_str_index).?;
 
-    const atom_ptr = self.atom(atom_index);
-    const local_sym_index = atom_ptr.symbolIndex().?;
-
     const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
         mod.declPtr(owner_decl).srcLoc(mod)
     else
@@ -2698,7 +2498,7 @@ fn updateLazySymbolAtom(
         &required_alignment,
         &code_buffer,
         .none,
-        .{ .parent_atom_index = local_sym_index },
+        .{ .parent_atom_index = symbol_index },
     );
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2708,28 +2508,28 @@ fn updateLazySymbolAtom(
         },
     };
 
-    const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const local_sym = atom_ptr.symbol(self);
-    local_sym.* = .{
-        .st_name = name_str_index,
-        .st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT,
-        .st_other = 0,
-        .st_shndx = shdr_index,
-        .st_value = 0,
-        .st_size = 0,
-    };
-    const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
-    errdefer self.freeAtom(atom_index);
+    const local_sym = self.symbol(symbol_index);
+    const phdr_index = self.sections.items(.phdr_index)[local_sym.output_section_index];
+    local_sym.name_offset = name_str_index;
+    const local_esym = local_sym.sourceSymbol(self);
+    local_esym.st_name = name_str_index;
+    local_esym.st_info |= elf.STT_OBJECT;
+    local_esym.st_size = code.len;
+    const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.size = code.len;
+    const vaddr = try atom_ptr.allocate(self);
+    errdefer self.freeAtom(atom_ptr);
     log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });
 
-    local_sym.st_value = vaddr;
-    local_sym.st_size = code.len;
+    local_sym.value = vaddr;
+    local_esym.st_value = vaddr;
 
-    const got_entry_index = try atom_ptr.getOrCreateOffsetTableEntry(self);
+    const got_entry_index = try local_sym.getOrCreateOffsetTableEntry(self);
     try self.writeOffsetTableEntry(got_entry_index);
 
     const section_offset = vaddr - self.program_headers.items[phdr_index].p_vaddr;
-    const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
+    const file_offset = self.sections.items(.shdr)[local_sym.output_section_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -2756,12 +2556,13 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     };
     const name = self.strtab.get(name_str_index).?;
 
-    const atom_index = try self.createAtom();
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const sym_index = try zig_module.createAtom(self.rodata_section_index.?, self);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
         .none = {},
     }, .{
-        .parent_atom_index = self.atom(atom_index).symbolIndex().?,
+        .parent_atom_index = sym_index,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2776,24 +2577,30 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const required_alignment = typed_value.ty.abiAlignment(mod);
     const shdr_index = self.rodata_section_index.?;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const local_sym = self.atom(atom_index).symbol(self);
-    local_sym.st_name = name_str_index;
-    local_sym.st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT;
-    local_sym.st_other = 0;
-    local_sym.st_shndx = shdr_index;
-    local_sym.st_size = code.len;
-    local_sym.st_value = try self.allocateAtom(atom_index, code.len, required_alignment);
-    errdefer self.freeAtom(atom_index);
+    const local_sym = self.symbol(sym_index);
+    local_sym.name_offset = name_str_index;
+    const local_esym = local_sym.sourceSymbol(self);
+    local_esym.st_name = name_str_index;
+    local_esym.st_info |= elf.STT_OBJECT;
+    local_esym.st_size = code.len;
+    const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.size = code.len;
+    const vaddr = try atom_ptr.allocateAtom(self);
+    errdefer self.freeAtom(atom_ptr);
 
     log.debug("allocated text block for {s} at 0x{x}", .{ name, local_sym.st_value });
 
-    try unnamed_consts.append(gpa, atom_index);
+    local_sym.value = vaddr;
+    local_esym.st_value = vaddr;
 
-    const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
+    try unnamed_consts.append(gpa, atom_ptr.atom_index);
+
+    const section_offset = local_sym.value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
-    return self.atom(atom_index).symbolIndex().?;
+    return sym_index;
 }
 
 pub fn updateDeclExports(
@@ -2815,11 +2622,10 @@ pub fn updateDeclExports(
     const gpa = self.base.allocator;
 
     const decl = mod.declPtr(decl_index);
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    const atom_ptr = self.atom(atom_index);
-    const decl_sym = atom_ptr.symbol(self);
+    const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
+    const decl_sym = self.symbol(decl_sym_index);
+    const decl_esym = symbol.sourceSymbol(self);
     const decl_metadata = self.decls.getPtr(decl_index).?;
-    const shdr_index = decl_metadata.shdr;
 
     for (exports) |exp| {
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
@@ -2838,7 +2644,7 @@ pub fn updateDeclExports(
             .Strong => blk: {
                 const entry_name = self.base.options.entry orelse "_start";
                 if (mem.eql(u8, exp_name, entry_name)) {
-                    self.entry_addr = decl_sym.st_value;
+                    self.entry_addr = decl_sym.value;
                 }
                 break :blk elf.STB_GLOBAL;
             },
@@ -2855,22 +2661,18 @@ pub fn updateDeclExports(
         const stt_bits: u8 = @as(u4, @truncate(decl_sym.st_info));
 
         const sym_index = if (decl_metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const sym_index = try self.allocateSymbol();
+            const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+            const sym_index = try zig_module.addGlobal(exp_name, self);
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
         const sym = self.symbol(sym_index);
-        sym.* = .{
-            .st_name = try self.strtab.insert(gpa, exp_name),
-            .st_info = (stb_bits << 4) | stt_bits,
-            .st_other = 0,
-            .st_shndx = shdr_index,
-            .st_value = decl_sym.st_value,
-            .st_size = decl_sym.st_size,
-        };
-        const sym_name = self.symbolName(sym_index);
-        const gop = try self.getOrPutGlobal(sym_name);
-        gop.value_ptr.* = sym_index;
+        sym.value = decl_sym.value;
+        sym.atom_index = decl_sym.atom_index;
+        sym.output_section_index = decl_sym.output_section_index;
+        const esym = sym.sourceSymbol(self);
+        esym.* = decl_esym.*;
+        esym.st_info = (stb_bits << 4) | stt_bits;
     }
 }
 
@@ -2901,16 +2703,21 @@ pub fn deleteDeclExport(
     const mod = self.base.options.module.?;
     const exp_name = mod.intern_pool.stringToSlice(name);
     const sym_index = metadata.@"export"(self, exp_name) orelse return;
-    const sym = self.symbol(sym_index.*);
     log.debug("deleting export '{s}'", .{exp_name});
-    sym.* = null_sym;
-    self.locals_free_list.append(gpa, sym_index.*) catch {};
-
-    if (self.resolver.fetchRemove(exp_name)) |entry| {
-        self.globals_free_list.append(gpa, entry.value) catch {};
-        self.globals.items[entry.value] = 0;
-    }
-
+    const sym = self.symbol(sym_index.*);
+    const esym = sym.sourceSymbol(self);
+    assert(self.resolver.fetchSwapRemove(sym.name_offset) != null); // TODO don't delete it if it's not dominant
+    sym.* = .{};
+    // TODO free list for esym!
+    esym.* = .{
+        .st_name = 0,
+        .st_info = 0,
+        .st_other = 0,
+        .st_shndx = 0,
+        .st_value = 0,
+        .st_size = 0,
+    };
+    self.symbols_free_list.append(gpa, sym_index.*) catch {};
     sym_index.* = 0;
 }
 
@@ -2971,7 +2778,7 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
     const phdr = &self.program_headers.items[self.phdr_got_index.?];
     const vaddr = phdr.p_vaddr + @as(u64, entry_size) * index;
     const got_entry = self.got_table.entries.items[index];
-    const got_value = self.symbol(got_entry).st_value;
+    const got_value = self.symbol(got_entry).value;
     switch (entry_size) {
         2 => {
             var buf: [2]u8 = undefined;
@@ -3374,97 +3181,98 @@ const CsuObjects = struct {
     }
 };
 
-fn logSymtab(self: Elf) void {
-    log.debug("locals:", .{});
-    for (self.locals.items, 0..) |sym, id| {
-        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
-    }
-    log.debug("globals:", .{});
-    for (self.globals.items, 0..) |glob, id| {
-        const sym = self.symbol(glob);
-        log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.strtab.get(sym.st_name), sym.st_value, sym.st_shndx });
-    }
-}
-
-/// Returns pointer-to-symbol described at sym_index.
-pub fn symbol(self: *const Elf, sym_index: u32) *elf.Elf64_Sym {
-    return &self.locals.items[sym_index];
-}
-
-/// Returns name of the symbol at sym_index.
-pub fn symbolName(self: *const Elf, sym_index: u32) []const u8 {
-    const sym = self.locals.items[sym_index];
-    return self.strtab.get(sym.st_name).?;
-}
-
-/// Returns pointer to the global entry for `name` if one exists.
-pub fn global(self: *const Elf, name: []const u8) ?*u32 {
-    const global_index = self.resolver.get(name) orelse return null;
-    return &self.globals.items[global_index];
-}
-
-/// Returns the index of the global entry for `name` if one exists.
-pub fn globalIndex(self: *const Elf, name: []const u8) ?u32 {
-    return self.resolver.get(name);
-}
-
-/// Returns global entry at `index`.
-pub fn globalByIndex(self: *const Elf, index: u32) u32 {
-    assert(index < self.globals.items.len);
-    return self.globals.items[index];
-}
-
-const GetOrPutGlobalResult = struct {
-    found_existing: bool,
-    value_ptr: *u32,
-};
-
-/// Return pointer to the global entry for `name` if one exists.
-/// Puts a new global entry for `name` if one doesn't exist, and
-/// returns a pointer to it.
-pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
-    if (self.global(name)) |ptr| {
-        return GetOrPutGlobalResult{ .found_existing = true, .value_ptr = ptr };
-    }
-    const gpa = self.base.allocator;
-    const global_index = try self.allocateGlobal();
-    const global_name = try gpa.dupe(u8, name);
-    _ = try self.resolver.put(gpa, global_name, global_index);
-    const ptr = &self.globals.items[global_index];
-    return GetOrPutGlobalResult{ .found_existing = false, .value_ptr = ptr };
-}
-
 pub fn atom(self: *Elf, atom_index: Atom.Index) *Atom {
     assert(atom_index < self.atoms.items.len);
     return &self.atoms.items[atom_index];
 }
 
-/// Returns atom if there is an atom referenced by the symbol.
-/// Returns null on failure.
-pub fn atomIndexForSymbol(self: *Elf, sym_index: u32) ?Atom.Index {
-    return self.atom_by_index_table.get(sym_index);
+pub fn addAtom(self: *Elf) !Atom.Index {
+    const index = @as(Atom.Index, @intCast(self.atoms.items.len));
+    const atom_ptr = try self.atoms.addOne(self.base.allocator);
+    atom_ptr.* = .{ .atom_index = index };
+    return index;
 }
 
-fn dumpState(self: *Elf ) std.fmt.Formatter(fmtDumpState) {
+pub fn file(self: *Elf, index: File.Index) ?File {
+    const tag = self.files.items(.tags)[index];
+    return switch (tag) {
+        .null => null,
+        .linker_defined => .{ .linker_defined = &self.files.items(.data)[index].linker_defined },
+        .zig_module => .{ .zig_module = &self.files.items(.data)[index].zig_module },
+    };
+}
+
+/// Returns pointer-to-symbol described at sym_index.
+pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
+    return &self.symbols.items[sym_index];
+}
+
+pub fn addSymbol(self: *Elf) !Symbol.Index {
+    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+    const index = blk: {
+        if (self.symbols_free_list.popOrNull()) |index| {
+            log.debug("  (reusing symbol index {d})", .{index});
+            break :blk index;
+        } else {
+            log.debug("  (allocating symbol index {d})", .{self.symbols.items.len});
+            const index = @as(Symbol.Index, @intCast(self.symbols.items.len));
+            _ = self.symbols.addOneAssumeCapacity();
+            break :blk index;
+        }
+    };
+    self.symbols.items[index] = .{ .symbol_index = index };
+    return index;
+}
+
+const GetOrPutGlobalResult = struct {
+    found_existing: bool,
+    index: Symbol.Index,
+};
+
+pub fn getOrPutGlobal(self: *Elf, name_off: u32) !GetOrPutGlobalResult {
+    const gpa = self.base.allocator;
+    const gop = try self.resolver.getOrPut(gpa, name_off);
+    if (!gop.found_existing) {
+        const index = try self.addSymbol();
+        const global = self.symbol(index);
+        global.name_offset = name_off;
+        gop.value_ptr.* = index;
+    }
+    return .{
+        .found_existing = gop.found_existing,
+        .index = gop.value_ptr.*,
+    };
+}
+
+pub fn getGlobalByName(self: *Elf, name: []const u8) ?Symbol.Index {
+    const name_off = self.strtab.getOffset(name) orelse return null;
+    return self.resolver.get(name_off);
+}
+
+fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *Elf,
+fn fmtDumpState(
+    self: *Elf,
     comptime unused_fmt_string: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
+    _ = unused_fmt_string;
+    _ = options;
 
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        try writer.print("zig_module({d}) : (zig module)\n", .{index});
+        try writer.print("{}\n", .{zig_module.fmtSymtab(self)});
+    }
+    if (self.linker_defined_index) |index| {
+        const linker_defined = self.file(index).?.linker_defined;
+        try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
+        try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
+    }
 }
-
-pub const null_sym = elf.Elf64_Sym{
-    .st_name = 0,
-    .st_info = 0,
-    .st_other = 0,
-    .st_shndx = 0,
-    .st_value = 0,
-    .st_size = 0,
-};
 
 const default_entry_addr = 0x8000000;
 
@@ -3497,21 +3305,20 @@ const Section = struct {
 
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
-    text_atom: Atom.Index = undefined,
-    rodata_atom: Atom.Index = undefined,
+    text_symbol_index: Symbol.Index = undefined,
+    rodata_symbol_index: Symbol.Index = undefined,
     text_state: State = .unused,
     rodata_state: State = .unused,
 };
 
 const DeclMetadata = struct {
-    atom: Atom.Index,
-    shdr: u16,
+    symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Decl.
-    exports: std.ArrayListUnmanaged(u32) = .{},
+    exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
-    fn @"export"(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?*u32 {
+    fn @"export"(m: DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, elf_file.symbolName(exp.*))) return exp;
+            if (mem.eql(u8, name, elf_file.symbol(exp.*).name(elf_file))) return exp;
         }
         return null;
     }
@@ -3543,13 +3350,14 @@ pub const Atom = @import("Elf/Atom.zig");
 const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
-const File = @import("Elf/File.zig");
+const File = @import("Elf/file.zig").File;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
+const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const TableSection = @import("table_section.zig").TableSection;
 const Type = @import("../type.zig").Type;
