@@ -30,10 +30,8 @@ fn test__divtf3(a: f128, b: f128, expectedHi: u64, expectedLo: u64) !void {
 }
 
 test "divtf3" {
-    // qNaN / any = qNaN
-    try test__divtf3(math.qnan_f128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
     // NaN / any = NaN
-    try test__divtf3(math.nan_f128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
+    try test__divtf3(math.nan(f128), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
     // inf / any(except inf and nan) = inf
     try test__divtf3(math.inf(f128), 0x1.23456789abcdefp+5, 0x7fff000000000000, 0);
     // inf / inf = nan

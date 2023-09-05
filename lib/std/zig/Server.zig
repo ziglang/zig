@@ -53,12 +53,11 @@ pub const Message = struct {
         index: u32,
         flags: Flags,
 
-        pub const Flags = packed struct(u8) {
+        pub const Flags = packed struct(u32) {
             fail: bool,
             skip: bool,
             leak: bool,
-
-            reserved: u5 = 0,
+            log_err_count: u29 = 0,
         };
     };
 

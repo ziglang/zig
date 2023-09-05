@@ -39,10 +39,8 @@ fn test__divxf3(a: f80, b: f80) !void {
 }
 
 test "divxf3" {
-    // qNaN / any = qNaN
-    try expect__divxf3_result(math.qnan_f80, 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // NaN / any = NaN
-    try expect__divxf3_result(math.nan_f80, 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
+    try expect__divxf3_result(math.nan(f80), 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // inf / any(except inf and nan) = inf
     try expect__divxf3_result(math.inf(f80), 0x1.23456789abcdefp+5, 0x7fff8000000000000000);
     // inf / inf = nan

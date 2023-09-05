@@ -507,7 +507,7 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{},
+    frameworks: []const Framework = &.{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -830,7 +830,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
-                options.frameworks.count() != 0 or
+                options.frameworks.len != 0 or
                 options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
@@ -1047,6 +1047,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             buf.shrinkAndFree(buf.items.len);
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
+
+        if (options.verbose_llvm_cpu_features) {
+            if (llvm_cpu_features) |cf| print: {
+                std.debug.getStderrMutex().lock();
+                defer std.debug.getStderrMutex().unlock();
+                const stderr = std.io.getStdErr().writer();
+                nosuspend stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                nosuspend stderr.print("  target: {s}\n", .{try options.target.zigTriple(arena)}) catch break :print;
+                nosuspend stderr.print("  cpu: {s}\n", .{options.target.cpu.model.name}) catch break :print;
+                nosuspend stderr.print("  features: {s}\n", .{cf}) catch {};
+            }
+        }
 
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
@@ -2267,7 +2279,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 9;
+pub const link_hash_implementation_version = 10;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2277,7 +2289,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 9);
+    comptime assert(link_hash_implementation_version == 10);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2386,7 +2398,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
-    link.hashAddFrameworks(&man.hash, comp.bin_file.options.frameworks);
+    try link.hashAddFrameworks(man, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
     man.hash.addOptional(comp.bin_file.options.headerpad_size);
@@ -2609,6 +2621,9 @@ pub fn totalErrorCount(self: *Compilation) u32 {
     }
     total += @intFromBool(self.link_error_flags.missing_libc);
 
+    // Misc linker errors
+    total += self.bin_file.miscErrors().len;
+
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
@@ -2759,6 +2774,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }));
     }
 
+    for (self.bin_file.miscErrors()) |link_err| {
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(link_err.msg),
+            .notes_len = @intCast(link_err.notes.len),
+        });
+        const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
+        for (link_err.notes, 0..) |note, i| {
+            bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
+                .msg = try bundle.addString(note.msg),
+            }));
+        }
+    }
+
     if (self.bin_file.options.module) |module| {
         if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
@@ -2858,51 +2886,52 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .{};
     defer ref_traces.deinit(gpa);
 
-    for (module_err_msg.reference_trace) |module_reference| {
-        if (module_reference.hidden != 0) {
-            try ref_traces.append(gpa, .{
-                .decl_name = module_reference.hidden,
-                .src_loc = .none,
-            });
-            break;
-        } else if (module_reference.decl == .none) {
-            try ref_traces.append(gpa, .{
-                .decl_name = 0,
-                .src_loc = .none,
-            });
-            break;
+    const remaining_references: ?u32 = remaining: {
+        if (mod.comp.reference_trace) |_| {
+            if (module_err_msg.hidden_references > 0) break :remaining module_err_msg.hidden_references;
+        } else {
+            if (module_err_msg.reference_trace.len > 0) break :remaining 0;
         }
+        break :remaining null;
+    };
+    try ref_traces.ensureTotalCapacityPrecise(gpa, module_err_msg.reference_trace.len +
+        @intFromBool(remaining_references != null));
+
+    for (module_err_msg.reference_trace) |module_reference| {
         const source = try module_reference.src_loc.file_scope.getSource(gpa);
         const span = try module_reference.src_loc.span(gpa);
         const loc = std.zig.findLineColumn(source.bytes, span.main);
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
-        try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
+        ref_traces.appendAssumeCapacity(.{
+            .decl_name = try eb.addString(ip.stringToSlice(module_reference.decl)),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = 0,
             }),
         });
     }
+    if (remaining_references) |remaining| ref_traces.appendAssumeCapacity(
+        .{ .decl_name = remaining, .src_loc = .none },
+    );
 
     const src_loc = try eb.addSourceLocation(.{
         .src_path = try eb.addString(file_path),
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
-        .line = @as(u32, @intCast(err_loc.line)),
-        .column = @as(u32, @intCast(err_loc.column)),
+        .line = @intCast(err_loc.line),
+        .column = @intCast(err_loc.column),
         .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
             0
         else
             try eb.addString(err_loc.source_line),
-        .reference_trace_len = @as(u32, @intCast(ref_traces.items.len)),
+        .reference_trace_len = @intCast(ref_traces.items.len),
     });
 
     for (ref_traces.items) |rt| {
@@ -2928,8 +2957,8 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
-                .line = @as(u32, @intCast(loc.line)),
-                .column = @as(u32, @intCast(loc.column)),
+                .line = @intCast(loc.line),
+                .column = @intCast(loc.column),
                 .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
@@ -2938,7 +2967,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         }
     }
 
-    const notes_len = @as(u32, @intCast(notes.entries.len));
+    const notes_len: u32 = @intCast(notes.entries.len);
 
     try eb.addRootErrorMessage(.{
         .msg = try eb.addString(module_err_msg.msg),
@@ -5175,10 +5204,13 @@ pub fn lockAndParseLldStderr(comp: *Compilation, comptime prefix: []const u8, st
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
+    const stderr = std.io.getStdErr().writer();
     for (argv[0 .. argv.len - 1]) |arg| {
-        std.debug.print("{s} ", .{arg});
+        nosuspend stderr.print("{s} ", .{arg}) catch return;
     }
-    std.debug.print("{s}\n", .{argv[argv.len - 1]});
+    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {

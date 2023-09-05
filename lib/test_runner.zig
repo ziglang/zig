@@ -90,6 +90,7 @@ fn mainServer() !void {
 
             .run_test => {
                 std.testing.allocator_instance = .{};
+                log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
                 if (test_fn.async_frame_size != null)
@@ -113,6 +114,10 @@ fn mainServer() !void {
                         .fail = fail,
                         .skip = skip,
                         .leak = leak,
+                        .log_err_count = std.math.lossyCast(std.meta.FieldType(
+                            std.zig.Server.Message.TestResults.Flags,
+                            .log_err_count,
+                        ), log_err_count),
                     },
                 });
             },
@@ -218,7 +223,7 @@ pub fn log(
     args: anytype,
 ) void {
     if (@intFromEnum(message_level) <= @intFromEnum(std.log.Level.err)) {
-        log_err_count += 1;
+        log_err_count +|= 1;
     }
     if (@intFromEnum(message_level) <= @intFromEnum(std.testing.log_level)) {
         std.debug.print(

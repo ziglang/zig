@@ -10819,11 +10819,11 @@ pub fn build(b: *std.Build) void {
 
       {#header_open|Compiling C Source Code#}
       <pre>{#syntax#}
-lib.addCSourceFile("src/lib.c", &[_][]const u8{
-    "-Wall",
-    "-Wextra",
-    "-Werror",
-});
+lib.addCSourceFile(.{ .file = .{ .path = "src/lib.c" }, .flags = &.{
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    } });
       {#endsyntax#}</pre>
       {#header_close#}
 
@@ -11180,7 +11180,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99"} });
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -11247,10 +11247,10 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "test",
     });
-    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
+    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &.{"-std=c99",} });
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
-    exe.install();
+    b.installArtifact(exe);
 }
       {#code_end#}
       {#shell_samp#}$ zig build

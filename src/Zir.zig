@@ -248,6 +248,10 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given an indexable pointer (slice, many-ptr, single-ptr-to-array), returns its
+        /// element type. Emits a compile error if the type is not an indexable pointer.
+        /// Uses the `un_node` field.
+        indexable_ptr_elem_type,
         /// Given a vector type, returns its element type.
         /// Uses the `un_node` field.
         vector_elem_type,
@@ -602,20 +606,9 @@ pub const Inst = struct {
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// This instruction is not really supposed to be emitted from AstGen; nevertheless it
-        /// is sometimes emitted due to deficiencies in AstGen. When Sema sees this instruction,
-        /// it must clean up after AstGen's mess by looking at various context clues and
-        /// then treating it as one of the following:
-        ///  * no-op
-        ///  * store_to_inferred_ptr
-        ///  * store
-        /// Uses the `bin` union field with LHS as the pointer to store to.
-        store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
-        /// Uses the `bin` union field - Astgen.zig depends on the ability to change
-        /// the tag of an instruction from `store_to_block_ptr` to `store_to_inferred_ptr`
-        /// without changing the data.
+        /// Uses the `bin` union field.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
@@ -1032,6 +1025,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .indexable_ptr_elem_type,
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
@@ -1109,7 +1103,6 @@ pub const Inst = struct {
                 .shr,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .str,
                 .sub,
@@ -1295,7 +1288,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .store,
                 .store_node,
-                .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
                 .validate_array_init_ty,
@@ -1338,6 +1330,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .indexable_ptr_elem_type,
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
@@ -1570,6 +1563,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .indexable_ptr_elem_type = .un_node,
                 .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
@@ -1667,7 +1661,6 @@ pub const Inst = struct {
                 .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
-                .store_to_block_ptr = .bin,
                 .store_to_inferred_ptr = .bin,
                 .str = .str,
                 .negate = .un_node,
@@ -2970,7 +2963,8 @@ pub const Inst = struct {
             ///    true      | true          |  union(enum(T)) { }
             ///    true      | false         |  union(T) { }
             auto_enum_tag: bool,
-            _: u6 = undefined,
+            any_aligned_fields: bool,
+            _: u5 = undefined,
         };
     };
 

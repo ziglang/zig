@@ -69,6 +69,7 @@ pub const Context = enum { ret, arg, other };
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
+    const ip = &mod.intern_pool;
     const target = mod.getTarget();
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
@@ -328,8 +329,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            const union_obj = mod.typeToUnion(ty).?;
+            const ty_size = mod.unionAbiSize(union_obj);
+            if (union_obj.getLayout(ip) == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
                 if (ty_size > 64) result[1] = .integer;
@@ -338,15 +340,14 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             if (ty_size > 64)
                 return memory_class;
 
-            const fields = ty.unionFields(mod);
-            for (fields.values()) |field| {
-                if (field.abi_align != .none) {
-                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
+            for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
+                if (union_obj.fieldAlign(ip, @intCast(field_index)).toByteUnitsOptional()) |a| {
+                    if (a < field_ty.toType().abiAlignment(mod)) {
                         return memory_class;
                     }
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field.ty, mod, .other);
+                const field_class = classifySystemV(field_ty.toType(), mod, .other);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."

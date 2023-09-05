@@ -370,10 +370,9 @@ fn render_cmake(
                     }
                 },
 
-                else => {
-                    break :blk value;
-                },
+                else => {},
             }
+            break :blk value;
         };
 
         if (booldefine) {

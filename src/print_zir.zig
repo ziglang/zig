@@ -145,7 +145,6 @@ const Writer = struct {
         switch (tag) {
             .as,
             .store,
-            .store_to_block_ptr,
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 
@@ -155,6 +154,7 @@ const Writer = struct {
             .alloc_mut,
             .alloc_comptime_mut,
             .elem_type,
+            .indexable_ptr_elem_type,
             .vector_elem_type,
             .indexable_ptr_len,
             .anyframe_type,

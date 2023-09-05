@@ -414,7 +414,7 @@ pub const Scanner = struct {
     string_is_object_key: bool = false,
     stack: BitStack,
     value_start: usize = undefined,
-    unicode_code_point: u21 = undefined,
+    utf16_code_units: [2]u16 = undefined,
 
     input: []const u8 = "",
     cursor: usize = 0,
@@ -1083,13 +1083,13 @@ pub const Scanner = struct {
                     const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
-                            self.unicode_code_point = @as(u21, c - '0') << 12;
+                            self.utf16_code_units[0] = @as(u16, c - '0') << 12;
                         },
                         'A'...'F' => {
-                            self.unicode_code_point = @as(u21, c - 'A' + 10) << 12;
+                            self.utf16_code_units[0] = @as(u16, c - 'A' + 10) << 12;
                         },
                         'a'...'f' => {
-                            self.unicode_code_point = @as(u21, c - 'a' + 10) << 12;
+                            self.utf16_code_units[0] = @as(u16, c - 'a' + 10) << 12;
                         },
                         else => return error.SyntaxError,
                     }
@@ -1101,13 +1101,13 @@ pub const Scanner = struct {
                     const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
-                            self.unicode_code_point |= @as(u21, c - '0') << 8;
+                            self.utf16_code_units[0] |= @as(u16, c - '0') << 8;
                         },
                         'A'...'F' => {
-                            self.unicode_code_point |= @as(u21, c - 'A' + 10) << 8;
+                            self.utf16_code_units[0] |= @as(u16, c - 'A' + 10) << 8;
                         },
                         'a'...'f' => {
-                            self.unicode_code_point |= @as(u21, c - 'a' + 10) << 8;
+                            self.utf16_code_units[0] |= @as(u16, c - 'a' + 10) << 8;
                         },
                         else => return error.SyntaxError,
                     }
@@ -1119,13 +1119,13 @@ pub const Scanner = struct {
                     const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
-                            self.unicode_code_point |= @as(u21, c - '0') << 4;
+                            self.utf16_code_units[0] |= @as(u16, c - '0') << 4;
                         },
                         'A'...'F' => {
-                            self.unicode_code_point |= @as(u21, c - 'A' + 10) << 4;
+                            self.utf16_code_units[0] |= @as(u16, c - 'A' + 10) << 4;
                         },
                         'a'...'f' => {
-                            self.unicode_code_point |= @as(u21, c - 'a' + 10) << 4;
+                            self.utf16_code_units[0] |= @as(u16, c - 'a' + 10) << 4;
                         },
                         else => return error.SyntaxError,
                     }
@@ -1137,31 +1137,26 @@ pub const Scanner = struct {
                     const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
-                            self.unicode_code_point |= c - '0';
+                            self.utf16_code_units[0] |= c - '0';
                         },
                         'A'...'F' => {
-                            self.unicode_code_point |= c - 'A' + 10;
+                            self.utf16_code_units[0] |= c - 'A' + 10;
                         },
                         'a'...'f' => {
-                            self.unicode_code_point |= c - 'a' + 10;
+                            self.utf16_code_units[0] |= c - 'a' + 10;
                         },
                         else => return error.SyntaxError,
                     }
                     self.cursor += 1;
-                    switch (self.unicode_code_point) {
-                        0xD800...0xDBFF => {
-                            // High surrogate half.
-                            self.unicode_code_point = 0x10000 | (self.unicode_code_point << 10);
-                            self.state = .string_surrogate_half;
-                            continue :state_loop;
-                        },
-                        0xDC00...0xDFFF => return error.SyntaxError, // Unexpected low surrogate half.
-                        else => {
-                            // Code point from a single UTF-16 code unit.
-                            self.value_start = self.cursor;
-                            self.state = .string;
-                            return self.partialStringCodepoint();
-                        },
+                    if (std.unicode.utf16IsHighSurrogate(self.utf16_code_units[0])) {
+                        self.state = .string_surrogate_half;
+                        continue :state_loop;
+                    } else if (std.unicode.utf16IsLowSurrogate(self.utf16_code_units[0])) {
+                        return error.SyntaxError; // Unexpected low surrogate half.
+                    } else {
+                        self.value_start = self.cursor;
+                        self.state = .string;
+                        return partialStringCodepoint(self.utf16_code_units[0]);
                     }
                 },
                 .string_surrogate_half => {
@@ -1188,6 +1183,7 @@ pub const Scanner = struct {
                     switch (try self.expectByte()) {
                         'D', 'd' => {
                             self.cursor += 1;
+                            self.utf16_code_units[1] = 0xD << 12;
                             self.state = .string_surrogate_half_backslash_u_1;
                             continue :state_loop;
                         },
@@ -1199,13 +1195,13 @@ pub const Scanner = struct {
                     switch (c) {
                         'C'...'F' => {
                             self.cursor += 1;
-                            self.unicode_code_point |= @as(u21, c - 'C') << 8;
+                            self.utf16_code_units[1] |= @as(u16, c - 'A' + 10) << 8;
                             self.state = .string_surrogate_half_backslash_u_2;
                             continue :state_loop;
                         },
                         'c'...'f' => {
                             self.cursor += 1;
-                            self.unicode_code_point |= @as(u21, c - 'c') << 8;
+                            self.utf16_code_units[1] |= @as(u16, c - 'a' + 10) << 8;
                             self.state = .string_surrogate_half_backslash_u_2;
                             continue :state_loop;
                         },
@@ -1217,19 +1213,19 @@ pub const Scanner = struct {
                     switch (c) {
                         '0'...'9' => {
                             self.cursor += 1;
-                            self.unicode_code_point |= @as(u21, c - '0') << 4;
+                            self.utf16_code_units[1] |= @as(u16, c - '0') << 4;
                             self.state = .string_surrogate_half_backslash_u_3;
                             continue :state_loop;
                         },
                         'A'...'F' => {
                             self.cursor += 1;
-                            self.unicode_code_point |= @as(u21, c - 'A' + 10) << 4;
+                            self.utf16_code_units[1] |= @as(u16, c - 'A' + 10) << 4;
                             self.state = .string_surrogate_half_backslash_u_3;
                             continue :state_loop;
                         },
                         'a'...'f' => {
                             self.cursor += 1;
-                            self.unicode_code_point |= @as(u21, c - 'a' + 10) << 4;
+                            self.utf16_code_units[1] |= @as(u16, c - 'a' + 10) << 4;
                             self.state = .string_surrogate_half_backslash_u_3;
                             continue :state_loop;
                         },
@@ -1240,20 +1236,21 @@ pub const Scanner = struct {
                     const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
-                            self.unicode_code_point |= c - '0';
+                            self.utf16_code_units[1] |= c - '0';
                         },
                         'A'...'F' => {
-                            self.unicode_code_point |= c - 'A' + 10;
+                            self.utf16_code_units[1] |= c - 'A' + 10;
                         },
                         'a'...'f' => {
-                            self.unicode_code_point |= c - 'a' + 10;
+                            self.utf16_code_units[1] |= c - 'a' + 10;
                         },
                         else => return error.SyntaxError,
                     }
                     self.cursor += 1;
                     self.value_start = self.cursor;
                     self.state = .string;
-                    return self.partialStringCodepoint();
+                    const code_point = std.unicode.utf16DecodeSurrogatePair(&self.utf16_code_units) catch unreachable;
+                    return partialStringCodepoint(code_point);
                 },
 
                 .string_utf8_last_byte => {
@@ -1681,9 +1678,7 @@ pub const Scanner = struct {
         return Token{ .partial_number = slice };
     }
 
-    fn partialStringCodepoint(self: *@This()) Token {
-        const code_point = self.unicode_code_point;
-        self.unicode_code_point = undefined;
+    fn partialStringCodepoint(code_point: u21) Token {
         var buf: [4]u8 = undefined;
         switch (std.unicode.utf8Encode(code_point, &buf) catch unreachable) {
             1 => return Token{ .partial_string_escaped_1 = buf[0..1].* },

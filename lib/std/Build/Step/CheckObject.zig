@@ -766,6 +766,60 @@ const MachODumper = struct {
                 });
             },
 
+            .BUILD_VERSION => {
+                const blc = lc.cast(macho.build_version_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\platform {s}
+                    \\minos {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                    \\ntools {d}
+                , .{
+                    @tagName(blc.platform),
+                    blc.minos >> 16,
+                    @as(u8, @truncate(blc.minos >> 8)),
+                    @as(u8, @truncate(blc.minos)),
+                    blc.sdk >> 16,
+                    @as(u8, @truncate(blc.sdk >> 8)),
+                    @as(u8, @truncate(blc.sdk)),
+                    blc.ntools,
+                });
+                for (lc.getBuildVersionTools()) |tool| {
+                    try writer.writeByte('\n');
+                    switch (tool.tool) {
+                        .CLANG, .SWIFT, .LD, .LLD, .ZIG => try writer.print("tool {s}\n", .{@tagName(tool.tool)}),
+                        else => |x| try writer.print("tool {d}\n", .{@intFromEnum(x)}),
+                    }
+                    try writer.print(
+                        \\version {d}.{d}.{d}
+                    , .{
+                        tool.version >> 16,
+                        @as(u8, @truncate(tool.version >> 8)),
+                        @as(u8, @truncate(tool.version)),
+                    });
+                }
+            },
+
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_WATCHOS,
+            .VERSION_MIN_TVOS,
+            => {
+                const vlc = lc.cast(macho.version_min_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\version {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                , .{
+                    vlc.version >> 16,
+                    @as(u8, @truncate(vlc.version >> 8)),
+                    @as(u8, @truncate(vlc.version)),
+                    vlc.sdk >> 16,
+                    @as(u8, @truncate(vlc.sdk >> 8)),
+                    @as(u8, @truncate(vlc.sdk)),
+                });
+            },
+
             else => {},
         }
     }

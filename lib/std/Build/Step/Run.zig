@@ -1048,6 +1048,7 @@ fn evalZigTest(
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
     var test_count: u32 = 0;
+    var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
 
@@ -1112,14 +1113,22 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
-                fail_count += @intFromBool(tr_hdr.flags.fail);
-                skip_count += @intFromBool(tr_hdr.flags.skip);
-                leak_count += @intFromBool(tr_hdr.flags.leak);
+                fail_count +|= @intFromBool(tr_hdr.flags.fail);
+                skip_count +|= @intFromBool(tr_hdr.flags.skip);
+                leak_count +|= @intFromBool(tr_hdr.flags.leak);
+                log_err_count +|= tr_hdr.flags.log_err_count;
 
-                if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
+                if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    const label = if (tr_hdr.flags.fail)
+                        "failed"
+                    else if (tr_hdr.flags.leak)
+                        "leaked"
+                    else if (tr_hdr.flags.log_err_count > 0)
+                        "logged errors"
+                    else
+                        unreachable;
                     if (msg.len > 0) {
                         try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
                     } else {
@@ -1153,6 +1162,7 @@ fn evalZigTest(
             .fail_count = fail_count,
             .skip_count = skip_count,
             .leak_count = leak_count,
+            .log_err_count = log_err_count,
         },
         .test_metadata = metadata,
     };

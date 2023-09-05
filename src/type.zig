@@ -349,8 +349,7 @@ pub const Type = struct {
             },
 
             .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                const decl = mod.declPtr(union_obj.owner_decl);
+                const decl = mod.declPtr(union_type.decl);
                 try decl.renderFullyQualifiedName(mod, writer);
             },
             .opaque_type => |opaque_type| {
@@ -462,10 +461,11 @@ pub const Type = struct {
         ignore_comptime_only: bool,
         strat: AbiAlignmentAdvancedStrat,
     ) RuntimeBitsError!bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             // False because it is a comptime-only type.
             .empty_struct_type => false,
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.bits != 0,
                 .ptr_type => |ptr_type| {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
@@ -595,29 +595,36 @@ pub const Type = struct {
                 },
 
                 .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    switch (union_type.runtime_tag) {
+                    switch (union_type.flagsPtr(ip).runtime_tag) {
                         .none => {
-                            if (union_obj.status == .field_types_wip) {
+                            if (union_type.flagsPtr(ip).status == .field_types_wip) {
                                 // In this case, we guess that hasRuntimeBits() for this type is true,
                                 // and then later if our guess was incorrect, we emit a compile error.
-                                union_obj.assumed_runtime_bits = true;
+                                union_type.flagsPtr(ip).assumed_runtime_bits = true;
                                 return true;
                             }
                         },
                         .safety, .tagged => {
-                            if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) {
+                            const tag_ty = union_type.tagTypePtr(ip).*;
+                            // tag_ty will be `none` if this union's tag type is not resolved yet,
+                            // in which case we want control flow to continue down below.
+                            if (tag_ty != .none and
+                                try tag_ty.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            {
                                 return true;
                             }
                         },
                     }
                     switch (strat) {
                         .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                        .eager => assert(union_obj.haveFieldTypes()),
-                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
+                        .eager => assert(union_type.flagsPtr(ip).status.haveFieldTypes()),
+                        .lazy => if (!union_type.flagsPtr(ip).status.haveFieldTypes())
+                            return error.NeedLazy,
                     }
-                    for (union_obj.fields.values()) |value| {
-                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                    const union_obj = ip.loadUnionType(union_type);
+                    for (0..union_obj.field_types.len) |field_index| {
+                        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+                        if (try field_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
                             return true;
                     } else {
                         return false;
@@ -656,7 +663,8 @@ pub const Type = struct {
     /// readFrom/writeToMemory are supported only for types with a well-
     /// defined memory layout
     pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .int_type,
             .vector_type,
             => true,
@@ -728,8 +736,8 @@ pub const Type = struct {
                 };
                 return struct_obj.layout != .Auto;
             },
-            .union_type => |union_type| switch (union_type.runtime_tag) {
-                .none, .safety => mod.unionPtr(union_type.index).layout != .Auto,
+            .union_type => |union_type| switch (union_type.flagsPtr(ip).runtime_tag) {
+                .none, .safety => union_type.flagsPtr(ip).layout != .Auto,
                 .tagged => false,
             },
             .enum_type => |enum_type| switch (enum_type.tag_mode) {
@@ -867,6 +875,7 @@ pub const Type = struct {
         strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiAlignmentAdvanced {
         const target = mod.getTarget();
+        const ip = &mod.intern_pool;
 
         const opt_sema = switch (strat) {
             .sema => |sema| sema,
@@ -875,7 +884,7 @@ pub const Type = struct {
 
         switch (ty.toIntern()) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
                     return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
@@ -1066,8 +1075,65 @@ pub const Type = struct {
                 },
 
                 .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
+                    if (opt_sema) |sema| {
+                        if (union_type.flagsPtr(ip).status == .field_types_wip) {
+                            // We'll guess "pointer-aligned", if the union has an
+                            // underaligned pointer field then some allocations
+                            // might require explicit alignment.
+                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                        }
+                        _ = try sema.resolveTypeFields(ty);
+                    }
+                    if (!union_type.haveFieldTypes(ip)) switch (strat) {
+                        .eager => unreachable, // union layout not resolved
+                        .sema => unreachable, // handled above
+                        .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                            .ty = .comptime_int_type,
+                            .storage = .{ .lazy_align = ty.toIntern() },
+                        } })).toValue() },
+                    };
+                    const union_obj = ip.loadUnionType(union_type);
+                    if (union_obj.field_names.len == 0) {
+                        if (union_obj.hasTag(ip)) {
+                            return abiAlignmentAdvanced(union_obj.enum_tag_ty.toType(), mod, strat);
+                        } else {
+                            return AbiAlignmentAdvanced{
+                                .scalar = @intFromBool(union_obj.flagsPtr(ip).layout == .Extern),
+                            };
+                        }
+                    }
+
+                    var max_align: u32 = 0;
+                    if (union_obj.hasTag(ip)) max_align = union_obj.enum_tag_ty.toType().abiAlignment(mod);
+                    for (0..union_obj.field_names.len) |field_index| {
+                        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+                        const field_align = if (union_obj.field_aligns.len == 0)
+                            .none
+                        else
+                            union_obj.field_aligns.get(ip)[field_index];
+                        if (!(field_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_align = ty.toIntern() },
+                            } })).toValue() },
+                            else => |e| return e,
+                        })) continue;
+
+                        const field_align_bytes: u32 = @intCast(field_align.toByteUnitsOptional() orelse
+                            switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
+                            .scalar => |a| a,
+                            .val => switch (strat) {
+                                .eager => unreachable, // struct layout not resolved
+                                .sema => unreachable, // handled above
+                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .lazy_align = ty.toIntern() },
+                                } })).toValue() },
+                            },
+                        });
+                        max_align = @max(max_align, field_align_bytes);
+                    }
+                    return AbiAlignmentAdvanced{ .scalar = max_align };
                 },
                 .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
                 .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
@@ -1177,71 +1243,6 @@ pub const Type = struct {
         }
     }
 
-    pub fn abiAlignmentAdvancedUnion(
-        ty: Type,
-        mod: *Module,
-        strat: AbiAlignmentAdvancedStrat,
-        union_obj: *Module.Union,
-        have_tag: bool,
-    ) Module.CompileError!AbiAlignmentAdvanced {
-        const opt_sema = switch (strat) {
-            .sema => |sema| sema,
-            else => null,
-        };
-        if (opt_sema) |sema| {
-            if (union_obj.status == .field_types_wip) {
-                // We'll guess "pointer-aligned", if the union has an
-                // underaligned pointer field then some allocations
-                // might require explicit alignment.
-                const target = mod.getTarget();
-                return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
-            }
-            _ = try sema.resolveTypeFields(ty);
-        }
-        if (!union_obj.haveFieldTypes()) switch (strat) {
-            .eager => unreachable, // union layout not resolved
-            .sema => unreachable, // handled above
-            .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                .ty = .comptime_int_type,
-                .storage = .{ .lazy_align = ty.toIntern() },
-            } })).toValue() },
-        };
-        if (union_obj.fields.count() == 0) {
-            if (have_tag) {
-                return abiAlignmentAdvanced(union_obj.tag_ty, mod, strat);
-            } else {
-                return AbiAlignmentAdvanced{ .scalar = @intFromBool(union_obj.layout == .Extern) };
-            }
-        }
-
-        var max_align: u32 = 0;
-        if (have_tag) max_align = union_obj.tag_ty.abiAlignment(mod);
-        for (union_obj.fields.values()) |field| {
-            if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
-                    .ty = .comptime_int_type,
-                    .storage = .{ .lazy_align = ty.toIntern() },
-                } })).toValue() },
-                else => |e| return e,
-            })) continue;
-
-            const field_align = @as(u32, @intCast(field.abi_align.toByteUnitsOptional() orelse
-                switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
-                .scalar => |a| a,
-                .val => switch (strat) {
-                    .eager => unreachable, // struct layout not resolved
-                    .sema => unreachable, // handled above
-                    .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                        .ty = .comptime_int_type,
-                        .storage = .{ .lazy_align = ty.toIntern() },
-                    } })).toValue() },
-                },
-            }));
-            max_align = @max(max_align, field_align);
-        }
-        return AbiAlignmentAdvanced{ .scalar = max_align };
-    }
-
     /// May capture a reference to `ty`.
     pub fn lazyAbiSize(ty: Type, mod: *Module) !Value {
         switch (try ty.abiSizeAdvanced(mod, .lazy)) {
@@ -1273,11 +1274,12 @@ pub const Type = struct {
         strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiSizeAdvanced {
         const target = mod.getTarget();
+        const ip = &mod.intern_pool;
 
         switch (ty.toIntern()) {
             .empty_struct_type => return AbiSizeAdvanced{ .scalar = 0 },
 
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
                     return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
@@ -1484,8 +1486,18 @@ pub const Type = struct {
                 },
 
                 .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
+                    switch (strat) {
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
+                        .lazy => if (!union_type.flagsPtr(ip).status.haveLayout()) return .{
+                            .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_size = ty.toIntern() },
+                            } })).toValue(),
+                        },
+                        .eager => {},
+                    }
+                    const union_obj = ip.loadUnionType(union_type);
+                    return AbiSizeAdvanced{ .scalar = mod.unionAbiSize(union_obj) };
                 },
                 .opaque_type => unreachable, // no size available
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
@@ -1513,24 +1525,6 @@ pub const Type = struct {
                 => unreachable,
             },
         }
-    }
-
-    pub fn abiSizeAdvancedUnion(
-        ty: Type,
-        mod: *Module,
-        strat: AbiAlignmentAdvancedStrat,
-        union_obj: *Module.Union,
-        have_tag: bool,
-    ) Module.CompileError!AbiSizeAdvanced {
-        switch (strat) {
-            .sema => |sema| try sema.resolveTypeLayout(ty),
-            .lazy => if (!union_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
-                .ty = .comptime_int_type,
-                .storage = .{ .lazy_size = ty.toIntern() },
-            } })).toValue() },
-            .eager => {},
-        }
-        return AbiSizeAdvanced{ .scalar = union_obj.abiSize(mod, have_tag) };
     }
 
     fn abiSizeAdvancedOptional(
@@ -1602,10 +1596,11 @@ pub const Type = struct {
         opt_sema: ?*Sema,
     ) Module.CompileError!u64 {
         const target = mod.getTarget();
+        const ip = &mod.intern_pool;
 
         const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
 
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type.bits,
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .Slice => return target.ptrBitWidth() * 2,
@@ -1714,12 +1709,13 @@ pub const Type = struct {
                 if (ty.containerLayout(mod) != .Packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
                 }
-                const union_obj = mod.unionPtr(union_type.index);
-                assert(union_obj.haveFieldTypes());
+                const union_obj = ip.loadUnionType(union_type);
+                assert(union_obj.flagsPtr(ip).status.haveFieldTypes());
 
                 var size: u64 = 0;
-                for (union_obj.fields.values()) |field| {
-                    size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
+                for (0..union_obj.field_types.len) |field_index| {
+                    const field_ty = union_obj.field_types.get(ip)[field_index];
+                    size = @max(size, try bitSizeAdvanced(field_ty.toType(), mod, opt_sema));
                 }
                 return size;
             },
@@ -1753,33 +1749,24 @@ pub const Type = struct {
     /// Returns true if the type's layout is already resolved and it is safe
     /// to use `abiSize`, `abiAlignment` and `bitSize` on it.
     pub fn layoutIsResolved(ty: Type, mod: *Module) bool {
-        switch (ty.zigTypeTag(mod)) {
-            .Struct => {
-                if (mod.typeToStruct(ty)) |struct_obj| {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type => |struct_type| {
+                if (mod.structPtrUnwrap(struct_type.index)) |struct_obj| {
                     return struct_obj.haveLayout();
+                } else {
+                    return true;
                 }
-                return true;
             },
-            .Union => {
-                if (mod.typeToUnion(ty)) |union_obj| {
-                    return union_obj.haveLayout();
-                }
-                return true;
+            .union_type => |union_type| union_type.haveLayout(ip),
+            .array_type => |array_type| {
+                if ((array_type.len + @intFromBool(array_type.sentinel != .none)) == 0) return true;
+                return array_type.child.toType().layoutIsResolved(mod);
             },
-            .Array => {
-                if (ty.arrayLenIncludingSentinel(mod) == 0) return true;
-                return ty.childType(mod).layoutIsResolved(mod);
-            },
-            .Optional => {
-                const payload_ty = ty.optionalChild(mod);
-                return payload_ty.layoutIsResolved(mod);
-            },
-            .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload(mod);
-                return payload_ty.layoutIsResolved(mod);
-            },
-            else => return true,
-        }
+            .opt_type => |child| child.toType().layoutIsResolved(mod),
+            .error_union_type => |k| k.payload_type.toType().layoutIsResolved(mod),
+            else => true,
+        };
     }
 
     pub fn isSinglePointer(ty: Type, mod: *const Module) bool {
@@ -1970,12 +1957,12 @@ pub const Type = struct {
     /// Returns the tag type of a union, if the type is a union and it has a tag type.
     /// Otherwise, returns `null`.
     pub fn unionTagType(ty: Type, mod: *Module) ?Type {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .union_type => |union_type| switch (union_type.runtime_tag) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .union_type => |union_type| switch (union_type.flagsPtr(ip).runtime_tag) {
                 .tagged => {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    assert(union_obj.haveFieldTypes());
-                    return union_obj.tag_ty;
+                    assert(union_type.flagsPtr(ip).status.haveFieldTypes());
+                    return union_type.enum_tag_ty.toType();
                 },
                 else => null,
             },
@@ -1986,12 +1973,12 @@ pub const Type = struct {
     /// Same as `unionTagType` but includes safety tag.
     /// Codegen should use this version.
     pub fn unionTagTypeSafety(ty: Type, mod: *Module) ?Type {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .union_type => |union_type| {
-                if (!union_type.hasTag()) return null;
-                const union_obj = mod.unionPtr(union_type.index);
-                assert(union_obj.haveFieldTypes());
-                return union_obj.tag_ty;
+                if (!union_type.hasTag(ip)) return null;
+                assert(union_type.haveFieldTypes(ip));
+                return union_type.enum_tag_ty.toType();
             },
             else => null,
         };
@@ -2001,52 +1988,46 @@ pub const Type = struct {
     /// not be stored at runtime.
     pub fn unionTagTypeHypothetical(ty: Type, mod: *Module) Type {
         const union_obj = mod.typeToUnion(ty).?;
-        assert(union_obj.haveFieldTypes());
-        return union_obj.tag_ty;
-    }
-
-    pub fn unionFields(ty: Type, mod: *Module) Module.Union.Fields {
-        const union_obj = mod.typeToUnion(ty).?;
-        assert(union_obj.haveFieldTypes());
-        return union_obj.fields;
+        return union_obj.enum_tag_ty.toType();
     }
 
     pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
+        const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
-        const index = ty.unionTagFieldIndex(enum_tag, mod).?;
-        assert(union_obj.haveFieldTypes());
-        return union_obj.fields.values()[index].ty;
+        const index = mod.unionTagFieldIndex(union_obj, enum_tag).?;
+        return union_obj.field_types.get(ip)[index].toType();
     }
 
-    pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
+    pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
         const union_obj = mod.typeToUnion(ty).?;
-        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod) orelse return null;
-        const name = union_obj.tag_ty.enumFieldName(index, mod);
-        return union_obj.fields.getIndex(name);
+        return mod.unionTagFieldIndex(union_obj, enum_tag);
     }
 
     pub fn unionHasAllZeroBitFieldTypes(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
-        return union_obj.hasAllZeroBitFieldTypes(mod);
+        for (union_obj.field_types.get(ip)) |field_ty| {
+            if (field_ty.toType().hasRuntimeBits(mod)) return false;
+        }
+        return true;
     }
 
-    pub fn unionGetLayout(ty: Type, mod: *Module) Module.Union.Layout {
-        const union_type = mod.intern_pool.indexToKey(ty.toIntern()).union_type;
-        const union_obj = mod.unionPtr(union_type.index);
-        return union_obj.getLayout(mod, union_type.hasTag());
+    pub fn unionGetLayout(ty: Type, mod: *Module) Module.UnionLayout {
+        const ip = &mod.intern_pool;
+        const union_type = ip.indexToKey(ty.toIntern()).union_type;
+        const union_obj = ip.loadUnionType(union_type);
+        return mod.getUnionLayout(union_obj);
     }
 
     pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .Auto;
                 return struct_obj.layout;
             },
             .anon_struct_type => .Auto,
-            .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                return union_obj.layout;
-            },
+            .union_type => |union_type| union_type.flagsPtr(ip).layout,
             else => unreachable,
         };
     }
@@ -2434,11 +2415,11 @@ pub const Type = struct {
     /// resolves field types rather than asserting they are already resolved.
     pub fn onePossibleValue(starting_type: Type, mod: *Module) !?Value {
         var ty = starting_type;
-
+        const ip = &mod.intern_pool;
         while (true) switch (ty.toIntern()) {
             .empty_struct_type => return Value.empty_struct,
 
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) {
                         return try mod.intValue(ty, 0);
@@ -2570,14 +2551,16 @@ pub const Type = struct {
                 },
 
                 .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
-                    if (union_obj.fields.count() == 0) {
+                    const union_obj = ip.loadUnionType(union_type);
+                    const tag_val = (try union_obj.enum_tag_ty.toType().onePossibleValue(mod)) orelse
+                        return null;
+                    if (union_obj.field_names.len == 0) {
                         const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
                         return only.toValue();
                     }
-                    const only_field = union_obj.fields.values()[0];
-                    const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
+                    const only_field_ty = union_obj.field_types.get(ip)[0];
+                    const val_val = (try only_field_ty.toType().onePossibleValue(mod)) orelse
+                        return null;
                     const only = try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
                         .tag = tag_val.toIntern(),
@@ -2619,7 +2602,7 @@ pub const Type = struct {
                                     } });
                                     return only.toValue();
                                 } else {
-                                    return enum_type.values[0].toValue();
+                                    return enum_type.values.get(ip)[0].toValue();
                                 }
                             },
                             else => return null,
@@ -2657,10 +2640,11 @@ pub const Type = struct {
     /// TODO merge these implementations together with the "advanced" pattern seen
     /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *Module) bool {
+        const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .empty_struct_type => false,
 
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => false,
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
@@ -2704,6 +2688,7 @@ pub const Type = struct {
                     .c_longlong,
                     .c_ulonglong,
                     .c_longdouble,
+                    .anyopaque,
                     .bool,
                     .void,
                     .anyerror,
@@ -2722,7 +2707,6 @@ pub const Type = struct {
                     .extern_options,
                     => false,
 
-                    .anyopaque,
                     .type,
                     .comptime_int,
                     .comptime_float,
@@ -2756,8 +2740,7 @@ pub const Type = struct {
                 },
 
                 .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    switch (union_obj.requires_comptime) {
+                    switch (union_type.flagsPtr(ip).requires_comptime) {
                         .wip, .unknown => {
                             // Return false to avoid incorrect dependency loops.
                             // This will be handled correctly once merged with
@@ -2769,7 +2752,7 @@ pub const Type = struct {
                     }
                 },
 
-                .opaque_type => true,
+                .opaque_type => false,
 
                 .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 
@@ -2847,7 +2830,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
             .struct_type => |struct_type| struct_type.namespace,
-            .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+            .union_type => |union_type| union_type.namespace.toOptional(),
             .enum_type => |enum_type| enum_type.namespace,
 
             else => .none,
@@ -2935,7 +2918,7 @@ pub const Type = struct {
     /// Asserts the type is an enum or a union.
     pub fn intTagType(ty: Type, mod: *Module) Type {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
+            .union_type => |union_type| union_type.enum_tag_ty.toType().intTagType(mod),
             .enum_type => |enum_type| enum_type.tag_ty.toType(),
             else => unreachable,
         };
@@ -2967,7 +2950,8 @@ pub const Type = struct {
     }
 
     pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
+        const ip = &mod.intern_pool;
+        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip);
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {
@@ -2975,7 +2959,8 @@ pub const Type = struct {
     }
 
     pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
-        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names[field_index];
+        const ip = &mod.intern_pool;
+        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip)[field_index];
     }
 
     pub fn enumFieldIndex(ty: Type, field_name: InternPool.NullTerminatedString, mod: *Module) ?u32 {
@@ -3036,15 +3021,16 @@ pub const Type = struct {
 
     /// Supports structs and unions.
     pub fn structFieldType(ty: Type, index: usize, mod: *Module) Type {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.values()[index].ty;
             },
             .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                return union_obj.fields.values()[index].ty;
+                const union_obj = ip.loadUnionType(union_type);
+                return union_obj.field_types.get(ip)[index].toType();
             },
             .anon_struct_type => |anon_struct| anon_struct.types[index].toType(),
             else => unreachable,
@@ -3052,7 +3038,8 @@ pub const Type = struct {
     }
 
     pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) u32 {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.layout != .Packed);
@@ -3062,8 +3049,8 @@ pub const Type = struct {
                 return anon_struct.types[index].toType().abiAlignment(mod);
             },
             .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                return union_obj.fields.values()[index].normalAlignment(mod);
+                const union_obj = ip.loadUnionType(union_type);
+                return mod.unionFieldNormalAlignment(union_obj, @intCast(index));
             },
             else => unreachable,
         }
@@ -3196,7 +3183,8 @@ pub const Type = struct {
 
     /// Supports structs and unions.
     pub fn structFieldOffset(ty: Type, index: usize, mod: *Module) u64 {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveLayout());
@@ -3232,10 +3220,10 @@ pub const Type = struct {
             },
 
             .union_type => |union_type| {
-                if (!union_type.hasTag())
+                if (!union_type.hasTag(ip))
                     return 0;
-                const union_obj = mod.unionPtr(union_type.index);
-                const layout = union_obj.getLayout(mod, true);
+                const union_obj = ip.loadUnionType(union_type);
+                const layout = mod.getUnionLayout(union_obj);
                 if (layout.tag_align >= layout.payload_align) {
                     // {Tag, Payload}
                     return std.mem.alignForward(u64, layout.tag_size, layout.payload_align);
@@ -3260,8 +3248,7 @@ pub const Type = struct {
                 return struct_obj.srcLoc(mod);
             },
             .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                return union_obj.srcLoc(mod);
+                return mod.declPtr(union_type.decl).srcLoc(mod);
             },
             .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
             .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
@@ -3279,10 +3266,7 @@ pub const Type = struct {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
                 return struct_obj.owner_decl;
             },
-            .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                return union_obj.owner_decl;
-            },
+            .union_type => |union_type| union_type.decl,
             .opaque_type => |opaque_type| opaque_type.decl,
             .enum_type => |enum_type| enum_type.decl,
             else => null,

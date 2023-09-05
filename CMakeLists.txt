@@ -124,6 +124,13 @@ endif()
 
 set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
 
+# Detect system libcxx name.
+if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
+    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.zig")
+else()
+    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
+endif()
+
 find_package(llvm 16)
 find_package(clang 16)
 find_package(lld 16)
@@ -276,7 +283,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/math/log.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log2.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/nan.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/signbit.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/sqrt.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/mem.zig"
@@ -516,6 +522,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/AstRlAnnotate.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
@@ -588,7 +595,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/UnwindInfo.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/ZldAtom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Rebase.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dead_strip.zig"

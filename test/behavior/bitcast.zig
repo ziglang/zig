@@ -63,8 +63,6 @@ fn testBitCast(comptime N: usize) !void {
     try expect(conv_uN(N, 0) == 0);
     try expect(conv_iN(N, 0) == 0);
 
-    try expect(conv_iN(N, -0) == 0);
-
     if (N > 24) {
         try expect(conv_uN(N, 0xf23456) == 0xf23456);
     }
@@ -413,7 +411,7 @@ fn bitCastWrapper64(x: f64) u64 {
 fn bitCastWrapper128(x: f128) u128 {
     return @as(u128, @bitCast(x));
 }
-test "bitcast nan float does modify signaling bit" {
+test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
@@ -423,41 +421,46 @@ test "bitcast nan float does modify signaling bit" {
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
-    // 16 bit
-    const snan_f16_const = math.nan_f16;
-    try expectEqual(math.nan_u16, @as(u16, @bitCast(snan_f16_const)));
-    try expectEqual(math.nan_u16, bitCastWrapper16(snan_f16_const));
+    const snan_u16: u16 = 0x7D00;
+    const snan_u32: u32 = 0x7FA00000;
+    const snan_u64: u64 = 0x7FF4000000000000;
+    const snan_u128: u128 = 0x7FFF4000000000000000000000000000;
 
-    var snan_f16_var = math.nan_f16;
-    try expectEqual(math.nan_u16, @as(u16, @bitCast(snan_f16_var)));
-    try expectEqual(math.nan_u16, bitCastWrapper16(snan_f16_var));
+    // 16 bit
+    const snan_f16_const = math.snan(f16);
+    try expectEqual(snan_u16, @as(u16, @bitCast(snan_f16_const)));
+    try expectEqual(snan_u16, bitCastWrapper16(snan_f16_const));
+
+    var snan_f16_var = math.snan(f16);
+    try expectEqual(snan_u16, @as(u16, @bitCast(snan_f16_var)));
+    try expectEqual(snan_u16, bitCastWrapper16(snan_f16_var));
 
     // 32 bit
-    const snan_f32_const = math.nan_f32;
-    try expectEqual(math.nan_u32, @as(u32, @bitCast(snan_f32_const)));
-    try expectEqual(math.nan_u32, bitCastWrapper32(snan_f32_const));
+    const snan_f32_const = math.snan(f32);
+    try expectEqual(snan_u32, @as(u32, @bitCast(snan_f32_const)));
+    try expectEqual(snan_u32, bitCastWrapper32(snan_f32_const));
 
-    var snan_f32_var = math.nan_f32;
-    try expectEqual(math.nan_u32, @as(u32, @bitCast(snan_f32_var)));
-    try expectEqual(math.nan_u32, bitCastWrapper32(snan_f32_var));
+    var snan_f32_var = math.snan(f32);
+    try expectEqual(snan_u32, @as(u32, @bitCast(snan_f32_var)));
+    try expectEqual(snan_u32, bitCastWrapper32(snan_f32_var));
 
     // 64 bit
-    const snan_f64_const = math.nan_f64;
-    try expectEqual(math.nan_u64, @as(u64, @bitCast(snan_f64_const)));
-    try expectEqual(math.nan_u64, bitCastWrapper64(snan_f64_const));
+    const snan_f64_const = math.snan(f64);
+    try expectEqual(snan_u64, @as(u64, @bitCast(snan_f64_const)));
+    try expectEqual(snan_u64, bitCastWrapper64(snan_f64_const));
 
-    var snan_f64_var = math.nan_f64;
-    try expectEqual(math.nan_u64, @as(u64, @bitCast(snan_f64_var)));
-    try expectEqual(math.nan_u64, bitCastWrapper64(snan_f64_var));
+    var snan_f64_var = math.snan(f64);
+    try expectEqual(snan_u64, @as(u64, @bitCast(snan_f64_var)));
+    try expectEqual(snan_u64, bitCastWrapper64(snan_f64_var));
 
     // 128 bit
-    const snan_f128_const = math.nan_f128;
-    try expectEqual(math.nan_u128, @as(u128, @bitCast(snan_f128_const)));
-    try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_const));
+    const snan_f128_const = math.snan(f128);
+    try expectEqual(snan_u128, @as(u128, @bitCast(snan_f128_const)));
+    try expectEqual(snan_u128, bitCastWrapper128(snan_f128_const));
 
-    var snan_f128_var = math.nan_f128;
-    try expectEqual(math.nan_u128, @as(u128, @bitCast(snan_f128_var)));
-    try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_var));
+    var snan_f128_var = math.snan(f128);
+    try expectEqual(snan_u128, @as(u128, @bitCast(snan_f128_var)));
+    try expectEqual(snan_u128, bitCastWrapper128(snan_f128_var));
 }
 
 test "@bitCast of packed struct of bools all true" {
