@@ -110,9 +110,11 @@ pub const APFloatBaseSemantics = enum(c_int) {
     BFloat,
     IEEEsingle,
     IEEEdouble,
-    x86DoubleExtended,
     IEEEquad,
     PPCDoubleDouble,
+    Float8E5M2,
+    Float8E4M3FN,
+    x87DoubleExtended,
 };
 
 pub const APInt = opaque {
