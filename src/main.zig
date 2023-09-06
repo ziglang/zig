@@ -927,6 +927,7 @@ fn buildOutputType(
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     var rc_source_files = std.ArrayList(Compilation.RcSourceFile).init(arena);
+    var res_files = std.ArrayList(Compilation.LinkObject).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
     var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
@@ -1602,7 +1603,8 @@ fn buildOutputType(
                     }
                 } else switch (file_ext orelse
                     Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library, .res => try link_objects.append(.{ .path = arg }),
+                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .res => try res_files.append(.{ .path = arg }),
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
@@ -1702,7 +1704,11 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .unknown, .shared_library, .object, .static_library, .res => try link_objects.append(.{
+                        .unknown, .shared_library, .object, .static_library => try link_objects.append(.{
+                            .path = it.only_arg,
+                            .must_link = must_link,
+                        }),
+                        .res => try res_files.append(.{
                             .path = it.only_arg,
                             .must_link = must_link,
                         }),
@@ -2473,6 +2479,12 @@ fn buildOutputType(
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
             break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (rc_source_files.items.len >= 1) {
+            const basename = fs.path.basename(rc_source_files.items[0].src_path);
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (res_files.items.len >= 1) {
+            const basename = fs.path.basename(res_files.items[0].path);
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
@@ -2549,6 +2561,21 @@ fn buildOutputType(
             link_libc = true;
         if (ensure_libcpp_on_non_freestanding)
             link_libcpp = true;
+    }
+
+    if (target_info.target.ofmt == .coff) {
+        // Now that we know the target supports resources,
+        // we can add the res files as link objects.
+        for (res_files.items) |res_file| {
+            try link_objects.append(res_file);
+        }
+    } else {
+        if (rc_source_files.items.len != 0) {
+            fatal("rc files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
+        if (res_files.items.len != 0) {
+            fatal("res files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
     }
 
     if (target_info.target.cpu.arch.isWasm()) blk: {
