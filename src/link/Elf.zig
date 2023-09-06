@@ -971,7 +971,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
-    _ = module;
 
     self.linker_defined_index = blk: {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -979,82 +978,77 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         break :blk index;
     };
 
-    std.debug.print("{}\n", .{self.dumpState()});
-    return error.FlushFailure;
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbol(
+            link.File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rodata_state != .unused) self.updateLazySymbol(
+            link.File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rodata_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
+    }
 
-    // if (self.lazy_syms.getPtr(.none)) |metadata| {
-    //     // Most lazy symbols can be updated on first use, but
-    //     // anyerror needs to wait for everything to be flushed.
-    //     if (metadata.text_state != .unused) self.updateLazySymbolAtom(
-    //         link.File.LazySymbol.initDecl(.code, null, module),
-    //         metadata.text_atom,
-    //         self.text_section_index.?,
-    //     ) catch |err| return switch (err) {
-    //         error.CodegenFail => error.FlushFailure,
-    //         else => |e| e,
-    //     };
-    //     if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
-    //         link.File.LazySymbol.initDecl(.const_data, null, module),
-    //         metadata.rodata_atom,
-    //         self.rodata_section_index.?,
-    //     ) catch |err| return switch (err) {
-    //         error.CodegenFail => error.FlushFailure,
-    //         else => |e| e,
-    //     };
-    // }
-    // for (self.lazy_syms.values()) |*metadata| {
-    //     if (metadata.text_state != .unused) metadata.text_state = .flushed;
-    //     if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
-    // }
+    const target_endian = self.base.options.target.cpu.arch.endian();
+    const foreign_endian = target_endian != builtin.cpu.arch.endian();
+    _ = foreign_endian;
 
-    // const target_endian = self.base.options.target.cpu.arch.endian();
-    // const foreign_endian = target_endian != builtin.cpu.arch.endian();
+    if (self.dwarf) |*dw| {
+        try dw.flushModule(module);
+    }
 
-    // if (self.dwarf) |*dw| {
-    //     try dw.flushModule(module);
-    // }
+    {
+        var it = self.relocs.iterator();
+        while (it.next()) |entry| {
+            const atom_index = entry.key_ptr.*;
+            const relocs = entry.value_ptr.*;
+            const atom_ptr = self.atom(atom_index);
+            const source_shdr = self.sections.items(.shdr)[atom_ptr.output_section_index];
 
-    // {
-    //     var it = self.relocs.iterator();
-    //     while (it.next()) |entry| {
-    //         const atom_index = entry.key_ptr.*;
-    //         const relocs = entry.value_ptr.*;
-    //         const atom_ptr = self.atom(atom_index);
-    //         const source_sym = atom_ptr.symbol(self);
-    //         const source_shdr = self.sections.items(.shdr)[source_sym.st_shndx];
+            log.debug("relocating '{s}'", .{atom_ptr.name(self)});
 
-    //         log.debug("relocating '{?s}'", .{self.strtab.get(source_sym.st_name)});
+            for (relocs.items) |*reloc| {
+                const target_sym = self.symbol(reloc.target);
+                const target_vaddr = target_sym.value + reloc.addend;
 
-    //         for (relocs.items) |*reloc| {
-    //             const target_sym = self.locals.items[reloc.target];
-    //             const target_vaddr = target_sym.st_value + reloc.addend;
+                if (target_vaddr == reloc.prev_vaddr) continue;
 
-    //             if (target_vaddr == reloc.prev_vaddr) continue;
+                const section_offset = (atom_ptr.value + reloc.offset) - source_shdr.sh_addr;
+                const file_offset = source_shdr.sh_offset + section_offset;
 
-    //             const section_offset = (source_sym.st_value + reloc.offset) - source_shdr.sh_addr;
-    //             const file_offset = source_shdr.sh_offset + section_offset;
+                log.debug("  ({x}: [() => 0x{x}] ({s}))", .{
+                    reloc.offset,
+                    target_vaddr,
+                    target_sym.name(self),
+                });
 
-    //             log.debug("  ({x}: [() => 0x{x}] ({?s}))", .{
-    //                 reloc.offset,
-    //                 target_vaddr,
-    //                 self.strtab.get(target_sym.st_name),
-    //             });
+                switch (self.ptr_width) {
+                    .p32 => try self.base.file.?.pwriteAll(mem.asBytes(&@as(u32, @intCast(target_vaddr))), file_offset),
+                    .p64 => try self.base.file.?.pwriteAll(mem.asBytes(&target_vaddr), file_offset),
+                }
 
-    //             switch (self.ptr_width) {
-    //                 .p32 => try self.base.file.?.pwriteAll(mem.asBytes(&@as(u32, @intCast(target_vaddr))), file_offset),
-    //                 .p64 => try self.base.file.?.pwriteAll(mem.asBytes(&target_vaddr), file_offset),
-    //             }
-
-    //             reloc.prev_vaddr = target_vaddr;
-    //         }
-    //     }
-    // }
+                reloc.prev_vaddr = target_vaddr;
+            }
+        }
+    }
 
     // try self.writeSymbols();
 
-    // if (build_options.enable_logging) {
-    //     self.logSymtab();
-    // }
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
 
     // if (self.dwarf) |*dw| {
     //     if (self.debug_abbrev_section_dirty) {
@@ -2211,6 +2205,7 @@ fn updateDeclCode(
     const shdr_index = sym.output_section_index;
 
     sym.name_offset = try self.strtab.insert(gpa, decl_name);
+    atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
     esym.st_info |= stt_bits;
     esym.st_size = code.len;
@@ -2466,6 +2461,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = math.log2_int(u64, required_alignment);
     atom_ptr.size = code.len;
 
@@ -2540,6 +2536,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = math.log2_int(u64, required_alignment);
     atom_ptr.size = code.len;
 
@@ -3290,6 +3287,7 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
+const state_log = std.log.scoped(.link_state);
 const math = std.math;
 const mem = std.mem;
 
