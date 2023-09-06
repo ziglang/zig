@@ -932,6 +932,10 @@ pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
 }
 
 pub fn addWin32ResourceFile(self: *Compile, source: RcSourceFile) void {
+    // Only the PE/COFF format has a Resource Table, so for any other target
+    // the resource file is just ignored.
+    if (self.target.getObjectFormat() != .coff) return;
+
     const b = self.step.owner;
     const rc_source_file = b.allocator.create(RcSourceFile) catch @panic("OOM");
     rc_source_file.* = source.dupe(b);
