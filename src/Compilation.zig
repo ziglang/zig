@@ -5636,6 +5636,13 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
     if (!is_redundant) list.appendAssumeCapacity(lci.sys_include_dir.?);
 
     if (target.os.tag == .windows) {
+        if (std.fs.path.dirname(lci.sys_include_dir.?)) |sys_include_dir_parent| {
+            // This include path will only exist when the optional "Desktop development with C++"
+            // is installed. It contains headers, .rc files, and resources. It is especially
+            // necessary when working with Windows resources.
+            const atlmfc_dir = try std.fs.path.join(arena, &[_][]const u8{ sys_include_dir_parent, "atlmfc", "include" });
+            list.appendAssumeCapacity(atlmfc_dir);
+        }
         if (std.fs.path.dirname(lci.include_dir.?)) |include_dir_parent| {
             const um_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_parent, "um" });
             list.appendAssumeCapacity(um_dir);
