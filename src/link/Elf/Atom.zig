@@ -79,7 +79,7 @@ pub fn freeRelocations(elf_file: *Elf, atom_index: Index) void {
     if (removed_relocs) |*relocs| relocs.value.deinit(elf_file.base.allocator);
 }
 
-pub fn allocate(self: *Atom, elf_file: *Elf) !u64 {
+pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     const phdr_index = elf_file.sections.items(.phdr_index)[self.output_section_index];
     const phdr = &elf_file.program_headers.items[phdr_index];
     const shdr = &elf_file.sections.items(.shdr)[self.output_section_index];
@@ -98,7 +98,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !u64 {
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    const vaddr = blk: {
+    self.value = blk: {
         var i: usize = if (elf_file.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -152,7 +152,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !u64 {
     else
         true;
     if (expand_section) {
-        const needed_size = (vaddr + self.size) - phdr.p_vaddr;
+        const needed_size = (self.value + self.size) - phdr.p_vaddr;
         try elf_file.growAllocSection(self.output_section_index, needed_size);
         maybe_last_atom_index.* = self.atom_index;
 
@@ -193,7 +193,6 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !u64 {
     if (free_list_removal) |i| {
         _ = free_list.swapRemove(i);
     }
-    return vaddr;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -201,12 +200,69 @@ pub fn shrink(self: *Atom, elf_file: *Elf) void {
     _ = elf_file;
 }
 
-pub fn grow(self: *Atom, elf_file: *Elf) !u64 {
+pub fn grow(self: *Atom, elf_file: *Elf) !void {
     const alignment = try std.math.powi(u64, 2, self.alignment);
     const align_ok = std.mem.alignBackward(u64, self.value, alignment) == self.value;
     const need_realloc = !align_ok or self.size > self.capacity(elf_file);
-    if (!need_realloc) return self.value;
-    return self.allocate(elf_file);
+    if (need_realloc) try self.allocate(elf_file);
+}
+
+pub fn free(self: *Atom, elf_file: *Elf) void {
+    log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
+
+    Atom.freeRelocations(elf_file, self.atom_index);
+
+    const gpa = elf_file.base.allocator;
+    const shndx = self.output_section_index;
+    const free_list = &elf_file.sections.items(.free_list)[shndx];
+    var already_have_free_list_node = false;
+    {
+        var i: usize = 0;
+        // TODO turn free_list into a hash map
+        while (i < free_list.items.len) {
+            if (free_list.items[i] == self.atom_index) {
+                _ = free_list.swapRemove(i);
+                continue;
+            }
+            if (free_list.items[i] == self.prev_index) {
+                already_have_free_list_node = true;
+            }
+            i += 1;
+        }
+    }
+
+    const maybe_last_atom_index = &elf_file.sections.items(.last_atom_index)[shndx];
+    if (maybe_last_atom_index.*) |last_atom_index| {
+        if (last_atom_index == self.atom_index) {
+            if (self.prev_index) |prev_index| {
+                // TODO shrink the section size here
+                maybe_last_atom_index.* = prev_index;
+            } else {
+                maybe_last_atom_index.* = null;
+            }
+        }
+    }
+
+    if (self.prev_index) |prev_index| {
+        const prev = elf_file.atom(prev_index);
+        prev.next_index = self.next_index;
+
+        if (!already_have_free_list_node and prev.*.freeListEligible(elf_file)) {
+            // The free list is heuristics, it doesn't have to be perfect, so we can
+            // ignore the OOM here.
+            free_list.append(gpa, prev_index) catch {};
+        }
+    } else {
+        self.prev_index = null;
+    }
+
+    if (self.next_index) |next_index| {
+        elf_file.atom(next_index).prev_index = self.prev_index;
+    } else {
+        self.next_index = null;
+    }
+
+    self.* = .{};
 }
 
 pub const Index = u32;
@@ -221,6 +277,7 @@ pub const Reloc = struct {
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
+const log = std.log.scoped(.link);
 
 const Atom = @This();
 const Elf = @import("../Elf.zig");

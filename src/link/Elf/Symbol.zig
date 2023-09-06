@@ -1,5 +1,7 @@
 //! Represents a defined symbol.
 
+index: Index = 0,
+
 /// Allocated address value of this symbol.
 value: u64 = 0,
 
@@ -18,8 +20,8 @@ atom_index: Atom.Index = 0,
 output_section_index: u16 = 0,
 
 /// Index of the source symbol this symbol references.
-/// Use `getSourceSymbol` to pull the source symbol from the relevant file.
-symbol_index: Index = 0,
+/// Use `sourceSymbol` to pull the source symbol from the relevant file.
+esym_index: Index = 0,
 
 /// Index of the source version symbol this symbol references if any.
 /// If the symbol is unversioned it will have either VER_NDX_LOCAL or VER_NDX_GLOBAL.
@@ -64,7 +66,11 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 }
 
 pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) *elf.Elf64_Sym {
-    return symbol.file(elf_file).?.sourceSymbol(symbol.symbol_index);
+    const file_ptr = symbol.file(elf_file).?;
+    switch (file_ptr) {
+        .zig_module => return file_ptr.zig_module.sourceSymbol(symbol.index, elf_file),
+        .linker_defined => return file_ptr.linker_defined.sourceSymbol(symbol.esym_index),
+    }
 }
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
@@ -80,14 +86,14 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
 /// If entry already exists, returns index to it.
 /// Otherwise, creates a new entry in the Global Offset Table for this Symbol.
 pub fn getOrCreateOffsetTableEntry(self: Symbol, elf_file: *Elf) !Symbol.Index {
-    if (elf_file.got_table.lookup.get(self.symbol_index)) |index| return index;
-    const index = try elf_file.got_table.allocateEntry(elf_file.base.allocator, self.symbol_index);
+    if (elf_file.got_table.lookup.get(self.index)) |index| return index;
+    const index = try elf_file.got_table.allocateEntry(elf_file.base.allocator, self.index);
     elf_file.got_table_count_dirty = true;
     return index;
 }
 
 pub fn getOffsetTableAddress(self: Symbol, elf_file: *Elf) u64 {
-    const got_entry_index = elf_file.got_table.lookup.get(self.symbol_index).?;
+    const got_entry_index = elf_file.got_table.lookup.get(self.index).?;
     const target = elf_file.base.options.target;
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -263,7 +269,7 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
-    try writer.print("%{d} : {s} : @{x}", .{ symbol.symbol_index, symbol.fmtName(ctx.elf_file), symbol.value });
+    try writer.print("%{d} : {s} : @{x}", .{ symbol.index, symbol.fmtName(ctx.elf_file), symbol.value });
     if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
             if (symbol.sourceSymbol(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {

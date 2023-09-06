@@ -33,6 +33,7 @@ pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !
     symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
     symbol_ptr.output_section_index = output_section_index;
+    symbol_ptr.esym_index = @as(Symbol.Index, @intCast(self.elf_local_symbols.items.len));
 
     const local_esym = try self.elf_local_symbols.addOne(gpa);
     local_esym.* = .{
@@ -55,6 +56,7 @@ pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.I
     try self.elf_global_symbols.ensureUnusedCapacity(gpa, 1);
     try self.global_symbols.ensureUnusedCapacity(gpa, 1);
     const off = try elf_file.strtab.insert(gpa, name);
+    const esym_index = @as(Symbol.Index, @intCast(self.elf_global_symbols.items.len));
     self.elf_global_symbols.appendAssumeCapacity(.{
         .st_name = off,
         .st_info = elf.STB_GLOBAL << 4,
@@ -64,14 +66,18 @@ pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.I
         .st_size = 0,
     });
     const gop = try elf_file.getOrPutGlobal(off);
+    const sym = elf_file.symbol(gop.index);
+    sym.file_index = self.index;
+    sym.esym_index = esym_index;
     self.global_symbols.putAssumeCapacityNoClobber(gop.index, {});
     return gop.index;
 }
 
-pub fn sourceSymbol(self: *ZigModule, symbol_index: Symbol.Index) *elf.Elf64_Sym {
-    if (self.local_symbols.get(symbol_index)) |_| return &self.elf_local_symbols.items[symbol_index];
+pub fn sourceSymbol(self: *ZigModule, symbol_index: Symbol.Index, elf_file: *Elf) *elf.Elf64_Sym {
+    const sym = elf_file.symbol(symbol_index);
+    if (self.local_symbols.get(symbol_index)) |_| return &self.elf_local_symbols.items[sym.esym_index];
     assert(self.global_symbols.get(symbol_index) != null);
-    return &self.elf_global_symbols.items[symbol_index];
+    return &self.elf_global_symbols.items[sym.esym_index];
 }
 
 pub fn locals(self: *ZigModule) []const Symbol.Index {
