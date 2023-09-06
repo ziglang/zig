@@ -2559,7 +2559,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const result = try func.allocStack(arg_ty);
             try func.store(result, arg, Type.u64, 0);
             try func.store(result, func.args[arg_index + 1], Type.u64, 8);
-            return func.finishAir(inst, arg, &.{});
+            return func.finishAir(inst, result, &.{});
         }
     } else {
         func.arg_index += 1;
