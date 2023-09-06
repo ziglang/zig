@@ -1003,7 +1003,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
-    _ = foreign_endian;
 
     if (self.dwarf) |*dw| {
         try dw.flushModule(module);
@@ -1044,212 +1043,212 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    // try self.writeSymbols();
+    try self.writeSymbols();
 
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
     }
 
-    // if (self.dwarf) |*dw| {
-    //     if (self.debug_abbrev_section_dirty) {
-    //         try dw.writeDbgAbbrev();
-    //         if (!self.shdr_table_dirty) {
-    //             // Then it won't get written with the others and we need to do it.
-    //             try self.writeSectHeader(self.debug_abbrev_section_index.?);
-    //         }
-    //         self.debug_abbrev_section_dirty = false;
-    //     }
+    if (self.dwarf) |*dw| {
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev();
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_abbrev_section_index.?);
+            }
+            self.debug_abbrev_section_dirty = false;
+        }
 
-    //     if (self.debug_info_header_dirty) {
-    //         // Currently only one compilation unit is supported, so the address range is simply
-    //         // identical to the main program header virtual address and memory size.
-    //         const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-    //         const low_pc = text_phdr.p_vaddr;
-    //         const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-    //         try dw.writeDbgInfoHeader(module, low_pc, high_pc);
-    //         self.debug_info_header_dirty = false;
-    //     }
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(module, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
+        }
 
-    //     if (self.debug_aranges_section_dirty) {
-    //         // Currently only one compilation unit is supported, so the address range is simply
-    //         // identical to the main program header virtual address and memory size.
-    //         const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-    //         try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-    //         if (!self.shdr_table_dirty) {
-    //             // Then it won't get written with the others and we need to do it.
-    //             try self.writeSectHeader(self.debug_aranges_section_index.?);
-    //         }
-    //         self.debug_aranges_section_dirty = false;
-    //     }
+        if (self.debug_aranges_section_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_aranges_section_index.?);
+            }
+            self.debug_aranges_section_dirty = false;
+        }
 
-    //     if (self.debug_line_header_dirty) {
-    //         try dw.writeDbgLineHeader();
-    //         self.debug_line_header_dirty = false;
-    //     }
-    // }
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader();
+            self.debug_line_header_dirty = false;
+        }
+    }
 
-    // if (self.phdr_table_dirty) {
-    //     const phsize: u64 = switch (self.ptr_width) {
-    //         .p32 => @sizeOf(elf.Elf32_Phdr),
-    //         .p64 => @sizeOf(elf.Elf64_Phdr),
-    //     };
+    if (self.phdr_table_dirty) {
+        const phsize: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Phdr),
+            .p64 => @sizeOf(elf.Elf64_Phdr),
+        };
 
-    //     const phdr_table_index = self.phdr_table_index.?;
-    //     const phdr_table = &self.program_headers.items[phdr_table_index];
-    //     const phdr_table_load = &self.program_headers.items[self.phdr_table_load_index.?];
+        const phdr_table_index = self.phdr_table_index.?;
+        const phdr_table = &self.program_headers.items[phdr_table_index];
+        const phdr_table_load = &self.program_headers.items[self.phdr_table_load_index.?];
 
-    //     const allocated_size = self.allocatedSize(phdr_table.p_offset);
-    //     const needed_size = self.program_headers.items.len * phsize;
+        const allocated_size = self.allocatedSize(phdr_table.p_offset);
+        const needed_size = self.program_headers.items.len * phsize;
 
-    //     if (needed_size > allocated_size) {
-    //         phdr_table.p_offset = 0; // free the space
-    //         phdr_table.p_offset = self.findFreeSpace(needed_size, @as(u32, @intCast(phdr_table.p_align)));
-    //     }
+        if (needed_size > allocated_size) {
+            phdr_table.p_offset = 0; // free the space
+            phdr_table.p_offset = self.findFreeSpace(needed_size, @as(u32, @intCast(phdr_table.p_align)));
+        }
 
-    //     phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-    //     const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-    //     phdr_table_load.p_filesz = load_align_offset + needed_size;
-    //     phdr_table_load.p_memsz = load_align_offset + needed_size;
+        phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
+        const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
+        phdr_table_load.p_filesz = load_align_offset + needed_size;
+        phdr_table_load.p_memsz = load_align_offset + needed_size;
 
-    //     phdr_table.p_filesz = needed_size;
-    //     phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-    //     phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
-    //     phdr_table.p_memsz = needed_size;
+        phdr_table.p_filesz = needed_size;
+        phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
+        phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
+        phdr_table.p_memsz = needed_size;
 
-    //     switch (self.ptr_width) {
-    //         .p32 => {
-    //             const buf = try gpa.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
-    //             defer gpa.free(buf);
+        switch (self.ptr_width) {
+            .p32 => {
+                const buf = try gpa.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
+                defer gpa.free(buf);
 
-    //             for (buf, 0..) |*phdr, i| {
-    //                 phdr.* = progHeaderTo32(self.program_headers.items[i]);
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-    //         },
-    //         .p64 => {
-    //             const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
-    //             defer gpa.free(buf);
+                for (buf, 0..) |*phdr, i| {
+                    phdr.* = progHeaderTo32(self.program_headers.items[i]);
+                    if (foreign_endian) {
+                        mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
+                    }
+                }
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            },
+            .p64 => {
+                const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
+                defer gpa.free(buf);
 
-    //             for (buf, 0..) |*phdr, i| {
-    //                 phdr.* = self.program_headers.items[i];
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-    //         },
-    //     }
+                for (buf, 0..) |*phdr, i| {
+                    phdr.* = self.program_headers.items[i];
+                    if (foreign_endian) {
+                        mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
+                    }
+                }
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+            },
+        }
 
-    //     // We don't actually care if the phdr load section overlaps, only the phdr section matters.
-    //     phdr_table_load.p_offset = 0;
-    //     phdr_table_load.p_filesz = 0;
+        // We don't actually care if the phdr load section overlaps, only the phdr section matters.
+        phdr_table_load.p_offset = 0;
+        phdr_table_load.p_filesz = 0;
 
-    //     self.phdr_table_dirty = false;
-    // }
+        self.phdr_table_dirty = false;
+    }
 
-    // {
-    //     const shdr_index = self.shstrtab_section_index.?;
-    //     if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
-    //         try self.growNonAllocSection(shdr_index, self.shstrtab.buffer.items.len, 1, false);
-    //         const shstrtab_sect = self.sections.items(.shdr)[shdr_index];
-    //         try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shstrtab_sect.sh_offset);
-    //         self.shstrtab_dirty = false;
-    //     }
-    // }
+    {
+        const shdr_index = self.shstrtab_section_index.?;
+        if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, self.shstrtab.buffer.items.len, 1, false);
+            const shstrtab_sect = self.sections.items(.shdr)[shdr_index];
+            try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shstrtab_sect.sh_offset);
+            self.shstrtab_dirty = false;
+        }
+    }
 
-    // {
-    //     const shdr_index = self.strtab_section_index.?;
-    //     if (self.strtab_dirty or self.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
-    //         try self.growNonAllocSection(shdr_index, self.strtab.buffer.items.len, 1, false);
-    //         const strtab_sect = self.sections.items(.shdr)[shdr_index];
-    //         try self.base.file.?.pwriteAll(self.strtab.buffer.items, strtab_sect.sh_offset);
-    //         self.strtab_dirty = false;
-    //     }
-    // }
+    {
+        const shdr_index = self.strtab_section_index.?;
+        if (self.strtab_dirty or self.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, self.strtab.buffer.items.len, 1, false);
+            const strtab_sect = self.sections.items(.shdr)[shdr_index];
+            try self.base.file.?.pwriteAll(self.strtab.buffer.items, strtab_sect.sh_offset);
+            self.strtab_dirty = false;
+        }
+    }
 
-    // if (self.dwarf) |dwarf| {
-    //     const shdr_index = self.debug_str_section_index.?;
-    //     if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
-    //         try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
-    //         const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
-    //         try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
-    //         self.debug_strtab_dirty = false;
-    //     }
-    // }
+    if (self.dwarf) |dwarf| {
+        const shdr_index = self.debug_str_section_index.?;
+        if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
+            const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
+            try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
+            self.debug_strtab_dirty = false;
+        }
+    }
 
-    // if (self.shdr_table_dirty) {
-    //     const shsize: u64 = switch (self.ptr_width) {
-    //         .p32 => @sizeOf(elf.Elf32_Shdr),
-    //         .p64 => @sizeOf(elf.Elf64_Shdr),
-    //     };
-    //     const shalign: u16 = switch (self.ptr_width) {
-    //         .p32 => @alignOf(elf.Elf32_Shdr),
-    //         .p64 => @alignOf(elf.Elf64_Shdr),
-    //     };
-    //     const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
-    //     const needed_size = self.sections.slice().len * shsize;
+    if (self.shdr_table_dirty) {
+        const shsize: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Shdr),
+            .p64 => @sizeOf(elf.Elf64_Shdr),
+        };
+        const shalign: u16 = switch (self.ptr_width) {
+            .p32 => @alignOf(elf.Elf32_Shdr),
+            .p64 => @alignOf(elf.Elf64_Shdr),
+        };
+        const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
+        const needed_size = self.sections.slice().len * shsize;
 
-    //     if (needed_size > allocated_size) {
-    //         self.shdr_table_offset = null; // free the space
-    //         self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
-    //     }
+        if (needed_size > allocated_size) {
+            self.shdr_table_offset = null; // free the space
+            self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
+        }
 
-    //     switch (self.ptr_width) {
-    //         .p32 => {
-    //             const slice = self.sections.slice();
-    //             const buf = try gpa.alloc(elf.Elf32_Shdr, slice.len);
-    //             defer gpa.free(buf);
+        switch (self.ptr_width) {
+            .p32 => {
+                const slice = self.sections.slice();
+                const buf = try gpa.alloc(elf.Elf32_Shdr, slice.len);
+                defer gpa.free(buf);
 
-    //             for (buf, 0..) |*shdr, i| {
-    //                 shdr.* = sectHeaderTo32(slice.items(.shdr)[i]);
-    //                 log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
-    //         },
-    //         .p64 => {
-    //             const slice = self.sections.slice();
-    //             const buf = try gpa.alloc(elf.Elf64_Shdr, slice.len);
-    //             defer gpa.free(buf);
+                for (buf, 0..) |*shdr, i| {
+                    shdr.* = sectHeaderTo32(slice.items(.shdr)[i]);
+                    log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
+                    if (foreign_endian) {
+                        mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
+                    }
+                }
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            },
+            .p64 => {
+                const slice = self.sections.slice();
+                const buf = try gpa.alloc(elf.Elf64_Shdr, slice.len);
+                defer gpa.free(buf);
 
-    //             for (buf, 0..) |*shdr, i| {
-    //                 shdr.* = slice.items(.shdr)[i];
-    //                 log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
-    //         },
-    //     }
-    //     self.shdr_table_dirty = false;
-    // }
-    // if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
-    //     log.debug("flushing. no_entry_point_found = true", .{});
-    //     self.error_flags.no_entry_point_found = true;
-    // } else {
-    //     log.debug("flushing. no_entry_point_found = false", .{});
-    //     self.error_flags.no_entry_point_found = false;
-    //     try self.writeElfHeader();
-    // }
+                for (buf, 0..) |*shdr, i| {
+                    shdr.* = slice.items(.shdr)[i];
+                    log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
+                    if (foreign_endian) {
+                        mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
+                    }
+                }
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+            },
+        }
+        self.shdr_table_dirty = false;
+    }
+    if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
+        log.debug("flushing. no_entry_point_found = true", .{});
+        self.error_flags.no_entry_point_found = true;
+    } else {
+        log.debug("flushing. no_entry_point_found = false", .{});
+        self.error_flags.no_entry_point_found = false;
+        try self.writeElfHeader();
+    }
 
-    // // The point of flush() is to commit changes, so in theory, nothing should
-    // // be dirty after this. However, it is possible for some things to remain
-    // // dirty because they fail to be written in the event of compile errors,
-    // // such as debug_line_header_dirty and debug_info_header_dirty.
-    // assert(!self.debug_abbrev_section_dirty);
-    // assert(!self.debug_aranges_section_dirty);
-    // assert(!self.phdr_table_dirty);
-    // assert(!self.shdr_table_dirty);
-    // assert(!self.shstrtab_dirty);
-    // assert(!self.strtab_dirty);
-    // assert(!self.debug_strtab_dirty);
-    // assert(!self.got_table_count_dirty);
+    // The point of flush() is to commit changes, so in theory, nothing should
+    // be dirty after this. However, it is possible for some things to remain
+    // dirty because they fail to be written in the event of compile errors,
+    // such as debug_line_header_dirty and debug_info_header_dirty.
+    assert(!self.debug_abbrev_section_dirty);
+    assert(!self.debug_aranges_section_dirty);
+    assert(!self.phdr_table_dirty);
+    assert(!self.shdr_table_dirty);
+    assert(!self.shstrtab_dirty);
+    assert(!self.strtab_dirty);
+    assert(!self.debug_strtab_dirty);
+    assert(!self.got_table_count_dirty);
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2795,12 +2794,13 @@ fn writeSymbols(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Sym),
         .p64 => @alignOf(elf.Elf64_Sym),
     };
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
 
     const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
-    shdr.sh_info = @intCast(self.locals.items.len);
+    shdr.sh_info = @intCast(zig_module.locals().len);
     self.markDirty(self.symtab_section_index.?, null);
 
-    const nsyms = self.locals.items.len + self.globals.items.len;
+    const nsyms = zig_module.locals().len + zig_module.globals().len;
     const needed_size = nsyms * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 
@@ -2811,15 +2811,17 @@ fn writeSymbols(self: *Elf) !void {
             const buf = try gpa.alloc(elf.Elf32_Sym, nsyms);
             defer gpa.free(buf);
 
-            for (buf[0..self.locals.items.len], self.locals.items) |*sym, local| {
-                elf32SymFromSym(local, sym);
+            for (buf[0..zig_module.locals().len], zig_module.locals()) |*sym, local_index| {
+                const local = self.symbol(local_index);
+                elf32SymFromSym(local.sourceSymbol(self).*, sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
             }
 
-            for (buf[self.locals.items.len..], self.globals.items) |*sym, glob| {
-                elf32SymFromSym(self.symbol(glob).*, sym);
+            for (buf[zig_module.locals().len..], zig_module.globals()) |*sym, global_index| {
+                const global = self.symbol(global_index);
+                elf32SymFromSym(global.sourceSymbol(self).*, sym);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
                 }
@@ -2829,15 +2831,17 @@ fn writeSymbols(self: *Elf) !void {
         .p64 => {
             const buf = try gpa.alloc(elf.Elf64_Sym, nsyms);
             defer gpa.free(buf);
-            for (buf[0..self.locals.items.len], self.locals.items) |*sym, local| {
-                sym.* = local;
+            for (buf[0..zig_module.locals().len], zig_module.locals()) |*sym, local_index| {
+                const local = self.symbol(local_index);
+                sym.* = local.sourceSymbol(self).*;
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
             }
 
-            for (buf[self.locals.items.len..], self.globals.items) |*sym, glob| {
-                sym.* = self.symbol(glob).*;
+            for (buf[zig_module.locals().len..], zig_module.globals()) |*sym, global_index| {
+                const global = self.symbol(global_index);
+                sym.* = global.sourceSymbol(self).*;
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
                 }
