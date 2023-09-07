@@ -797,7 +797,6 @@ const DocData = struct {
         binOp: BinOp,
         binOpIndex: usize,
         load: usize, // index in `exprs`
-        ref: usize, // index in `exprs`
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
@@ -1536,7 +1535,7 @@ fn walkInstruction(
             try self.exprs.append(self.arena, operand.expr);
 
             return DocData.WalkResult{
-                .expr = .{ .ref = ref_idx },
+                .expr = .{ .@"&" = ref_idx },
             };
         },
 
