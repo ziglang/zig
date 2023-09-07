@@ -3069,7 +3069,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             const pathname_w = try os.windows.wToPrefixedFileW(null, image_path_name);
             return std.fs.cwd().realpathW(pathname_w.span(), out_buffer);
         },
-        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }
