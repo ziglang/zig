@@ -286,7 +286,8 @@ pub const errno = system.getErrno;
 /// Note: The Zig standard library does not support POSIX thread cancellation.
 pub fn close(fd: fd_t) void {
     if (builtin.os.tag == .windows) {
-        return windows.CloseHandle(fd);
+        windows.CloseHandle(fd);
+        return;
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         _ = wasi.fd_close(fd);
