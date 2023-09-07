@@ -10,7 +10,7 @@ atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
 alive: bool = true,
 
-// output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *ZigModule, allocator: Allocator) void {
     self.elf_local_symbols.deinit(allocator);
@@ -36,14 +36,9 @@ pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !
     symbol_ptr.esym_index = @as(Symbol.Index, @intCast(self.elf_local_symbols.items.len));
 
     const local_esym = try self.elf_local_symbols.addOne(gpa);
-    local_esym.* = .{
-        .st_name = 0,
-        .st_info = elf.STB_LOCAL << 4,
-        .st_other = 0,
-        .st_shndx = output_section_index,
-        .st_value = 0,
-        .st_size = 0,
-    };
+    local_esym.* = Elf.null_sym;
+    local_esym.st_info = elf.STB_LOCAL << 4;
+    local_esym.st_shndx = output_section_index;
 
     try self.atoms.append(gpa, atom_index);
     try self.local_symbols.putNoClobber(gpa, symbol_index, {});
@@ -57,20 +52,71 @@ pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.I
     try self.global_symbols.ensureUnusedCapacity(gpa, 1);
     const off = try elf_file.strtab.insert(gpa, name);
     const esym_index = @as(Symbol.Index, @intCast(self.elf_global_symbols.items.len));
-    self.elf_global_symbols.appendAssumeCapacity(.{
-        .st_name = off,
-        .st_info = elf.STB_GLOBAL << 4,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    });
+    const esym = self.elf_global_symbols.addOneAssumeCapacity();
+    esym.* = Elf.null_sym;
+    esym.st_name = off;
+    esym.st_info = elf.STB_GLOBAL << 4;
     const gop = try elf_file.getOrPutGlobal(off);
     const sym = elf_file.symbol(gop.index);
     sym.file_index = self.index;
     sym.esym_index = esym_index;
+    sym.flags.@"export" = true;
     self.global_symbols.putAssumeCapacityNoClobber(gop.index, {});
     return gop.index;
+}
+
+pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
+    for (self.locals()) |local_index| {
+        const local = elf_file.symbol(local_index);
+        const esym = self.sourceSymbol(local_index, elf_file);
+        switch (esym.st_type()) {
+            elf.STT_SECTION, elf.STT_NOTYPE => {
+                local.flags.output_symtab = false;
+                continue;
+            },
+            else => {},
+        }
+        local.flags.output_symtab = true;
+        self.output_symtab_size.nlocals += 1;
+    }
+
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        if (global.file(elf_file)) |file| if (file.index() != self.index) {
+            global.flags.output_symtab = false;
+            continue;
+        };
+        global.flags.output_symtab = true;
+        if (global.isLocal()) {
+            self.output_symtab_size.nlocals += 1;
+        } else {
+            self.output_symtab_size.nglobals += 1;
+        }
+    }
+}
+
+pub fn writeSymtab(self: *ZigModule, elf_file: *Elf, ctx: anytype) void {
+    var ilocal = ctx.ilocal;
+    for (self.locals()) |local_index| {
+        const local = elf_file.symbol(local_index);
+        if (!local.flags.output_symtab) continue;
+        local.setOutputSym(elf_file, &ctx.symtab[ilocal]);
+        ilocal += 1;
+    }
+
+    var iglobal = ctx.iglobal;
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
+        if (!global.flags.output_symtab) continue;
+        if (global.isLocal()) {
+            global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
+            ilocal += 1;
+        } else {
+            global.setOutputSym(elf_file, &ctx.symtab[iglobal]);
+            iglobal += 1;
+        }
+    }
 }
 
 pub fn sourceSymbol(self: *ZigModule, symbol_index: Symbol.Index, elf_file: *Elf) *elf.Elf64_Sym {
@@ -134,5 +180,4 @@ const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Module = @import("../../Module.zig");
 const ZigModule = @This();
-// const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");

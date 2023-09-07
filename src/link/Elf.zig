@@ -1043,7 +1043,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    try self.writeSymbols();
+    try self.updateSymtabSize();
+    try self.writeSymtab();
 
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
@@ -2662,14 +2663,7 @@ pub fn deleteDeclExport(
     assert(self.resolver.fetchSwapRemove(sym.name_offset) != null); // TODO don't delete it if it's not dominant
     sym.* = .{};
     // TODO free list for esym!
-    esym.* = .{
-        .st_name = 0,
-        .st_info = 0,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    };
+    esym.* = null_sym;
     self.symbols_free_list.append(gpa, sym_index.*) catch {};
     sym_index.* = 0;
 }
@@ -2773,19 +2767,20 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
     }
 }
 
-fn elf32SymFromSym(sym: elf.Elf64_Sym, out: *elf.Elf32_Sym) void {
-    out.* = .{
-        .st_name = sym.st_name,
-        .st_value = @as(u32, @intCast(sym.st_value)),
-        .st_size = @as(u32, @intCast(sym.st_size)),
-        .st_info = sym.st_info,
-        .st_other = sym.st_other,
-        .st_shndx = sym.st_shndx,
-    };
-}
+fn updateSymtabSize(self: *Elf) !void {
+    var sizes = SymtabSize{};
 
-fn writeSymbols(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        zig_module.updateSymtabSize(self);
+        sizes.nlocals += zig_module.output_symtab_size.nlocals;
+        sizes.nglobals += zig_module.output_symtab_size.nglobals;
+    }
+
+    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
+    shdr.sh_info = sizes.nlocals + 1;
+    self.markDirty(self.symtab_section_index.?, null);
+
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
@@ -2794,59 +2789,61 @@ fn writeSymbols(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Sym),
         .p64 => @alignOf(elf.Elf64_Sym),
     };
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-
-    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
-    shdr.sh_info = @intCast(zig_module.locals().len);
-    self.markDirty(self.symtab_section_index.?, null);
-
-    const nsyms = zig_module.locals().len + zig_module.globals().len;
-    const needed_size = nsyms * sym_size;
+    const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
+}
+
+fn writeSymtab(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
+    const sym_size: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Sym),
+        .p64 => @sizeOf(elf.Elf64_Sym),
+    };
+    const nsyms = @divExact(shdr.sh_size, sym_size);
+
+    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, shdr.sh_offset });
+
+    const symtab = try gpa.alloc(elf.Elf64_Sym, nsyms);
+    defer gpa.free(symtab);
+
+    var ctx: struct { ilocal: usize, iglobal: usize, symtab: []elf.Elf64_Sym } = .{
+        .ilocal = 1,
+        .iglobal = shdr.sh_info,
+        .symtab = symtab,
+    };
+
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        zig_module.writeSymtab(self, ctx);
+        ctx.ilocal += zig_module.output_symtab_size.nlocals;
+        ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    }
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, shdr.sh_offset });
     switch (self.ptr_width) {
         .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Sym, nsyms);
+            const buf = try gpa.alloc(elf.Elf32_Sym, symtab.len);
             defer gpa.free(buf);
 
-            for (buf[0..zig_module.locals().len], zig_module.locals()) |*sym, local_index| {
-                const local = self.symbol(local_index);
-                elf32SymFromSym(local.sourceSymbol(self).*, sym);
-                if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf32_Sym, sym);
-                }
-            }
-
-            for (buf[zig_module.locals().len..], zig_module.globals()) |*sym, global_index| {
-                const global = self.symbol(global_index);
-                elf32SymFromSym(global.sourceSymbol(self).*, sym);
-                if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf32_Sym, sym);
-                }
+            for (buf, symtab) |*out, sym| {
+                out.* = .{
+                    .st_name = sym.st_name,
+                    .st_info = sym.st_info,
+                    .st_other = sym.st_other,
+                    .st_shndx = sym.st_shndx,
+                    .st_value = @as(u32, @intCast(sym.st_value)),
+                    .st_size = @as(u32, @intCast(sym.st_size)),
+                };
+                if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
             }
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), shdr.sh_offset);
         },
         .p64 => {
-            const buf = try gpa.alloc(elf.Elf64_Sym, nsyms);
-            defer gpa.free(buf);
-            for (buf[0..zig_module.locals().len], zig_module.locals()) |*sym, local_index| {
-                const local = self.symbol(local_index);
-                sym.* = local.sourceSymbol(self).*;
-                if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf64_Sym, sym);
-                }
+            if (foreign_endian) {
+                for (symtab) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
             }
-
-            for (buf[zig_module.locals().len..], zig_module.globals()) |*sym, global_index| {
-                const global = self.symbol(global_index);
-                sym.* = global.sourceSymbol(self).*;
-                if (foreign_endian) {
-                    mem.byteSwapAllFields(elf.Elf64_Sym, sym);
-                }
-            }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), shdr.sh_offset);
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(symtab), shdr.sh_offset);
         },
     }
 }
@@ -3282,7 +3279,19 @@ const DeclMetadata = struct {
     }
 };
 
-const Elf = @This();
+pub const SymtabSize = struct {
+    nlocals: u32 = 0,
+    nglobals: u32 = 0,
+};
+
+pub const null_sym = elf.Elf64_Sym{
+    .st_name = 0,
+    .st_info = 0,
+    .st_other = 0,
+    .st_shndx = 0,
+    .st_value = 0,
+    .st_size = 0,
+};
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -3309,6 +3318,7 @@ pub const Atom = @import("Elf/Atom.zig");
 const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
+const Elf = @This();
 const File = @import("Elf/file.zig").File;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");

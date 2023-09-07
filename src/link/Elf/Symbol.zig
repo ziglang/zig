@@ -35,7 +35,8 @@ extra_index: u32 = 0,
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     // if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
-    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.output_section_index == 0 and file_ptr != .linker_defined and file_ptr != .zig_module;
+    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.output_section_index == 0 and
+        file_ptr != .linker_defined and file_ptr != .zig_module;
 }
 
 pub fn isLocal(symbol: Symbol) bool {
@@ -169,7 +170,7 @@ pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
     elf_file.setSymbolExtra(symbol.extra_index, extras);
 }
 
-pub fn asElfSym(symbol: Symbol, st_name: u32, elf_file: *Elf) elf.Elf64_Sym {
+pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const file_ptr = symbol.file(elf_file).?;
     const s_sym = symbol.sourceSymbol(elf_file);
     const st_type = symbol.type(elf_file);
@@ -184,7 +185,7 @@ pub fn asElfSym(symbol: Symbol, st_name: u32, elf_file: *Elf) elf.Elf64_Sym {
         // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined and file_ptr != .zig_module)
             break :blk elf.SHN_ABS;
-        break :blk symbol.shndx;
+        break :blk symbol.output_section_index;
     };
     const st_value = blk: {
         // if (symbol.flags.copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -197,8 +198,8 @@ pub fn asElfSym(symbol: Symbol, st_name: u32, elf_file: *Elf) elf.Elf64_Sym {
         // if (Elf.shdrIsTls(shdr)) break :blk symbol.value - elf_file.getTlsAddress();
         break :blk symbol.value;
     };
-    return elf.Elf64_Sym{
-        .st_name = st_name,
+    out.* = .{
+        .st_name = symbol.name_offset,
         .st_info = (st_bind << 4) | st_type,
         .st_other = s_sym.st_other,
         .st_shndx = st_shndx,
@@ -343,9 +344,9 @@ pub const Extra = struct {
 
 pub const Index = u32;
 
-const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
+const std = @import("std");
 
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
