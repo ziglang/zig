@@ -1454,7 +1454,12 @@ fn arrayInitExpr(
         },
         .ty, .coerced_ty => |ty_inst| {
             const arr_ty = if (types.array != .none) types.array else blk: {
-                break :blk try gz.addUnNode(.opt_eu_base_ty, ty_inst, node);
+                const arr_ty = try gz.addUnNode(.opt_eu_base_ty, ty_inst, node);
+                _ = try gz.addPlNode(.validate_array_init_ty, node, Zir.Inst.ArrayInit{
+                    .ty = arr_ty,
+                    .init_count = @intCast(array_init.ast.elements.len),
+                });
+                break :blk arr_ty;
             };
             const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, arr_ty, types.elem, .array_init);
             return rvalue(gz, ri, result, node);
