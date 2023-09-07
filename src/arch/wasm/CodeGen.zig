@@ -4857,11 +4857,31 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const dest_ty = func.typeOfIndex(inst);
     const op_ty = func.typeOf(ty_op.operand);
+    const op_bits = op_ty.floatBits(func.target);
 
-    if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: intFromFloat for integers/floats with bitsize larger than 64 bits", .{});
+    const dest_ty = func.typeOfIndex(inst);
+    const dest_info = dest_ty.intInfo(mod);
+
+    if (dest_info.bits > 128) {
+        return func.fail("TODO: intFromFloat for integers/floats with bitsize {}", .{dest_info.bits});
+    }
+
+    if ((op_bits != 32 and op_bits != 64) or dest_info.bits > 64) {
+        const dest_bitsize = if (dest_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, dest_info.bits);
+
+        var fn_name_buf: [16]u8 = undefined;
+        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__fix{s}{s}f{s}i", .{
+            switch (dest_info.signedness) {
+                .signed => "",
+                .unsigned => "uns",
+            },
+            target_util.compilerRtFloatAbbrev(op_bits),
+            target_util.compilerRtIntAbbrev(dest_bitsize),
+        }) catch unreachable;
+
+        const result = try (try func.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand})).toLocal(func, dest_ty);
+        return func.finishAir(inst, result, &.{ty_op.operand});
     }
 
     try func.emitWValue(operand);
@@ -4869,7 +4889,7 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .op = .trunc,
         .valtype1 = typeToValtype(dest_ty, mod),
         .valtype2 = typeToValtype(op_ty, mod),
-        .signedness = if (dest_ty.isSignedInt(mod)) .signed else .unsigned,
+        .signedness = dest_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
     const wrapped = try func.wrapOperand(.{ .stack = {} }, dest_ty);
@@ -4882,11 +4902,31 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const dest_ty = func.typeOfIndex(inst);
     const op_ty = func.typeOf(ty_op.operand);
+    const op_info = op_ty.intInfo(mod);
 
-    if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: floatFromInt for integers/floats with bitsize larger than 64 bits", .{});
+    const dest_ty = func.typeOfIndex(inst);
+    const dest_bits = dest_ty.floatBits(func.target);
+
+    if (op_info.bits > 128) {
+        return func.fail("TODO: floatFromInt for integers/floats with bitsize {d} bits", .{op_info.bits});
+    }
+
+    if (op_info.bits > 64 or (dest_bits > 64 or dest_bits < 32)) {
+        const op_bitsize = if (op_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, op_info.bits);
+
+        var fn_name_buf: [16]u8 = undefined;
+        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__float{s}{s}i{s}f", .{
+            switch (op_info.signedness) {
+                .signed => "",
+                .unsigned => "un",
+            },
+            target_util.compilerRtIntAbbrev(op_bitsize),
+            target_util.compilerRtFloatAbbrev(dest_bits),
+        }) catch unreachable;
+
+        const result = try (try func.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand})).toLocal(func, dest_ty);
+        return func.finishAir(inst, result, &.{ty_op.operand});
     }
 
     try func.emitWValue(operand);
@@ -4894,7 +4934,7 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .op = .convert,
         .valtype1 = typeToValtype(dest_ty, mod),
         .valtype2 = typeToValtype(op_ty, mod),
-        .signedness = if (op_ty.isSignedInt(mod)) .signed else .unsigned,
+        .signedness = op_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
 
