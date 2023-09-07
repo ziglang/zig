@@ -608,6 +608,20 @@ fn fetchAndUnpack(
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, prog_reader.reader(), tmp_directory.handle, std.compress.xz);
+
+            tmp_directory = d: {
+                const path = try global_cache_directory.join(gpa, &.{tmp_dir_sub_path});
+                errdefer gpa.free(path);
+
+                const iterable_dir = try global_cache_directory.handle.makeOpenPathIterable(tmp_dir_sub_path, .{});
+                errdefer iterable_dir.close();
+
+                break :d .{
+                    .path = path,
+                    .handle = iterable_dir.dir,
+                };
+            };
+            defer tmp_directory.closeAndFree(gpa);
         } else if (ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
             // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
             // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
