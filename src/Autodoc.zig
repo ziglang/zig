@@ -797,6 +797,7 @@ const DocData = struct {
         binOp: BinOp,
         binOpIndex: usize,
         load: usize, // index in `exprs`
+        ref: usize, // index in `exprs`
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
@@ -1519,6 +1520,23 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = typeRef,
                 .expr = .{ .load = load_idx },
+            };
+        },
+        .ref => {
+            const un_tok = data[inst_index].un_tok;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_tok.operand,
+                need_type,
+                call_ctx,
+            );
+            const ref_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .expr = .{ .ref = ref_idx },
             };
         },
 
