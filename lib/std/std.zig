@@ -54,19 +54,21 @@ pub const Uri = @import("Uri.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
 
-/// Memory ordering, atomic data structures and operations.
+/// Memory ordering, atomic data structures, and operations.
 pub const atomic = @import("atomic.zig");
 
-/// Base64 encoding / decoding.
+/// Base64 encoding/decoding.
 pub const base64 = @import("base64.zig");
 
-/// Bit-fiddling data structures.
+/// Bit manipulation data structures.
 pub const bit_set = @import("bit_set.zig");
 
-/// Comptime-available information about the target machine and build mode.
+/// Comptime-available information about the build environment, such as the target and optimize mode.
 pub const builtin = @import("builtin.zig");
 
 pub const c = @import("c.zig");
+
+/// COFF format.
 pub const coff = @import("coff.zig");
 
 /// Compression algorithms such as zlib, zstd, etc.
@@ -79,7 +81,11 @@ pub const cstr = @import("cstr.zig");
 
 /// Debug printing, allocation and other debug helpers.
 pub const debug = @import("debug.zig");
+
+/// DWARF debugging data format.
 pub const dwarf = @import("dwarf.zig");
+
+/// ELF format.
 pub const elf = @import("elf.zig");
 
 /// Enum-related metaprogramming helpers.
@@ -88,15 +94,16 @@ pub const enums = @import("enums.zig");
 /// Evented I/O data structures.
 pub const event = @import("event.zig");
 
+/// First in, first out data structures.
 pub const fifo = @import("fifo.zig");
 
-/// String formatting and parsing (eg parsing numbers out of strings).
+/// String formatting and parsing (e.g. parsing numbers out of strings).
 pub const fmt = @import("fmt.zig");
 
-/// File-system related types.
+/// File system-related functionality.
 pub const fs = @import("fs.zig");
 
-/// Fast hashing functions (i.e. not cryptographically secure)
+/// Fast hashing functions (i.e. not cryptographically secure).
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
 
@@ -106,21 +113,25 @@ pub const heap = @import("heap.zig");
 /// HTTP client and server.
 pub const http = @import("http.zig");
 
-/// I/O Streams, Reader/Writer interfaces and common helpers.
+/// I/O streams, reader/writer interfaces and common helpers.
 pub const io = @import("io.zig");
 
 /// JSON parsing and serialization.
 pub const json = @import("json.zig");
+
+/// LEB128 encoding.
 pub const leb = @import("leb128.zig");
 
 /// A standardized interface for logging.
 pub const log = @import("log.zig");
+
+/// Mach-O format.
 pub const macho = @import("macho.zig");
 
 /// Mathematical constants and operations.
 pub const math = @import("math.zig");
 
-/// Functions for comparing, searching and manipulating memory.
+/// Functions for comparing, searching, and manipulating memory.
 pub const mem = @import("mem.zig");
 
 /// Metaprogramming helpers.
@@ -137,13 +148,14 @@ pub const once = @import("once.zig").once;
 /// A set of array and slice types that bit-pack integer elements.
 pub const packed_int_array = @import("packed_int_array.zig");
 
+/// PDB file format.
 pub const pdb = @import("pdb.zig");
 
 /// Accessors for process-related info (e.g. command line arguments)
-/// aand spawning of child processes.
+/// and spawning of child processes.
 pub const process = @import("process.zig");
 
-/// Fast pseudo-random number generators (i.e. non-cryptographically secure).
+/// Fast pseudo-random number generators (i.e. not cryptographically secure).
 pub const rand = @import("rand.zig");
 
 /// Sorting.
@@ -152,32 +164,33 @@ pub const sort = @import("sort.zig");
 /// Single Instruction Multiple Data (SIMD) helpers.
 pub const simd = @import("simd.zig");
 
-/// ASCII text manipulation.
+/// ASCII text processing.
 pub const ascii = @import("ascii.zig");
 
-/// Tar archive format compression / decompression.
+/// Tar archive format compression/decompression.
 pub const tar = @import("tar.zig");
 
 /// Testing allocator, testing assertions, and other helpers for testing code.
 pub const testing = @import("testing.zig");
 
-/// Sleep, obtaining the current time and constants for conversions.
+/// Sleep, obtaining the current time, conversion constants, and more.
 pub const time = @import("time.zig");
 
-/// Timezones.
+/// Time zones.
 pub const tz = @import("tz.zig");
 
-/// UTF8 and UTF16LE ecoding / decoding.
+/// UTF-8 and UTF-16LE encoding/decoding.
 pub const unicode = @import("unicode.zig");
 
 /// Helpers for integrating with Valgrind.
 pub const valgrind = @import("valgrind.zig");
 
-/// Constants and types representing the WASM binary format.
+/// Constants and types representing the Wasm binary format.
 pub const wasm = @import("wasm.zig");
 
 /// Tokenizing and parsing of Zig code and other Zig-specific language tooling.
 pub const zig = @import("zig.zig");
+
 pub const start = @import("start.zig");
 
 /// deprecated: use `Build`.
@@ -193,7 +206,7 @@ pub const options = struct {
     else
         debug.default_enable_segfault_handler;
 
-    /// Function used to implement std.fs.cwd for wasi.
+    /// Function used to implement `std.fs.cwd` for WASI.
     pub const wasiCwd: fn () fs.Dir = if (@hasDecl(options_override, "wasiCwd"))
         options_override.wasiCwd
     else
