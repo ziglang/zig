@@ -834,10 +834,23 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.base.file.?.pwriteAll(&[_]u8{0}, max_file_offset);
     }
 
-    if (self.zig_module_index == null) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .zig_module = .{ .index = index } });
-        self.zig_module_index = index;
+    if (self.base.options.module) |module| {
+        if (self.zig_module_index == null) {
+            const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+            self.files.set(index, .{ .zig_module = .{
+                .index = index,
+                .path = module.main_pkg.root_src_path,
+            } });
+            self.zig_module_index = index;
+            const zig_module = self.file(index).?.zig_module;
+            const sym_index = try zig_module.addLocal(self);
+            const sym = self.symbol(sym_index);
+            const esym = sym.sourceSymbol(self);
+            const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_pkg.root_src_path));
+            sym.name_offset = name_off;
+            esym.st_name = name_off;
+            esym.st_info |= elf.STT_FILE;
+        }
     }
 }
 
@@ -846,13 +859,12 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const shdr = &self.sections.items(.shdr)[shdr_index];
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const phdr = &self.program_headers.items[phdr_index];
-    const maybe_last_atom_index = self.sections.items(.last_atom_index)[shdr_index];
+    const last_atom_index = self.sections.items(.last_atom_index)[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
-        const existing_size = if (maybe_last_atom_index) |last_atom_index| blk: {
-            const last = self.atom(last_atom_index);
+        const existing_size = if (self.atom(last_atom_index)) |last| blk: {
             break :blk (last.value + last.size) - phdr.p_vaddr;
         } else if (shdr_index == self.got_section_index.?) blk: {
             break :blk shdr.sh_size;
@@ -1016,7 +1028,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         while (it.next()) |entry| {
             const atom_index = entry.key_ptr.*;
             const relocs = entry.value_ptr.*;
-            const atom_ptr = self.atom(atom_index);
+            const atom_ptr = self.atom(atom_index).?;
             const source_shdr = self.sections.items(.shdr)[atom_ptr.output_section_index];
 
             log.debug("relocating '{s}'", .{atom_ptr.name(self)});
@@ -2753,6 +2765,7 @@ fn writeSymtab(self: *Elf) !void {
 
     const symtab = try gpa.alloc(elf.Elf64_Sym, nsyms);
     defer gpa.free(symtab);
+    symtab[0] = null_sym;
 
     var ctx: struct { ilocal: usize, iglobal: usize, symtab: []elf.Elf64_Sym } = .{
         .ilocal = 1,
@@ -3083,7 +3096,8 @@ const CsuObjects = struct {
     }
 };
 
-pub fn atom(self: *Elf, atom_index: Atom.Index) *Atom {
+pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
+    if (atom_index == 0) return null;
     assert(atom_index < self.atoms.items.len);
     return &self.atoms.items[atom_index];
 }
@@ -3210,7 +3224,7 @@ fn fmtDumpState(
 
     if (self.zig_module_index) |index| {
         const zig_module = self.file(index).?.zig_module;
-        try writer.print("zig_module({d}) : (zig module)\n", .{index});
+        try writer.print("zig_module({d}) : {s}\n", .{ index, zig_module.path });
         try writer.print("{}\n", .{zig_module.fmtSymtab(self)});
     }
     if (self.linker_defined_index) |index| {
@@ -3230,7 +3244,7 @@ const Section = struct {
     phdr_index: u16,
 
     /// Index of the last allocated atom in this section.
-    last_atom_index: ?Atom.Index = null,
+    last_atom_index: Atom.Index = 0,
 
     /// A list of atoms that have surplus capacity. This list can have false
     /// positives, as functions grow and shrink over time, only sometimes being added

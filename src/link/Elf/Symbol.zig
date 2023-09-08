@@ -36,7 +36,7 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     // if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.output_section_index == 0 and
-        file_ptr != .linker_defined and file_ptr != .zig_module;
+        file_ptr != .linker_defined;
 }
 
 pub fn isLocal(symbol: Symbol) bool {
@@ -175,7 +175,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_shndx = blk: {
         // if (symbol.flags.copy_rel) break :blk elf_file.copy_rel_sect_index.?;
         // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined and file_ptr != .zig_module)
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
             break :blk elf.SHN_ABS;
         break :blk symbol.output_section_index;
     };

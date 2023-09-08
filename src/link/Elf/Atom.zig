@@ -39,8 +39,8 @@ fde_end: u32 = 0,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
-prev_index: ?Index = null,
-next_index: ?Index = null,
+prev_index: Index = 0,
+next_index: Index = 0,
 
 pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     return elf_file.strtab.getAssumeExists(self.name_offset);
@@ -50,14 +50,13 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, elf_file: *Elf) u64 {
-    const next_value = if (self.next_index) |next_index| elf_file.atom(next_index).value else std.math.maxInt(u32);
+    const next_value = if (elf_file.atom(self.next_index)) |next| next.value else std.math.maxInt(u32);
     return next_value - self.value;
 }
 
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
     // No need to keep a free list node for the last block.
-    const next_index = self.next_index orelse return false;
-    const next = elf_file.atom(next_index);
+    const next = elf_file.atom(self.next_index) orelse return false;
     const cap = next.value - self.value;
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
@@ -84,7 +83,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     const phdr = &elf_file.program_headers.items[phdr_index];
     const shdr = &elf_file.sections.items(.shdr)[self.output_section_index];
     const free_list = &elf_file.sections.items(.free_list)[self.output_section_index];
-    const maybe_last_atom_index = &elf_file.sections.items(.last_atom_index)[self.output_section_index];
+    const last_atom_index = &elf_file.sections.items(.last_atom_index)[self.output_section_index];
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
     const alignment = try std.math.powi(u64, 2, self.alignment);
 
@@ -102,7 +101,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         var i: usize = if (elf_file.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
-            const big_atom = elf_file.atom(big_atom_index);
+            const big_atom = elf_file.atom(big_atom_index).?;
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(elf_file);
@@ -134,13 +133,12 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
                 free_list_removal = i;
             }
             break :blk new_start_vaddr;
-        } else if (maybe_last_atom_index.*) |last_index| {
-            const last = elf_file.atom(last_index);
+        } else if (elf_file.atom(last_atom_index.*)) |last| {
             const ideal_capacity = Elf.padToIdeal(last.size);
             const ideal_capacity_end_vaddr = last.value + ideal_capacity;
             const new_start_vaddr = std.mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
             // Set up the metadata to be updated, after errors are no longer possible.
-            atom_placement = last_index;
+            atom_placement = last.atom_index;
             break :blk new_start_vaddr;
         } else {
             break :blk phdr.p_vaddr;
@@ -148,13 +146,13 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     };
 
     const expand_section = if (atom_placement) |placement_index|
-        elf_file.atom(placement_index).next_index == null
+        elf_file.atom(placement_index).?.next_index == 0
     else
         true;
     if (expand_section) {
         const needed_size = (self.value + self.size) - phdr.p_vaddr;
         try elf_file.growAllocSection(self.output_section_index, needed_size);
-        maybe_last_atom_index.* = self.atom_index;
+        last_atom_index.* = self.atom_index;
 
         if (elf_file.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
@@ -172,23 +170,21 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (self.prev_index) |prev_index| {
-        const prev = elf_file.atom(prev_index);
+    if (elf_file.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
     }
-    if (self.next_index) |next_index| {
-        const next = elf_file.atom(next_index);
+    if (elf_file.atom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     }
 
     if (atom_placement) |big_atom_index| {
-        const big_atom = elf_file.atom(big_atom_index);
+        const big_atom = elf_file.atom(big_atom_index).?;
         self.prev_index = big_atom_index;
         self.next_index = big_atom.next_index;
         big_atom.next_index = self.atom_index;
     } else {
-        self.prev_index = null;
-        self.next_index = null;
+        self.prev_index = 0;
+        self.next_index = 0;
     }
     if (free_list_removal) |i| {
         _ = free_list.swapRemove(i);
@@ -231,35 +227,33 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    const maybe_last_atom_index = &elf_file.sections.items(.last_atom_index)[shndx];
-    if (maybe_last_atom_index.*) |last_atom_index| {
-        if (last_atom_index == self.atom_index) {
-            if (self.prev_index) |prev_index| {
+    const last_atom_index = &elf_file.sections.items(.last_atom_index)[shndx];
+    if (elf_file.atom(last_atom_index.*)) |last_atom| {
+        if (last_atom.atom_index == self.atom_index) {
+            if (elf_file.atom(self.prev_index)) |_| {
                 // TODO shrink the section size here
-                maybe_last_atom_index.* = prev_index;
+                last_atom_index.* = self.prev_index;
             } else {
-                maybe_last_atom_index.* = null;
+                last_atom_index.* = 0;
             }
         }
     }
 
-    if (self.prev_index) |prev_index| {
-        const prev = elf_file.atom(prev_index);
+    if (elf_file.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
-
         if (!already_have_free_list_node and prev.*.freeListEligible(elf_file)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
             // ignore the OOM here.
-            free_list.append(gpa, prev_index) catch {};
+            free_list.append(gpa, prev.atom_index) catch {};
         }
     } else {
-        self.prev_index = null;
+        self.prev_index = 0;
     }
 
-    if (self.next_index) |next_index| {
-        elf_file.atom(next_index).prev_index = self.prev_index;
+    if (elf_file.atom(self.next_index)) |next| {
+        next.prev_index = self.prev_index;
     } else {
-        self.next_index = null;
+        self.next_index = 0;
     }
 
     self.* = .{};

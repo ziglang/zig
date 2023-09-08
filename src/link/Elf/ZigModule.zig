@@ -1,3 +1,5 @@
+/// Path is owned by Module and lives as long as *Module.
+path: []const u8,
 index: File.Index,
 
 elf_local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
@@ -23,26 +25,29 @@ pub fn deinit(self: *ZigModule, allocator: Allocator) void {
 pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
     const atom_index = try elf_file.addAtom();
-    const symbol_index = try elf_file.addSymbol();
-
-    const atom_ptr = elf_file.atom(atom_index);
+    const symbol_index = try self.addLocal(elf_file);
+    const atom_ptr = elf_file.atom(atom_index).?;
     atom_ptr.file_index = self.index;
     atom_ptr.output_section_index = output_section_index;
-
     const symbol_ptr = elf_file.symbol(symbol_index);
-    symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
     symbol_ptr.output_section_index = output_section_index;
-    symbol_ptr.esym_index = @as(Symbol.Index, @intCast(self.elf_local_symbols.items.len));
+    const local_esym = symbol_ptr.sourceSymbol(elf_file);
+    local_esym.st_shndx = output_section_index;
+    try self.atoms.append(gpa, atom_index);
+    return symbol_index;
+}
 
+pub fn addLocal(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
+    const gpa = elf_file.base.allocator;
+    const symbol_index = try elf_file.addSymbol();
+    const symbol_ptr = elf_file.symbol(symbol_index);
+    symbol_ptr.file_index = self.index;
+    symbol_ptr.esym_index = @as(Symbol.Index, @intCast(self.elf_local_symbols.items.len));
     const local_esym = try self.elf_local_symbols.addOne(gpa);
     local_esym.* = Elf.null_sym;
     local_esym.st_info = elf.STB_LOCAL << 4;
-    local_esym.st_shndx = output_section_index;
-
-    try self.atoms.append(gpa, atom_index);
     try self.local_symbols.putNoClobber(gpa, symbol_index, {});
-
     return symbol_index;
 }
 
