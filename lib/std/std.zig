@@ -204,7 +204,7 @@ pub const options = struct {
     else
         debug.default_enable_segfault_handler;
 
-    /// Function used to implement std.fs.cwd for WASI.
+    /// Function used to implement `std.fs.cwd` for WASI.
     pub const wasiCwd: fn () fs.Dir = if (@hasDecl(options_override, "wasiCwd"))
         options_override.wasiCwd
     else
