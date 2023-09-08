@@ -79,8 +79,6 @@ pub fn freeRelocations(elf_file: *Elf, atom_index: Index) void {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
-    const phdr_index = elf_file.sections.items(.phdr_index)[self.output_section_index];
-    const phdr = &elf_file.program_headers.items[phdr_index];
     const shdr = &elf_file.sections.items(.shdr)[self.output_section_index];
     const free_list = &elf_file.sections.items(.free_list)[self.output_section_index];
     const last_atom_index = &elf_file.sections.items(.last_atom_index)[self.output_section_index];
@@ -141,7 +139,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             atom_placement = last.atom_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk phdr.p_vaddr;
+            break :blk shdr.sh_addr;
         }
     };
 
@@ -150,7 +148,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     else
         true;
     if (expand_section) {
-        const needed_size = (self.value + self.size) - phdr.p_vaddr;
+        const needed_size = (self.value + self.size) - shdr.sh_addr;
         try elf_file.growAllocSection(self.output_section_index, needed_size);
         last_atom_index.* = self.atom_index;
 

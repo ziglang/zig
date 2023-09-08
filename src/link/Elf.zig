@@ -17,7 +17,7 @@ shdr_table_offset: ?u64 = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
-program_headers: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
+phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 /// The index into the program headers of the PT_PHDR program header
 phdr_table_index: ?u16 = null,
 /// The index into the program headers of the PT_LOAD program header containing the phdr
@@ -232,7 +232,7 @@ pub fn deinit(self: *Elf) void {
     }
     self.sections.deinit(gpa);
 
-    self.program_headers.deinit(gpa);
+    self.phdrs.deinit(gpa);
     self.shstrtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.symbols.deinit(gpa);
@@ -317,10 +317,10 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
             return test_end;
         }
     }
-    for (self.program_headers.items) |program_header| {
-        const increased_size = padToIdeal(program_header.p_filesz);
-        const test_end = program_header.p_offset + increased_size;
-        if (end > program_header.p_offset and start < test_end) {
+    for (self.phdrs.items) |phdr| {
+        const increased_size = padToIdeal(phdr.p_filesz);
+        const test_end = phdr.p_offset + increased_size;
+        if (end > phdr.p_offset and start < test_end) {
             return test_end;
         }
     }
@@ -338,9 +338,9 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
         if (section.sh_offset <= start) continue;
         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
     }
-    for (self.program_headers.items) |program_header| {
-        if (program_header.p_offset <= start) continue;
-        if (program_header.p_offset < min_pos) min_pos = program_header.p_offset;
+    for (self.phdrs.items) |phdr| {
+        if (phdr.p_offset <= start) continue;
+        if (phdr.p_offset < min_pos) min_pos = phdr.p_offset;
     }
     return min_pos - start;
 }
@@ -364,12 +364,12 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     const ptr_size: u8 = self.ptrWidthBytes();
 
     if (self.phdr_table_index == null) {
-        self.phdr_table_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_table_index = @as(u16, @intCast(self.phdrs.items.len));
         const p_align: u16 = switch (self.ptr_width) {
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_PHDR,
             .p_offset = 0,
             .p_filesz = 0,
@@ -383,11 +383,11 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_table_load_index == null) {
-        self.phdr_table_load_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_table_load_index = @as(u16, @intCast(self.phdrs.items.len));
         // TODO Same as for GOT
         const phdr_addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
         const p_align = self.page_size;
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = 0,
             .p_filesz = 0,
@@ -401,13 +401,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_load_re_index = @as(u16, @intCast(self.phdrs.items.len));
         const file_size = self.base.options.program_code_size_hint;
         const p_align = self.page_size;
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
         const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
@@ -422,7 +422,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_got_index == null) {
-        self.phdr_got_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_got_index = @as(u16, @intCast(self.phdrs.items.len));
         const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
@@ -433,7 +433,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
         const got_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
@@ -447,7 +447,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_ro_index == null) {
-        self.phdr_load_ro_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_load_ro_index = @as(u16, @intCast(self.phdrs.items.len));
         // TODO Find a hint about how much data need to be in rodata ?
         const file_size = 1024;
         // Same reason as for GOT
@@ -456,7 +456,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
         const rodata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
@@ -470,7 +470,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_rw_index == null) {
-        self.phdr_load_rw_index = @as(u16, @intCast(self.program_headers.items.len));
+        self.phdr_load_rw_index = @as(u16, @intCast(self.phdrs.items.len));
         // TODO Find a hint about how much data need to be in data ?
         const file_size = 1024;
         // Same reason as for GOT
@@ -479,7 +479,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
         const rwdata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
-        try self.program_headers.append(gpa, .{
+        try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
@@ -544,7 +544,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.text_section_index == null) {
         self.text_section_index = @as(u16, @intCast(self.sections.slice().len));
-        const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+        const phdr = &self.phdrs.items[self.phdr_load_re_index.?];
 
         try self.sections.append(gpa, .{
             .shdr = .{
@@ -566,7 +566,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.got_section_index == null) {
         self.got_section_index = @as(u16, @intCast(self.sections.slice().len));
-        const phdr = &self.program_headers.items[self.phdr_got_index.?];
+        const phdr = &self.phdrs.items[self.phdr_got_index.?];
 
         try self.sections.append(gpa, .{
             .shdr = .{
@@ -588,7 +588,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.rodata_section_index == null) {
         self.rodata_section_index = @as(u16, @intCast(self.sections.slice().len));
-        const phdr = &self.program_headers.items[self.phdr_load_ro_index.?];
+        const phdr = &self.phdrs.items[self.phdr_load_ro_index.?];
 
         try self.sections.append(gpa, .{
             .shdr = .{
@@ -610,7 +610,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.data_section_index == null) {
         self.data_section_index = @as(u16, @intCast(self.sections.slice().len));
-        const phdr = &self.program_headers.items[self.phdr_load_rw_index.?];
+        const phdr = &self.phdrs.items[self.phdr_load_rw_index.?];
 
         try self.sections.append(gpa, .{
             .shdr = .{
@@ -858,7 +858,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     // TODO Also detect virtual address collisions.
     const shdr = &self.sections.items(.shdr)[shdr_index];
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const phdr = &self.program_headers.items[phdr_index];
+    const phdr = &self.phdrs.items[phdr_index];
     const last_atom_index = self.sections.items(.last_atom_index)[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
@@ -1078,7 +1078,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (self.debug_info_header_dirty) {
             // Currently only one compilation unit is supported, so the address range is simply
             // identical to the main program header virtual address and memory size.
-            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
             const low_pc = text_phdr.p_vaddr;
             const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
             try dw.writeDbgInfoHeader(module, low_pc, high_pc);
@@ -1088,7 +1088,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (self.debug_aranges_section_dirty) {
             // Currently only one compilation unit is supported, so the address range is simply
             // identical to the main program header virtual address and memory size.
-            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
             try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
@@ -1110,11 +1110,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         };
 
         const phdr_table_index = self.phdr_table_index.?;
-        const phdr_table = &self.program_headers.items[phdr_table_index];
-        const phdr_table_load = &self.program_headers.items[self.phdr_table_load_index.?];
+        const phdr_table = &self.phdrs.items[phdr_table_index];
+        const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
         const allocated_size = self.allocatedSize(phdr_table.p_offset);
-        const needed_size = self.program_headers.items.len * phsize;
+        const needed_size = self.phdrs.items.len * phsize;
 
         if (needed_size > allocated_size) {
             phdr_table.p_offset = 0; // free the space
@@ -1133,11 +1133,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
         switch (self.ptr_width) {
             .p32 => {
-                const buf = try gpa.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
+                const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*phdr, i| {
-                    phdr.* = progHeaderTo32(self.program_headers.items[i]);
+                    phdr.* = progHeaderTo32(self.phdrs.items[i]);
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                     }
@@ -1145,11 +1145,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
             },
             .p64 => {
-                const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
+                const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*phdr, i| {
-                    phdr.* = self.program_headers.items[i];
+                    phdr.* = self.phdrs.items[i];
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                     }
@@ -2018,7 +2018,7 @@ fn writeElfHeader(self: *Elf) !void {
 
     const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
 
-    const phdr_table_offset = self.program_headers.items[self.phdr_table_index.?].p_offset;
+    const phdr_table_offset = self.phdrs.items[self.phdr_table_index.?].p_offset;
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @as(u32, @intCast(e_entry)), endian);
@@ -2065,7 +2065,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_phentsize, endian);
     index += 2;
 
-    const e_phnum = @as(u16, @intCast(self.program_headers.items.len));
+    const e_phnum = @as(u16, @intCast(self.phdrs.items.len));
     mem.writeInt(u16, hdr_buf[index..][0..2], e_phnum, endian);
     index += 2;
 
@@ -2264,7 +2264,7 @@ fn updateDeclCode(
     }
 
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const section_offset = sym.value - self.program_headers.items[phdr_index].p_vaddr;
+    const section_offset = sym.value - self.phdrs.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
 
     if (self.base.child_pid) |pid| {
@@ -2494,7 +2494,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const got_index = try local_sym.getOrCreateGotEntry(self);
     try self.got.writeEntry(self, got_index);
 
-    const section_offset = atom_ptr.value - self.program_headers.items[phdr_index].p_vaddr;
+    const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[local_sym.output_section_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 }
@@ -2564,7 +2564,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     try unnamed_consts.append(gpa, atom_ptr.atom_index);
 
-    const section_offset = atom_ptr.value - self.program_headers.items[phdr_index].p_vaddr;
+    const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
@@ -2684,17 +2684,17 @@ pub fn deleteDeclExport(
 
 fn writeProgHeader(self: *Elf, index: usize) !void {
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    const offset = self.program_headers.items[index].p_offset;
+    const offset = self.phdrs.items[index].p_offset;
     switch (self.ptr_width) {
         .p32 => {
-            var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.program_headers.items[index])};
+            var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.phdrs.items[index])};
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf32_Phdr, &phdr[0]);
             }
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
         },
         .p64 => {
-            var phdr = [1]elf.Elf64_Phdr{self.program_headers.items[index]};
+            var phdr = [1]elf.Elf64_Phdr{self.phdrs.items[index]};
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf64_Phdr, &phdr[0]);
             }
