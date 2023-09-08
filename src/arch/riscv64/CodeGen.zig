@@ -1749,8 +1749,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 .func => |func| {
                     const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
-                    _ = try sym.getOrCreateOffsetTableEntry(elf_file);
-                    const got_addr = @as(u32, @intCast(sym.getOffsetTableAddress(elf_file)));
+                    _ = try sym.getOrCreateGotEntry(elf_file);
+                    const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
                     try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                     _ = try self.addInst(.{
                         .tag = .jalr,

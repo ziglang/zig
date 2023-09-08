@@ -42,6 +42,8 @@ shstrtab: StringTable(.strtab) = .{},
 /// .strtab buffer
 strtab: StringTable(.strtab) = .{},
 
+got: GotSection = .{},
+
 symtab_section_index: ?u16 = null,
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
@@ -56,18 +58,16 @@ shstrtab_section_index: ?u16 = null,
 strtab_section_index: ?u16 = null,
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
+symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
-got_table: TableSection(Symbol.Index) = .{},
-
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
 shstrtab_dirty: bool = false,
 strtab_dirty: bool = false,
-got_table_count_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
@@ -146,6 +146,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     // Index 0 is always a null symbol.
     try self.symbols.append(allocator, .{});
+    // Index 0 is always a null symbol.
+    try self.symbols_extra.append(allocator, 0);
     // Allocate atom index 0 to null atom
     try self.atoms.append(allocator, .{});
     // Append null file at index 0
@@ -234,8 +236,9 @@ pub fn deinit(self: *Elf) void {
     self.shstrtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.symbols.deinit(gpa);
+    self.symbols_extra.deinit(gpa);
     self.symbols_free_list.deinit(gpa);
-    self.got_table.deinit(gpa);
+    self.got.deinit(gpa);
     self.resolver.deinit(gpa);
     self.unresolved.deinit(gpa);
 
@@ -1249,7 +1252,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.shstrtab_dirty);
     assert(!self.strtab_dirty);
     assert(!self.debug_strtab_dirty);
-    assert(!self.got_table_count_dirty);
+    assert(!self.got.dirty);
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2087,7 +2090,7 @@ fn freeDeclMetadata(self: *Elf, sym_index: Symbol.Index) void {
     log.debug("adding %{d} to local symbols free list", .{sym_index});
     self.symbols_free_list.append(self.base.allocator, sym_index) catch {};
     self.symbols.items[sym_index] = .{};
-    self.got_table.freeEntry(self.base.allocator, sym_index);
+    // TODO free GOT entry here
 }
 
 pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
@@ -2226,9 +2229,8 @@ fn updateDeclCode(
                 esym.st_value = atom_ptr.value;
 
                 log.debug("  (writing new offset table entry)", .{});
-                const got_entry_index = self.got_table.lookup.get(sym_index).?;
-                self.got_table.entries.items[got_entry_index] = sym_index;
-                try self.writeOffsetTableEntry(got_entry_index);
+                const extra = sym.extra(self).?;
+                try self.got.writeEntry(self, extra.got);
             }
         } else if (code.len < old_size) {
             atom_ptr.shrink(self);
@@ -2245,8 +2247,8 @@ fn updateDeclCode(
         sym.value = atom_ptr.value;
         esym.st_value = atom_ptr.value;
 
-        const got_entry_index = try sym.getOrCreateOffsetTableEntry(self);
-        try self.writeOffsetTableEntry(got_entry_index);
+        const got_index = try sym.getOrCreateGotEntry(self);
+        try self.got.writeEntry(self, got_index);
     }
 
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
@@ -2477,8 +2479,8 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_sym.value = atom_ptr.value;
     local_esym.st_value = atom_ptr.value;
 
-    const got_entry_index = try local_sym.getOrCreateOffsetTableEntry(self);
-    try self.writeOffsetTableEntry(got_entry_index);
+    const got_index = try local_sym.getOrCreateGotEntry(self);
+    try self.got.writeEntry(self, got_index);
 
     const section_offset = atom_ptr.value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[local_sym.output_section_index].sh_offset + section_offset;
@@ -2712,61 +2714,6 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
     }
 }
 
-fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void {
-    const entry_size: u16 = self.archPtrWidthBytes();
-    if (self.got_table_count_dirty) {
-        const needed_size = self.got_table.entries.items.len * entry_size;
-        try self.growAllocSection(self.got_section_index.?, needed_size);
-        self.got_table_count_dirty = false;
-    }
-    const endian = self.base.options.target.cpu.arch.endian();
-    const shdr = &self.sections.items(.shdr)[self.got_section_index.?];
-    const off = shdr.sh_offset + @as(u64, entry_size) * index;
-    const phdr = &self.program_headers.items[self.phdr_got_index.?];
-    const vaddr = phdr.p_vaddr + @as(u64, entry_size) * index;
-    const got_entry = self.got_table.entries.items[index];
-    const got_value = self.symbol(got_entry).value;
-    switch (entry_size) {
-        2 => {
-            var buf: [2]u8 = undefined;
-            mem.writeInt(u16, &buf, @as(u16, @intCast(got_value)), endian);
-            try self.base.file.?.pwriteAll(&buf, off);
-        },
-        4 => {
-            var buf: [4]u8 = undefined;
-            mem.writeInt(u32, &buf, @as(u32, @intCast(got_value)), endian);
-            try self.base.file.?.pwriteAll(&buf, off);
-        },
-        8 => {
-            var buf: [8]u8 = undefined;
-            mem.writeInt(u64, &buf, got_value, endian);
-            try self.base.file.?.pwriteAll(&buf, off);
-
-            if (self.base.child_pid) |pid| {
-                switch (builtin.os.tag) {
-                    .linux => {
-                        var local_vec: [1]std.os.iovec_const = .{.{
-                            .iov_base = &buf,
-                            .iov_len = buf.len,
-                        }};
-                        var remote_vec: [1]std.os.iovec_const = .{.{
-                            .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
-                            .iov_len = buf.len,
-                        }};
-                        const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                        switch (std.os.errno(rc)) {
-                            .SUCCESS => assert(rc == buf.len),
-                            else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
-                        }
-                    },
-                    else => return error.HotSwapUnavailableOnHostOperatingSystem,
-                }
-            }
-        },
-        else => unreachable,
-    }
-}
-
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
@@ -2858,8 +2805,8 @@ fn ptrWidthBytes(self: Elf) u8 {
 
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
-fn archPtrWidthBytes(self: Elf) u8 {
-    return @as(u8, @intCast(self.base.options.target.ptrBitWidth() / 8));
+pub fn archPtrWidthBytes(self: Elf) u8 {
+    return @as(u8, @intCast(@divExact(self.base.options.target.ptrBitWidth(), 8)));
 }
 
 fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
@@ -3179,6 +3126,50 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
     return index;
 }
 
+pub fn addSymbolExtra(self: *Elf, extra: Symbol.Extra) !u32 {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    try self.symbols_extra.ensureUnusedCapacity(self.base.allocator, fields.len);
+    return self.addSymbolExtraAssumeCapacity(extra);
+}
+
+pub fn addSymbolExtraAssumeCapacity(self: *Elf, extra: Symbol.Extra) u32 {
+    const index = @as(u32, @intCast(self.symbols_extra.items.len));
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn symbolExtra(self: *Elf, index: u32) ?Symbol.Extra {
+    if (index == 0) return null;
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Symbol.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.symbols_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setSymbolExtra(self: *Elf, index: u32, extra: Symbol.Extra) void {
+    assert(index > 0);
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.symbols_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
+}
+
 const GetOrPutGlobalResult = struct {
     found_existing: bool,
     index: Symbol.Index,
@@ -3227,6 +3218,7 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
+    try writer.print("{}\n", .{self.got.fmt(self)});
 }
 
 const default_entry_addr = 0x8000000;
@@ -3311,6 +3303,7 @@ const lldMain = @import("../main.zig").lldMain;
 const musl = @import("../musl.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
+const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
 const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
@@ -3320,6 +3313,7 @@ const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const Elf = @This();
 const File = @import("Elf/file.zig").File;
+const GotSection = synthetic_sections.GotSection;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;

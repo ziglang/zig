@@ -84,24 +84,6 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-/// If entry already exists, returns index to it.
-/// Otherwise, creates a new entry in the Global Offset Table for this Symbol.
-pub fn getOrCreateOffsetTableEntry(self: Symbol, elf_file: *Elf) !Symbol.Index {
-    if (elf_file.got_table.lookup.get(self.index)) |index| return index;
-    const index = try elf_file.got_table.allocateEntry(elf_file.base.allocator, self.index);
-    elf_file.got_table_count_dirty = true;
-    return index;
-}
-
-pub fn getOffsetTableAddress(self: Symbol, elf_file: *Elf) u64 {
-    const got_entry_index = elf_file.got_table.lookup.get(self.index).?;
-    const target = elf_file.base.options.target;
-    const ptr_bits = target.ptrBitWidth();
-    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-    const got = elf_file.program_headers.items[elf_file.phdr_got_index.?];
-    return got.p_vaddr + got_entry_index * ptr_bytes;
-}
-
 pub fn address(symbol: Symbol, opts: struct {
     plt: bool = true,
 }, elf_file: *Elf) u64 {
@@ -122,11 +104,21 @@ pub fn address(symbol: Symbol, opts: struct {
     return symbol.value;
 }
 
-// pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
-//     if (!symbol.flags.got) return 0;
-//     const extra = symbol.extra(elf_file).?;
-//     return elf_file.gotEntryAddress(extra.got);
-// }
+pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.got) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const entry = elf_file.got.entries.items[extras.got];
+    return entry.address(elf_file);
+}
+
+pub fn getOrCreateGotEntry(symbol: *Symbol, elf_file: *Elf) !GotSection.Index {
+    const index = if (symbol.flags.got)
+        symbol.extra(elf_file).?.got
+    else
+        try elf_file.got.addGotSymbol(symbol.index, elf_file);
+    symbol.flags.got = true;
+    return index;
+}
 
 // pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
 //     if (!symbol.flags.tlsgd) return 0;
@@ -159,7 +151,7 @@ pub fn address(symbol: Symbol, opts: struct {
 // }
 
 pub fn addExtra(symbol: *Symbol, extras: Extra, elf_file: *Elf) !void {
-    symbol.extra = try elf_file.addSymbolExtra(extras);
+    symbol.extra_index = try elf_file.addSymbolExtra(extras);
 }
 
 pub fn extra(symbol: Symbol, elf_file: *Elf) ?Extra {
@@ -347,10 +339,12 @@ pub const Index = u32;
 const assert = std.debug.assert;
 const elf = std.elf;
 const std = @import("std");
+const synthetic_sections = @import("synthetic_sections.zig");
 
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
+const GotSection = synthetic_sections.GotSection;
 const LinkerDefined = @import("LinkerDefined.zig");
 // const Object = @import("Object.zig");
 // const SharedObject = @import("SharedObject.zig");

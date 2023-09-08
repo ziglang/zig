@@ -1351,8 +1351,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
                         const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
-                        _ = try sym.getOrCreateOffsetTableEntry(elf_file);
-                        break :blk @as(u32, @intCast(sym.getOffsetTableAddress(elf_file)));
+                        _ = try sym.getOrCreateGotEntry(elf_file);
+                        break :blk @as(u32, @intCast(sym.gotAddress(elf_file)));
                     } else unreachable;
 
                     try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
