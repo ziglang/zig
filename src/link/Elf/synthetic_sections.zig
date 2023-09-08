@@ -356,52 +356,30 @@ pub const GotSection = struct {
     //     return num;
     // }
 
-    pub fn calcSymtabSize(got: *GotSection, elf_file: *Elf) !void {
-        got.output_symtab_size.nlocals = @as(u32, @intCast(got.symbols.items.len));
-        for (got.symbols.items) |sym| {
-            const suffix_len = switch (sym) {
-                .tlsgd => "$tlsgd".len,
-                .got => "$got".len,
-                .gottp => "$gottp".len,
-                .tlsdesc => "$tlsdesc".len,
-            };
-            const symbol = elf_file.getSymbol(sym.getIndex());
-            const name_len = symbol.getName(elf_file).len;
-            got.output_symtab_size.strsize += @as(u32, @intCast(name_len + suffix_len + 1));
-        }
-
-        if (got.emit_tlsld) {
-            got.output_symtab_size.nlocals += 1;
-            got.output_symtab_size.strsize += @as(u32, @intCast("$tlsld".len + 1));
-        }
+    pub fn updateSymtabSize(got: *GotSection, elf_file: *Elf) void {
+        _ = elf_file;
+        got.output_symtab_size.nlocals = @as(u32, @intCast(got.entries.items.len));
     }
 
     pub fn writeSymtab(got: GotSection, elf_file: *Elf, ctx: anytype) !void {
         const gpa = elf_file.base.allocator;
-
-        var ilocal = ctx.ilocal;
-        for (got.symbols.items) |sym| {
-            const suffix = switch (sym) {
+        for (got.entries.items, ctx.ilocal..) |entry, ilocal| {
+            const suffix = switch (entry.tag) {
+                .tlsld => "$tlsld",
                 .tlsgd => "$tlsgd",
                 .got => "$got",
                 .gottp => "$gottp",
                 .tlsdesc => "$tlsdesc",
             };
-            const symbol = elf_file.getSymbol(sym.getIndex());
-            const name = try std.fmt.allocPrint(gpa, "{s}{s}", .{ symbol.getName(elf_file), suffix });
+            const symbol = elf_file.symbol(entry.symbol_index);
+            const name = try std.fmt.allocPrint(gpa, "{s}{s}", .{ symbol.name(elf_file), suffix });
             defer gpa.free(name);
-            const st_name = try ctx.strtab.insert(gpa, name);
-            const st_value = switch (sym) {
-                // .tlsgd => symbol.tlsGdAddress(elf_file),
+            const st_name = try elf_file.strtab.insert(gpa, name);
+            const st_value = switch (entry.tag) {
                 .got => symbol.gotAddress(elf_file),
-                // .gottp => symbol.gotTpAddress(elf_file),
-                // .tlsdesc => symbol.tlsDescAddress(elf_file),
                 else => unreachable,
             };
-            const st_size: u64 = switch (sym) {
-                .tlsgd, .tlsdesc => 16,
-                .got, .gottp => 8,
-            };
+            const st_size: u64 = entry.len() * elf_file.archPtrWidthBytes();
             ctx.symtab[ilocal] = .{
                 .st_name = st_name,
                 .st_info = elf.STT_OBJECT,
@@ -410,21 +388,7 @@ pub const GotSection = struct {
                 .st_value = st_value,
                 .st_size = st_size,
             };
-            ilocal += 1;
         }
-
-        // if (got.emit_tlsld) {
-        //     const st_name = try ctx.strtab.insert(gpa, "$tlsld");
-        //     ctx.symtab[ilocal] = .{
-        //         .st_name = st_name,
-        //         .st_info = elf.STT_OBJECT,
-        //         .st_other = 0,
-        //         .st_shndx = elf_file.got_sect_index.?,
-        //         .st_value = elf_file.getTlsLdAddress(),
-        //         .st_size = 16,
-        //     };
-        //     ilocal += 1;
-        // }
     }
 
     const FormatCtx = struct {

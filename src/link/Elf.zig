@@ -2736,6 +2736,11 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nglobals += zig_module.output_symtab_size.nglobals;
     }
 
+    if (self.got_section_index) |_| {
+        self.got.updateSymtabSize(self);
+        sizes.nlocals += self.got.output_symtab_size.nlocals;
+    }
+
     const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
     shdr.sh_info = sizes.nlocals + 1;
     self.markDirty(self.symtab_section_index.?, null);
@@ -2778,6 +2783,11 @@ fn writeSymtab(self: *Elf) !void {
         zig_module.writeSymtab(self, ctx);
         ctx.ilocal += zig_module.output_symtab_size.nlocals;
         ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    }
+
+    if (self.got_section_index) |_| {
+        try self.got.writeSymtab(self, ctx);
+        ctx.ilocal += self.got.output_symtab_size.nlocals;
     }
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
