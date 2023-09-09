@@ -1001,13 +1001,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.libc_installation,
         );
 
-        // .rc preprocessor needs to know the libc dirs even if we are not linking libc
         const rc_dirs = try detectLibCIncludeDirs(
             arena,
             options.zig_lib_directory.path.?,
             options.target,
             options.is_native_abi,
-            true,
+            // Set "link libc" to true here whenever there are rc files to compile, since
+            // the .rc preprocessor will need to know the libc include dirs even if we
+            // are not linking libc
+            options.rc_source_files.len > 0,
             options.libc_installation,
         );
 
