@@ -307,8 +307,14 @@
       #searchPlaceholder {
         position: absolute;
         pointer-events: none;
-        top: 5px;
-        left: 5px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 5px;
+      }
+
+      #searchPlaceholderTextMobile {
+        display: none;
       }
 
       #dotsPopover:before {
@@ -797,6 +803,12 @@
           display: inline-block;
           min-width: calc(100% - 2.8rem);
         }
+        #searchPlaceholderText {
+          display: none;
+        }
+        #searchPlaceholderTextMobile {
+          display: inline;
+        }
       }
       .banner {
         background-color: orange;
@@ -994,7 +1006,10 @@
             </div>
         <div class="flex-right" style="padding-top: 0.5rem;overflow:visible;">
           <div class="search-container" style="position:relative;">
-            <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
+            <div id="searchPlaceholder">
+              <span id="searchPlaceholderText"><!-- populated by setPrefSlashSearch --></span>
+              <span id="searchPlaceholderTextMobile">Search</span>
+            </div>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
             <div id="dotsPopover">
               Use spaces instead of dots. See $resource for more info.
