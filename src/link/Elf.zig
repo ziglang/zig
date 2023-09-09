@@ -44,7 +44,6 @@ strtab: StringTable(.strtab) = .{},
 
 got: GotSection = .{},
 
-symtab_section_index: ?u16 = null,
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -56,6 +55,7 @@ debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
 shstrtab_section_index: ?u16 = null,
 strtab_section_index: ?u16 = null,
+symtab_section_index: ?u16 = null,
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -1070,7 +1070,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try dw.writeDbgAbbrev();
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.debug_abbrev_section_index.?);
+                try self.writeShdr(self.debug_abbrev_section_index.?);
             }
             self.debug_abbrev_section_dirty = false;
         }
@@ -1092,7 +1092,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
             if (!self.shdr_table_dirty) {
                 // Then it won't get written with the others and we need to do it.
-                try self.writeSectHeader(self.debug_aranges_section_index.?);
+                try self.writeShdr(self.debug_aranges_section_index.?);
             }
             self.debug_aranges_section_dirty = false;
         }
@@ -1137,7 +1137,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*phdr, i| {
-                    phdr.* = progHeaderTo32(self.phdrs.items[i]);
+                    phdr.* = phdrTo32(self.phdrs.items[i]);
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                     }
@@ -1219,7 +1219,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*shdr, i| {
-                    shdr.* = sectHeaderTo32(slice.items(.shdr)[i]);
+                    shdr.* = shdrTo32(slice.items(.shdr)[i]);
                     log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
@@ -2682,50 +2682,6 @@ pub fn deleteDeclExport(
     sym_index.* = 0;
 }
 
-fn writeProgHeader(self: *Elf, index: usize) !void {
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    const offset = self.phdrs.items[index].p_offset;
-    switch (self.ptr_width) {
-        .p32 => {
-            var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.phdrs.items[index])};
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf32_Phdr, &phdr[0]);
-            }
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
-        },
-        .p64 => {
-            var phdr = [1]elf.Elf64_Phdr{self.phdrs.items[index]};
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf64_Phdr, &phdr[0]);
-            }
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
-        },
-    }
-}
-
-fn writeSectHeader(self: *Elf, index: usize) !void {
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => {
-            var shdr: [1]elf.Elf32_Shdr = undefined;
-            shdr[0] = sectHeaderTo32(self.sections.items(.shdr)[index]);
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf32_Shdr, &shdr[0]);
-            }
-            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
-        },
-        .p64 => {
-            var shdr = [1]elf.Elf64_Shdr{self.sections.items(.shdr)[index]};
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf64_Shdr, &shdr[0]);
-            }
-            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
-        },
-    }
-}
-
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
@@ -2832,7 +2788,7 @@ pub fn archPtrWidthBytes(self: Elf) u8 {
     return @as(u8, @intCast(@divExact(self.base.options.target.ptrBitWidth(), 8)));
 }
 
-fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
+fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
     return .{
         .p_type = phdr.p_type,
         .p_flags = phdr.p_flags,
@@ -2845,7 +2801,30 @@ fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
     };
 }
 
-fn sectHeaderTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
+fn writeShdr(self: *Elf, index: usize) !void {
+    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    switch (self.ptr_width) {
+        .p32 => {
+            var shdr: [1]elf.Elf32_Shdr = undefined;
+            shdr[0] = shdrTo32(self.sections.items(.shdr)[index]);
+            if (foreign_endian) {
+                mem.byteSwapAllFields(elf.Elf32_Shdr, &shdr[0]);
+            }
+            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
+            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+        },
+        .p64 => {
+            var shdr = [1]elf.Elf64_Shdr{self.sections.items(.shdr)[index]};
+            if (foreign_endian) {
+                mem.byteSwapAllFields(elf.Elf64_Shdr, &shdr[0]);
+            }
+            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
+            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+        },
+    }
+}
+
+fn shdrTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
     return .{
         .sh_name = shdr.sh_name,
         .sh_type = shdr.sh_type,
