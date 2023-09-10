@@ -3,7 +3,7 @@ symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 alive: bool = true,
 
-// output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *LinkerDefined, allocator: Allocator) void {
     self.symtab.deinit(allocator);
@@ -56,33 +56,25 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 //     }
 // }
 
-// pub fn calcSymtabSize(self: *InternalObject, elf_file: *Elf) !void {
-//     if (elf_file.options.strip_all) return;
+pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
+        global.flags.output_symtab = true;
+        self.output_symtab_size.nlocals += 1;
+    }
+}
 
-//     for (self.getGlobals()) |global_index| {
-//         const global = elf_file.getSymbol(global_index);
-//         if (global.getFile(elf_file)) |file| if (file.getIndex() != self.index) continue;
-//         global.flags.output_symtab = true;
-//         self.output_symtab_size.nlocals += 1;
-//         self.output_symtab_size.strsize += @as(u32, @intCast(global.getName(elf_file).len + 1));
-//     }
-// }
-
-// pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf, ctx: Elf.WriteSymtabCtx) !void {
-//     if (elf_file.options.strip_all) return;
-
-//     const gpa = elf_file.base.allocator;
-
-//     var ilocal = ctx.ilocal;
-//     for (self.getGlobals()) |global_index| {
-//         const global = elf_file.getSymbol(global_index);
-//         if (global.getFile(elf_file)) |file| if (file.getIndex() != self.index) continue;
-//         if (!global.flags.output_symtab) continue;
-//         const st_name = try ctx.strtab.insert(gpa, global.getName(elf_file));
-//         ctx.symtab[ilocal] = global.asElfSym(st_name, elf_file);
-//         ilocal += 1;
-//     }
-// }
+pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf, ctx: anytype) void {
+    var ilocal = ctx.ilocal;
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
+        if (!global.flags.output_symtab) continue;
+        global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
+        ilocal += 1;
+    }
+}
 
 pub fn sourceSymbol(self: *LinkerDefined, symbol_index: Symbol.Index) *elf.Elf64_Sym {
     return &self.symtab.items[symbol_index];

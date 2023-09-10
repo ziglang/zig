@@ -2774,6 +2774,12 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nglobals += zig_module.output_symtab_size.nglobals;
     }
 
+    if (self.linker_defined_index) |index| {
+        const linker_defined = self.file(index).?.linker_defined;
+        linker_defined.updateSymtabSize(self);
+        sizes.nlocals += linker_defined.output_symtab_size.nlocals;
+    }
+
     if (self.got_section_index) |_| {
         self.got.updateSymtabSize(self);
         sizes.nlocals += self.got.output_symtab_size.nlocals;
@@ -2821,6 +2827,12 @@ fn writeSymtab(self: *Elf) !void {
         zig_module.writeSymtab(self, ctx);
         ctx.ilocal += zig_module.output_symtab_size.nlocals;
         ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    }
+
+    if (self.linker_defined_index) |index| {
+        const linker_defined = self.file(index).?.linker_defined;
+        linker_defined.writeSymtab(self, ctx);
+        ctx.ilocal += linker_defined.output_symtab_size.nlocals;
     }
 
     if (self.got_section_index) |_| {
