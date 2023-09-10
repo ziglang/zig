@@ -81,7 +81,6 @@ pub const Value = union(enum) {
     }
 
     pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
-        _ = options;
         // The grammar of the stack is:
         //  (.array | .object .string)*
         var stack = Array.init(allocator);
@@ -93,21 +92,21 @@ pub const Value = union(enum) {
                 stack.items[stack.items.len - 1] == .array or
                 (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
 
-            switch (try source.nextAlloc(allocator, .alloc_always)) {
+            switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
                 .allocated_string => |s| {
-                    return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }) orelse continue;
+                    return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }, options) orelse continue;
                 },
                 .allocated_number => |slice| {
-                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice)) orelse continue;
+                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice), options) orelse continue;
                 },
 
-                .null => return try handleCompleteValue(&stack, allocator, source, .null) orelse continue,
-                .true => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = true }) orelse continue,
-                .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }) orelse continue,
+                .null => return try handleCompleteValue(&stack, allocator, source, .null, options) orelse continue,
+                .true => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = true }, options) orelse continue,
+                .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }, options) orelse continue,
 
                 .object_begin => {
-                    switch (try source.nextAlloc(allocator, .alloc_always)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
+                    switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }, options) orelse continue,
                         .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
                                 Value{ .object = ObjectMap.init(allocator) },
@@ -120,7 +119,7 @@ pub const Value = union(enum) {
                 .array_begin => {
                     try stack.append(Value{ .array = Array.init(allocator) });
                 },
-                .array_end => return try handleCompleteValue(&stack, allocator, source, stack.pop()) orelse continue,
+                .array_end => return try handleCompleteValue(&stack, allocator, source, stack.pop(), options) orelse continue,
 
                 else => unreachable,
             }
@@ -134,7 +133,7 @@ pub const Value = union(enum) {
     }
 };
 
-fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value) !?Value {
+fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
     if (stack.items.len == 0) return value_;
     var value = value_;
     while (true) {
@@ -152,7 +151,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.
-                switch (try source.nextAlloc(allocator, .alloc_always)) {
+                switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
                     .object_end => {
                         // This object is complete.
                         value = stack.pop();
