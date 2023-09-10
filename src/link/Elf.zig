@@ -12,7 +12,10 @@ linker_defined_index: ?File.Index = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
-sections: std.MultiArrayList(Section) = .{},
+shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
+/// Given index to a section, pulls index of containing phdr if any.
+phdr_to_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
+/// File offset into the shdr table.
 shdr_table_offset: ?u64 = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
@@ -85,7 +88,6 @@ symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
-
 symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
@@ -109,6 +111,8 @@ decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
+/// Table of last atom index in a section and matching atom free list if any.
+last_atom_and_free_list_table: std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -176,21 +180,18 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try self.atoms.append(allocator, .{});
     // Append null file at index 0
     try self.files.append(allocator, .null);
-    // There must always be a null section in index 0
-    try self.sections.append(allocator, .{
-        .shdr = .{
-            .sh_name = 0,
-            .sh_type = elf.SHT_NULL,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = 0,
-            .sh_size = 0,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 0,
-            .sh_entsize = 0,
-        },
-        .phdr_index = undefined,
+    // There must always be a null shdr in index 0
+    try self.shdrs.append(allocator, .{
+        .sh_name = 0,
+        .sh_type = elf.SHT_NULL,
+        .sh_flags = 0,
+        .sh_addr = 0,
+        .sh_offset = 0,
+        .sh_size = 0,
+        .sh_link = 0,
+        .sh_info = 0,
+        .sh_addralign = 0,
+        .sh_entsize = 0,
     });
 
     try self.populateMissingMetadata();
@@ -256,11 +257,8 @@ pub fn deinit(self: *Elf) void {
     };
     self.files.deinit(gpa);
 
-    for (self.sections.items(.free_list)) |*free_list| {
-        free_list.deinit(gpa);
-    }
-    self.sections.deinit(gpa);
-
+    self.shdrs.deinit(gpa);
+    self.phdr_to_shdr_table.deinit(gpa);
     self.phdrs.deinit(gpa);
     self.shstrtab.deinit(gpa);
     self.strtab.deinit(gpa);
@@ -281,6 +279,10 @@ pub fn deinit(self: *Elf) void {
     }
 
     self.atoms.deinit(gpa);
+    for (self.last_atom_and_free_list_table.values()) |*value| {
+        value.free_list.deinit(gpa);
+    }
+    self.last_atom_and_free_list_table.deinit(gpa);
     self.lazy_syms.deinit(gpa);
 
     {
@@ -332,7 +334,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 
     if (self.shdr_table_offset) |off| {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
-        const tight_size = self.sections.slice().len * shdr_size;
+        const tight_size = self.shdrs.items.len * shdr_size;
         const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
@@ -340,7 +342,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         }
     }
 
-    for (self.sections.items(.shdr)) |section| {
+    for (self.shdrs.items) |section| {
         const increased_size = padToIdeal(section.sh_size);
         const test_end = section.sh_offset + increased_size;
         if (end > section.sh_offset and start < test_end) {
@@ -364,7 +366,7 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
     if (self.shdr_table_offset) |off| {
         if (off > start and off < min_pos) min_pos = off;
     }
-    for (self.sections.items(.shdr)) |section| {
+    for (self.shdrs.items) |section| {
         if (section.sh_offset <= start) continue;
         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
     }
@@ -522,197 +524,174 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.shstrtab_section_index == null) {
-        self.shstrtab_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.shstrtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
         assert(self.shstrtab.buffer.items.len == 0);
         try self.shstrtab.buffer.append(gpa, 0); // need a 0 at position 0
         const off = self.findFreeSpace(self.shstrtab.buffer.items.len, 1);
         log.debug("found .shstrtab free space 0x{x} to 0x{x}", .{ off, off + self.shstrtab.buffer.items.len });
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".shstrtab"),
-                .sh_type = elf.SHT_STRTAB,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = self.shstrtab.buffer.items.len,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = 1,
-                .sh_entsize = 0,
-            },
-            .phdr_index = undefined,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".shstrtab"),
+            .sh_type = elf.SHT_STRTAB,
+            .sh_flags = 0,
+            .sh_addr = 0,
+            .sh_offset = off,
+            .sh_size = self.shstrtab.buffer.items.len,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = 1,
+            .sh_entsize = 0,
         });
         self.shstrtab_dirty = true;
         self.shdr_table_dirty = true;
     }
 
     if (self.strtab_section_index == null) {
-        self.strtab_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.strtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
         assert(self.strtab.buffer.items.len == 0);
         try self.strtab.buffer.append(gpa, 0); // need a 0 at position 0
         const off = self.findFreeSpace(self.strtab.buffer.items.len, 1);
         log.debug("found .strtab free space 0x{x} to 0x{x}", .{ off, off + self.strtab.buffer.items.len });
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".strtab"),
-                .sh_type = elf.SHT_STRTAB,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = self.strtab.buffer.items.len,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = 1,
-                .sh_entsize = 0,
-            },
-            .phdr_index = undefined,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".strtab"),
+            .sh_type = elf.SHT_STRTAB,
+            .sh_flags = 0,
+            .sh_addr = 0,
+            .sh_offset = off,
+            .sh_size = self.strtab.buffer.items.len,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = 1,
+            .sh_entsize = 0,
         });
         self.strtab_dirty = true;
         self.shdr_table_dirty = true;
     }
 
     if (self.text_section_index == null) {
-        self.text_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.text_section_index = @as(u16, @intCast(self.shdrs.items.len));
         const phdr = &self.phdrs.items[self.phdr_load_re_index.?];
-
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".text"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-                .sh_addr = phdr.p_vaddr,
-                .sh_offset = phdr.p_offset,
-                .sh_size = phdr.p_filesz,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = 1,
-                .sh_entsize = 0,
-            },
-            .phdr_index = self.phdr_load_re_index.?,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".text"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = 1,
+            .sh_entsize = 0,
         });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.text_section_index.?, self.phdr_load_re_index.?);
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.text_section_index.?, .{});
         self.shdr_table_dirty = true;
     }
 
     if (self.got_section_index == null) {
-        self.got_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.got_section_index = @as(u16, @intCast(self.shdrs.items.len));
         const phdr = &self.phdrs.items[self.phdr_got_index.?];
-
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".got"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_ALLOC,
-                .sh_addr = phdr.p_vaddr,
-                .sh_offset = phdr.p_offset,
-                .sh_size = phdr.p_filesz,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = @as(u16, ptr_size),
-                .sh_entsize = 0,
-            },
-            .phdr_index = self.phdr_got_index.?,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".got"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = @as(u16, ptr_size),
+            .sh_entsize = 0,
         });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.got_section_index.?, self.phdr_got_index.?);
         self.shdr_table_dirty = true;
     }
 
     if (self.rodata_section_index == null) {
-        self.rodata_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.rodata_section_index = @as(u16, @intCast(self.shdrs.items.len));
         const phdr = &self.phdrs.items[self.phdr_load_ro_index.?];
-
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".rodata"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_ALLOC,
-                .sh_addr = phdr.p_vaddr,
-                .sh_offset = phdr.p_offset,
-                .sh_size = phdr.p_filesz,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = 1,
-                .sh_entsize = 0,
-            },
-            .phdr_index = self.phdr_load_ro_index.?,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".rodata"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = 1,
+            .sh_entsize = 0,
         });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.rodata_section_index.?, self.phdr_load_ro_index.?);
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.rodata_section_index.?, .{});
         self.shdr_table_dirty = true;
     }
 
     if (self.data_section_index == null) {
-        self.data_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.data_section_index = @as(u16, @intCast(self.shdrs.items.len));
         const phdr = &self.phdrs.items[self.phdr_load_rw_index.?];
-
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".data"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
-                .sh_addr = phdr.p_vaddr,
-                .sh_offset = phdr.p_offset,
-                .sh_size = phdr.p_filesz,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = @as(u16, ptr_size),
-                .sh_entsize = 0,
-            },
-            .phdr_index = self.phdr_load_rw_index.?,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".data"),
+            .sh_type = elf.SHT_PROGBITS,
+            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = @as(u16, ptr_size),
+            .sh_entsize = 0,
         });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.data_section_index.?, self.phdr_load_rw_index.?);
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_section_index.?, .{});
         self.shdr_table_dirty = true;
     }
 
     if (self.symtab_section_index == null) {
-        self.symtab_section_index = @as(u16, @intCast(self.sections.slice().len));
+        self.symtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
         const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
         const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
         const file_size = self.base.options.symbol_count_hint * each_size;
         const off = self.findFreeSpace(file_size, min_align);
         log.debug("found symtab free space 0x{x} to 0x{x}", .{ off, off + file_size });
-
-        try self.sections.append(gpa, .{
-            .shdr = .{
-                .sh_name = try self.shstrtab.insert(gpa, ".symtab"),
-                .sh_type = elf.SHT_SYMTAB,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = file_size,
-                // The section header index of the associated string table.
-                .sh_link = self.strtab_section_index.?,
-                .sh_info = @as(u32, @intCast(self.symbols.items.len)),
-                .sh_addralign = min_align,
-                .sh_entsize = each_size,
-            },
-            .phdr_index = undefined,
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".symtab"),
+            .sh_type = elf.SHT_SYMTAB,
+            .sh_flags = 0,
+            .sh_addr = 0,
+            .sh_offset = off,
+            .sh_size = file_size,
+            // The section header index of the associated string table.
+            .sh_link = self.strtab_section_index.?,
+            .sh_info = @as(u32, @intCast(self.symbols.items.len)),
+            .sh_addralign = min_align,
+            .sh_entsize = each_size,
         });
         self.shdr_table_dirty = true;
     }
 
     if (self.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
-            self.debug_str_section_index = @as(u16, @intCast(self.sections.slice().len));
+            self.debug_str_section_index = @as(u16, @intCast(self.shdrs.items.len));
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
-            try self.sections.append(gpa, .{
-                .shdr = .{
-                    .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-                    .sh_addr = 0,
-                    .sh_offset = 0,
-                    .sh_size = 0,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = 1,
-                    .sh_entsize = 1,
-                },
-                .phdr_index = undefined,
+            try self.shdrs.append(gpa, .{
+                .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                .sh_addr = 0,
+                .sh_offset = 0,
+                .sh_size = 0,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = 1,
+                .sh_entsize = 1,
             });
             self.debug_strtab_dirty = true;
             self.shdr_table_dirty = true;
         }
 
         if (self.debug_info_section_index == null) {
-            self.debug_info_section_index = @as(u16, @intCast(self.sections.slice().len));
-
+            self.debug_info_section_index = @as(u16, @intCast(self.shdrs.items.len));
             const file_size_hint = 200;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -720,28 +699,24 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 off,
                 off + file_size_hint,
             });
-            try self.sections.append(gpa, .{
-                .shdr = .{
-                    .sh_name = try self.shstrtab.insert(gpa, ".debug_info"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = 0,
-                    .sh_addr = 0,
-                    .sh_offset = off,
-                    .sh_size = file_size_hint,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = p_align,
-                    .sh_entsize = 0,
-                },
-                .phdr_index = undefined,
+            try self.shdrs.append(gpa, .{
+                .sh_name = try self.shstrtab.insert(gpa, ".debug_info"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
             });
             self.shdr_table_dirty = true;
             self.debug_info_header_dirty = true;
         }
 
         if (self.debug_abbrev_section_index == null) {
-            self.debug_abbrev_section_index = @as(u16, @intCast(self.sections.slice().len));
-
+            self.debug_abbrev_section_index = @as(u16, @intCast(self.shdrs.items.len));
             const file_size_hint = 128;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -749,28 +724,24 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 off,
                 off + file_size_hint,
             });
-            try self.sections.append(gpa, .{
-                .shdr = .{
-                    .sh_name = try self.shstrtab.insert(gpa, ".debug_abbrev"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = 0,
-                    .sh_addr = 0,
-                    .sh_offset = off,
-                    .sh_size = file_size_hint,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = p_align,
-                    .sh_entsize = 0,
-                },
-                .phdr_index = undefined,
+            try self.shdrs.append(gpa, .{
+                .sh_name = try self.shstrtab.insert(gpa, ".debug_abbrev"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
             });
             self.shdr_table_dirty = true;
             self.debug_abbrev_section_dirty = true;
         }
 
         if (self.debug_aranges_section_index == null) {
-            self.debug_aranges_section_index = @as(u16, @intCast(self.sections.slice().len));
-
+            self.debug_aranges_section_index = @as(u16, @intCast(self.shdrs.items.len));
             const file_size_hint = 160;
             const p_align = 16;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -778,28 +749,24 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 off,
                 off + file_size_hint,
             });
-            try self.sections.append(gpa, .{
-                .shdr = .{
-                    .sh_name = try self.shstrtab.insert(gpa, ".debug_aranges"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = 0,
-                    .sh_addr = 0,
-                    .sh_offset = off,
-                    .sh_size = file_size_hint,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = p_align,
-                    .sh_entsize = 0,
-                },
-                .phdr_index = undefined,
+            try self.shdrs.append(gpa, .{
+                .sh_name = try self.shstrtab.insert(gpa, ".debug_aranges"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
             });
             self.shdr_table_dirty = true;
             self.debug_aranges_section_dirty = true;
         }
 
         if (self.debug_line_section_index == null) {
-            self.debug_line_section_index = @as(u16, @intCast(self.sections.slice().len));
-
+            self.debug_line_section_index = @as(u16, @intCast(self.shdrs.items.len));
             const file_size_hint = 250;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -807,20 +774,17 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 off,
                 off + file_size_hint,
             });
-            try self.sections.append(gpa, .{
-                .shdr = .{
-                    .sh_name = try self.shstrtab.insert(gpa, ".debug_line"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = 0,
-                    .sh_addr = 0,
-                    .sh_offset = off,
-                    .sh_size = file_size_hint,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = p_align,
-                    .sh_entsize = 0,
-                },
-                .phdr_index = undefined,
+            try self.shdrs.append(gpa, .{
+                .sh_name = try self.shstrtab.insert(gpa, ".debug_line"),
+                .sh_type = elf.SHT_PROGBITS,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = off,
+                .sh_size = file_size_hint,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = p_align,
+                .sh_entsize = 0,
             });
             self.shdr_table_dirty = true;
             self.debug_line_header_dirty = true;
@@ -836,7 +800,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Shdr),
     };
     if (self.shdr_table_offset == null) {
-        self.shdr_table_offset = self.findFreeSpace(self.sections.slice().len * shsize, shalign);
+        self.shdr_table_offset = self.findFreeSpace(self.shdrs.items.len * shsize, shalign);
         self.shdr_table_dirty = true;
     }
 
@@ -854,7 +818,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // offset + it's filesize.
         var max_file_offset: u64 = 0;
 
-        for (self.sections.items(.shdr)) |shdr| {
+        for (self.shdrs.items) |shdr| {
             if (shdr.sh_offset + shdr.sh_size > max_file_offset) {
                 max_file_offset = shdr.sh_offset + shdr.sh_size;
             }
@@ -885,19 +849,17 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
 pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     // TODO Also detect virtual address collisions.
-    const shdr = &self.sections.items(.shdr)[shdr_index];
-    const phdr_index = self.sections.items(.phdr_index)[shdr_index];
+    const shdr = &self.shdrs.items[shdr_index];
+    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const phdr = &self.phdrs.items[phdr_index];
-    const last_atom_index = self.sections.items(.last_atom_index)[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
-        const existing_size = if (self.atom(last_atom_index)) |last| blk: {
+        const existing_size = if (self.last_atom_and_free_list_table.get(shdr_index)) |meta| blk: {
+            const last = self.atom(meta.last_atom_index) orelse break :blk 0;
             break :blk (last.value + last.size) - phdr.p_vaddr;
-        } else if (shdr_index == self.got_section_index.?) blk: {
-            break :blk shdr.sh_size;
-        } else 0;
+        } else shdr.sh_size;
         shdr.sh_size = 0;
 
         log.debug("new '{?s}' file offset 0x{x} to 0x{x}", .{
@@ -927,7 +889,7 @@ pub fn growNonAllocSection(
     min_alignment: u32,
     requires_file_copy: bool,
 ) !void {
-    const shdr = &self.sections.items(.shdr)[shdr_index];
+    const shdr = &self.shdrs.items[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
         const existing_size = if (self.symtab_section_index.? == shdr_index) blk: {
@@ -940,7 +902,12 @@ pub fn growNonAllocSection(
         shdr.sh_size = 0;
         // Move all the symbols to a new file location.
         const new_offset = self.findFreeSpace(needed_size, min_alignment);
-        log.debug("moving '{?s}' from 0x{x} to 0x{x}", .{ self.shstrtab.get(shdr.sh_name), shdr.sh_offset, new_offset });
+
+        log.debug("moving '{?s}' from 0x{x} to 0x{x}", .{
+            self.shstrtab.get(shdr.sh_name),
+            shdr.sh_offset,
+            new_offset,
+        });
 
         if (requires_file_copy) {
             const amt = try self.base.file.?.copyRangeAll(
@@ -1071,7 +1038,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const atom_index = entry.key_ptr.*;
             const relocs = entry.value_ptr.*;
             const atom_ptr = self.atom(atom_index).?;
-            const source_shdr = self.sections.items(.shdr)[atom_ptr.output_section_index];
+            const source_shdr = &self.shdrs.items[atom_ptr.output_section_index];
 
             log.debug("relocating '{s}'", .{atom_ptr.name(self)});
 
@@ -1209,9 +1176,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     {
         const shdr_index = self.shstrtab_section_index.?;
-        if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+        if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
             try self.growNonAllocSection(shdr_index, self.shstrtab.buffer.items.len, 1, false);
-            const shstrtab_sect = self.sections.items(.shdr)[shdr_index];
+            const shstrtab_sect = &self.shdrs.items[shdr_index];
             try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shstrtab_sect.sh_offset);
             self.shstrtab_dirty = false;
         }
@@ -1219,9 +1186,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     {
         const shdr_index = self.strtab_section_index.?;
-        if (self.strtab_dirty or self.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+        if (self.strtab_dirty or self.strtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
             try self.growNonAllocSection(shdr_index, self.strtab.buffer.items.len, 1, false);
-            const strtab_sect = self.sections.items(.shdr)[shdr_index];
+            const strtab_sect = self.shdrs.items[shdr_index];
             try self.base.file.?.pwriteAll(self.strtab.buffer.items, strtab_sect.sh_offset);
             self.strtab_dirty = false;
         }
@@ -1229,9 +1196,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.dwarf) |dwarf| {
         const shdr_index = self.debug_str_section_index.?;
-        if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+        if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
             try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
-            const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
+            const debug_strtab_sect = self.shdrs.items[shdr_index];
             try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
             self.debug_strtab_dirty = false;
         }
@@ -1247,7 +1214,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             .p64 => @alignOf(elf.Elf64_Shdr),
         };
         const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
-        const needed_size = self.sections.slice().len * shsize;
+        const needed_size = self.shdrs.items.len * shsize;
 
         if (needed_size > allocated_size) {
             self.shdr_table_offset = null; // free the space
@@ -1256,12 +1223,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
         switch (self.ptr_width) {
             .p32 => {
-                const slice = self.sections.slice();
-                const buf = try gpa.alloc(elf.Elf32_Shdr, slice.len);
+                const buf = try gpa.alloc(elf.Elf32_Shdr, self.shdrs.items.len);
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*shdr, i| {
-                    shdr.* = shdrTo32(slice.items(.shdr)[i]);
+                    shdr.* = shdrTo32(self.shdrs.items[i]);
                     log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
@@ -1270,12 +1236,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
             },
             .p64 => {
-                const slice = self.sections.slice();
-                const buf = try gpa.alloc(elf.Elf64_Shdr, slice.len);
+                const buf = try gpa.alloc(elf.Elf64_Shdr, self.shdrs.items.len);
                 defer gpa.free(buf);
 
                 for (buf, 0..) |*shdr, i| {
-                    shdr.* = slice.items(.shdr)[i];
+                    shdr.* = self.shdrs.items[i];
                     log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
@@ -2118,7 +2083,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shentsize, endian);
     index += 2;
 
-    const e_shnum = @as(u16, @intCast(self.sections.slice().len));
+    const e_shnum = @as(u16, @intCast(self.shdrs.items.len));
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
     index += 2;
 
@@ -2305,9 +2270,9 @@ fn updateDeclCode(
         try self.got.writeEntry(self, got_index);
     }
 
-    const phdr_index = self.sections.items(.phdr_index)[shdr_index];
+    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const section_offset = sym.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
+    const file_offset = self.shdrs.items[shdr_index].sh_offset + section_offset;
 
     if (self.base.child_pid) |pid| {
         switch (builtin.os.tag) {
@@ -2510,7 +2475,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     };
 
     const local_sym = self.symbol(symbol_index);
-    const phdr_index = self.sections.items(.phdr_index)[local_sym.output_section_index];
+    const phdr_index = self.phdr_to_shdr_table.get(local_sym.output_section_index).?;
     local_sym.name_offset = name_str_index;
     const local_esym = local_sym.sourceSymbol(self);
     local_esym.st_name = name_str_index;
@@ -2537,7 +2502,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     try self.got.writeEntry(self, got_index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.sections.items(.shdr)[local_sym.output_section_index].sh_offset + section_offset;
+    const file_offset = self.shdrs.items[local_sym.output_section_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -2584,7 +2549,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     const required_alignment = typed_value.ty.abiAlignment(mod);
     const shdr_index = self.rodata_section_index.?;
-    const phdr_index = self.sections.items(.phdr_index)[shdr_index];
+    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const local_sym = self.symbol(sym_index);
     local_sym.name_offset = name_str_index;
     const local_esym = local_sym.sourceSymbol(self);
@@ -2607,7 +2572,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     try unnamed_consts.append(gpa, atom_ptr.atom_index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
+    const file_offset = self.shdrs.items[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
     return sym_index;
@@ -2775,7 +2740,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // _DYNAMIC
     if (self.dynamic_section_index) |shndx| {
-        const shdr = self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.dynamic_index.?);
         symbol_ptr.value = shdr.sh_addr;
         symbol_ptr.output_section_index = shndx;
@@ -2792,7 +2757,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.sectionByName(".init_array")) |shndx| {
         const start_sym = self.symbol(self.init_array_start_index.?);
         const end_sym = self.symbol(self.init_array_end_index.?);
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
         start_sym.value = shdr.sh_addr;
         end_sym.output_section_index = shndx;
@@ -2803,7 +2768,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.sectionByName(".fini_array")) |shndx| {
         const start_sym = self.symbol(self.fini_array_start_index.?);
         const end_sym = self.symbol(self.fini_array_end_index.?);
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
         start_sym.value = shdr.sh_addr;
         end_sym.output_section_index = shndx;
@@ -2814,7 +2779,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.sectionByName(".preinit_array")) |shndx| {
         const start_sym = self.symbol(self.preinit_array_start_index.?);
         const end_sym = self.symbol(self.preinit_array_end_index.?);
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
         start_sym.value = shdr.sh_addr;
         end_sym.output_section_index = shndx;
@@ -2823,7 +2788,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // _GLOBAL_OFFSET_TABLE_
     if (self.got_plt_section_index) |shndx| {
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.got_index.?);
         symbol_ptr.value = shdr.sh_addr;
         symbol_ptr.output_section_index = shndx;
@@ -2831,7 +2796,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // _PROCEDURE_LINKAGE_TABLE_
     if (self.plt_section_index) |shndx| {
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.plt_index.?);
         symbol_ptr.value = shdr.sh_addr;
         symbol_ptr.output_section_index = shndx;
@@ -2839,7 +2804,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __dso_handle
     if (self.dso_handle_index) |index| {
-        const shdr = &self.sections.items(.shdr)[1];
+        const shdr = &self.shdrs.items[1];
         const symbol_ptr = self.symbol(index);
         symbol_ptr.value = shdr.sh_addr;
         symbol_ptr.output_section_index = 0;
@@ -2847,7 +2812,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __GNU_EH_FRAME_HDR
     if (self.eh_frame_hdr_section_index) |shndx| {
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.gnu_eh_frame_hdr_index.?);
         symbol_ptr.value = shdr.sh_addr;
         symbol_ptr.output_section_index = shndx;
@@ -2856,7 +2821,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
         if (self.base.options.link_mode != .Static or self.base.options.pie) break :blk;
-        const shdr = &self.sections.items(.shdr)[shndx];
+        const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
         const start_sym = self.symbol(self.rela_iplt_start_index.?);
@@ -2870,7 +2835,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // _end
     {
         const end_symbol = self.symbol(self.end_index.?);
-        for (self.sections.items(.shdr), 0..) |shdr, shndx| {
+        for (self.shdrs.items, 0..) |*shdr, shndx| {
             if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
                 end_symbol.value = shdr.sh_addr + shdr.sh_size;
                 end_symbol.output_section_index = @intCast(shndx);
@@ -2886,7 +2851,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             const name = start.name(self);
             const stop = self.symbol(self.start_stop_indexes.items[index + 1]);
             const shndx = self.sectionByName(name["__start_".len..]).?;
-            const shdr = self.sections.items(.shdr)[shndx];
+            const shdr = &self.shdrs.items[shndx];
             start.value = shdr.sh_addr;
             start.output_section_index = shndx;
             stop.value = shdr.sh_addr + shdr.sh_size;
@@ -2916,7 +2881,7 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nlocals += linker_defined.output_symtab_size.nlocals;
     }
 
-    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
+    const shdr = &self.shdrs.items[self.symtab_section_index.?];
     shdr.sh_info = sizes.nlocals + 1;
     self.markDirty(self.symtab_section_index.?, null);
 
@@ -2934,7 +2899,7 @@ fn updateSymtabSize(self: *Elf) !void {
 
 fn writeSymtab(self: *Elf) !void {
     const gpa = self.base.allocator;
-    const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
+    const shdr = &self.shdrs.items[self.symtab_section_index.?];
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
@@ -3031,7 +2996,7 @@ fn writeShdr(self: *Elf, index: usize) !void {
     switch (self.ptr_width) {
         .p32 => {
             var shdr: [1]elf.Elf32_Shdr = undefined;
-            shdr[0] = shdrTo32(self.sections.items(.shdr)[index]);
+            shdr[0] = shdrTo32(self.shdrs.items[index]);
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf32_Shdr, &shdr[0]);
             }
@@ -3039,7 +3004,7 @@ fn writeShdr(self: *Elf, index: usize) !void {
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
         },
         .p64 => {
-            var shdr = [1]elf.Elf64_Shdr{self.sections.items(.shdr)[index]};
+            var shdr = [1]elf.Elf64_Shdr{self.shdrs.items[index]};
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf64_Shdr, &shdr[0]);
             }
@@ -3327,7 +3292,7 @@ pub fn defaultEntryAddress(self: Elf) u64 {
 }
 
 pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
-    for (self.sections.items(.shdr), 0..) |shdr, i| {
+    for (self.shdrs.items, 0..) |*shdr, i| {
         const this_name = self.shstrtab.getAssumeExists(shdr.sh_name);
         if (mem.eql(u8, this_name, name)) return @as(u16, @intCast(i));
     } else return null;
@@ -3481,10 +3446,7 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-const Section = struct {
-    shdr: elf.Elf64_Shdr,
-    phdr_index: u16,
-
+const LastAtomAndFreeList = struct {
     /// Index of the last allocated atom in this section.
     last_atom_index: Atom.Index = 0,
 

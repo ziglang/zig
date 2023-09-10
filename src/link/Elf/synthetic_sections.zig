@@ -29,7 +29,7 @@ pub const GotSection = struct {
 
         pub fn address(entry: Entry, elf_file: *Elf) u64 {
             const ptr_bytes = @as(u64, elf_file.archPtrWidthBytes());
-            const shdr = &elf_file.sections.items(.shdr)[elf_file.got_section_index.?];
+            const shdr = &elf_file.shdrs.items[elf_file.got_section_index.?];
             return shdr.sh_addr + @as(u64, entry.cell_index) * ptr_bytes;
         }
     };
@@ -124,7 +124,7 @@ pub const GotSection = struct {
         }
         const endian = elf_file.base.options.target.cpu.arch.endian();
         const entry = got.entries.items[index];
-        const shdr = &elf_file.sections.items(.shdr)[elf_file.got_section_index.?];
+        const shdr = &elf_file.shdrs.items[elf_file.got_section_index.?];
         const off = shdr.sh_offset + @as(u64, entry_size) * entry.cell_index;
         const vaddr = shdr.sh_addr + @as(u64, entry_size) * entry.cell_index;
         const value = elf_file.symbol(entry.symbol_index).value;

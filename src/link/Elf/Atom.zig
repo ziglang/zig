@@ -79,9 +79,10 @@ pub fn freeRelocations(elf_file: *Elf, atom_index: Index) void {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
-    const shdr = &elf_file.sections.items(.shdr)[self.output_section_index];
-    const free_list = &elf_file.sections.items(.free_list)[self.output_section_index];
-    const last_atom_index = &elf_file.sections.items(.last_atom_index)[self.output_section_index];
+    const shdr = &elf_file.shdrs.items[self.output_section_index];
+    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
+    const free_list = &meta.free_list;
+    const last_atom_index = &meta.last_atom_index;
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
     const alignment = try std.math.powi(u64, 2, self.alignment);
 
@@ -208,7 +209,9 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 
     const gpa = elf_file.base.allocator;
     const shndx = self.output_section_index;
-    const free_list = &elf_file.sections.items(.free_list)[shndx];
+    const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
+    const free_list = &meta.free_list;
+    const last_atom_index = &meta.last_atom_index;
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
@@ -225,7 +228,6 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    const last_atom_index = &elf_file.sections.items(.last_atom_index)[shndx];
     if (elf_file.atom(last_atom_index.*)) |last_atom| {
         if (last_atom.atom_index == self.atom_index) {
             if (elf_file.atom(self.prev_index)) |_| {
