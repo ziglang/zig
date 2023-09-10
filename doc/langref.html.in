@@ -7015,7 +7015,9 @@ test "try to compare bools" {
       </p>
       {#code_begin|syntax|compiler_generated_function#}
 fn max(a: bool, b: bool) bool {
-    return a or b;
+    {
+        return a or b;
+    }
 }
       {#code_end#}
       <p>
