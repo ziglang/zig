@@ -47,8 +47,13 @@ got: GotSection = .{},
 
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
-got_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
+dynamic_section_index: ?u16 = null,
+got_section_index: ?u16 = null,
+got_plt_section_index: ?u16 = null,
+plt_section_index: ?u16 = null,
+eh_frame_hdr_section_index: ?u16 = null,
+rela_dyn_section_index: ?u16 = null,
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
@@ -74,6 +79,7 @@ gnu_eh_frame_hdr_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
+start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -264,6 +270,7 @@ pub fn deinit(self: *Elf) void {
     self.got.deinit(gpa);
     self.resolver.deinit(gpa);
     self.unresolved.deinit(gpa);
+    self.start_stop_indexes.deinit(gpa);
 
     {
         var it = self.decls.iterator();
@@ -385,6 +392,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         .p64 => false,
     };
     const ptr_size: u8 = self.ptrWidthBytes();
+    const image_base = self.calcImageBase();
 
     if (self.phdr_table_index == null) {
         self.phdr_table_index = @as(u16, @intCast(self.phdrs.items.len));
@@ -396,8 +404,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_type = elf.PT_PHDR,
             .p_offset = 0,
             .p_filesz = 0,
-            .p_vaddr = 0,
-            .p_paddr = 0,
+            .p_vaddr = image_base,
+            .p_paddr = image_base,
             .p_memsz = 0,
             .p_align = p_align,
             .p_flags = elf.PF_R,
@@ -408,16 +416,14 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = @as(u16, @intCast(self.phdrs.items.len));
         // TODO Same as for GOT
-        const phdr_addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
-        const p_align = self.page_size;
         try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = 0,
             .p_filesz = 0,
-            .p_vaddr = phdr_addr,
-            .p_paddr = phdr_addr,
+            .p_vaddr = image_base,
+            .p_paddr = image_base,
             .p_memsz = 0,
-            .p_align = p_align,
+            .p_align = self.page_size,
             .p_flags = elf.PF_R,
         });
         self.phdr_table_dirty = true;
@@ -429,7 +435,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const p_align = self.page_size;
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
+        const entry_addr = self.defaultEntryAddress();
         try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -1054,6 +1060,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     try self.addLinkerDefinedSymbols();
+
+    self.allocateLinkerDefinedSymbols();
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations.
@@ -2764,6 +2772,129 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     linker_defined.resolveSymbols(self);
 }
 
+fn allocateLinkerDefinedSymbols(self: *Elf) void {
+    // _DYNAMIC
+    if (self.dynamic_section_index) |shndx| {
+        const shdr = self.sections.items(.shdr)[shndx];
+        const symbol_ptr = self.symbol(self.dynamic_index.?);
+        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.output_section_index = shndx;
+    }
+
+    // __ehdr_start
+    {
+        const symbol_ptr = self.symbol(self.ehdr_start_index.?);
+        symbol_ptr.value = self.calcImageBase();
+        symbol_ptr.output_section_index = 1;
+    }
+
+    // __init_array_start, __init_array_end
+    if (self.sectionByName(".init_array")) |shndx| {
+        const start_sym = self.symbol(self.init_array_start_index.?);
+        const end_sym = self.symbol(self.init_array_end_index.?);
+        const shdr = &self.sections.items(.shdr)[shndx];
+        start_sym.output_section_index = shndx;
+        start_sym.value = shdr.sh_addr;
+        end_sym.output_section_index = shndx;
+        end_sym.value = shdr.sh_addr + shdr.sh_size;
+    }
+
+    // __fini_array_start, __fini_array_end
+    if (self.sectionByName(".fini_array")) |shndx| {
+        const start_sym = self.symbol(self.fini_array_start_index.?);
+        const end_sym = self.symbol(self.fini_array_end_index.?);
+        const shdr = &self.sections.items(.shdr)[shndx];
+        start_sym.output_section_index = shndx;
+        start_sym.value = shdr.sh_addr;
+        end_sym.output_section_index = shndx;
+        end_sym.value = shdr.sh_addr + shdr.sh_size;
+    }
+
+    // __preinit_array_start, __preinit_array_end
+    if (self.sectionByName(".preinit_array")) |shndx| {
+        const start_sym = self.symbol(self.preinit_array_start_index.?);
+        const end_sym = self.symbol(self.preinit_array_end_index.?);
+        const shdr = &self.sections.items(.shdr)[shndx];
+        start_sym.output_section_index = shndx;
+        start_sym.value = shdr.sh_addr;
+        end_sym.output_section_index = shndx;
+        end_sym.value = shdr.sh_addr + shdr.sh_size;
+    }
+
+    // _GLOBAL_OFFSET_TABLE_
+    if (self.got_plt_section_index) |shndx| {
+        const shdr = &self.sections.items(.shdr)[shndx];
+        const symbol_ptr = self.symbol(self.got_index.?);
+        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.output_section_index = shndx;
+    }
+
+    // _PROCEDURE_LINKAGE_TABLE_
+    if (self.plt_section_index) |shndx| {
+        const shdr = &self.sections.items(.shdr)[shndx];
+        const symbol_ptr = self.symbol(self.plt_index.?);
+        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.output_section_index = shndx;
+    }
+
+    // __dso_handle
+    if (self.dso_handle_index) |index| {
+        const shdr = &self.sections.items(.shdr)[1];
+        const symbol_ptr = self.symbol(index);
+        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.output_section_index = 0;
+    }
+
+    // __GNU_EH_FRAME_HDR
+    if (self.eh_frame_hdr_section_index) |shndx| {
+        const shdr = &self.sections.items(.shdr)[shndx];
+        const symbol_ptr = self.symbol(self.gnu_eh_frame_hdr_index.?);
+        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.output_section_index = shndx;
+    }
+
+    // __rela_iplt_start, __rela_iplt_end
+    if (self.rela_dyn_section_index) |shndx| blk: {
+        if (self.base.options.link_mode != .Static or self.base.options.pie) break :blk;
+        const shdr = &self.sections.items(.shdr)[shndx];
+        const end_addr = shdr.sh_addr + shdr.sh_size;
+        const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
+        const start_sym = self.symbol(self.rela_iplt_start_index.?);
+        const end_sym = self.symbol(self.rela_iplt_end_index.?);
+        start_sym.value = start_addr;
+        start_sym.output_section_index = shndx;
+        end_sym.value = end_addr;
+        end_sym.output_section_index = shndx;
+    }
+
+    // _end
+    {
+        const end_symbol = self.symbol(self.end_index.?);
+        for (self.sections.items(.shdr), 0..) |shdr, shndx| {
+            if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
+                end_symbol.value = shdr.sh_addr + shdr.sh_size;
+                end_symbol.output_section_index = @intCast(shndx);
+            }
+        }
+    }
+
+    // __start_*, __stop_*
+    {
+        var index: usize = 0;
+        while (index < self.start_stop_indexes.items.len) : (index += 2) {
+            const start = self.symbol(self.start_stop_indexes.items[index]);
+            const name = start.name(self);
+            const stop = self.symbol(self.start_stop_indexes.items[index + 1]);
+            const shndx = self.sectionByName(name["__start_".len..]).?;
+            const shdr = self.sections.items(.shdr)[shndx];
+            start.value = shdr.sh_addr;
+            start.output_section_index = shndx;
+            stop.value = shdr.sh_addr + shdr.sh_size;
+            stop.output_section_index = shndx;
+        }
+    }
+}
+
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
@@ -2774,15 +2905,15 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nglobals += zig_module.output_symtab_size.nglobals;
     }
 
+    if (self.got_section_index) |_| {
+        self.got.updateSymtabSize(self);
+        sizes.nlocals += self.got.output_symtab_size.nlocals;
+    }
+
     if (self.linker_defined_index) |index| {
         const linker_defined = self.file(index).?.linker_defined;
         linker_defined.updateSymtabSize(self);
         sizes.nlocals += linker_defined.output_symtab_size.nlocals;
-    }
-
-    if (self.got_section_index) |_| {
-        self.got.updateSymtabSize(self);
-        sizes.nlocals += self.got.output_symtab_size.nlocals;
     }
 
     const shdr = &self.sections.items(.shdr)[self.symtab_section_index.?];
@@ -2829,15 +2960,15 @@ fn writeSymtab(self: *Elf) !void {
         ctx.iglobal += zig_module.output_symtab_size.nglobals;
     }
 
+    if (self.got_section_index) |_| {
+        try self.got.writeSymtab(self, ctx);
+        ctx.ilocal += self.got.output_symtab_size.nlocals;
+    }
+
     if (self.linker_defined_index) |index| {
         const linker_defined = self.file(index).?.linker_defined;
         linker_defined.writeSymtab(self, ctx);
         ctx.ilocal += linker_defined.output_symtab_size.nlocals;
-    }
-
-    if (self.got_section_index) |_| {
-        try self.got.writeSymtab(self, ctx);
-        ctx.ilocal += self.got.output_symtab_size.nlocals;
     }
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
@@ -3178,6 +3309,34 @@ const CsuObjects = struct {
         self.crtn = crtn;
     }
 };
+
+pub fn calcImageBase(self: Elf) u64 {
+    if (self.base.options.pic) return 0; // TODO flag an error if PIC and image_base_override
+    return self.base.options.image_base_override orelse switch (self.ptr_width) {
+        .p32 => 0x1000,
+        .p64 => 0x1000000,
+    };
+}
+
+pub fn defaultEntryAddress(self: Elf) u64 {
+    if (self.entry_addr) |addr| return addr;
+    return switch (self.base.options.target.cpu.arch) {
+        .spu_2 => 0,
+        else => default_entry_addr,
+    };
+}
+
+pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
+    for (self.sections.items(.shdr), 0..) |shdr, i| {
+        const this_name = self.shstrtab.getAssumeExists(shdr.sh_name);
+        if (mem.eql(u8, this_name, name)) return @as(u16, @intCast(i));
+    } else return null;
+}
+
+pub fn calcNumIRelativeRelocs(self: *Elf) u64 {
+    _ = self;
+    unreachable; // TODO
+}
 
 pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
     if (atom_index == 0) return null;
