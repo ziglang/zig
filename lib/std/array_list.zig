@@ -1587,13 +1587,8 @@ test "std.ArrayListUnmanaged(u8) implements writer" {
 }
 
 test "shrink still sets length when resizing is disabled" {
-    // Use the testing allocator but with resize disabled.
-    var a = testing.allocator;
-    a.vtable = &.{
-        .alloc = a.vtable.alloc,
-        .resize = Allocator.noResize,
-        .free = a.vtable.free,
-    };
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
+    const a = failing_allocator.allocator();
 
     {
         var list = ArrayList(i32).init(a);
@@ -1620,13 +1615,9 @@ test "shrink still sets length when resizing is disabled" {
 }
 
 test "shrinkAndFree with a copy" {
-    // Use the testing allocator but with resize disabled.
-    var a = testing.allocator;
-    a.vtable = &.{
-        .alloc = a.vtable.alloc,
-        .resize = Allocator.noResize,
-        .free = a.vtable.free,
-    };
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
+    const a = failing_allocator.allocator();
+
     var list = ArrayList(i32).init(a);
     defer list.deinit();
 
@@ -1748,8 +1739,7 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
 
 test "std.ArrayList(u0)" {
     // An ArrayList on zero-sized types should not need to allocate
-    var failing_allocator = testing.FailingAllocator.init(testing.allocator, 0);
-    const a = failing_allocator.allocator();
+    const a = testing.failing_allocator;
 
     var list = ArrayList(u0).init(a);
     defer list.deinit();

@@ -164,8 +164,8 @@ test "memory pool: preheating (success)" {
 }
 
 test "memory pool: preheating (failure)" {
-    var failer = std.testing.FailingAllocator.init(std.testing.allocator, 0);
-    try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer.allocator(), 5));
+    var failer = std.testing.failing_allocator;
+    try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer, 5));
 }
 
 test "memory pool: growable" {

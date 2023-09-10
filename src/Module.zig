@@ -1519,11 +1519,11 @@ pub const ErrorMsg = struct {
     msg: []const u8,
     notes: []ErrorMsg = &.{},
     reference_trace: []Trace = &.{},
+    hidden_references: u32 = 0,
 
     pub const Trace = struct {
-        decl: InternPool.OptionalNullTerminatedString,
+        decl: InternPool.NullTerminatedString,
         src_loc: SrcLoc,
-        hidden: u32 = 0,
     };
 
     pub fn create(
@@ -1565,12 +1565,6 @@ pub const ErrorMsg = struct {
         gpa.free(err_msg.msg);
         gpa.free(err_msg.reference_trace);
         err_msg.* = undefined;
-    }
-
-    pub fn clearTrace(err_msg: *ErrorMsg, gpa: Allocator) void {
-        if (err_msg.reference_trace.len == 0) return;
-        gpa.free(err_msg.reference_trace);
-        err_msg.reference_trace = &.{};
     }
 };
 
@@ -4153,7 +4147,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, "global variable initializer must be comptime-known");
+    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, .{
+        .needed_comptime_reason = "global variable initializer must be comptime-known",
+    });
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
@@ -4263,7 +4259,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     decl.@"linksection" = blk: {
         const linksection_ref = decl.zirLinksectionRef(mod);
         if (linksection_ref == .none) break :blk .none;
-        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime-known");
+        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, .{
+            .needed_comptime_reason = "linksection must be comptime-known",
+        });
         if (mem.indexOfScalar(u8, bytes, 0) != null) {
             return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
         } else if (bytes.len == 0) {
@@ -6362,7 +6360,7 @@ pub fn errorSetFromUnsortedNames(
 
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    assert(ty.zigTypeTag(mod) == .Pointer);
+    assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
         .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },

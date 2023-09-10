@@ -50,11 +50,8 @@ unset CXX
 
 ninja install
 
-# TODO: move this to a build.zig step (check-fmt)
 echo "Looking for non-conforming code formatting..."
-stage3-debug/bin/zig fmt --check .. \
-  --exclude ../test/cases/ \
-  --exclude ../build-debug
+stage3-debug/bin/zig build check-fmt
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-debug/bin/zig build \

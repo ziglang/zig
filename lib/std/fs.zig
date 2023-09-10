@@ -2653,21 +2653,17 @@ pub const Dir = struct {
     ///
     /// `sub_path` may be absolute, in which case `self` is ignored.
     pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-        switch (builtin.os.tag) {
-            .windows => {
-                var file = try self.openFile(sub_path, .{});
-                defer file.close();
-                return file.stat();
-            },
-            .wasi => {
-                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
-                return Stat.fromSystem(st);
-            },
-            else => {
-                const st = try os.fstatat(self.fd, sub_path, 0);
-                return Stat.fromSystem(st);
-            },
+        if (builtin.os.tag == .windows) {
+            var file = try self.openFile(sub_path, .{});
+            defer file.close();
+            return file.stat();
         }
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+            return Stat.fromSystem(st);
+        }
+        const st = try os.fstatat(self.fd, sub_path, 0);
+        return Stat.fromSystem(st);
     }
 
     const Permissions = File.Permissions;
@@ -2795,7 +2791,7 @@ pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.
     try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
-pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
 }
@@ -3073,7 +3069,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             const pathname_w = try os.windows.wToPrefixedFileW(null, image_path_name);
             return std.fs.cwd().realpathW(pathname_w.span(), out_buffer);
         },
-        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }

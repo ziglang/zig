@@ -6951,8 +6951,10 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const prefetch = f.air.instructions.items(.data)[inst].prefetch;
 
+    const ptr_ty = f.typeOf(prefetch.ptr);
     const ptr = try f.resolveInst(prefetch.ptr);
     try reap(f, inst, &.{prefetch.ptr});
 
@@ -6960,7 +6962,10 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (prefetch.cache) {
         .data => {
             try writer.writeAll("zig_prefetch(");
-            try f.writeCValue(writer, ptr, .FunctionArgument);
+            if (ptr_ty.isSlice(mod))
+                try f.writeCValueMember(writer, ptr, .{ .identifier = "ptr" })
+            else
+                try f.writeCValue(writer, ptr, .FunctionArgument);
             try writer.print(", {d}, {d});\n", .{ @intFromEnum(prefetch.rw), prefetch.locality });
         },
         // The available prefetch intrinsics do not accept a cache argument; only

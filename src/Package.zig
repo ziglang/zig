@@ -130,17 +130,17 @@ pub fn add(pkg: *Package, gpa: Allocator, name: []const u8, package: *Package) !
 /// package. It should only be used for error output.
 pub fn getName(target: *const Package, gpa: Allocator, mod: Module) ![]const u8 {
     // we'll do a breadth-first search from the root module to try and find a short name for this
-    // module, using a TailQueue of module/parent pairs. note that the "parent" there is just the
-    // first-found shortest path - a module may be children of arbitrarily many other modules.
-    // also, this path may vary between executions due to hashmap iteration order, but that doesn't
-    // matter too much.
+    // module, using a DoublyLinkedList of module/parent pairs. note that the "parent" there is
+    // just the first-found shortest path - a module may be children of arbitrarily many other
+    // modules. This path may vary between executions due to hashmap iteration order, but that
+    // doesn't matter too much.
     var node_arena = std.heap.ArenaAllocator.init(gpa);
     defer node_arena.deinit();
     const Parented = struct {
         parent: ?*const @This(),
         mod: *const Package,
     };
-    const Queue = std.TailQueue(Parented);
+    const Queue = std.DoublyLinkedList(Parented);
     var to_check: Queue = .{};
 
     {

@@ -248,6 +248,10 @@ pub const Inst = struct {
         /// Given a pointer type, returns its element type.
         /// Uses the `un_node` field.
         elem_type,
+        /// Given an indexable pointer (slice, many-ptr, single-ptr-to-array), returns its
+        /// element type. Emits a compile error if the type is not an indexable pointer.
+        /// Uses the `un_node` field.
+        indexable_ptr_elem_type,
         /// Given a vector type, returns its element type.
         /// Uses the `un_node` field.
         vector_elem_type,
@@ -1021,6 +1025,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .indexable_ptr_elem_type,
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
@@ -1325,6 +1330,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type_index,
                 .elem_type,
+                .indexable_ptr_elem_type,
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
@@ -1557,6 +1563,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
                 .elem_type = .un_node,
+                .indexable_ptr_elem_type = .un_node,
                 .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,

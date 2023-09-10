@@ -11893,6 +11893,17 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
+            <pre>{#syntax#}callconv{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}callconv{#endsyntax#} can be used to specify the calling convention in a function type.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
             <pre>{#syntax#}catch{#endsyntax#}</pre>
           </th>
           <td>
@@ -12112,6 +12123,17 @@ fn readU32Be() u32 {}
             Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
             <ul>
               <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <pre>{#syntax#}opaque{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}opaque{#endsyntax#} defines an opaque type.
+            <ul>
+              <li>See also {#link|opaque#}</li>
             </ul>
           </td>
         </tr>
@@ -12871,6 +12893,7 @@ KEYWORD_fn          <- 'fn'          end_of_word
 KEYWORD_for         <- 'for'         end_of_word
 KEYWORD_if          <- 'if'          end_of_word
 KEYWORD_inline      <- 'inline'      end_of_word
+KEYWORD_linksection <- 'linksection' end_of_word
 KEYWORD_noalias     <- 'noalias'     end_of_word
 KEYWORD_nosuspend   <- 'nosuspend'   end_of_word
 KEYWORD_noinline    <- 'noinline'    end_of_word
@@ -12881,7 +12904,6 @@ KEYWORD_packed      <- 'packed'      end_of_word
 KEYWORD_pub         <- 'pub'         end_of_word
 KEYWORD_resume      <- 'resume'      end_of_word
 KEYWORD_return      <- 'return'      end_of_word
-KEYWORD_linksection <- 'linksection' end_of_word
 KEYWORD_struct      <- 'struct'      end_of_word
 KEYWORD_suspend     <- 'suspend'     end_of_word
 KEYWORD_switch      <- 'switch'      end_of_word
@@ -12901,9 +12923,9 @@ keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
          / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue / KEYWORD_defer
          / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
          / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if
-         / KEYWORD_inline / KEYWORD_noalias / KEYWORD_nosuspend / KEYWORD_noinline
-         / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
-         / KEYWORD_pub / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
+         / KEYWORD_inline / KEYWORD_linksection / KEYWORD_noalias / KEYWORD_noinline
+	 / KEYWORD_nosuspend / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse
+  	 / KEYWORD_packed / KEYWORD_pub / KEYWORD_resume / KEYWORD_return
          / KEYWORD_struct / KEYWORD_suspend / KEYWORD_switch / KEYWORD_test
          / KEYWORD_threadlocal / KEYWORD_try / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while

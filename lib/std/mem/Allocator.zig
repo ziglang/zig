@@ -315,14 +315,14 @@ pub fn free(self: Allocator, memory: anytype) void {
 }
 
 /// Copies `m` to newly allocated memory. Caller owns the memory.
-pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) ![]T {
+pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) Error![]T {
     const new_buf = try allocator.alloc(T, m.len);
     @memcpy(new_buf, m);
     return new_buf;
 }
 
 /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
-pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
+pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
     const new_buf = try allocator.alloc(T, m.len + 1);
     @memcpy(new_buf[0..m.len], m);
     new_buf[m.len] = 0;

@@ -14,7 +14,7 @@ pub var allocator_instance = b: {
 };
 
 pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
+pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
 
 pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
@@ -1081,16 +1081,16 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
     // Try it once with unlimited memory, make sure it works
     const needed_alloc_count = x: {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{});
         args.@"0" = failing_allocator_inst.allocator();
 
         try @call(.auto, test_fn, args);
-        break :x failing_allocator_inst.index;
+        break :x failing_allocator_inst.alloc_index;
     };
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{ .fail_index = fail_index });
         args.@"0" = failing_allocator_inst.allocator();
 
         if (@call(.auto, test_fn, args)) |_| {

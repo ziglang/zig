@@ -794,9 +794,9 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
 
             if (exit_data) |data| {
                 if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
                     _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
                 }
             }
 

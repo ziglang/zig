@@ -1205,7 +1205,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define baz 1e1
         \\#define BAZ 42e-3f
         \\#define foobar -73.L
-    , &[_][]const u8{
+        \\extern const float my_float = 1.0f;
+        \\extern const double my_double = 1.0;
+        \\extern const long double my_longdouble = 1.0l;
+    , &([_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
         "pub const FOO = @as(f64, 0.12345);",
@@ -1213,7 +1216,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const baz = @as(f64, 1e1);",
         "pub const BAZ = @as(f32, 42e-3);",
         "pub const foobar = -@as(c_longdouble, 73.0);",
-    });
+        "pub export const my_float: f32 = 1.0;",
+        "pub export const my_double: f64 = 1.0;",
+    } ++ if (@bitSizeOf(c_longdouble) != 64) .{
+        // TODO properly translate non-64-bit long doubles
+        "source.h:10:42: warning: unsupported floating point constant format",
+        "source.h:10:26: warning: unable to translate variable initializer, demoted to extern",
+        "pub extern const my_longdouble: c_longdouble;",
+    } else .{
+        "pub export const my_longdouble: c_longdouble = 1.0;",
+    }));
 
     cases.add("macro defines hexadecimal float",
         \\#define FOO 0xf7p38

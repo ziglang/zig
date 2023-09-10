@@ -1866,7 +1866,7 @@ pub const Value = struct {
 
     pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
+            .undef => try mod.undefValue(float_ty),
             .int => |int| switch (int.storage) {
                 .big_int => |big_int| {
                     const float = bigIntToFloat(big_int.limbs, big_int.positive);

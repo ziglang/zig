@@ -5,15 +5,15 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
 
-pub const Ip6ServiceBindingProtocol = extern struct {
-    _create_child: *const fn (*const Ip6ServiceBindingProtocol, *?Handle) callconv(cc) Status,
-    _destroy_child: *const fn (*const Ip6ServiceBindingProtocol, Handle) callconv(cc) Status,
+pub const Ip6ServiceBinding = extern struct {
+    _create_child: *const fn (*const Ip6ServiceBinding, *?Handle) callconv(cc) Status,
+    _destroy_child: *const fn (*const Ip6ServiceBinding, Handle) callconv(cc) Status,
 
-    pub fn createChild(self: *const Ip6ServiceBindingProtocol, handle: *?Handle) Status {
+    pub fn createChild(self: *const Ip6ServiceBinding, handle: *?Handle) Status {
         return self._create_child(self, handle);
     }
 
-    pub fn destroyChild(self: *const Ip6ServiceBindingProtocol, handle: Handle) Status {
+    pub fn destroyChild(self: *const Ip6ServiceBinding, handle: Handle) Status {
         return self._destroy_child(self, handle);
     }
 

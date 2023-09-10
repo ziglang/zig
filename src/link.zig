@@ -228,7 +228,6 @@ pub const Options = struct {
 
     version: ?std.SemanticVersion,
     compatibility_version: ?std.SemanticVersion,
-    darwin_sdk_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
@@ -694,19 +693,15 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
-        EmptyStubFile,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,
-        FrameworkNotFound,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,
@@ -723,27 +718,19 @@ pub const File = struct {
         LLD_LinkingIsTODO_ForSpirV,
         LibCInstallationMissingCRTDir,
         LibCInstallationNotAvailable,
-        LibraryNotFound,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
         MalformedDwarf,
         MalformedSection,
         MemoryTooBig,
         MemoryTooSmall,
-        MismatchedCpuArchitecture,
         MissAlignment,
         MissingEndForBody,
         MissingEndForExpression,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,
-        MultipleSymbolDefinitions,
         NoObjectsToLink,
-        NotObject,
         NotObjectFile,
         NotSupported,
         OutOfMemory,
@@ -755,21 +742,15 @@ pub const File = struct {
         SymbolMismatchingType,
         TODOImplementPlan9Objs,
         TODOImplementWritingLibFiles,
-        TODOImplementWritingStaticLibFiles,
         UnableToSpawnSelf,
         UnableToSpawnWasm,
         UnableToWriteArchive,
         UndefinedLocal,
-        /// TODO: merge with UndefinedSymbolReference
         UndefinedSymbol,
-        /// TODO: merge with UndefinedSymbol
-        UndefinedSymbolReference,
         Underflow,
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
-        UnhandledSymbolType,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,
@@ -863,6 +844,13 @@ pub const File = struct {
             .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
             .wasm, .spirv, .nvptx => return ErrorFlags{},
+        }
+    }
+
+    pub fn miscErrors(base: *File) []const ErrorMsg {
+        switch (base.tag) {
+            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
+            else => return &.{},
         }
     }
 
@@ -1127,6 +1115,19 @@ pub const File = struct {
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
+    };
+
+    pub const ErrorMsg = struct {
+        msg: []const u8,
+        notes: []ErrorMsg = &.{},
+
+        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
+            for (self.notes) |*note| {
+                note.deinit(gpa);
+            }
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
     };
 
     pub const LazySymbol = struct {

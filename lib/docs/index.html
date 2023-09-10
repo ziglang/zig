@@ -36,6 +36,11 @@
         text-decoration: none;
       }
 
+      pre a {
+        text-decoration: underline;
+        color: unset;
+      }
+
       a:hover {
         text-decoration: underline;
       }
@@ -65,7 +70,6 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        margin: 0 1rem;
 
         height: 100%;
         overflow: hidden;
@@ -86,14 +90,12 @@
       }
 
       .flex-left {
-        width: 12rem;
-        max-width: 15vw;
-        min-width: 9.5rem;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         overflow-wrap: break-word;
         flex-shrink: 0;
         flex-grow: 0;
+        margin-right: 0.5rem;
 
         z-index: 300;
       }
@@ -130,13 +132,11 @@
       }
 
       .logo {
-        width: 168px;
-        margin-right: 1rem;
+        margin: 0.5rem;
       }
 
       .logo > svg {
         display: block;
-        overflow: visible;
       }
 
       ul.guides-api-switch {
@@ -271,7 +271,7 @@
       .column {
         flex-basis: 0;
         flex-grow: 1;
-        min-width: 24rem;
+        min-width: min(24rem, 90%);
       }
 
       
@@ -307,8 +307,14 @@
       #searchPlaceholder {
         position: absolute;
         pointer-events: none;
-        top: 5px;
-        left: 5px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 5px;
+      }
+
+      #searchPlaceholderTextMobile {
+        display: none;
       }
 
       #dotsPopover:before {
@@ -649,6 +655,10 @@
           color: #458;
           font-weight: bold;
       }
+      .tok-decl-ref {
+          color: #0086b3;
+          font-weight: bold;
+      }
 
       /* dark mode */
       @media (prefers-color-scheme: dark) {
@@ -723,6 +733,9 @@
         .tok-type {
             color: #68f;
         }
+        .tok-decl-ref {
+            color: lightblue;
+        }
       }
 
       @media only screen and (max-width: 750px) {
@@ -737,9 +750,6 @@
           min-width: calc(100vw - 2.8rem);
           padding-left: 1.4rem;
           padding-right: 1.4rem;
-        }
-        .logo {
-          max-width: 6.5rem;
         }
         .flex-main > .flex-filler {
           display: none;
@@ -793,6 +803,12 @@
           display: inline-block;
           min-width: calc(100% - 2.8rem);
         }
+        #searchPlaceholderText {
+          display: none;
+        }
+        #searchPlaceholderTextMobile {
+          display: inline;
+        }
       }
       .banner {
         background-color: orange;
@@ -811,7 +827,8 @@
       pre {
         --zig-keyword: #333;
         --zig-builtin: #0086b3;
-        --zig-identifier: 'black';
+        --zig-identifier: black;
+        --zig-decl-identifier: #0086b3;
         --zig-string-literal: #d14;
         --zig-type: #458;
         --zig-fn: #900;
@@ -821,13 +838,13 @@
         pre {
           --zig-keyword: #eee;
           --zig-builtin: #ff894c;
-          --zig-identifier: 'purple';
+          --zig-identifier: #bbbbbb;
+          --zig-decl-identifier: lightblue;
           --zig-string-literal: #2e5;
           --zig-type: #68f;
           --zig-fn: #e33;
         }
       }
-    
 
     .zig_keyword_addrspace,
     .zig_keyword_align,
@@ -907,6 +924,11 @@
       color: var(--zig-identifier);
       font-weight: bold;
     }
+    
+    .zig_decl_identifier {
+      color: var(--zig-decl-identifier);
+      font-weight: bold;
+    }
 
     .zig_number_literal,
     .zig_special {
@@ -933,7 +955,7 @@
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
     <div id="main" class="flex-main">
-      <div class="flex-horizontal" style="justify-content: center;padding:0.5rem;">
+      <div class="flex-horizontal" style="justify-content: center; padding: 0 0.5rem;">
         <div class="flex-left">
           <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
@@ -984,7 +1006,10 @@
             </div>
         <div class="flex-right" style="padding-top: 0.5rem;overflow:visible;">
           <div class="search-container" style="position:relative;">
-            <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
+            <div id="searchPlaceholder">
+              <span id="searchPlaceholderText"><!-- populated by setPrefSlashSearch --></span>
+              <span id="searchPlaceholderTextMobile">Search</span>
+            </div>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
             <div id="dotsPopover">
               Use spaces instead of dots. See $resource for more info.
@@ -1003,7 +1028,7 @@
         </div>
         </div>
       </div>
-      <div style="height:100%; overflow:hidden; margin: 0 1rem;">
+      <div style="height:100%; overflow:hidden;">
         <div id="sectSearchResults" class="docs hidden">
           <details id="searchHelp">
             <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
@@ -1066,7 +1091,7 @@
           </ul>
           <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
         </div>
-        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <div id="guidesMenu" class="sidebar">
             <h2 id="guidesMenuTitle">Table of Contents</h2>
             <div id="guideTocListEmpty" style="margin:0 1rem;"><i>No content to display.</i></div>
@@ -1074,7 +1099,7 @@
           </div>
           <div id="activeGuide" class="hidden"></div>
         </div> 
-        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <section id="docs-scroll" class="docs">
             <p id="status">Loading...</p>
             <div id="fnProto" class="hidden">

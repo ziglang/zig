@@ -187,13 +187,13 @@ pub const LibCInstallation = struct {
                 return error.DarwinSdkNotFound;
             const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
                 return error.DarwinSdkNotFound;
-            defer args.allocator.free(sdk.path);
+            defer args.allocator.free(sdk);
 
             self.include_dir = try fs.path.join(args.allocator, &.{
-                sdk.path, "usr/include",
+                sdk, "usr/include",
             });
             self.sys_include_dir = try fs.path.join(args.allocator, &.{
-                sdk.path, "usr/include",
+                sdk, "usr/include",
             });
             return self;
         } else if (is_windows) {
