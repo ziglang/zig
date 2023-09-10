@@ -3470,10 +3470,10 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
             return func.cmpOptionals(lhs, rhs, ty, op);
         }
+    } else if (ty.isAnyFloat()) {
+        return func.cmpFloat(ty, lhs, rhs, op);
     } else if (isByRef(ty, mod)) {
         return func.cmpBigInt(lhs, rhs, ty, op);
-    } else if (ty.isAnyFloat() and ty.floatBits(func.target) == 16) {
-        return func.cmpFloat16(lhs, rhs, op);
     }
 
     // ensure that when we compare pointers, we emit
@@ -3505,26 +3505,47 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
     return WValue{ .stack = {} };
 }
 
-/// Compares 16-bit floats
-/// NOTE: The result value remains on top of the stack.
-fn cmpFloat16(func: *CodeGen, lhs: WValue, rhs: WValue, op: std.math.CompareOperator) InnerError!WValue {
-    const opcode: wasm.Opcode = buildOpcode(.{
-        .op = switch (op) {
-            .lt => .lt,
-            .lte => .le,
-            .eq => .eq,
-            .neq => .ne,
-            .gte => .ge,
-            .gt => .gt,
-        },
-        .valtype1 = .f32,
-        .signedness = .unsigned,
-    });
-    _ = try func.fpext(lhs, Type.f16, Type.f32);
-    _ = try func.fpext(rhs, Type.f16, Type.f32);
-    try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+/// Compares two floats.
+/// NOTE: Leaves the result of the comparison on top of the stack.
+fn cmpFloat(func: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.CompareOperator) InnerError!WValue {
+    const float_bits = ty.floatBits(func.target);
 
-    return WValue{ .stack = {} };
+    const op: Op = switch (cmp_op) {
+        .lt => .lt,
+        .lte => .le,
+        .eq => .eq,
+        .neq => .ne,
+        .gte => .ge,
+        .gt => .gt,
+    };
+
+    switch (float_bits) {
+        16 => {
+            _ = try func.fpext(lhs, Type.f16, Type.f32);
+            _ = try func.fpext(rhs, Type.f16, Type.f32);
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = .f32 });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        32, 64 => {
+            try func.emitWValue(lhs);
+            try func.emitWValue(rhs);
+            const val_type: wasm.Valtype = if (float_bits == 32) .f32 else .f64;
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = val_type });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        80, 128 => {
+            var fn_name_buf: [32]u8 = undefined;
+            const fn_name = std.fmt.bufPrint(&fn_name_buf, "__{s}{s}f2", .{
+                @tagName(op), target_util.compilerRtFloatAbbrev(float_bits),
+            }) catch unreachable;
+
+            const result = try func.callIntrinsic(fn_name, &.{ ty.ip_index, ty.ip_index }, Type.bool, &.{ lhs, rhs });
+            return func.cmp(result, WValue{ .imm32 = 0 }, Type.i32, cmp_op);
+        },
+        else => unreachable,
+    }
 }
 
 fn airCmpVector(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
