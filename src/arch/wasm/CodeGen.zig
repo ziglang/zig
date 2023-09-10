@@ -992,13 +992,12 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
 fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
     const target = mod.getTarget();
     return switch (ty.zigTypeTag(mod)) {
-        .Float => blk: {
-            const bits = ty.floatBits(target);
-            if (bits == 16) return wasm.Valtype.i32; // stored/loaded as u16
-            if (bits == 32) break :blk wasm.Valtype.f32;
-            if (bits == 64) break :blk wasm.Valtype.f64;
-            if (bits == 128) break :blk wasm.Valtype.i64;
-            return wasm.Valtype.i32; // represented as pointer to stack
+        .Float => switch (ty.floatBits(target)) {
+            16 => wasm.Valtype.i32, // stored/loaded as u16
+            32 => wasm.Valtype.f32,
+            64 => wasm.Valtype.f64,
+            80, 128 => wasm.Valtype.i64,
+            else => unreachable,
         },
         .Int, .Enum => blk: {
             const info = ty.intInfo(mod);
@@ -2795,6 +2794,11 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
     }
 
     const float_bits = ty.floatBits(func.target);
+
+    if (float_op == .neg) {
+        return func.floatNeg(ty, args[0]);
+    }
+
     if (float_bits == 32 or float_bits == 64) {
         if (float_op.toOp()) |op| {
             for (args) |operand| {
@@ -2804,13 +2808,6 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
             try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
             return .stack;
         }
-    } else if (float_bits == 16 and float_op == .neg) {
-        try func.emitWValue(args[0]);
-        try func.addImm32(std.math.minInt(i16));
-        try func.addTag(Mir.Inst.Tag.fromOpcode(.i32_xor));
-        return .stack;
-    } else if (float_bits == 128 and float_op == .neg) {
-        return func.fail("TODO: Implement neg for f128", .{});
     }
 
     var fn_name_buf: [64]u8 = undefined;
@@ -2851,6 +2848,49 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
     var param_types_buffer: [3]InternPool.Index = .{ ty.ip_index, ty.ip_index, ty.ip_index };
     const param_types = param_types_buffer[0..args.len];
     return func.callIntrinsic(fn_name, param_types, ty, args);
+}
+
+/// NOTE: The result value remains on top of the stack.
+fn floatNeg(func: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
+    const float_bits = ty.floatBits(func.target);
+    switch (float_bits) {
+        16 => {
+            try func.emitWValue(arg);
+            try func.addImm32(std.math.minInt(i16));
+            try func.addTag(.i32_xor);
+            return .stack;
+        },
+        32, 64 => {
+            try func.emitWValue(arg);
+            const val_type: wasm.Valtype = if (float_bits == 32) .f32 else .f64;
+            const opcode = buildOpcode(.{ .op = .neg, .valtype1 = val_type });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        80, 128 => {
+            const result = try func.allocStack(ty);
+            try func.emitWValue(result);
+            try func.emitWValue(arg);
+            try func.addMemArg(.i64_load, .{ .offset = 0 + arg.offset(), .alignment = 2 });
+            try func.addMemArg(.i64_store, .{ .offset = 0 + result.offset(), .alignment = 2 });
+
+            try func.emitWValue(result);
+            try func.emitWValue(arg);
+            try func.addMemArg(.i64_load, .{ .offset = 8 + arg.offset(), .alignment = 2 });
+
+            if (float_bits == 80) {
+                try func.addImm64(0x8000);
+                try func.addTag(.i64_xor);
+                try func.addMemArg(.i64_store16, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            } else {
+                try func.addImm64(0x8000000000000000);
+                try func.addTag(.i64_xor);
+                try func.addMemArg(.i64_store, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            }
+            return result;
+        },
+        else => unreachable,
+    }
 }
 
 fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
