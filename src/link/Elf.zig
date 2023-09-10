@@ -135,10 +135,6 @@ last_atom_and_free_list_table: std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFre
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_consts: UnnamedConstTable = .{},
 
-/// A table of relocations indexed by the owning them `TextBlock`.
-relocs: RelocTable = .{},
-
-const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Reloc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
@@ -293,14 +289,6 @@ pub fn deinit(self: *Elf) void {
         self.unnamed_consts.deinit(gpa);
     }
 
-    {
-        var it = self.relocs.valueIterator();
-        while (it.next()) |relocs| {
-            relocs.deinit(gpa);
-        }
-        self.relocs.deinit(gpa);
-    }
-
     if (self.dwarf) |*dw| {
         dw.deinit();
     }
@@ -312,12 +300,11 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
     const this_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.value;
-    const parent_atom_index = self.symbol(reloc_info.parent_atom_index).atom_index;
-    try Atom.addRelocation(self, parent_atom_index, .{
+    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
+    try parent_atom.addReloc(self, .{
         .target = this_sym_index,
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
-        .prev_vaddr = vaddr,
     });
 
     return vaddr;
@@ -1032,38 +1019,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations.
-    {
-        var it = self.relocs.iterator();
-        while (it.next()) |entry| {
-            const atom_index = entry.key_ptr.*;
-            const relocs = entry.value_ptr.*;
-            const atom_ptr = self.atom(atom_index).?;
-            const source_shdr = &self.shdrs.items[atom_ptr.output_section_index];
-
-            log.debug("relocating '{s}'", .{atom_ptr.name(self)});
-
-            for (relocs.items) |*reloc| {
-                const target_sym = self.symbol(reloc.target);
-                const target_vaddr = target_sym.value + reloc.addend;
-
-                if (target_vaddr == reloc.prev_vaddr) continue;
-
-                const section_offset = (atom_ptr.value + reloc.offset) - source_shdr.sh_addr;
-                const file_offset = source_shdr.sh_offset + section_offset;
-
-                log.debug("  ({x}: [() => 0x{x}] ({s}))", .{
-                    reloc.offset,
-                    target_vaddr,
-                    target_sym.name(self),
-                });
-
-                switch (self.ptr_width) {
-                    .p32 => try self.base.file.?.pwriteAll(mem.asBytes(&@as(u32, @intCast(target_vaddr))), file_offset),
-                    .p64 => try self.base.file.?.pwriteAll(mem.asBytes(&target_vaddr), file_offset),
-                }
-
-                reloc.prev_vaddr = target_vaddr;
-            }
+    if (self.zig_module_index) |index| {
+        for (self.file(index).?.zig_module.atoms.items) |atom_index| {
+            try self.atom(atom_index).?.resolveRelocs(self);
         }
     }
 
@@ -2313,7 +2271,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
 
     const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     self.freeUnnamedConsts(decl_index);
-    Atom.freeRelocations(self, self.symbol(sym_index).atom_index);
+    self.symbol(sym_index).atom(self).?.freeRelocs(self);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2378,7 +2336,7 @@ pub fn updateDecl(
     }
 
     const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    Atom.freeRelocations(self, self.symbol(sym_index).atom_index);
+    self.symbol(sym_index).atom(self).?.freeRelocs(self);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();

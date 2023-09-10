@@ -14,13 +14,13 @@ size: u64 = 0,
 alignment: u8 = 0,
 
 /// Index of the input section.
-input_section_index: u16 = 0,
+input_section_index: Index = 0,
 
 /// Index of the output section.
 output_section_index: u16 = 0,
 
 /// Index of the input section containing this atom's relocs.
-relocs_section_index: u16 = 0,
+relocs_section_index: Index = 0,
 
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
@@ -62,20 +62,6 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
     return surplus >= Elf.min_text_capacity;
-}
-
-pub fn addRelocation(elf_file: *Elf, atom_index: Index, reloc: Reloc) !void {
-    const gpa = elf_file.base.allocator;
-    const gop = try elf_file.relocs.getOrPut(gpa, atom_index);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{};
-    }
-    try gop.value_ptr.append(gpa, reloc);
-}
-
-pub fn freeRelocations(elf_file: *Elf, atom_index: Index) void {
-    var removed_relocs = elf_file.relocs.fetchRemove(atom_index);
-    if (removed_relocs) |*relocs| relocs.value.deinit(elf_file.base.allocator);
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
@@ -205,8 +191,6 @@ pub fn grow(self: *Atom, elf_file: *Elf) !void {
 pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
-    Atom.freeRelocations(elf_file, self.atom_index);
-
     const gpa = elf_file.base.allocator;
     const shndx = self.output_section_index;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
@@ -256,23 +240,70 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         self.next_index = 0;
     }
 
+    // TODO create relocs free list
+    self.freeRelocs(elf_file);
     self.* = .{};
 }
 
-pub const Index = u32;
+pub fn relocs(self: Atom, elf_file: *Elf) []const Relocation {
+    const file_ptr = elf_file.file(self.file_index).?;
+    if (file_ptr != .zig_module) @panic("TODO");
+    const zig_module = file_ptr.zig_module;
+    return zig_module.relocs.items[self.relocs_section_index].items;
+}
 
-pub const Reloc = struct {
-    target: u32,
-    offset: u64,
-    addend: u32,
-    prev_vaddr: u64,
-};
+pub fn addReloc(self: Atom, elf_file: *Elf, reloc: Relocation) !void {
+    const gpa = elf_file.base.allocator;
+    const file_ptr = elf_file.file(self.file_index).?;
+    assert(file_ptr == .zig_module);
+    const zig_module = file_ptr.zig_module;
+    const rels = &zig_module.relocs.items[self.relocs_section_index];
+    try rels.append(gpa, reloc);
+}
+
+pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
+    const file_ptr = elf_file.file(self.file_index).?;
+    assert(file_ptr == .zig_module);
+    const zig_module = file_ptr.zig_module;
+    zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
+}
+
+/// TODO mark relocs dirty
+pub fn resolveRelocs(self: Atom, elf_file: *Elf) !void {
+    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+    const shdr = &elf_file.shdrs.items[self.output_section_index];
+    for (self.relocs(elf_file)) |reloc| {
+        const target_sym = elf_file.symbol(reloc.target);
+        const target_vaddr = target_sym.value + reloc.addend;
+        const section_offset = (self.value + reloc.offset) - shdr.sh_addr;
+        const file_offset = shdr.sh_offset + section_offset;
+
+        relocs_log.debug("  ({x}: [() => 0x{x}] ({s}))", .{
+            reloc.offset,
+            target_vaddr,
+            target_sym.name(elf_file),
+        });
+
+        switch (elf_file.ptr_width) {
+            .p32 => try elf_file.base.file.?.pwriteAll(
+                std.mem.asBytes(&@as(u32, @intCast(target_vaddr))),
+                file_offset,
+            ),
+            .p64 => try elf_file.base.file.?.pwriteAll(std.mem.asBytes(&target_vaddr), file_offset),
+        }
+    }
+}
+
+pub const Index = u32;
 
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 
+const Allocator = std.mem.Allocator;
 const Atom = @This();
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
+const Relocation = @import("Relocation.zig");

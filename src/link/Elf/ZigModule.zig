@@ -9,6 +9,7 @@ elf_global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 global_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
 
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation)) = .{},
 
 alive: bool = true,
 
@@ -20,6 +21,10 @@ pub fn deinit(self: *ZigModule, allocator: Allocator) void {
     self.elf_global_symbols.deinit(allocator);
     self.global_symbols.deinit(allocator);
     self.atoms.deinit(allocator);
+    for (self.relocs.items) |*list| {
+        list.deinit(allocator);
+    }
+    self.relocs.deinit(allocator);
 }
 
 pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
@@ -34,6 +39,10 @@ pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !
     symbol_ptr.output_section_index = output_section_index;
     const local_esym = symbol_ptr.sourceSymbol(elf_file);
     local_esym.st_shndx = output_section_index;
+    const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
+    const relocs = try self.relocs.addOne(gpa);
+    relocs.* = .{};
+    atom_ptr.relocs_section_index = relocs_index;
     try self.atoms.append(gpa, atom_index);
     return symbol_index;
 }
@@ -184,5 +193,6 @@ const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Module = @import("../../Module.zig");
-const ZigModule = @This();
+const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
+const ZigModule = @This();
