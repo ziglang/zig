@@ -25,8 +25,8 @@ pub const File = union(enum) {
         switch (file) {
             .zig_module => try writer.writeAll("(zig module)"),
             .linker_defined => try writer.writeAll("(linker defined)"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .shared_object => |x| try writer.writeAll(x.path),
+            // .object => |x| try writer.print("{}", .{x.fmtPath()}),
+            // .shared_object => |x| try writer.writeAll(x.path),
         }
     }
 
@@ -62,7 +62,8 @@ pub const File = union(enum) {
     pub fn symbolRank(file: File, sym: elf.Elf64_Sym, in_archive: bool) u32 {
         const base: u3 = blk: {
             if (sym.st_shndx == elf.SHN_COMMON) break :blk if (in_archive) 6 else 5;
-            if (file == .shared or in_archive) break :blk switch (sym.st_bind()) {
+            // if (file == .shared or in_archive) break :blk switch (sym.st_bind()) {
+            if (in_archive) break :blk switch (sym.st_bind()) {
                 elf.STB_GLOBAL => 3,
                 else => 4,
             };

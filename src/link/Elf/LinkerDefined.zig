@@ -22,7 +22,7 @@ pub fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 
         .st_value = 0,
         .st_size = 0,
     });
-    const off = try elf_file.internString("{s}", .{name});
+    const off = try elf_file.strtab.insert(gpa, name);
     const gop = try elf_file.getOrPutGlobal(off);
     self.symbols.addOneAssumeCapacity().* = gop.index;
     return gop.index;
@@ -37,14 +37,12 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
 
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, false) < global.symbolRank(elf_file)) {
-            global.* = .{
-                .value = 0,
-                .name = global.name,
-                .atom = 0,
-                .file = self.index,
-                .sym_idx = sym_idx,
-                .ver_idx = elf_file.default_sym_version,
-            };
+            global.value = 0;
+            global.name_offset = global.name_offset;
+            global.atom_index = 0;
+            global.file_index = self.index;
+            global.esym_index = sym_idx;
+            global.version_index = elf_file.default_sym_version;
         }
     }
 }

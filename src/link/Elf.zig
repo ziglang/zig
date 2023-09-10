@@ -36,6 +36,7 @@ phdr_load_rw_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 page_size: u32,
+default_sym_version: elf.Elf64_Versym,
 
 /// .shstrtab buffer
 shstrtab: StringTable(.strtab) = .{},
@@ -56,6 +57,23 @@ debug_line_section_index: ?u16 = null,
 shstrtab_section_index: ?u16 = null,
 strtab_section_index: ?u16 = null,
 symtab_section_index: ?u16 = null,
+
+// Linker-defined symbols
+dynamic_index: ?Symbol.Index = null,
+ehdr_start_index: ?Symbol.Index = null,
+init_array_start_index: ?Symbol.Index = null,
+init_array_end_index: ?Symbol.Index = null,
+fini_array_start_index: ?Symbol.Index = null,
+fini_array_end_index: ?Symbol.Index = null,
+preinit_array_start_index: ?Symbol.Index = null,
+preinit_array_end_index: ?Symbol.Index = null,
+got_index: ?Symbol.Index = null,
+plt_index: ?Symbol.Index = null,
+end_index: ?Symbol.Index = null,
+gnu_eh_frame_hdr_index: ?Symbol.Index = null,
+dso_handle_index: ?Symbol.Index = null,
+rela_iplt_start_index: ?Symbol.Index = null,
+rela_iplt_end_index: ?Symbol.Index = null,
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -188,6 +206,10 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .sparc64 => 0x2000,
         else => 0x1000,
     };
+    const default_sym_version: elf.Elf64_Versym = if (options.output_mode == .Lib and options.link_mode == .Dynamic)
+        elf.VER_NDX_GLOBAL
+    else
+        elf.VER_NDX_LOCAL;
 
     var dwarf: ?Dwarf = if (!options.strip and options.module != null)
         Dwarf.init(gpa, &self.base, options.target)
@@ -204,6 +226,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .dwarf = dwarf,
         .ptr_width = ptr_width,
         .page_size = page_size,
+        .default_sym_version = default_sym_version,
     };
     const use_llvm = options.use_llvm;
     if (use_llvm) {
@@ -987,11 +1010,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    self.linker_defined_index = blk: {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .linker_defined = .{ .index = index } });
-        break :blk index;
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
     };
+    _ = compiler_rt_path;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -1023,6 +1047,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try dw.flushModule(module);
     }
 
+    if (self.linker_defined_index == null) {
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        self.files.set(index, .{ .linker_defined = .{ .index = index } });
+        self.linker_defined_index = index;
+    }
+
+    try self.addLinkerDefinedSymbols();
+
+    // Beyond this point, everything has been allocated a virtual address and we can resolve
+    // the relocations.
     {
         var it = self.relocs.iterator();
         while (it.next()) |entry| {
@@ -2682,6 +2716,54 @@ pub fn deleteDeclExport(
     sym_index.* = 0;
 }
 
+fn addLinkerDefinedSymbols(self: *Elf) !void {
+    const linker_defined_index = self.linker_defined_index orelse return;
+    const linker_defined = self.file(linker_defined_index).?.linker_defined;
+    self.dynamic_index = try linker_defined.addGlobal("_DYNAMIC", self);
+    self.ehdr_start_index = try linker_defined.addGlobal("__ehdr_start", self);
+    self.init_array_start_index = try linker_defined.addGlobal("__init_array_start", self);
+    self.init_array_end_index = try linker_defined.addGlobal("__init_array_end", self);
+    self.fini_array_start_index = try linker_defined.addGlobal("__fini_array_start", self);
+    self.fini_array_end_index = try linker_defined.addGlobal("__fini_array_end", self);
+    self.preinit_array_start_index = try linker_defined.addGlobal("__preinit_array_start", self);
+    self.preinit_array_end_index = try linker_defined.addGlobal("__preinit_array_end", self);
+    self.got_index = try linker_defined.addGlobal("_GLOBAL_OFFSET_TABLE_", self);
+    self.plt_index = try linker_defined.addGlobal("_PROCEDURE_LINKAGE_TABLE_", self);
+    self.end_index = try linker_defined.addGlobal("_end", self);
+
+    if (self.base.options.eh_frame_hdr) {
+        self.gnu_eh_frame_hdr_index = try linker_defined.addGlobal("__GNU_EH_FRAME_HDR", self);
+    }
+
+    if (self.globalByName("__dso_handle")) |index| {
+        if (self.symbol(index).file(self) == null)
+            self.dso_handle_index = try linker_defined.addGlobal("__dso_handle", self);
+    }
+
+    self.rela_iplt_start_index = try linker_defined.addGlobal("__rela_iplt_start", self);
+    self.rela_iplt_end_index = try linker_defined.addGlobal("__rela_iplt_end", self);
+
+    // for (self.objects.items) |index| {
+    //     const object = self.getFile(index).?.object;
+    //     for (object.atoms.items) |atom_index| {
+    //         if (self.getStartStopBasename(atom_index)) |name| {
+    //             const gpa = self.base.allocator;
+    //             try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
+
+    //             const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+    //             defer gpa.free(start);
+    //             const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+    //             defer gpa.free(stop);
+
+    //             self.start_stop_indexes.appendAssumeCapacity(try internal.addSyntheticGlobal(start, self));
+    //             self.start_stop_indexes.appendAssumeCapacity(try internal.addSyntheticGlobal(stop, self));
+    //         }
+    //     }
+    // }
+
+    linker_defined.resolveSymbols(self);
+}
+
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
@@ -3193,7 +3275,7 @@ pub fn getOrPutGlobal(self: *Elf, name_off: u32) !GetOrPutGlobalResult {
     };
 }
 
-pub fn getGlobalByName(self: *Elf, name: []const u8) ?Symbol.Index {
+pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
     const name_off = self.strtab.getOffset(name) orelse return null;
     return self.resolver.get(name_off);
 }

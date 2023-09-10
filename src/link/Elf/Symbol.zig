@@ -81,7 +81,7 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
         // .object => |x| !x.alive,
         else => false,
     };
-    return file_ptr.symbolRank(sym, in_archive);
+    return file_ptr.symbolRank(sym.*, in_archive);
 }
 
 pub fn address(symbol: Symbol, opts: struct {
