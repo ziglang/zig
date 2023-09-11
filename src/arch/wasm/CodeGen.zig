@@ -992,13 +992,12 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
 fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
     const target = mod.getTarget();
     return switch (ty.zigTypeTag(mod)) {
-        .Float => blk: {
-            const bits = ty.floatBits(target);
-            if (bits == 16) return wasm.Valtype.i32; // stored/loaded as u16
-            if (bits == 32) break :blk wasm.Valtype.f32;
-            if (bits == 64) break :blk wasm.Valtype.f64;
-            if (bits == 128) break :blk wasm.Valtype.i64;
-            return wasm.Valtype.i32; // represented as pointer to stack
+        .Float => switch (ty.floatBits(target)) {
+            16 => wasm.Valtype.i32, // stored/loaded as u16
+            32 => wasm.Valtype.f32,
+            64 => wasm.Valtype.f64,
+            80, 128 => wasm.Valtype.i64,
+            else => unreachable,
         },
         .Int, .Enum => blk: {
             const info = ty.intInfo(mod);
@@ -2559,7 +2558,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const result = try func.allocStack(arg_ty);
             try func.store(result, arg, Type.u64, 0);
             try func.store(result, func.args[arg_index + 1], Type.u64, 8);
-            return func.finishAir(inst, arg, &.{});
+            return func.finishAir(inst, result, &.{});
         }
     } else {
         func.arg_index += 1;
@@ -2651,12 +2650,18 @@ fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!
 
 fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
-    if (ty.intInfo(mod).bits > 128) {
+    const int_info = ty.intInfo(mod);
+    if (int_info.bits > 128) {
         return func.fail("TODO: Implement binary operation for big integers larger than 128 bits", .{});
     }
 
     switch (op) {
         .mul => return func.callIntrinsic("__multi3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        .div => switch (int_info.signedness) {
+            .signed => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        },
+        .rem => return func.callIntrinsic("__umodti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         .shr => return func.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .shl => return func.callIntrinsic("__ashlti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .xor => {
@@ -2795,6 +2800,11 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
     }
 
     const float_bits = ty.floatBits(func.target);
+
+    if (float_op == .neg) {
+        return func.floatNeg(ty, args[0]);
+    }
+
     if (float_bits == 32 or float_bits == 64) {
         if (float_op.toOp()) |op| {
             for (args) |operand| {
@@ -2804,13 +2814,6 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
             try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
             return .stack;
         }
-    } else if (float_bits == 16 and float_op == .neg) {
-        try func.emitWValue(args[0]);
-        try func.addImm32(std.math.minInt(i16));
-        try func.addTag(Mir.Inst.Tag.fromOpcode(.i32_xor));
-        return .stack;
-    } else if (float_bits == 128 and float_op == .neg) {
-        return func.fail("TODO: Implement neg for f128", .{});
     }
 
     var fn_name_buf: [64]u8 = undefined;
@@ -2851,6 +2854,49 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
     var param_types_buffer: [3]InternPool.Index = .{ ty.ip_index, ty.ip_index, ty.ip_index };
     const param_types = param_types_buffer[0..args.len];
     return func.callIntrinsic(fn_name, param_types, ty, args);
+}
+
+/// NOTE: The result value remains on top of the stack.
+fn floatNeg(func: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
+    const float_bits = ty.floatBits(func.target);
+    switch (float_bits) {
+        16 => {
+            try func.emitWValue(arg);
+            try func.addImm32(std.math.minInt(i16));
+            try func.addTag(.i32_xor);
+            return .stack;
+        },
+        32, 64 => {
+            try func.emitWValue(arg);
+            const val_type: wasm.Valtype = if (float_bits == 32) .f32 else .f64;
+            const opcode = buildOpcode(.{ .op = .neg, .valtype1 = val_type });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        80, 128 => {
+            const result = try func.allocStack(ty);
+            try func.emitWValue(result);
+            try func.emitWValue(arg);
+            try func.addMemArg(.i64_load, .{ .offset = 0 + arg.offset(), .alignment = 2 });
+            try func.addMemArg(.i64_store, .{ .offset = 0 + result.offset(), .alignment = 2 });
+
+            try func.emitWValue(result);
+            try func.emitWValue(arg);
+            try func.addMemArg(.i64_load, .{ .offset = 8 + arg.offset(), .alignment = 2 });
+
+            if (float_bits == 80) {
+                try func.addImm64(0x8000);
+                try func.addTag(.i64_xor);
+                try func.addMemArg(.i64_store16, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            } else {
+                try func.addImm64(0x8000000000000000);
+                try func.addTag(.i64_xor);
+                try func.addMemArg(.i64_store, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            }
+            return result;
+        },
+        else => unreachable,
+    }
 }
 
 fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
@@ -3430,10 +3476,10 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
             return func.cmpOptionals(lhs, rhs, ty, op);
         }
+    } else if (ty.isAnyFloat()) {
+        return func.cmpFloat(ty, lhs, rhs, op);
     } else if (isByRef(ty, mod)) {
         return func.cmpBigInt(lhs, rhs, ty, op);
-    } else if (ty.isAnyFloat() and ty.floatBits(func.target) == 16) {
-        return func.cmpFloat16(lhs, rhs, op);
     }
 
     // ensure that when we compare pointers, we emit
@@ -3465,26 +3511,47 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
     return WValue{ .stack = {} };
 }
 
-/// Compares 16-bit floats
-/// NOTE: The result value remains on top of the stack.
-fn cmpFloat16(func: *CodeGen, lhs: WValue, rhs: WValue, op: std.math.CompareOperator) InnerError!WValue {
-    const opcode: wasm.Opcode = buildOpcode(.{
-        .op = switch (op) {
-            .lt => .lt,
-            .lte => .le,
-            .eq => .eq,
-            .neq => .ne,
-            .gte => .ge,
-            .gt => .gt,
-        },
-        .valtype1 = .f32,
-        .signedness = .unsigned,
-    });
-    _ = try func.fpext(lhs, Type.f16, Type.f32);
-    _ = try func.fpext(rhs, Type.f16, Type.f32);
-    try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+/// Compares two floats.
+/// NOTE: Leaves the result of the comparison on top of the stack.
+fn cmpFloat(func: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.CompareOperator) InnerError!WValue {
+    const float_bits = ty.floatBits(func.target);
 
-    return WValue{ .stack = {} };
+    const op: Op = switch (cmp_op) {
+        .lt => .lt,
+        .lte => .le,
+        .eq => .eq,
+        .neq => .ne,
+        .gte => .ge,
+        .gt => .gt,
+    };
+
+    switch (float_bits) {
+        16 => {
+            _ = try func.fpext(lhs, Type.f16, Type.f32);
+            _ = try func.fpext(rhs, Type.f16, Type.f32);
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = .f32 });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        32, 64 => {
+            try func.emitWValue(lhs);
+            try func.emitWValue(rhs);
+            const val_type: wasm.Valtype = if (float_bits == 32) .f32 else .f64;
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = val_type });
+            try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            return .stack;
+        },
+        80, 128 => {
+            var fn_name_buf: [32]u8 = undefined;
+            const fn_name = std.fmt.bufPrint(&fn_name_buf, "__{s}{s}f2", .{
+                @tagName(op), target_util.compilerRtFloatAbbrev(float_bits),
+            }) catch unreachable;
+
+            const result = try func.callIntrinsic(fn_name, &.{ ty.ip_index, ty.ip_index }, Type.bool, &.{ lhs, rhs });
+            return func.cmp(result, WValue{ .imm32 = 0 }, Type.i32, cmp_op);
+        },
+        else => unreachable,
+    }
 }
 
 fn airCmpVector(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -4796,11 +4863,31 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const dest_ty = func.typeOfIndex(inst);
     const op_ty = func.typeOf(ty_op.operand);
+    const op_bits = op_ty.floatBits(func.target);
 
-    if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: intFromFloat for integers/floats with bitsize larger than 64 bits", .{});
+    const dest_ty = func.typeOfIndex(inst);
+    const dest_info = dest_ty.intInfo(mod);
+
+    if (dest_info.bits > 128) {
+        return func.fail("TODO: intFromFloat for integers/floats with bitsize {}", .{dest_info.bits});
+    }
+
+    if ((op_bits != 32 and op_bits != 64) or dest_info.bits > 64) {
+        const dest_bitsize = if (dest_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, dest_info.bits);
+
+        var fn_name_buf: [16]u8 = undefined;
+        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__fix{s}{s}f{s}i", .{
+            switch (dest_info.signedness) {
+                .signed => "",
+                .unsigned => "uns",
+            },
+            target_util.compilerRtFloatAbbrev(op_bits),
+            target_util.compilerRtIntAbbrev(dest_bitsize),
+        }) catch unreachable;
+
+        const result = try (try func.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand})).toLocal(func, dest_ty);
+        return func.finishAir(inst, result, &.{ty_op.operand});
     }
 
     try func.emitWValue(operand);
@@ -4808,7 +4895,7 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .op = .trunc,
         .valtype1 = typeToValtype(dest_ty, mod),
         .valtype2 = typeToValtype(op_ty, mod),
-        .signedness = if (dest_ty.isSignedInt(mod)) .signed else .unsigned,
+        .signedness = dest_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
     const wrapped = try func.wrapOperand(.{ .stack = {} }, dest_ty);
@@ -4821,11 +4908,31 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const dest_ty = func.typeOfIndex(inst);
     const op_ty = func.typeOf(ty_op.operand);
+    const op_info = op_ty.intInfo(mod);
 
-    if (op_ty.abiSize(mod) > 8) {
-        return func.fail("TODO: floatFromInt for integers/floats with bitsize larger than 64 bits", .{});
+    const dest_ty = func.typeOfIndex(inst);
+    const dest_bits = dest_ty.floatBits(func.target);
+
+    if (op_info.bits > 128) {
+        return func.fail("TODO: floatFromInt for integers/floats with bitsize {d} bits", .{op_info.bits});
+    }
+
+    if (op_info.bits > 64 or (dest_bits > 64 or dest_bits < 32)) {
+        const op_bitsize = if (op_info.bits <= 16) 16 else std.math.ceilPowerOfTwoAssert(u16, op_info.bits);
+
+        var fn_name_buf: [16]u8 = undefined;
+        const fn_name = std.fmt.bufPrint(&fn_name_buf, "__float{s}{s}i{s}f", .{
+            switch (op_info.signedness) {
+                .signed => "",
+                .unsigned => "un",
+            },
+            target_util.compilerRtIntAbbrev(op_bitsize),
+            target_util.compilerRtFloatAbbrev(dest_bits),
+        }) catch unreachable;
+
+        const result = try (try func.callIntrinsic(fn_name, &.{op_ty.ip_index}, dest_ty, &.{operand})).toLocal(func, dest_ty);
+        return func.finishAir(inst, result, &.{ty_op.operand});
     }
 
     try func.emitWValue(operand);
@@ -4833,7 +4940,7 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .op = .convert,
         .valtype1 = typeToValtype(dest_ty, mod),
         .valtype2 = typeToValtype(op_ty, mod),
-        .signedness = if (op_ty.isSignedInt(mod)) .signed else .unsigned,
+        .signedness = op_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
 
