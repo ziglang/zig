@@ -87,7 +87,7 @@ start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
 symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
@@ -102,6 +102,7 @@ debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
 error_flags: link.File.ErrorFlags = link.File.ErrorFlags{},
+misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -292,6 +293,8 @@ pub fn deinit(self: *Elf) void {
     if (self.dwarf) |*dw| {
         dw.deinit();
     }
+
+    self.misc_errors.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1014,6 +1017,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     try self.addLinkerDefinedSymbols();
+
+    if (self.unresolved.keys().len > 0) try self.reportUndefined();
 
     self.allocateLinkerDefinedSymbols();
 
@@ -3392,9 +3397,58 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
     const name_off = try self.strtab.insert(gpa, name);
     const gop = try self.getOrPutGlobal(name_off);
     if (!gop.found_existing) {
-        try self.unresolved.putNoClobber(gpa, name_off, {});
+        try self.unresolved.putNoClobber(gpa, gop.index, {});
     }
     return gop.index;
+}
+
+fn reportUndefined(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    const max_notes = 4;
+
+    try self.misc_errors.ensureUnusedCapacity(gpa, self.unresolved.keys().len);
+
+    for (self.unresolved.keys()) |sym_index| {
+        const undef_sym = self.symbol(sym_index);
+
+        var all_notes: usize = 0;
+        var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, max_notes + 1);
+        defer notes.deinit();
+
+        // Collect all references across all input files
+        if (self.zig_module_index) |index| {
+            const zig_module = self.file(index).?.zig_module;
+            for (zig_module.atoms.keys()) |atom_index| {
+                const atom_ptr = self.atom(atom_index).?;
+                if (!atom_ptr.alive) continue;
+
+                for (atom_ptr.relocs(self)) |rel| {
+                    if (sym_index == rel.r_sym()) {
+                        const note = try std.fmt.allocPrint(gpa, "referenced by {s}:{s}", .{
+                            zig_module.path,
+                            atom_ptr.name(self),
+                        });
+                        notes.appendAssumeCapacity(.{ .msg = note });
+                        all_notes += 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (all_notes > max_notes) {
+            const remaining = all_notes - max_notes;
+            const note = try std.fmt.allocPrint(gpa, "referenced {d} more times", .{remaining});
+            notes.appendAssumeCapacity(.{ .msg = note });
+        }
+
+        var err_msg = link.File.ErrorMsg{
+            .msg = try std.fmt.allocPrint(gpa, "undefined symbol: {s}", .{undef_sym.name(self)}),
+        };
+        err_msg.notes = try notes.toOwnedSlice();
+
+        self.misc_errors.appendAssumeCapacity(err_msg);
+    }
 }
 
 fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {

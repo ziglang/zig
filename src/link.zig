@@ -849,6 +849,7 @@ pub const File = struct {
 
     pub fn miscErrors(base: *File) []const ErrorMsg {
         switch (base.tag) {
+            .elf => return @fieldParentPtr(Elf, "base", base).misc_errors.items,
             .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
             else => return &.{},
         }
