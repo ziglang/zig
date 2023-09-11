@@ -125,7 +125,9 @@ const Owner = union(enum) {
             .func_index => |func_index| {
                 const mod = ctx.bin_file.options.module.?;
                 const decl_index = mod.funcOwnerDeclIndex(func_index);
-                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
+                    return elf_file.getOrCreateMetadataForDecl(decl_index);
+                } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
                     return macho_file.getAtom(atom).getSymbolIndex().?;
                 } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
@@ -136,7 +138,10 @@ const Owner = union(enum) {
                 } else unreachable;
             },
             .lazy_sym => |lazy_sym| {
-                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
+                    return elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
+                        ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
+                } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
                         return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                     return macho_file.getAtom(atom).getSymbolIndex().?;
@@ -8178,7 +8183,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         } else if (func_value.getExternFunc(mod)) |extern_func| {
             const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
             const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
-            if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                const atom_index = try self.owner.getSymbolIndex(self);
+                const sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name);
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = .extern_fn_reloc,
+                    .data = .{ .reloc = .{
+                        .atom_index = atom_index,
+                        .sym_index = sym_index,
+                    } },
+                });
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 _ = try self.addInst(.{

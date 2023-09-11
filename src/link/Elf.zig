@@ -302,9 +302,9 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
     const vaddr = this_sym.value;
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
     try parent_atom.addReloc(self, .{
-        .target = this_sym_index,
-        .offset = reloc_info.offset,
-        .addend = reloc_info.addend,
+        .r_offset = reloc_info.offset,
+        .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | elf.R_X86_64_64,
+        .r_addend = reloc_info.addend,
     });
 
     return vaddr;
@@ -1020,8 +1020,17 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations.
     if (self.zig_module_index) |index| {
-        for (self.file(index).?.zig_module.atoms.items) |atom_index| {
-            try self.atom(atom_index).?.resolveRelocs(self);
+        for (self.file(index).?.zig_module.atoms.keys()) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            if (!atom_ptr.alive) continue;
+            const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            const code = try gpa.alloc(u8, atom_ptr.size);
+            defer gpa.free(code);
+            const amt = try self.base.file.?.preadAll(code, file_offset);
+            if (amt != code.len) return error.InputOutput;
+            try atom_ptr.resolveRelocs(self, code);
+            try self.base.file.?.pwriteAll(code, file_offset);
         }
     }
 
@@ -2185,6 +2194,7 @@ fn updateDeclCode(
     const shdr_index = sym.output_section_index;
 
     sym.name_offset = try self.strtab.insert(gpa, decl_name);
+    atom_ptr.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
     esym.st_info |= stt_bits;
@@ -2440,6 +2450,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = math.log2_int(u64, required_alignment);
     atom_ptr.size = code.len;
@@ -2515,6 +2526,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(self).?;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = math.log2_int(u64, required_alignment);
     atom_ptr.size = code.len;
@@ -3372,6 +3384,17 @@ pub fn getOrPutGlobal(self: *Elf, name_off: u32) !GetOrPutGlobalResult {
 pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
     const name_off = self.strtab.getOffset(name) orelse return null;
     return self.resolver.get(name_off);
+}
+
+pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
+    _ = lib_name;
+    const gpa = self.base.allocator;
+    const name_off = try self.strtab.insert(gpa, name);
+    const gop = try self.getOrPutGlobal(name_off);
+    if (!gop.found_existing) {
+        try self.unresolved.putNoClobber(gpa, name_off, {});
+    }
+    return gop.index;
 }
 
 fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {

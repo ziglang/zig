@@ -549,7 +549,7 @@ pub const File = struct {
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name, lib_name),
-            .elf   => unreachable,
+            .elf   => return @fieldParentPtr(Elf, "base", base).getGlobalSymbol(name, lib_name),
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name, lib_name),
             .plan9 => unreachable,
             .spirv => unreachable,

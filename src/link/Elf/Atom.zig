@@ -26,7 +26,7 @@ relocs_section_index: Index = 0,
 atom_index: Index = 0,
 
 /// Specifies whether this atom is alive or has been garbage collected.
-alive: bool = true,
+alive: bool = false,
 
 /// Specifies if the atom has been visited during garbage collection.
 visited: bool = false,
@@ -192,6 +192,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
     const gpa = elf_file.base.allocator;
+    const zig_module = elf_file.file(self.file_index).?.zig_module;
     const shndx = self.output_section_index;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
@@ -242,17 +243,18 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 
     // TODO create relocs free list
     self.freeRelocs(elf_file);
+    assert(zig_module.atoms.swapRemove(self.atom_index));
     self.* = .{};
 }
 
-pub fn relocs(self: Atom, elf_file: *Elf) []const Relocation {
+pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     const file_ptr = elf_file.file(self.file_index).?;
     if (file_ptr != .zig_module) @panic("TODO");
     const zig_module = file_ptr.zig_module;
     return zig_module.relocs.items[self.relocs_section_index].items;
 }
 
-pub fn addReloc(self: Atom, elf_file: *Elf, reloc: Relocation) !void {
+pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
     const gpa = elf_file.base.allocator;
     const file_ptr = elf_file.file(self.file_index).?;
     assert(file_ptr == .zig_module);
@@ -269,28 +271,175 @@ pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
 }
 
 /// TODO mark relocs dirty
-pub fn resolveRelocs(self: Atom, elf_file: *Elf) !void {
+pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
-    const shdr = &elf_file.shdrs.items[self.output_section_index];
-    for (self.relocs(elf_file)) |reloc| {
-        const target_sym = elf_file.symbol(reloc.target);
-        const target_vaddr = target_sym.value + reloc.addend;
-        const section_offset = (self.value + reloc.offset) - shdr.sh_addr;
-        const file_offset = shdr.sh_offset + section_offset;
 
-        relocs_log.debug("  ({x}: [() => 0x{x}] ({s}))", .{
-            reloc.offset,
-            target_vaddr,
-            target_sym.name(elf_file),
+    var stream = std.io.fixedBufferStream(code);
+    const cwriter = stream.writer();
+
+    for (self.relocs(elf_file)) |rel| {
+        const r_type = rel.r_type();
+        if (r_type == elf.R_X86_64_NONE) continue;
+
+        const target = elf_file.symbol(rel.r_sym());
+
+        // We will use equation format to resolve relocations:
+        // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
+        //
+        // Address of the source atom.
+        const P = @as(i64, @intCast(self.value + rel.r_offset));
+        // Addend from the relocation.
+        const A = rel.r_addend;
+        // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
+        const S = @as(i64, @intCast(target.address(.{}, elf_file)));
+        // Address of the global offset table.
+        const GOT = blk: {
+            const shndx = if (elf_file.got_plt_section_index) |shndx|
+                shndx
+            else if (elf_file.got_section_index) |shndx|
+                shndx
+            else
+                null;
+            break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
+        };
+        // Relative offset to the start of the global offset table.
+        const G = @as(i64, @intCast(target.gotAddress(elf_file))) - GOT;
+        // // Address of the thread pointer.
+        // const TP = @as(i64, @intCast(elf_file.getTpAddress()));
+        // // Address of the dynamic thread pointer.
+        // const DTP = @as(i64, @intCast(elf_file.getDtpAddress()));
+
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ({s})", .{
+            fmtRelocType(r_type),
+            rel.r_offset,
+            P,
+            S + A,
+            G + GOT + A,
+            target.name(elf_file),
         });
 
-        switch (elf_file.ptr_width) {
-            .p32 => try elf_file.base.file.?.pwriteAll(
-                std.mem.asBytes(&@as(u32, @intCast(target_vaddr))),
-                file_offset,
-            ),
-            .p64 => try elf_file.base.file.?.pwriteAll(std.mem.asBytes(&target_vaddr), file_offset),
+        try stream.seekTo(rel.r_offset);
+
+        switch (rel.r_type()) {
+            elf.R_X86_64_NONE => unreachable,
+            elf.R_X86_64_64 => try cwriter.writeIntLittle(i64, S + A),
+            elf.R_X86_64_PLT32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
+            else => @panic("TODO"),
         }
+    }
+}
+
+pub fn fmtRelocType(r_type: u32) std.fmt.Formatter(formatRelocType) {
+    return .{ .data = r_type };
+}
+
+fn formatRelocType(
+    r_type: u32,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = unused_fmt_string;
+    _ = options;
+    const str = switch (r_type) {
+        elf.R_X86_64_NONE => "R_X86_64_NONE",
+        elf.R_X86_64_64 => "R_X86_64_64",
+        elf.R_X86_64_PC32 => "R_X86_64_PC32",
+        elf.R_X86_64_GOT32 => "R_X86_64_GOT32",
+        elf.R_X86_64_PLT32 => "R_X86_64_PLT32",
+        elf.R_X86_64_COPY => "R_X86_64_COPY",
+        elf.R_X86_64_GLOB_DAT => "R_X86_64_GLOB_DAT",
+        elf.R_X86_64_JUMP_SLOT => "R_X86_64_JUMP_SLOT",
+        elf.R_X86_64_RELATIVE => "R_X86_64_RELATIVE",
+        elf.R_X86_64_GOTPCREL => "R_X86_64_GOTPCREL",
+        elf.R_X86_64_32 => "R_X86_64_32",
+        elf.R_X86_64_32S => "R_X86_64_32S",
+        elf.R_X86_64_16 => "R_X86_64_16",
+        elf.R_X86_64_PC16 => "R_X86_64_PC16",
+        elf.R_X86_64_8 => "R_X86_64_8",
+        elf.R_X86_64_PC8 => "R_X86_64_PC8",
+        elf.R_X86_64_DTPMOD64 => "R_X86_64_DTPMOD64",
+        elf.R_X86_64_DTPOFF64 => "R_X86_64_DTPOFF64",
+        elf.R_X86_64_TPOFF64 => "R_X86_64_TPOFF64",
+        elf.R_X86_64_TLSGD => "R_X86_64_TLSGD",
+        elf.R_X86_64_TLSLD => "R_X86_64_TLSLD",
+        elf.R_X86_64_DTPOFF32 => "R_X86_64_DTPOFF32",
+        elf.R_X86_64_GOTTPOFF => "R_X86_64_GOTTPOFF",
+        elf.R_X86_64_TPOFF32 => "R_X86_64_TPOFF32",
+        elf.R_X86_64_PC64 => "R_X86_64_PC64",
+        elf.R_X86_64_GOTOFF64 => "R_X86_64_GOTOFF64",
+        elf.R_X86_64_GOTPC32 => "R_X86_64_GOTPC32",
+        elf.R_X86_64_GOT64 => "R_X86_64_GOT64",
+        elf.R_X86_64_GOTPCREL64 => "R_X86_64_GOTPCREL64",
+        elf.R_X86_64_GOTPC64 => "R_X86_64_GOTPC64",
+        elf.R_X86_64_GOTPLT64 => "R_X86_64_GOTPLT64",
+        elf.R_X86_64_PLTOFF64 => "R_X86_64_PLTOFF64",
+        elf.R_X86_64_SIZE32 => "R_X86_64_SIZE32",
+        elf.R_X86_64_SIZE64 => "R_X86_64_SIZE64",
+        elf.R_X86_64_GOTPC32_TLSDESC => "R_X86_64_GOTPC32_TLSDESC",
+        elf.R_X86_64_TLSDESC_CALL => "R_X86_64_TLSDESC_CALL",
+        elf.R_X86_64_TLSDESC => "R_X86_64_TLSDESC",
+        elf.R_X86_64_IRELATIVE => "R_X86_64_IRELATIVE",
+        elf.R_X86_64_RELATIVE64 => "R_X86_64_RELATIVE64",
+        elf.R_X86_64_GOTPCRELX => "R_X86_64_GOTPCRELX",
+        elf.R_X86_64_REX_GOTPCRELX => "R_X86_64_REX_GOTPCRELX",
+        elf.R_X86_64_NUM => "R_X86_64_NUM",
+        else => "R_X86_64_UNKNOWN",
+    };
+    try writer.print("{s}", .{str});
+}
+
+pub fn format(
+    atom: Atom,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = atom;
+    _ = unused_fmt_string;
+    _ = options;
+    _ = writer;
+    @compileError("do not format symbols directly");
+}
+
+pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(format2) {
+    return .{ .data = .{
+        .atom = atom,
+        .elf_file = elf_file,
+    } };
+}
+
+const FormatContext = struct {
+    atom: Atom,
+    elf_file: *Elf,
+};
+
+fn format2(
+    ctx: FormatContext,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = options;
+    _ = unused_fmt_string;
+    const atom = ctx.atom;
+    const elf_file = ctx.elf_file;
+    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x})", .{
+        atom.atom_index,           atom.name(elf_file), atom.value,
+        atom.output_section_index, atom.alignment,      atom.size,
+    });
+    // if (atom.fde_start != atom.fde_end) {
+    //     try writer.writeAll(" : fdes{ ");
+    //     for (atom.getFdes(elf_file), atom.fde_start..) |fde, i| {
+    //         try writer.print("{d}", .{i});
+    //         if (!fde.alive) try writer.writeAll("([*])");
+    //         if (i < atom.fde_end - 1) try writer.writeAll(", ");
+    //     }
+    //     try writer.writeAll(" }");
+    // }
+    const gc_sections = if (elf_file.base.options.gc_sections) |gc_sections| gc_sections else false;
+    if (gc_sections and !atom.alive) {
+        try writer.writeAll(" : [*]");
     }
 }
 
@@ -306,4 +455,3 @@ const Allocator = std.mem.Allocator;
 const Atom = @This();
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
-const Relocation = @import("Relocation.zig");

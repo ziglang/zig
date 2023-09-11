@@ -8,8 +8,8 @@ local_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
 elf_global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 global_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
 
-atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
-relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation)) = .{},
+atoms: std.AutoArrayHashMapUnmanaged(Atom.Index, void) = .{},
+relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
 alive: bool = true,
 
@@ -43,7 +43,7 @@ pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
     atom_ptr.relocs_section_index = relocs_index;
-    try self.atoms.append(gpa, atom_index);
+    try self.atoms.putNoClobber(gpa, atom_index, {});
     return symbol_index;
 }
 
@@ -184,6 +184,28 @@ fn formatSymtab(
     }
 }
 
+pub fn fmtAtoms(self: *ZigModule, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+    return .{ .data = .{
+        .self = self,
+        .elf_file = elf_file,
+    } };
+}
+
+fn formatAtoms(
+    ctx: FormatContext,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = unused_fmt_string;
+    _ = options;
+    try writer.writeAll("  atoms\n");
+    for (ctx.self.atoms.keys()) |atom_index| {
+        const atom = ctx.elf_file.atom(atom_index) orelse continue;
+        try writer.print("    {}\n", .{atom.fmt(ctx.elf_file)});
+    }
+}
+
 const assert = std.debug.assert;
 const std = @import("std");
 const elf = std.elf;
@@ -193,6 +215,5 @@ const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Module = @import("../../Module.zig");
-const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
 const ZigModule = @This();
