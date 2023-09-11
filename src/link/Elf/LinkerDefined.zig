@@ -1,7 +1,6 @@
 index: File.Index,
 symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-alive: bool = true,
 
 output_symtab_size: Elf.SymtabSize = .{},
 
@@ -74,10 +73,6 @@ pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf, ctx: anytype) void {
         global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
         ilocal += 1;
     }
-}
-
-pub fn sourceSymbol(self: *LinkerDefined, symbol_index: Symbol.Index) *elf.Elf64_Sym {
-    return &self.symtab.items[symbol_index];
 }
 
 pub fn globals(self: *LinkerDefined) []const Symbol.Index {

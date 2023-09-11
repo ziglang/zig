@@ -66,22 +66,23 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
     return elf_file.file(symbol.file_index);
 }
 
-pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) *elf.Elf64_Sym {
+pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
-        .zig_module => return file_ptr.zig_module.sourceSymbol(symbol.index, elf_file),
-        .linker_defined => return file_ptr.linker_defined.sourceSymbol(symbol.esym_index),
+        .zig_module => return file_ptr.zig_module.sourceSymbol(symbol.index, elf_file).*,
+        .linker_defined => return file_ptr.linker_defined.symtab.items[symbol.esym_index],
+        .object => return file_ptr.object.symtab[symbol.esym_index],
     }
 }
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     const file_ptr = symbol.file(elf_file) orelse return std.math.maxInt(u32);
     const sym = symbol.sourceSymbol(elf_file);
-    const in_archive = switch (file) {
-        // .object => |x| !x.alive,
+    const in_archive = switch (file_ptr) {
+        .object => |x| !x.alive,
         else => false,
     };
-    return file_ptr.symbolRank(sym.*, in_archive);
+    return file_ptr.symbolRank(sym, in_archive);
 }
 
 pub fn address(symbol: Symbol, opts: struct {

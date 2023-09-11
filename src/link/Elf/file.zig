@@ -1,7 +1,7 @@
 pub const File = union(enum) {
     zig_module: *ZigModule,
     linker_defined: *LinkerDefined,
-    // object: *Object,
+    object: *Object,
     // shared_object: *SharedObject,
 
     pub fn index(file: File) Index {
@@ -25,7 +25,7 @@ pub const File = union(enum) {
         switch (file) {
             .zig_module => try writer.writeAll("(zig module)"),
             .linker_defined => try writer.writeAll("(linker defined)"),
-            // .object => |x| try writer.print("{}", .{x.fmtPath()}),
+            .object => |x| try writer.print("{}", .{x.fmtPath()}),
             // .shared_object => |x| try writer.writeAll(x.path),
         }
     }
@@ -95,7 +95,7 @@ pub const File = union(enum) {
         null: void,
         zig_module: ZigModule,
         linker_defined: LinkerDefined,
-        // object: Object,
+        object: Object,
         // shared_object: SharedObject,
     };
 };
@@ -106,7 +106,7 @@ const elf = std.elf;
 const Allocator = std.mem.Allocator;
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
-// const Object = @import("Object.zig");
+const Object = @import("Object.zig");
 // const SharedObject = @import("SharedObject.zig");
 const Symbol = @import("Symbol.zig");
 const ZigModule = @import("ZigModule.zig");

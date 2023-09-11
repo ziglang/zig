@@ -9,6 +9,7 @@ llvm_object: ?*LlvmObject = null,
 files: std.MultiArrayList(File.Entry) = .{},
 zig_module_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
+objects: std.ArrayListUnmanaged(File.Index) = .{},
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -51,11 +52,12 @@ got: GotSection = .{},
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
+eh_frame_section_index: ?u16 = null,
+eh_frame_hdr_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
 got_plt_section_index: ?u16 = null,
 plt_section_index: ?u16 = null,
-eh_frame_hdr_section_index: ?u16 = null,
 rela_dyn_section_index: ?u16 = null,
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
@@ -135,6 +137,10 @@ last_atom_and_free_list_table: std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFre
 /// value assigned to label `foo` is an unnamed constant belonging/associated
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_consts: UnnamedConstTable = .{},
+
+comdat_groups: std.ArrayListUnmanaged(ComdatGroup) = .{},
+comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
+comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
 
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
@@ -249,10 +255,11 @@ pub fn deinit(self: *Elf) void {
         .null => {},
         .zig_module => data.zig_module.deinit(gpa),
         .linker_defined => data.linker_defined.deinit(gpa),
-        // .object => data.object.deinit(gpa),
+        .object => data.object.deinit(gpa),
         // .shared_object => data.shared_object.deinit(gpa),
     };
     self.files.deinit(gpa);
+    self.objects.deinit(gpa);
 
     self.shdrs.deinit(gpa);
     self.phdr_to_shdr_table.deinit(gpa);
@@ -295,6 +302,9 @@ pub fn deinit(self: *Elf) void {
     }
 
     self.misc_errors.deinit(gpa);
+    self.comdat_groups.deinit(gpa);
+    self.comdat_groups_owners.deinit(gpa);
+    self.comdat_groups_table.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -828,7 +838,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             const zig_module = self.file(index).?.zig_module;
             const sym_index = try zig_module.addLocal(self);
             const sym = self.symbol(sym_index);
-            const esym = sym.sourceSymbol(self);
+            const esym = zig_module.sourceSymbol(sym_index, self);
             const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_pkg.root_src_path));
             sym.name_offset = name_off;
             esym.st_name = name_off;
@@ -1276,14 +1286,35 @@ fn parsePositional(
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    _ = self;
-    _ = in_file;
-    _ = path;
     _ = must_link;
-    _ = ctx;
 
-    return error.UnknownFileType;
+    if (Object.isObject(in_file)) {
+        try self.parseObject(in_file, path, ctx);
+    } else return error.UnknownFileType;
+}
+
+fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const index = @as(File.Index, @intCast(self.files.slice().len));
+
+    var object = Object{
+        .path = path,
+        .data = data,
+        .index = index,
+    };
+    errdefer object.deinit(gpa);
+    try object.parse(self);
+
+    ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
+    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+
+    _ = try self.files.addOne(gpa);
+    self.files.set(index, .{ .object = object });
+    try self.objects.append(gpa, index);
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2226,6 +2257,7 @@ fn updateDeclCode(
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
 
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
@@ -2234,7 +2266,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(mod);
 
     const sym = self.symbol(sym_index);
-    const esym = sym.sourceSymbol(self);
+    const esym = zig_module.sourceSymbol(sym_index, self);
     const atom_ptr = sym.atom(self).?;
     const shdr_index = sym.output_section_index;
 
@@ -2447,6 +2479,7 @@ pub fn updateDecl(
 fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
 
     var required_alignment: u32 = undefined;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -2490,7 +2523,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const local_sym = self.symbol(symbol_index);
     const phdr_index = self.phdr_to_shdr_table.get(local_sym.output_section_index).?;
     local_sym.name_offset = name_str_index;
-    const local_esym = local_sym.sourceSymbol(self);
+    const local_esym = zig_module.sourceSymbol(symbol_index, self);
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -2566,7 +2599,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const local_sym = self.symbol(sym_index);
     local_sym.name_offset = name_str_index;
-    const local_esym = local_sym.sourceSymbol(self);
+    const local_esym = zig_module.sourceSymbol(sym_index, self);
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -2650,8 +2683,8 @@ pub fn updateDeclExports(
         };
         const stt_bits: u8 = @as(u4, @truncate(decl_esym.st_info));
 
+        const zig_module = self.file(self.zig_module_index.?).?.zig_module;
         const sym_index = if (decl_metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const zig_module = self.file(self.zig_module_index.?).?.zig_module;
             const sym_index = try zig_module.addGlobal(exp_name, self);
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
@@ -2660,8 +2693,8 @@ pub fn updateDeclExports(
         sym.value = decl_sym.value;
         sym.atom_index = decl_sym.atom_index;
         sym.output_section_index = decl_sym.output_section_index;
-        const esym = sym.sourceSymbol(self);
-        esym.* = decl_esym.*;
+        const esym = zig_module.sourceSymbol(sym_index, self);
+        esym.* = decl_esym;
         esym.st_info = (stb_bits << 4) | stt_bits;
     }
 }
@@ -2691,11 +2724,12 @@ pub fn deleteDeclExport(
     const metadata = self.decls.getPtr(decl_index) orelse return;
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const exp_name = mod.intern_pool.stringToSlice(name);
     const sym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
     const sym = self.symbol(sym_index.*);
-    const esym = sym.sourceSymbol(self);
+    const esym = zig_module.sourceSymbol(sym_index.*, self);
     assert(self.resolver.fetchSwapRemove(sym.name_offset) != null); // TODO don't delete it if it's not dominant
     sym.* = .{};
     // TODO free list for esym!
@@ -3337,6 +3371,7 @@ pub fn file(self: *Elf, index: File.Index) ?File {
         .null => null,
         .linker_defined => .{ .linker_defined = &self.files.items(.data)[index].linker_defined },
         .zig_module => .{ .zig_module = &self.files.items(.data)[index].zig_module },
+        .object => .{ .object = &self.files.items(.data)[index].object },
     };
 }
 
@@ -3440,6 +3475,42 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
         try self.unresolved.putNoClobber(gpa, gop.index, {});
     }
     return gop.index;
+}
+
+const GetOrCreateComdatGroupOwnerResult = struct {
+    found_existing: bool,
+    index: ComdatGroupOwner.Index,
+};
+
+pub fn getOrCreateComdatGroupOwner(self: *Elf, off: u32) !GetOrCreateComdatGroupOwnerResult {
+    const gpa = self.base.allocator;
+    const gop = try self.comdat_groups_table.getOrPut(gpa, off);
+    if (!gop.found_existing) {
+        const index = @as(ComdatGroupOwner.Index, @intCast(self.comdat_groups_owners.items.len));
+        const owner = try self.comdat_groups_owners.addOne(gpa);
+        owner.* = .{};
+        gop.value_ptr.* = index;
+    }
+    return .{
+        .found_existing = gop.found_existing,
+        .index = gop.value_ptr.*,
+    };
+}
+
+pub fn addComdatGroup(self: *Elf) !ComdatGroup.Index {
+    const index = @as(ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
+    _ = try self.comdat_groups.addOne(self.base.allocator);
+    return index;
+}
+
+pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
+    assert(index < self.comdat_groups.items.len);
+    return &self.comdat_groups.items[index];
+}
+
+pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
+    assert(index < self.comdat_groups_owners.items.len);
+    return &self.comdat_groups_owners.items[index];
 }
 
 fn reportUndefined(self: *Elf) !void {
@@ -3552,12 +3623,58 @@ fn fmtDumpState(
         try writer.print("zig_module({d}) : {s}\n", .{ index, zig_module.path });
         try writer.print("{}\n", .{zig_module.fmtSymtab(self)});
     }
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        try writer.print("object({d}) : {}", .{ index, object.fmtPath() });
+        if (!object.alive) try writer.writeAll(" : [*]");
+        try writer.writeByte('\n');
+        try writer.print("{}{}{}{}{}\n", .{
+            object.fmtAtoms(self),
+            object.fmtCies(self),
+            object.fmtFdes(self),
+            object.fmtSymtab(self),
+            object.fmtComdatGroups(self),
+        });
+    }
+
     if (self.linker_defined_index) |index| {
         const linker_defined = self.file(index).?.linker_defined;
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
     try writer.print("{}\n", .{self.got.fmt(self)});
+}
+
+/// Binary search
+pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
+    if (!@hasDecl(@TypeOf(predicate), "predicate"))
+        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
+
+    var min: usize = 0;
+    var max: usize = haystack.len;
+    while (min < max) {
+        const index = (min + max) / 2;
+        const curr = haystack[index];
+        if (predicate.predicate(curr)) {
+            min = index + 1;
+        } else {
+            max = index;
+        }
+    }
+    return min;
+}
+
+/// Linear search
+pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
+    if (!@hasDecl(@TypeOf(predicate), "predicate"))
+        @compileError("Predicate is required to define fn predicate(@This(), T) bool");
+
+    var i: usize = 0;
+    while (i < haystack.len) : (i += 1) {
+        if (predicate.predicate(haystack[i])) break;
+    }
+    return i;
 }
 
 const default_entry_addr = 0x8000000;
@@ -3607,6 +3724,17 @@ const DeclMetadata = struct {
     }
 };
 
+const ComdatGroupOwner = struct {
+    file: File.Index = 0,
+    const Index = u32;
+};
+
+pub const ComdatGroup = struct {
+    owner: ComdatGroupOwner.Index,
+    shndx: u16,
+    pub const Index = u32;
+};
+
 pub const SymtabSize = struct {
     nlocals: u32 = 0,
     nglobals: u32 = 0,
@@ -3654,6 +3782,7 @@ const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Symbol = @import("Elf/Symbol.zig");

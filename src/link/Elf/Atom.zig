@@ -46,6 +46,46 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     return elf_file.strtab.getAssumeExists(self.name_offset);
 }
 
+pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
+    const object = elf_file.file(self.file_index).?.object;
+    return object.shdrs.items[self.input_section_index];
+}
+
+pub fn codeInObject(self: Atom, elf_file: *Elf) []const u8 {
+    const object = elf_file.file(self.file_index).?.object;
+    return object.shdrContents(self.input_section_index);
+}
+
+/// Returns atom's code and optionally uncompresses data if required (for compressed sections).
+/// Caller owns the memory.
+pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
+    const gpa = elf_file.base.allocator;
+    const data = self.codeInObject(elf_file);
+    const shdr = self.inputShdr(elf_file);
+    if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
+        const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
+        switch (chdr.ch_type) {
+            .ZLIB => {
+                var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var zlib_stream = try std.compress.zlib.decompressStream(gpa, stream.reader());
+                defer zlib_stream.deinit();
+                const decomp = try gpa.alloc(u8, chdr.ch_size);
+                const nread = try zlib_stream.reader().readAll(decomp);
+                if (nread != decomp.len) {
+                    return error.Io;
+                }
+                return decomp;
+            },
+            else => @panic("TODO unhandled compression scheme"),
+        }
+    } else return gpa.dupe(u8, data);
+}
+
+pub fn priority(self: Atom, elf_file: *Elf) u64 {
+    const index = elf_file.file(self.file_index).?.index();
+    return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
+}
+
 /// Returns how much room there is to grow in virtual address space.
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
@@ -247,11 +287,12 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     self.* = .{};
 }
 
-pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
-    const file_ptr = elf_file.file(self.file_index).?;
-    if (file_ptr != .zig_module) @panic("TODO");
-    const zig_module = file_ptr.zig_module;
-    return zig_module.relocs.items[self.relocs_section_index].items;
+pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
+    return switch (elf_file.file(self.file_index).?) {
+        .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
+        .object => |x| x.getRelocs(self.relocs_section_index),
+        else => unreachable,
+    };
 }
 
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {

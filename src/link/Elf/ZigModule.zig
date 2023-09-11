@@ -11,8 +11,6 @@ global_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
 atoms: std.AutoArrayHashMapUnmanaged(Atom.Index, void) = .{},
 relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
-alive: bool = true,
-
 output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *ZigModule, allocator: Allocator) void {
@@ -37,7 +35,7 @@ pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.atom_index = atom_index;
     symbol_ptr.output_section_index = output_section_index;
-    const local_esym = symbol_ptr.sourceSymbol(elf_file);
+    const local_esym = self.sourceSymbol(symbol_ptr.index, elf_file);
     local_esym.st_shndx = output_section_index;
     const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
@@ -82,7 +80,7 @@ pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.I
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
-        const esym = self.sourceSymbol(local_index, elf_file);
+        const esym = local.sourceSymbol(elf_file);
         switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => {
                 local.flags.output_symtab = false;
