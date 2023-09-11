@@ -980,6 +980,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     };
     _ = compiler_rt_path;
 
+    // Parse input files
+    for (self.base.options.objects) |obj| {
+        const in_file = try std.fs.cwd().openFile(obj.path, .{});
+        defer in_file.close();
+
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -1244,6 +1254,36 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.strtab_dirty);
     assert(!self.debug_strtab_dirty);
     assert(!self.got.dirty);
+}
+
+const ParseError = error{
+    UnknownFileType,
+    InvalidCpuArch,
+    OutOfMemory,
+    Overflow,
+    InputOutput,
+    EndOfStream,
+    FileSystem,
+    NotSupported,
+} || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+
+fn parsePositional(
+    self: *Elf,
+    in_file: std.fs.File,
+    path: []const u8,
+    must_link: bool,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    _ = self;
+    _ = in_file;
+    _ = path;
+    _ = must_link;
+    _ = ctx;
+
+    return error.UnknownFileType;
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -3449,6 +3489,49 @@ fn reportUndefined(self: *Elf) !void {
 
         self.misc_errors.appendAssumeCapacity(err_msg);
     }
+}
+
+const ParseErrorCtx = struct {
+    detected_cpu_arch: std.Target.Cpu.Arch,
+};
+
+fn handleAndReportParseError(
+    self: *Elf,
+    path: []const u8,
+    err: ParseError,
+    ctx: *const ParseErrorCtx,
+) error{OutOfMemory}!void {
+    const cpu_arch = self.base.options.target.cpu.arch;
+    switch (err) {
+        error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
+        error.InvalidCpuArch => try self.reportParseError(
+            path,
+            "invalid cpu architecture: expected '{s}', but found '{s}'",
+            .{ @tagName(cpu_arch), @tagName(ctx.detected_cpu_arch) },
+        ),
+        else => |e| try self.reportParseError(
+            path,
+            "unexpected error: parsing object failed with error {s}",
+            .{@errorName(e)},
+        ),
+    }
+}
+
+fn reportParseError(
+    self: *Elf,
+    path: []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    var notes = try gpa.alloc(link.File.ErrorMsg, 1);
+    errdefer gpa.free(notes);
+    notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{path}) };
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, format, args),
+        .notes = notes,
+    });
 }
 
 fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
