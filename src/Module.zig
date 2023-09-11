@@ -4636,7 +4636,19 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             else => |e| return e,
         };
         assert(ies.resolved != .none);
-        ip.funcIesResolved(func_index).* = ies.resolved;
+
+        const extra_index = ip.funcExtraIndex(func_index);
+        ip.extra.items[extra_index] = @intFromEnum(ies.resolved);
+        ip.extra.items[extra_index + 1] = @intCast(ip.ies_src_locs.items.len);
+
+        if (ies.resolved != .anyerror_type) {
+            const error_names = Type.fromInterned(ies.resolved).errorSetNames(mod);
+
+            const src_locs = try ip.ies_src_locs.addManyAsSlice(gpa, error_names.len);
+            for (error_names, src_locs) |err_name, *src_loc| {
+                src_loc.* = ies.error_added_locs.get(err_name) orelse .unneeded;
+            }
+        }
     }
 
     func.analysis(ip).state = .success;

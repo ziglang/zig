@@ -188,27 +188,37 @@ pub const InferredErrorSet = struct {
     inferred_error_sets: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
     /// The regular error set created by resolving this inferred error set.
     resolved: InternPool.Index = .none,
+    error_added_locs: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, LazySrcLoc) = .{},
 
     pub const NameMap = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
 
     pub fn addErrorSet(
-        self: *InferredErrorSet,
+        ies: *InferredErrorSet,
         err_set_ty: Type,
         ip: *InternPool,
         arena: Allocator,
+        src: LazySrcLoc,
     ) !void {
         switch (err_set_ty.toIntern()) {
-            .anyerror_type => self.resolved = .anyerror_type,
+            .anyerror_type => ies.resolved = .anyerror_type,
             .adhoc_inferred_error_set_type => {}, // Adding an inferred error set to itself.
 
             else => switch (ip.indexToKey(err_set_ty.toIntern())) {
                 .error_set_type => |error_set_type| {
                     for (error_set_type.names.get(ip)) |name| {
-                        try self.errors.put(arena, name, {});
+                        if (try ies.errors.fetchPut(arena, name, {}) != null) {
+                            try ies.error_added_locs.put(arena, name, src);
+                        }
                     }
                 },
                 .inferred_error_set_type => {
-                    try self.inferred_error_sets.put(arena, err_set_ty.toIntern(), {});
+                    const func_index = ip.iesFuncIndex(err_set_ty.ip_index);
+                    const func = ip.indexToKey(func_index).func;
+                    const resolved_ty = func.resolvedErrorSet(ip).*;
+                    if (resolved_ty != .none) {
+                        return ies.addErrorSet(.{ .ip_index = resolved_ty }, ip, arena, src);
+                    }
+                    try ies.inferred_error_sets.put(arena, err_set_ty.toIntern(), {});
                 },
                 else => unreachable,
             },
@@ -5324,6 +5334,29 @@ fn addDeclaredHereNote(sema: *Sema, parent: *Module.ErrorMsg, decl_ty: Type) !vo
     try mod.errNoteNonLazy(src_loc, parent, "{s} declared here", .{category});
 }
 
+fn addErrorAddedToIesHereNote(
+    sema: *Sema,
+    parent: *Module.ErrorMsg,
+    inferred_ty: Type,
+    error_name: InternPool.NullTerminatedString,
+) !void {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    if (!ip.isInferredErrorSetType(inferred_ty.ip_index)) return;
+
+    const func = ip.indexToKey(ip.iesFuncIndex(inferred_ty.ip_index)).func;
+    const fn_owner_decl = ip.declPtr(func.owner_decl);
+
+    const error_names = inferred_ty.errorSetNames(mod);
+    const src_loc_index = ip.extra.items[func.resolved_error_set_extra_index + 1];
+    const src_locs = ip.ies_src_locs.items[src_loc_index..][0..error_names.len];
+
+    const error_index = std.mem.indexOfScalar(InternPool.NullTerminatedString, error_names, error_name).?;
+    if (src_locs[error_index] != .unneeded) {
+        try mod.errNoteNonLazy(src_locs[error_index].toSrcLoc(fn_owner_decl, mod), parent, "error added to inferred error set here", .{});
+    }
+}
+
 fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5430,7 +5463,7 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     // Where %c is an error union or error set. In such case we need to add
     // to the current function's inferred error set, if any.
     if (is_ret and sema.fn_ret_ty_ies != null) switch (sema.typeOf(operand).zigTypeTag(mod)) {
-        .ErrorUnion, .ErrorSet => try sema.addToInferredErrorSet(operand),
+        .ErrorUnion, .ErrorSet => try sema.addToInferredErrorSet(operand, src),
         else => {},
     };
 
@@ -13075,6 +13108,8 @@ fn validateErrSetSwitch(
                         "unhandled error value: 'error.{}'",
                         .{error_name.fmt(ip)},
                     );
+
+                    try sema.addErrorAddedToIesHereNote(msg, operand_ty, error_name);
                 }
             }
 
@@ -19269,7 +19304,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     return sema.popErrorReturnTrace(start_block, src, operand, saved_index);
 }
 
-fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
+fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref, src: LazySrcLoc) !void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     assert(sema.fn_ret_ty.zigTypeTag(mod) == .ErrorUnion);
@@ -19278,23 +19313,23 @@ fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
         .adhoc_inferred_error_set_type => {
             const ies = sema.fn_ret_ty_ies.?;
             assert(ies.func == .none);
-            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand));
+            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand), src);
         },
         else => if (ip.isInferredErrorSetType(err_set_ty)) {
             const ies = sema.fn_ret_ty_ies.?;
             assert(ies.func == sema.func_index);
-            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand));
+            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand), src);
         },
     }
 }
 
-fn addToInferredErrorSetPtr(sema: *Sema, ies: *InferredErrorSet, op_ty: Type) !void {
+fn addToInferredErrorSetPtr(sema: *Sema, ies: *InferredErrorSet, op_ty: Type, src: LazySrcLoc) !void {
     const arena = sema.arena;
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     switch (op_ty.zigTypeTag(mod)) {
-        .ErrorSet => try ies.addErrorSet(op_ty, ip, arena),
-        .ErrorUnion => try ies.addErrorSet(op_ty.errorUnionSet(mod), ip, arena),
+        .ErrorSet => try ies.addErrorSet(op_ty, ip, arena, src),
+        .ErrorUnion => try ies.addErrorSet(op_ty.errorUnionSet(mod), ip, arena, src),
         else => {},
     }
 }
@@ -19310,7 +19345,7 @@ fn analyzeRet(
     // that the coercion below works correctly.
     const mod = sema.mod;
     if (sema.fn_ret_ty_ies != null and sema.fn_ret_ty.zigTypeTag(mod) == .ErrorUnion) {
-        try sema.addToInferredErrorSet(uncasted_operand);
+        try sema.addToInferredErrorSet(uncasted_operand, src);
     }
     const operand = sema.coerceExtra(block, sema.fn_ret_ty, uncasted_operand, src, .{ .is_ret = true }) catch |err| switch (err) {
         error.NotCoercible => unreachable,
@@ -29632,7 +29667,7 @@ fn coerceInMemoryAllowedErrorSets(
         // We are trying to coerce an error set to the current function's
         // inferred error set.
         const dst_ies = sema.fn_ret_ty_ies.?;
-        try dst_ies.addErrorSet(src_ty, ip, sema.arena);
+        try dst_ies.addErrorSet(src_ty, ip, sema.arena, src_src);
         return .ok;
     }
 
@@ -29642,7 +29677,7 @@ fn coerceInMemoryAllowedErrorSets(
             if (dst_ies.func == dst_ies_func_index) {
                 // We are trying to coerce an error set to the current function's
                 // inferred error set.
-                try dst_ies.addErrorSet(src_ty, ip, sema.arena);
+                try dst_ies.addErrorSet(src_ty, ip, sema.arena, src_src);
                 return .ok;
             }
         }
@@ -35046,17 +35081,6 @@ fn typeIsArrayLike(sema: *Sema, ty: Type) ?ArrayLike {
         },
         else => null,
     };
-}
-
-pub fn resolveIes(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError!void {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
-
-    if (sema.fn_ret_ty_ies) |ies| {
-        try sema.resolveInferredErrorSetPtr(block, src, ies);
-        assert(ies.resolved != .none);
-        ip.funcIesResolved(sema.func_index).* = ies.resolved;
-    }
 }
 
 pub fn resolveFnTypes(sema: *Sema, fn_ty: Type) CompileError!void {

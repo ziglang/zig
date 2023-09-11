@@ -18,4 +18,6 @@ fn foo(x: i32) !void {
 //
 // :2:26: error: switch must handle all possibilities
 // :2:26: note: unhandled error value: 'error.Bar'
+// :9:33: note: error added to inferred error set here
 // :2:26: note: unhandled error value: 'error.Baz'
+// :10:33: note: error added to inferred error set here

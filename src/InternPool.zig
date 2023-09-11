@@ -54,6 +54,9 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ) = .{},
 
+/// Source locations of errors being added to an inferred error set.
+ies_src_locs: std.ArrayListUnmanaged(Module.LazySrcLoc) = .{},
+
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
 const builtin = @import("builtin");
@@ -2972,6 +2975,8 @@ pub const Tag = enum(u8) {
     /// 0. If `analysis.inferred_error_set` is `true`, `Index` of an `error_set` which
     ///    is a regular error set corresponding to the finished inferred error set.
     ///    A `none` value marks that the inferred error set is not resolved yet.
+    /// 1. If `analysis.inferred_error_set` is `true`, index to `ies_src_locs`
+    ///    of the inferred error set.
     pub const FuncDecl = struct {
         analysis: FuncAnalysis,
         owner_decl: DeclIndex,
@@ -2987,7 +2992,9 @@ pub const Tag = enum(u8) {
     /// 0. If `analysis.inferred_error_set` is `true`, `Index` of an `error_set` which
     ///    is a regular error set corresponding to the finished inferred error set.
     ///    A `none` value marks that the inferred error set is not resolved yet.
-    /// 1. For each parameter of generic_owner: `Index` if comptime, otherwise `none`
+    /// 1. If `analysis.inferred_error_set` is `true`, index to `ies_src_locs`
+    ///    of the inferred error set.
+    /// 2. For each parameter of generic_owner: `Index` if comptime, otherwise `none`
     pub const FuncInstance = struct {
         analysis: FuncAnalysis,
         // Needed by the linker for codegen. Not part of hashing or equality.
@@ -3707,6 +3714,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.maps.deinit(gpa);
 
     ip.string_table.deinit(gpa);
+    ip.ies_src_locs.deinit(gpa);
 
     ip.* = undefined;
 }
@@ -4472,7 +4480,7 @@ fn extraFuncInstance(ip: *const InternPool, extra_index: u32) Key.Func {
         .rbrace_column = func_decl.rbrace_column,
         .generic_owner = fi.data.generic_owner,
         .comptime_args = .{
-            .start = fi.end + @intFromBool(fi.data.analysis.inferred_error_set),
+            .start = fi.end + @as(u32, @intFromBool(fi.data.analysis.inferred_error_set)) * 2,
             .len = ip.funcTypeParamsLen(func_decl.ty),
         },
     };
@@ -5793,7 +5801,7 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
 
     try ip.map.ensureUnusedCapacity(gpa, 4);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncDecl).Struct.fields.len +
-        1 + // inferred_error_set
+        2 + // inferred_error_set + ies_src_locs index
         @typeInfo(Tag.ErrorUnionType).Struct.fields.len +
         @typeInfo(Tag.TypeFunction).Struct.fields.len +
         @intFromBool(key.comptime_bits != 0) +
@@ -5818,12 +5826,13 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
         .lbrace_column = key.lbrace_column,
         .rbrace_column = key.rbrace_column,
     });
+    ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
+    ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // ies_src_loc index
 
     ip.items.appendAssumeCapacity(.{
         .tag = .func_decl,
         .data = func_decl_extra_index,
     });
-    ip.extra.appendAssumeCapacity(@intFromEnum(Index.none));
 
     ip.items.appendAssumeCapacity(.{
         .tag = .type_error_union,
@@ -6048,7 +6057,7 @@ pub fn getFuncInstanceIes(
 
     try ip.map.ensureUnusedCapacity(gpa, 4);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncInstance).Struct.fields.len +
-        1 + // inferred_error_set
+        2 + // inferred_error_set + ies_src_locs index
         arg.comptime_args.len +
         @typeInfo(Tag.ErrorUnionType).Struct.fields.len +
         @typeInfo(Tag.TypeFunction).Struct.fields.len +
@@ -6078,6 +6087,7 @@ pub fn getFuncInstanceIes(
         .generic_owner = generic_owner,
     });
     ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // resolved error set
+    ip.extra.appendAssumeCapacity(@intFromEnum(Index.none)); // ies_src_loc index
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
 
     const func_type_extra_index = ip.addExtraAssumeCapacity(Tag.TypeFunction{
@@ -8371,27 +8381,31 @@ pub fn iesResolved(ip: *const InternPool, ies_index: Index) *Index {
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
 pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
+    const extra_index = ip.funcExtraIndex(func_index);
+    return @ptrCast(&ip.extra.items[extra_index]);
+}
+
+pub fn funcExtraIndex(ip: *const InternPool, func_index: Index) usize {
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
     assert(funcHasInferredErrorSet(ip, func_index));
     const func_start = datas[@intFromEnum(func_index)];
-    const extra_index = switch (tags[@intFromEnum(func_index)]) {
-        .func_decl => func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
-        .func_instance => func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
-        .func_coerced => i: {
+    switch (tags[@intFromEnum(func_index)]) {
+        .func_decl => return func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
+        .func_instance => return func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
+        .func_coerced => {
             const uncoerced_func_index: Index = @enumFromInt(ip.extra.items[
                 func_start + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
             ]);
             const uncoerced_func_start = datas[@intFromEnum(uncoerced_func_index)];
-            break :i switch (tags[@intFromEnum(uncoerced_func_index)]) {
+            return switch (tags[@intFromEnum(uncoerced_func_index)]) {
                 .func_decl => uncoerced_func_start + @typeInfo(Tag.FuncDecl).Struct.fields.len,
                 .func_instance => uncoerced_func_start + @typeInfo(Tag.FuncInstance).Struct.fields.len,
                 else => unreachable,
             };
         },
         else => unreachable,
-    };
-    return @ptrCast(&ip.extra.items[extra_index]);
+    }
 }
 
 pub fn funcDeclInfo(ip: *const InternPool, i: Index) Key.Func {
