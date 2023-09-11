@@ -12085,10 +12085,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}linksection{#endsyntax#}</pre>
           </th>
           <td>
-            The {#syntax#}linksection{#endsyntax#} keyword.
-            <ul>
-              <li>TODO add documentation for linksection</li>
-            </ul>
+            The {#syntax#}linksection{#endsyntax#} keyword can be used to specify what section the function or global variable will be put into (e.g. <code>.text</code>).
           </td>
         </tr>
         <tr>
