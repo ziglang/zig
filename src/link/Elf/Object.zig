@@ -187,6 +187,7 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
     atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
     atom.file_index = self.index;
     atom.input_section_index = shndx;
+    atom.alive = true;
     self.atoms.items[shndx] = atom_index;
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
@@ -244,6 +245,10 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
         const off = try elf_file.strtab.insert(gpa, name);
         const gop = try elf_file.getOrPutGlobal(off);
         self.symbols.addOneAssumeCapacity().* = gop.index;
+
+        if (sym.st_shndx == elf.SHN_UNDEF) {
+            try elf_file.unresolved.put(gpa, gop.index, {});
+        }
     }
 }
 
@@ -393,6 +398,8 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.alive) continue;
         }
+
+        _ = elf_file.unresolved.swapRemove(index);
 
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, !self.alive) < global.symbolRank(elf_file)) {
@@ -598,7 +605,7 @@ pub fn globals(self: *Object) []const u32 {
     return self.symbols.items[start..];
 }
 
-pub inline fn shdrContents(self: *Object, index: u32) []const u8 {
+pub fn shdrContents(self: *Object, index: u32) []const u8 {
     assert(index < self.shdrs.items.len);
     const shdr = self.shdrs.items[index];
     return self.data[shdr.sh_offset..][0..shdr.sh_size];

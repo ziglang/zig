@@ -46,15 +46,6 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     }
 }
 
-// pub fn resetGlobals(self: *LinkerDefined, elf_file: *Elf) void {
-//     for (self.symbols.items) |index| {
-//         const global = elf_file.getSymbol(index);
-//         const name = global.name;
-//         global.* = .{};
-//         global.name = name;
-//     }
-// }
-
 pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) void {
     for (self.globals()) |global_index| {
         const global = elf_file.symbol(global_index);

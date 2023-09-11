@@ -58,7 +58,7 @@ pub fn addLocal(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     return symbol_index;
 }
 
-pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.Index {
+pub fn addGlobal(self: *ZigModule, name: []const u8, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
     try self.elf_global_symbols.ensureUnusedCapacity(gpa, 1);
     try self.global_symbols.ensureUnusedCapacity(gpa, 1);
@@ -69,10 +69,12 @@ pub fn addGlobal(self: *ZigModule, name: [:0]const u8, elf_file: *Elf) !Symbol.I
     esym.st_name = off;
     esym.st_info = elf.STB_GLOBAL << 4;
     const gop = try elf_file.getOrPutGlobal(off);
+    if (!gop.found_existing) {
+        try elf_file.unresolved.putNoClobber(gpa, gop.index, {});
+    }
     const sym = elf_file.symbol(gop.index);
     sym.file_index = self.index;
     sym.esym_index = esym_index;
-    sym.flags.@"export" = true;
     self.global_symbols.putAssumeCapacityNoClobber(gop.index, {});
     return gop.index;
 }

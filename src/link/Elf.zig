@@ -843,6 +843,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             sym.name_offset = name_off;
             esym.st_name = name_off;
             esym.st_info |= elf.STT_FILE;
+            esym.st_shndx = elf.SHN_ABS;
         }
     }
 }
@@ -1299,22 +1300,19 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
 
     const gpa = self.base.allocator;
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    const index = @as(File.Index, @intCast(self.files.slice().len));
-
-    var object = Object{
+    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    self.files.set(index, .{ .object = .{
         .path = path,
         .data = data,
         .index = index,
-    };
-    errdefer object.deinit(gpa);
+    } });
+    try self.objects.append(gpa, index);
+
+    const object = self.file(index).?.object;
     try object.parse(self);
 
     ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
-
-    _ = try self.files.addOne(gpa);
-    self.files.set(index, .{ .object = object });
-    try self.objects.append(gpa, index);
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2690,12 +2688,14 @@ pub fn updateDeclExports(
             break :blk sym_index;
         };
         const sym = self.symbol(sym_index);
+        sym.flags.@"export" = true;
         sym.value = decl_sym.value;
         sym.atom_index = decl_sym.atom_index;
         sym.output_section_index = decl_sym.output_section_index;
         const esym = zig_module.sourceSymbol(sym_index, self);
         esym.* = decl_esym;
         esym.st_info = (stb_bits << 4) | stt_bits;
+        _ = self.unresolved.swapRemove(sym_index);
     }
 }
 
@@ -3468,13 +3468,8 @@ pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
 
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
-    const gpa = self.base.allocator;
-    const name_off = try self.strtab.insert(gpa, name);
-    const gop = try self.getOrPutGlobal(name_off);
-    if (!gop.found_existing) {
-        try self.unresolved.putNoClobber(gpa, gop.index, {});
-    }
-    return gop.index;
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    return zig_module.addGlobal(name, self);
 }
 
 const GetOrCreateComdatGroupOwnerResult = struct {
@@ -3519,42 +3514,83 @@ fn reportUndefined(self: *Elf) !void {
 
     try self.misc_errors.ensureUnusedCapacity(gpa, self.unresolved.keys().len);
 
-    for (self.unresolved.keys()) |sym_index| {
-        const undef_sym = self.symbol(sym_index);
+    const CollectStruct = struct {
+        notes: [max_notes]link.File.ErrorMsg = [_]link.File.ErrorMsg{.{ .msg = undefined }} ** max_notes,
+        notes_len: u3 = 0,
+        notes_count: usize = 0,
+    };
 
-        var all_notes: usize = 0;
-        var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, max_notes + 1);
-        defer notes.deinit();
+    const collect: []CollectStruct = try gpa.alloc(CollectStruct, self.unresolved.keys().len);
+    defer gpa.free(collect);
+    @memset(collect, .{});
 
-        // Collect all references across all input files
-        if (self.zig_module_index) |index| {
-            const zig_module = self.file(index).?.zig_module;
-            for (zig_module.atoms.keys()) |atom_index| {
-                const atom_ptr = self.atom(atom_index).?;
-                if (!atom_ptr.alive) continue;
+    // Collect all references across all input files
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        for (zig_module.atoms.keys()) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            if (!atom_ptr.alive) continue;
 
-                for (atom_ptr.relocs(self)) |rel| {
-                    if (sym_index == rel.r_sym()) {
-                        const note = try std.fmt.allocPrint(gpa, "referenced by {s}:{s}", .{
-                            zig_module.path,
-                            atom_ptr.name(self),
-                        });
-                        notes.appendAssumeCapacity(.{ .msg = note });
-                        all_notes += 1;
-                        break;
+            for (atom_ptr.relocs(self)) |rel| {
+                if (self.unresolved.getIndex(rel.r_sym())) |bin_index| {
+                    const note = try std.fmt.allocPrint(gpa, "referenced by {s}:{s}", .{
+                        zig_module.path,
+                        atom_ptr.name(self),
+                    });
+                    const bin = &collect[bin_index];
+                    if (bin.notes_len < max_notes) {
+                        bin.notes[bin.notes_len] = .{ .msg = note };
+                        bin.notes_len += 1;
                     }
+                    bin.notes_count += 1;
                 }
             }
         }
+    }
 
-        if (all_notes > max_notes) {
-            const remaining = all_notes - max_notes;
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.alive) continue;
+
+            for (atom_ptr.relocs(self)) |rel| {
+                const sym_index = object.symbols.items[rel.r_sym()];
+                if (self.unresolved.getIndex(sym_index)) |bin_index| {
+                    const note = try std.fmt.allocPrint(gpa, "referenced by {}:{s}", .{
+                        object.fmtPath(),
+                        atom_ptr.name(self),
+                    });
+                    const bin = &collect[bin_index];
+                    if (bin.notes_len < max_notes) {
+                        bin.notes[bin.notes_len] = .{ .msg = note };
+                        bin.notes_len += 1;
+                    }
+                    bin.notes_count += 1;
+                }
+            }
+        }
+    }
+
+    // Generate error notes
+    for (self.unresolved.keys(), 0..) |sym_index, bin_index| {
+        const collected = &collect[bin_index];
+
+        var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, max_notes + 1);
+        defer notes.deinit();
+
+        for (collected.notes[0..collected.notes_len]) |note| {
+            notes.appendAssumeCapacity(note);
+        }
+
+        if (collected.notes_count > max_notes) {
+            const remaining = collected.notes_count - max_notes;
             const note = try std.fmt.allocPrint(gpa, "referenced {d} more times", .{remaining});
             notes.appendAssumeCapacity(.{ .msg = note });
         }
 
         var err_msg = link.File.ErrorMsg{
-            .msg = try std.fmt.allocPrint(gpa, "undefined symbol: {s}", .{undef_sym.name(self)}),
+            .msg = try std.fmt.allocPrint(gpa, "undefined symbol: {s}", .{self.symbol(sym_index).name(self)}),
         };
         err_msg.notes = try notes.toOwnedSlice();
 
