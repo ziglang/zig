@@ -102,6 +102,34 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
     }
 }
 
+pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
+    for (self.globals(), 0..) |index, i| {
+        const esym_index = @as(Symbol.Index, @intCast(i)) | 0x10000000;
+        const esym = self.global_esyms.items[i];
+
+        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+
+        const global = elf_file.symbol(index);
+        if (global.file(elf_file)) |_| {
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF) continue;
+        }
+
+        const is_import = blk: {
+            if (!elf_file.isDynLib()) break :blk false;
+            const vis = @as(elf.STV, @enumFromInt(esym.st_other));
+            if (vis == .HIDDEN) break :blk false;
+            break :blk true;
+        };
+
+        global.value = 0;
+        global.atom_index = 0;
+        global.esym_index = esym_index;
+        global.file_index = self.index;
+        global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
+        global.flags.import = is_import;
+    }
+}
+
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);

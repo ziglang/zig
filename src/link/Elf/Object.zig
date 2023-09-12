@@ -411,6 +411,34 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
     }
 }
 
+pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
+    const first_global = self.first_global orelse return;
+    for (self.globals(), 0..) |index, i| {
+        const esym_index = @as(u32, @intCast(first_global + i));
+        const esym = self.symtab[esym_index];
+        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+
+        const global = elf_file.symbol(index);
+        if (global.file(elf_file)) |_| {
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF) continue;
+        }
+
+        const is_import = blk: {
+            if (!elf_file.isDynLib()) break :blk false;
+            const vis = @as(elf.STV, @enumFromInt(esym.st_other));
+            if (vis == .HIDDEN) break :blk false;
+            break :blk true;
+        };
+
+        global.value = 0;
+        global.atom_index = 0;
+        global.esym_index = esym_index;
+        global.file_index = self.index;
+        global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
+        global.flags.import = is_import;
+    }
+}
+
 pub fn resetGlobals(self: *Object, elf_file: *Elf) void {
     for (self.globals()) |index| {
         const global = elf_file.symbol(index);
@@ -576,12 +604,12 @@ pub fn writeSymtab(self: *Object, elf_file: *Elf, ctx: anytype) void {
     }
 }
 
-pub fn locals(self: *Object) []const u32 {
+pub fn locals(self: *Object) []const Symbol.Index {
     const end = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[0..end];
 }
 
-pub fn globals(self: *Object) []const u32 {
+pub fn globals(self: *Object) []const Symbol.Index {
     const start = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[start..];
 }

@@ -76,6 +76,12 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn globals(file: File) []const Symbol.Index {
+        return switch (file) {
+            inline else => |x| x.globals(),
+        };
+    }
+
     pub const Index = u32;
 
     pub const Entry = union(enum) {

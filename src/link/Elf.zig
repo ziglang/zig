@@ -1048,6 +1048,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Resolve symbols
     self.resolveSymbols();
     self.markImportsExports();
+    self.claimUnresolved();
 
     if (self.unresolved.keys().len > 0) try self.reportUndefined();
 
@@ -1338,48 +1339,45 @@ fn resolveSymbols(self: *Elf) void {
 }
 
 fn markImportsExports(self: *Elf) void {
-    const is_dyn_lib = self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic;
-
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.globals()) |global_index| {
-            const global = self.symbol(global_index);
-            if (global.version_index == elf.VER_NDX_LOCAL) continue;
-            const file_ptr = global.file(self) orelse continue;
-            const vis = @as(elf.STV, @enumFromInt(global.elfSym(self).st_other));
-            if (vis == .HIDDEN) continue;
-            // if (file == .shared and !global.isAbs(self)) {
-            //     global.flags.import = true;
-            //     continue;
-            // }
-            if (file_ptr.index() == index) {
-                global.flags.@"export" = true;
-                if (is_dyn_lib and vis != .PROTECTED) {
-                    global.flags.import = true;
+    const mark = struct {
+        fn mark(elf_file: *Elf, file_index: File.Index) void {
+            for (elf_file.file(file_index).?.globals()) |global_index| {
+                const global = elf_file.symbol(global_index);
+                if (global.version_index == elf.VER_NDX_LOCAL) continue;
+                const file_ptr = global.file(elf_file) orelse continue;
+                const vis = @as(elf.STV, @enumFromInt(global.elfSym(elf_file).st_other));
+                if (vis == .HIDDEN) continue;
+                // if (file == .shared and !global.isAbs(self)) {
+                //     global.flags.import = true;
+                //     continue;
+                // }
+                if (file_ptr.index() == file_index) {
+                    global.flags.@"export" = true;
+                    if (elf_file.isDynLib() and vis != .PROTECTED) {
+                        global.flags.import = true;
+                    }
                 }
             }
         }
+    }.mark;
+
+    if (self.zig_module_index) |index| {
+        mark(self, index);
     }
 
     for (self.objects.items) |index| {
+        mark(self, index);
+    }
+}
+
+fn claimUnresolved(self: *Elf) void {
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        zig_module.claimUnresolved(self);
+    }
+    for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        for (object.globals()) |global_index| {
-            const global = self.symbol(global_index);
-            if (global.version_index == elf.VER_NDX_LOCAL) continue;
-            const file_ptr = global.file(self) orelse continue;
-            const vis = @as(elf.STV, @enumFromInt(global.elfSym(self).st_other));
-            if (vis == .HIDDEN) continue;
-            // if (file == .shared and !global.isAbs(self)) {
-            //     global.flags.import = true;
-            //     continue;
-            // }
-            if (file_ptr.index() == index) {
-                global.flags.@"export" = true;
-                if (is_dyn_lib and vis != .PROTECTED) {
-                    global.flags.import = true;
-                }
-            }
-        }
+        object.claimUnresolved(self);
     }
 }
 
@@ -3421,6 +3419,10 @@ pub fn defaultEntryAddress(self: Elf) u64 {
         .spu_2 => 0,
         else => default_entry_addr,
     };
+}
+
+pub fn isDynLib(self: Elf) bool {
+    return self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic;
 }
 
 pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
