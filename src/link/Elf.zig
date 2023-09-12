@@ -1043,14 +1043,17 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.linker_defined_index = index;
     }
 
+    // Symbol resolution happens here
     try self.addLinkerDefinedSymbols();
-
-    // Resolve symbols
     self.resolveSymbols();
     self.markImportsExports();
     self.claimUnresolved();
+
+    // Scan and create missing synthetic entries such as GOT indirection
     try self.scanRelocs();
 
+    // Allocate atoms parsed from input object files
+    self.allocateObjects();
     self.allocateLinkerDefinedSymbols();
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
@@ -1400,6 +1403,10 @@ fn scanRelocs(self: *Elf) !void {
             try self.got.writeEntry(self, gop.index);
         }
     }
+}
+
+fn allocateObjects(self: *Elf) void {
+    _ = self;
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {

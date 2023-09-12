@@ -17,7 +17,6 @@ comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
 fdes: std.ArrayListUnmanaged(Fde) = .{},
 cies: std.ArrayListUnmanaged(Cie) = .{},
 
-needs_exec_stack: bool = false,
 alive: bool = true,
 num_dynrelocs: u32 = 0,
 
@@ -80,12 +79,12 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     try self.initAtoms(elf_file);
     try self.initSymtab(elf_file);
 
-    for (self.shdrs.items, 0..) |shdr, i| {
-        const atom = elf_file.atom(self.atoms.items[i]) orelse continue;
-        if (!atom.alive) continue;
-        if (shdr.sh_type == elf.SHT_X86_64_UNWIND or mem.eql(u8, atom.name(elf_file), ".eh_frame"))
-            try self.parseEhFrame(@as(u16, @intCast(i)), elf_file);
-    }
+    // for (self.shdrs.items, 0..) |shdr, i| {
+    //     const atom = elf_file.atom(self.atoms.items[i]) orelse continue;
+    //     if (!atom.alive) continue;
+    //     if (shdr.sh_type == elf.SHT_X86_64_UNWIND or mem.eql(u8, atom.name(elf_file), ".eh_frame"))
+    //         try self.parseEhFrame(@as(u16, @intCast(i)), elf_file);
+    // }
 }
 
 fn initAtoms(self: *Object, elf_file: *Elf) !void {
@@ -148,20 +147,6 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
             else => {
                 const name = self.strings.getAssumeExists(shdr.sh_name);
                 const shndx = @as(u16, @intCast(i));
-
-                // if (mem.eql(u8, ".note.GNU-stack", name)) {
-                //     if (shdr.sh_flags & elf.SHF_EXECINSTR != 0) {
-                //         if (!elf_file.options.z_execstack or !elf_file.options.z_execstack_if_needed) {
-                //             elf_file.base.warn(
-                //                 "{}: may cause segmentation fault as this file requested executable stack",
-                //                 .{self.fmtPath()},
-                //             );
-                //         }
-                //         self.needs_exec_stack = true;
-                //     }
-                //     continue;
-                // }
-
                 if (self.skipShdr(shndx, elf_file)) continue;
                 try self.addAtom(shdr, shndx, name, elf_file);
             },
@@ -187,6 +172,7 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
     atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
     atom.file_index = self.index;
     atom.input_section_index = shndx;
+    atom.output_section_index = self.getOutputSectionIndex(elf_file, shdr);
     atom.alive = true;
     self.atoms.items[shndx] = atom_index;
 
@@ -201,15 +187,61 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
     }
 }
 
+fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) u16 {
+    const name = blk: {
+        const name = self.strings.getAssumeExists(shdr.sh_name);
+        // if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
+        const sh_name_prefixes: []const [:0]const u8 = &.{
+            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
+            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
+            ".dtors",      ".gnu.warning",
+        };
+        inline for (sh_name_prefixes) |prefix| {
+            if (std.mem.eql(u8, name, prefix) or std.mem.startsWith(u8, name, prefix ++ ".")) {
+                break :blk prefix;
+            }
+        }
+        break :blk name;
+    };
+    const @"type" = switch (shdr.sh_type) {
+        elf.SHT_NULL => unreachable,
+        elf.SHT_PROGBITS => blk: {
+            if (std.mem.eql(u8, name, ".init_array") or std.mem.startsWith(u8, name, ".init_array."))
+                break :blk elf.SHT_INIT_ARRAY;
+            if (std.mem.eql(u8, name, ".fini_array") or std.mem.startsWith(u8, name, ".fini_array."))
+                break :blk elf.SHT_FINI_ARRAY;
+            break :blk shdr.sh_type;
+        },
+        elf.SHT_X86_64_UNWIND => elf.SHT_PROGBITS,
+        else => shdr.sh_type,
+    };
+    const flags = blk: {
+        const flags = shdr.sh_flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
+        break :blk switch (@"type") {
+            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
+            else => flags,
+        };
+    };
+    _ = flags;
+    const out_shndx = elf_file.sectionByName(name) orelse {
+        log.err("{}: output section {s} not found", .{ self.fmtPath(), name });
+        @panic("TODO: missing output section!");
+    };
+    return out_shndx;
+}
+
 fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
+    _ = elf_file;
     const shdr = self.shdrs.items[index];
     const name = self.strings.getAssumeExists(shdr.sh_name);
     const ignore = blk: {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".comment")) break :blk true;
         if (mem.startsWith(u8, name, ".llvm_addrsig")) break :blk true;
-        if (elf_file.base.options.strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
-            mem.startsWith(u8, name, ".debug")) break :blk true;
+        if (mem.startsWith(u8, name, ".eh_frame")) break :blk true;
+        // if (elf_file.base.options.strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
+        //     mem.startsWith(u8, name, ".debug")) break :blk true;
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0 and mem.startsWith(u8, name, ".debug")) break :blk true;
         break :blk false;
     };
     return ignore;
