@@ -1954,13 +1954,17 @@ a <<= b{#endsyntax#}</pre></th>
           </td>
           <td>Bit Shift Left.
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Shifts in {#syntax#}0{#endsyntax#}'s from the right.</li>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
+            <pre>{#syntax#}1 << 8 == 256
+            
+// Equivalent in binary notation
+0b0_0000_0001 << 8 == 0b1_0000_0000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1991,12 +1995,16 @@ a >>= b{#endsyntax#}</pre></th>
           </td>
           <td>Bit Shift Right.
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Shifts in {#syntax#}0{#endsyntax#}'s from the left.</li>
               <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}10 >> 1 == 5{#endsyntax#}</pre>
+            <pre>{#syntax#}10 >> 1 == 5
+            
+// Equivalent in binary notation
+0b0000_1010 >> 1 == 0b0000_0101{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
