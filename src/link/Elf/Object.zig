@@ -270,6 +270,10 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
         sym_ptr.esym_index = @as(u32, @intCast(i));
         sym_ptr.atom_index = if (sym.st_shndx == elf.SHN_ABS) 0 else self.atoms.items[sym.st_shndx];
         sym_ptr.file_index = self.index;
+        sym_ptr.output_section_index = if (sym_ptr.atom(elf_file)) |atom_ptr|
+            atom_ptr.output_section_index
+        else
+            0;
     }
 
     for (self.symtab[first_global..]) |sym| {

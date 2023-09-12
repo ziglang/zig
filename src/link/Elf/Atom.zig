@@ -67,12 +67,13 @@ pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
         switch (chdr.ch_type) {
             .ZLIB => {
                 var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = try std.compress.zlib.decompressStream(gpa, stream.reader());
+                var zlib_stream = std.compress.zlib.decompressStream(gpa, stream.reader()) catch
+                    return error.InputOutput;
                 defer zlib_stream.deinit();
                 const decomp = try gpa.alloc(u8, chdr.ch_size);
-                const nread = try zlib_stream.reader().readAll(decomp);
+                const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
                 if (nread != decomp.len) {
-                    return error.Io;
+                    return error.InputOutput;
                 }
                 return decomp;
             },
@@ -366,6 +367,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf) !void {
 pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
 
+    const file_ptr = elf_file.file(self.file_index).?;
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();
 
@@ -373,7 +375,11 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
         const r_type = rel.r_type();
         if (r_type == elf.R_X86_64_NONE) continue;
 
-        const target = elf_file.symbol(rel.r_sym());
+        const target = switch (file_ptr) {
+            .zig_module => elf_file.symbol(rel.r_sym()),
+            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
+            else => unreachable,
+        };
 
         // We will use equation format to resolve relocations:
         // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
@@ -414,9 +420,17 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
         switch (rel.r_type()) {
             elf.R_X86_64_NONE => unreachable,
+
             elf.R_X86_64_64 => try cwriter.writeIntLittle(i64, S + A),
-            elf.R_X86_64_PLT32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
-            else => @panic("TODO"),
+
+            elf.R_X86_64_PLT32,
+            elf.R_X86_64_PC32,
+            => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
+
+            else => {
+                log.err("TODO: unhandled relocation type {}", .{fmtRelocType(rel.r_type())});
+                @panic("TODO unhandled relocation type");
+            },
         }
     }
 }

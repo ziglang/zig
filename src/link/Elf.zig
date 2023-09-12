@@ -1072,6 +1072,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try self.base.file.?.pwriteAll(code, file_offset);
         }
     }
+    try self.writeObjects();
 
     try self.updateSymtabSize();
     try self.writeSymtab();
@@ -1414,11 +1415,38 @@ fn allocateObjects(self: *Elf) !void {
             try atom_ptr.allocate(self);
         }
 
+        for (object.locals()) |local_index| {
+            const local = self.symbol(local_index);
+            const atom_ptr = local.atom(self) orelse continue;
+            if (!atom_ptr.alive) continue;
+            local.value = atom_ptr.value;
+        }
+
         for (object.globals()) |global_index| {
             const global = self.symbol(global_index);
             if (global.file_index == index) {
                 global.value = global.atom(self).?.value;
             }
+        }
+    }
+}
+
+fn writeObjects(self: *Elf) !void {
+    const gpa = self.base.allocator;
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.alive) continue;
+
+            const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            const code = try atom_ptr.codeInObjectUncompressAlloc(self);
+            defer gpa.free(code);
+
+            try atom_ptr.resolveRelocs(self, code);
+            try self.base.file.?.pwriteAll(code, file_offset);
         }
     }
 }
