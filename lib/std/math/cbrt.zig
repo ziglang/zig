@@ -87,9 +87,9 @@ fn cbrt64(x: f64) f64 {
         u = @as(u64, @bitCast(x * 0x1.0p54));
         hx = @as(u32, @intCast(u >> 32)) & 0x7FFFFFFF;
 
-        // cbrt(0) is itself
+        // cbrt(+-0) = itself
         if (hx == 0) {
-            return 0;
+            return x;
         }
         hx = hx / 3 + B2;
     } else {
