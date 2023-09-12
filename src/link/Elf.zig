@@ -836,14 +836,20 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             } });
             self.zig_module_index = index;
             const zig_module = self.file(index).?.zig_module;
-            const sym_index = try zig_module.addLocal(self);
-            const sym = self.symbol(sym_index);
-            const esym = zig_module.sourceSymbol(sym_index, self);
+
             const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_pkg.root_src_path));
-            sym.name_offset = name_off;
+            const symbol_index = try self.addSymbol();
+            try zig_module.local_symbols.append(gpa, symbol_index);
+            const symbol_ptr = self.symbol(symbol_index);
+            symbol_ptr.file_index = zig_module.index;
+            symbol_ptr.name_offset = name_off;
+
+            const esym_index = try zig_module.addLocalEsym(gpa);
+            const esym = &zig_module.local_esyms.items[esym_index];
             esym.st_name = name_off;
             esym.st_info |= elf.STT_FILE;
             esym.st_shndx = elf.SHN_ABS;
+            symbol_ptr.esym_index = esym_index;
         }
     }
 }
@@ -2194,7 +2200,7 @@ pub fn getOrCreateMetadataForLazySymbol(self: *Elf, sym: link.File.LazySymbol) !
     };
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     switch (metadata.state.*) {
-        .unused => metadata.symbol_index.* = try zig_module.createAtom(switch (sym.kind) {
+        .unused => metadata.symbol_index.* = try zig_module.addAtom(switch (sym.kind) {
             .code => self.text_section_index.?,
             .const_data => self.rodata_section_index.?,
         }, self),
@@ -2213,7 +2219,7 @@ pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Sy
     if (!gop.found_existing) {
         const zig_module = self.file(self.zig_module_index.?).?.zig_module;
         gop.value_ptr.* = .{
-            .symbol_index = try zig_module.createAtom(self.getDeclShdrIndex(decl_index), self),
+            .symbol_index = try zig_module.addAtom(self.getDeclShdrIndex(decl_index), self),
             .exports = .{},
         };
     }
@@ -2264,7 +2270,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(mod);
 
     const sym = self.symbol(sym_index);
-    const esym = zig_module.sourceSymbol(sym_index, self);
+    const esym = &zig_module.local_esyms.items[sym.esym_index];
     const atom_ptr = sym.atom(self).?;
     const shdr_index = sym.output_section_index;
 
@@ -2521,7 +2527,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const local_sym = self.symbol(symbol_index);
     const phdr_index = self.phdr_to_shdr_table.get(local_sym.output_section_index).?;
     local_sym.name_offset = name_str_index;
-    const local_esym = zig_module.sourceSymbol(symbol_index, self);
+    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -2575,7 +2581,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const name = self.strtab.get(name_str_index).?;
 
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const sym_index = try zig_module.createAtom(self.rodata_section_index.?, self);
+    const sym_index = try zig_module.addAtom(self.rodata_section_index.?, self);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
         .none = {},
@@ -2597,7 +2603,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const local_sym = self.symbol(sym_index);
     local_sym.name_offset = name_str_index;
-    const local_esym = zig_module.sourceSymbol(sym_index, self);
+    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -2642,10 +2648,11 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     const decl_sym = self.symbol(decl_sym_index);
-    const decl_esym = decl_sym.sourceSymbol(self);
+    const decl_esym = zig_module.local_esyms.items[decl_sym.esym_index];
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -2681,21 +2688,21 @@ pub fn updateDeclExports(
         };
         const stt_bits: u8 = @as(u4, @truncate(decl_esym.st_info));
 
-        const zig_module = self.file(self.zig_module_index.?).?.zig_module;
         const sym_index = if (decl_metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const sym_index = try zig_module.addGlobal(exp_name, self);
+            const sym_index = try zig_module.addGlobalEsym(gpa);
+            _ = try zig_module.global_symbols.addOne(gpa);
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
-        const sym = self.symbol(sym_index);
-        sym.flags.@"export" = true;
-        sym.value = decl_sym.value;
-        sym.atom_index = decl_sym.atom_index;
-        sym.output_section_index = decl_sym.output_section_index;
-        const esym = zig_module.sourceSymbol(sym_index, self);
-        esym.* = decl_esym;
+        const name_off = try self.strtab.insert(gpa, exp_name);
+        const esym = &zig_module.global_esyms.items[sym_index];
+        esym.st_value = decl_sym.value;
+        esym.st_shndx = decl_sym.output_section_index;
         esym.st_info = (stb_bits << 4) | stt_bits;
-        _ = self.unresolved.swapRemove(sym_index);
+        esym.st_name = name_off;
+
+        const gop = try self.getOrPutGlobal(name_off);
+        zig_module.global_symbols.items[sym_index] = gop.index;
     }
 }
 
@@ -2722,20 +2729,20 @@ pub fn deleteDeclExport(
 ) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
-    const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const exp_name = mod.intern_pool.stringToSlice(name);
-    const sym_index = metadata.@"export"(self, exp_name) orelse return;
+    const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const sym = self.symbol(sym_index.*);
-    const esym = zig_module.sourceSymbol(sym_index.*, self);
-    assert(self.resolver.fetchSwapRemove(sym.name_offset) != null); // TODO don't delete it if it's not dominant
-    sym.* = .{};
-    // TODO free list for esym!
+    const esym = &zig_module.global_esyms.items[esym_index.*];
+    _ = zig_module.globals_lookup.remove(esym.st_name);
+    const sym_index = self.resolver.get(esym.st_name).?;
+    const sym = self.symbol(sym_index);
+    if (sym.file_index == zig_module.index) {
+        _ = self.resolver.swapRemove(esym.st_name);
+        sym.* = .{};
+    }
     esym.* = null_sym;
-    self.symbols_free_list.append(gpa, sym_index.*) catch {};
-    sym_index.* = 0;
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
@@ -3468,8 +3475,18 @@ pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
 
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
+    const gpa = self.base.allocator;
+    const off = try self.strtab.insert(gpa, name);
+    const gop = try self.getOrPutGlobal(off);
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    return zig_module.addGlobal(name, self);
+    const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, off);
+    if (!lookup_gop.found_existing) {
+        const esym_index = try zig_module.addGlobalEsym(gpa);
+        const esym = &zig_module.global_esyms.items[esym_index];
+        esym.st_name = off;
+        lookup_gop.value_ptr.* = esym_index;
+    }
+    return gop.index;
 }
 
 const GetOrCreateComdatGroupOwnerResult = struct {
@@ -3753,8 +3770,10 @@ const DeclMetadata = struct {
     exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
     fn @"export"(m: DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
+        const zig_module = elf_file.file(elf_file.zig_module_index.?).?.zig_module;
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, elf_file.symbol(exp.*).name(elf_file))) return exp;
+            const exp_name = elf_file.strtab.getAssumeExists(zig_module.global_esyms.items[exp.*].st_name);
+            if (mem.eql(u8, name, exp_name)) return exp;
         }
         return null;
     }

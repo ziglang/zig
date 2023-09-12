@@ -8,9 +8,9 @@ shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
 strings: StringTable(.object_strings) = .{},
 symtab: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
 strtab: []const u8 = &[0]u8{},
-first_global: ?u32 = null,
+first_global: ?Symbol.Index = null,
 
-symbols: std.ArrayListUnmanaged(u32) = .{},
+symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
 

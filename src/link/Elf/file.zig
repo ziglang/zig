@@ -32,7 +32,6 @@ pub const File = union(enum) {
 
     pub fn resolveSymbols(file: File, elf_file: *Elf) void {
         switch (file) {
-            .zig_module => unreachable, // handled separately
             inline else => |x| x.resolveSymbols(elf_file),
         }
     }

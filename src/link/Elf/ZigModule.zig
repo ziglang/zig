@@ -2,11 +2,11 @@
 path: []const u8,
 index: File.Index,
 
-elf_local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-local_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
-
-elf_global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-global_symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
+local_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+global_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 
 atoms: std.AutoArrayHashMapUnmanaged(Atom.Index, void) = .{},
 relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
@@ -14,10 +14,11 @@ relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *ZigModule, allocator: Allocator) void {
-    self.elf_local_symbols.deinit(allocator);
+    self.local_esyms.deinit(allocator);
+    self.global_esyms.deinit(allocator);
     self.local_symbols.deinit(allocator);
-    self.elf_global_symbols.deinit(allocator);
     self.global_symbols.deinit(allocator);
+    self.globals_lookup.deinit(allocator);
     self.atoms.deinit(allocator);
     for (self.relocs.items) |*list| {
         list.deinit(allocator);
@@ -25,58 +26,57 @@ pub fn deinit(self: *ZigModule, allocator: Allocator) void {
     self.relocs.deinit(allocator);
 }
 
-pub fn createAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
+pub fn addLocalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
+    try self.local_esyms.ensureUnusedCapacity(allocator, 1);
+    const index = @as(Symbol.Index, @intCast(self.local_esyms.items.len));
+    const esym = self.local_esyms.addOneAssumeCapacity();
+    esym.* = Elf.null_sym;
+    esym.st_info = elf.STB_LOCAL << 4;
+    return index;
+}
+
+pub fn addGlobalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
+    try self.global_esyms.ensureUnusedCapacity(allocator, 1);
+    const index = @as(Symbol.Index, @intCast(self.global_esyms.items.len));
+    const esym = self.global_esyms.addOneAssumeCapacity();
+    esym.* = Elf.null_sym;
+    esym.st_info = elf.STB_GLOBAL << 4;
+    return index;
+}
+
+pub fn addAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
+
     const atom_index = try elf_file.addAtom();
-    const symbol_index = try self.addLocal(elf_file);
+    try self.atoms.putNoClobber(gpa, atom_index, {});
     const atom_ptr = elf_file.atom(atom_index).?;
     atom_ptr.file_index = self.index;
     atom_ptr.output_section_index = output_section_index;
+
+    const symbol_index = try elf_file.addSymbol();
+    try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
+    symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
     symbol_ptr.output_section_index = output_section_index;
-    const local_esym = self.sourceSymbol(symbol_ptr.index, elf_file);
-    local_esym.st_shndx = output_section_index;
+
+    const esym_index = try self.addLocalEsym(gpa);
+    const esym = &self.local_esyms.items[esym_index];
+    esym.st_shndx = output_section_index;
+    symbol_ptr.esym_index = esym_index;
+
     const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
     atom_ptr.relocs_section_index = relocs_index;
-    try self.atoms.putNoClobber(gpa, atom_index, {});
+
     return symbol_index;
 }
 
-pub fn addLocal(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
-    const gpa = elf_file.base.allocator;
-    const symbol_index = try elf_file.addSymbol();
-    const symbol_ptr = elf_file.symbol(symbol_index);
-    symbol_ptr.file_index = self.index;
-    symbol_ptr.esym_index = @as(Symbol.Index, @intCast(self.elf_local_symbols.items.len));
-    const local_esym = try self.elf_local_symbols.addOne(gpa);
-    local_esym.* = Elf.null_sym;
-    local_esym.st_info = elf.STB_LOCAL << 4;
-    try self.local_symbols.putNoClobber(gpa, symbol_index, {});
-    return symbol_index;
-}
-
-pub fn addGlobal(self: *ZigModule, name: []const u8, elf_file: *Elf) !Symbol.Index {
-    const gpa = elf_file.base.allocator;
-    try self.elf_global_symbols.ensureUnusedCapacity(gpa, 1);
-    try self.global_symbols.ensureUnusedCapacity(gpa, 1);
-    const off = try elf_file.strtab.insert(gpa, name);
-    const esym_index = @as(Symbol.Index, @intCast(self.elf_global_symbols.items.len));
-    const esym = self.elf_global_symbols.addOneAssumeCapacity();
-    esym.* = Elf.null_sym;
-    esym.st_name = off;
-    esym.st_info = elf.STB_GLOBAL << 4;
-    const gop = try elf_file.getOrPutGlobal(off);
-    if (!gop.found_existing) {
-        try elf_file.unresolved.putNoClobber(gpa, gop.index, {});
-    }
-    const sym = elf_file.symbol(gop.index);
-    sym.file_index = self.index;
-    sym.esym_index = esym_index;
-    self.global_symbols.putAssumeCapacityNoClobber(gop.index, {});
-    return gop.index;
+pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
+    _ = self;
+    _ = elf_file;
+    @panic("TODO");
 }
 
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
@@ -133,19 +133,12 @@ pub fn writeSymtab(self: *ZigModule, elf_file: *Elf, ctx: anytype) void {
     }
 }
 
-pub fn sourceSymbol(self: *ZigModule, symbol_index: Symbol.Index, elf_file: *Elf) *elf.Elf64_Sym {
-    const sym = elf_file.symbol(symbol_index);
-    if (self.local_symbols.get(symbol_index)) |_| return &self.elf_local_symbols.items[sym.esym_index];
-    assert(self.global_symbols.get(symbol_index) != null);
-    return &self.elf_global_symbols.items[sym.esym_index];
-}
-
 pub fn locals(self: *ZigModule) []const Symbol.Index {
-    return self.local_symbols.keys();
+    return self.local_symbols.items;
 }
 
 pub fn globals(self: *ZigModule) []const Symbol.Index {
-    return self.global_symbols.keys();
+    return self.global_symbols.items;
 }
 
 pub fn asFile(self: *ZigModule) File {

@@ -69,9 +69,13 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
-        .zig_module => return file_ptr.zig_module.sourceSymbol(symbol.index, elf_file).*,
-        .linker_defined => return file_ptr.linker_defined.symtab.items[symbol.esym_index],
-        .object => return file_ptr.object.symtab[symbol.esym_index],
+        .zig_module => |x| {
+            const is_global = x.globals_lookup.contains(symbol.name_offset);
+            if (is_global) return x.global_esyms.items[symbol.esym_index];
+            return x.local_esyms.items[symbol.esym_index];
+        },
+        .linker_defined => |x| return x.symtab.items[symbol.esym_index],
+        .object => |x| return x.symtab[symbol.esym_index],
     }
 }
 
@@ -164,7 +168,10 @@ pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
 }
 
 pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
-    const file_ptr = symbol.file(elf_file).?;
+    const file_ptr = symbol.file(elf_file) orelse {
+        out.* = Elf.null_sym;
+        return;
+    };
     const s_sym = symbol.sourceSymbol(elf_file);
     const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
