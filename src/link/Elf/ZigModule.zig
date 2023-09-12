@@ -81,7 +81,7 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
-            const atom_index = self.atoms.keys()[esym.st_shndx];
+            const atom_index = esym.st_shndx;
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.alive) continue;
         }
@@ -90,12 +90,17 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (self.asFile().symbolRank(esym, false) < global.symbolRank(elf_file)) {
             const atom_index = switch (esym.st_shndx) {
                 elf.SHN_ABS, elf.SHN_COMMON => 0,
-                else => self.atoms.keys()[esym.st_shndx],
+                else => esym.st_shndx,
             };
+            const output_section_index = if (elf_file.atom(atom_index)) |atom|
+                atom.output_section_index
+            else
+                0;
             global.value = esym.st_value;
             global.atom_index = atom_index;
             global.esym_index = esym_index;
             global.file_index = self.index;
+            global.output_section_index = output_section_index;
             global.version_index = elf_file.default_sym_version;
             if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
         }
