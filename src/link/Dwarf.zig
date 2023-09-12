@@ -327,7 +327,7 @@ pub const DeclState = struct {
                         // DW.AT.name, DW.FORM.string
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
 
-                        for (fields.types, 0..) |field_ty, field_index| {
+                        for (fields.types.get(ip), 0..) |field_ty, field_index| {
                             // DW.AT.member
                             try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                             // DW.AT.name, DW.FORM.string

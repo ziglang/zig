@@ -438,7 +438,11 @@ pub fn generateSymbol(
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
-                for (tuple.types, tuple.values, 0..) |field_ty, comptime_val, index| {
+                for (
+                    tuple.types.get(ip),
+                    tuple.values.get(ip),
+                    0..,
+                ) |field_ty, comptime_val, index| {
                     if (comptime_val != .none) continue;
                     if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
