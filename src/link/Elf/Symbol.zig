@@ -43,7 +43,7 @@ pub fn isLocal(symbol: Symbol) bool {
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
-pub inline fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
+pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
     return symbol.type(elf_file) == elf.STT_GNU_IFUNC;
 }
 
@@ -69,12 +69,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
-        .zig_module => |x| {
-            const is_global = symbol.esym_index & 0x10000000 != 0;
-            const esym_index = symbol.esym_index & 0x0fffffff;
-            if (is_global) return x.global_esyms.items[esym_index];
-            return x.local_esyms.items[esym_index];
-        },
+        .zig_module => |x| return x.elfSym(symbol.esym_index).*,
         .linker_defined => |x| return x.symtab.items[symbol.esym_index],
         .object => |x| return x.symtab[symbol.esym_index],
     }

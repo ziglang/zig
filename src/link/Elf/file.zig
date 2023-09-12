@@ -23,7 +23,7 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_module => try writer.writeAll("(zig module)"),
+            .zig_module => |x| try writer.print("{s}", .{x.path}),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
             // .shared_object => |x| try writer.writeAll(x.path),

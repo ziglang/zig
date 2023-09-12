@@ -312,7 +312,7 @@ pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
     zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
-pub fn scanRelocs(self: Atom, elf_file: *Elf) !void {
+pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
     const file_ptr = elf_file.file(self.file_index).?;
     const rels = self.relocs(elf_file);
     var i: usize = 0;
@@ -322,10 +322,24 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf) !void {
         if (rel.r_type() == elf.R_X86_64_NONE) continue;
 
         const symbol = switch (file_ptr) {
-            .zig_module => elf_file.symbol(rel.r_sym()),
+            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
+
+        // Check for violation of One Definition Rule for COMDATs.
+        if (symbol.file(elf_file) == null) {
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                symbol.name(elf_file),
+            });
+            continue;
+        }
+
+        // Report an undefined symbol.
+        try self.reportUndefined(elf_file, symbol, rel, undefs);
 
         // While traversing relocations, mark symbols that require special handling such as
         // pointer indirection via GOT, or a stub trampoline via PLT.
@@ -363,6 +377,28 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf) !void {
     }
 }
 
+// This function will report any undefined non-weak symbols that are not imports.
+fn reportUndefined(self: Atom, elf_file: *Elf, sym: *const Symbol, rel: elf.Elf64_Rela, undefs: anytype) !void {
+    const rel_esym = switch (elf_file.file(self.file_index).?) {
+        .zig_module => |x| x.elfSym(rel.r_sym()).*,
+        .object => |x| x.symtab[rel.r_sym()],
+        else => unreachable,
+    };
+    const esym = sym.elfSym(elf_file);
+    if (rel_esym.st_shndx == elf.SHN_UNDEF and
+        rel_esym.st_bind() == elf.STB_GLOBAL and
+        sym.esym_index > 0 and
+        !sym.flags.import and
+        esym.st_shndx == elf.SHN_UNDEF)
+    {
+        const gop = try undefs.getOrPut(sym.index);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = std.ArrayList(Atom.Index).init(elf_file.base.allocator);
+        }
+        try gop.value_ptr.append(self.atom_index);
+    }
+}
+
 /// TODO mark relocs dirty
 pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
@@ -376,7 +412,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
         if (r_type == elf.R_X86_64_NONE) continue;
 
         const target = switch (file_ptr) {
-            .zig_module => elf_file.symbol(rel.r_sym()),
+            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
@@ -564,3 +600,4 @@ const Allocator = std.mem.Allocator;
 const Atom = @This();
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
+const Symbol = @import("Symbol.zig");

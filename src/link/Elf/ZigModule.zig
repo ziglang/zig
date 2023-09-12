@@ -1,3 +1,8 @@
+//! ZigModule encapsulates the state of the incrementally compiled Zig module.
+//! It stores the associated input local and global symbols, allocated atoms,
+//! and any relocations that may have been emitted.
+//! Think about this as fake in-memory Object file for the Zig module.
+
 /// Path is owned by Module and lives as long as *Module.
 path: []const u8,
 index: File.Index,
@@ -41,7 +46,7 @@ pub fn addGlobalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
     const esym = self.global_esyms.addOneAssumeCapacity();
     esym.* = Elf.null_sym;
     esym.st_info = elf.STB_GLOBAL << 4;
-    return index;
+    return index | 0x10000000;
 }
 
 pub fn addAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
@@ -135,11 +140,11 @@ pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
     }
 }
 
-pub fn scanRelocs(self: *ZigModule, elf_file: *Elf) !void {
+pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.keys()) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.alive) continue;
-        try atom.scanRelocs(elf_file);
+        try atom.scanRelocs(elf_file, undefs);
     }
 }
 
@@ -195,6 +200,20 @@ pub fn writeSymtab(self: *ZigModule, elf_file: *Elf, ctx: anytype) void {
             iglobal += 1;
         }
     }
+}
+
+pub fn symbol(self: *ZigModule, index: Symbol.Index) Symbol.Index {
+    const is_global = index & 0x10000000 != 0;
+    const actual_index = index & 0x0fffffff;
+    if (is_global) return self.global_symbols.items[actual_index];
+    return self.local_symbols.items[actual_index];
+}
+
+pub fn elfSym(self: *ZigModule, index: Symbol.Index) *elf.Elf64_Sym {
+    const is_global = index & 0x10000000 != 0;
+    const actual_index = index & 0x0fffffff;
+    if (is_global) return &self.global_esyms.items[actual_index];
+    return &self.local_esyms.items[actual_index];
 }
 
 pub fn locals(self: *ZigModule) []const Symbol.Index {

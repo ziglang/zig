@@ -392,14 +392,14 @@ fn filterRelocs(
     return .{ .start = f_start, .len = f_len };
 }
 
-pub fn scanRelocs(self: *Object, elf_file: *Elf) !void {
+pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.alive) continue;
         const shdr = atom.inputShdr(elf_file);
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        try atom.scanRelocs(elf_file);
+        try atom.scanRelocs(elf_file, undefs);
     }
 
     for (self.cies.items) |cie| {
