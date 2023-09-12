@@ -422,18 +422,13 @@ pub fn build(b: *std.Build) !void {
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
     const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
-    const fmt_exclude_paths = &.{
-        "test/cases",
-        // This is for the CI scripts.
-        "build-debug",
-        "build-release",
-    };
+    const fmt_exclude_paths = &.{"test/cases"};
     const do_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
     });
 
-    b.step("check-fmt", "Check source files having conforming formatting").dependOn(&b.addFmt(.{
+    b.step("test-fmt", "Check source files having conforming formatting").dependOn(&b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
         .check = true,
