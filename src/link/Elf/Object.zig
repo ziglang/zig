@@ -367,15 +367,16 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf) !void {
     }
 
     for (self.cies.items) |cie| {
-        for (cie.getRelocs(elf_file)) |rel| {
+        for (cie.relocs(elf_file)) |rel| {
             const sym = elf_file.symbol(self.symbols.items[rel.r_sym()]);
             if (sym.flags.import) {
-                if (sym.getType(elf_file) != elf.STT_FUNC)
-                    elf_file.base.fatal("{s}: {s}: CIE referencing external data reference", .{
+                if (sym.type(elf_file) != elf.STT_FUNC)
+                    // TODO convert into an error
+                    log.debug("{s}: {s}: CIE referencing external data reference", .{
                         self.fmtPath(),
-                        sym.getName(elf_file),
+                        sym.name(elf_file),
                     });
-                sym.flags.plt = true;
+                sym.flags.needs_plt = true;
             }
         }
     }

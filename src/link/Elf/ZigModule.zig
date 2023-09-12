@@ -130,6 +130,14 @@ pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
     }
 }
 
+pub fn scanRelocs(self: *ZigModule, elf_file: *Elf) !void {
+    for (self.atoms.keys()) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.alive) continue;
+        try atom.scanRelocs(elf_file);
+    }
+}
+
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);

@@ -1049,8 +1049,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     self.resolveSymbols();
     self.markImportsExports();
     self.claimUnresolved();
-
-    if (self.unresolved.keys().len > 0) try self.reportUndefined();
+    try self.scanRelocs();
 
     self.allocateLinkerDefinedSymbols();
 
@@ -1378,6 +1377,28 @@ fn claimUnresolved(self: *Elf) void {
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
         object.claimUnresolved(self);
+    }
+}
+
+fn scanRelocs(self: *Elf) !void {
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        try zig_module.scanRelocs(self);
+    }
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        try object.scanRelocs(self);
+    }
+
+    // try self.reportUndefined();
+
+    for (self.symbols.items) |*sym| {
+        if (sym.flags.needs_got) {
+            log.debug("'{s}' needs GOT", .{sym.name(self)});
+            // TODO how can we tell we need to write it again, aka the entry is dirty?
+            const gop = try sym.getOrCreateGotEntry(self);
+            try self.got.writeEntry(self, gop.index);
+        }
     }
 }
 
@@ -2375,8 +2396,9 @@ fn updateDeclCode(
         sym.value = atom_ptr.value;
         esym.st_value = atom_ptr.value;
 
-        const got_index = try sym.getOrCreateGotEntry(self);
-        try self.got.writeEntry(self, got_index);
+        sym.flags.needs_got = true;
+        const gop = try sym.getOrCreateGotEntry(self);
+        try self.got.writeEntry(self, gop.index);
     }
 
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
@@ -2609,8 +2631,9 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_sym.value = atom_ptr.value;
     local_esym.st_value = atom_ptr.value;
 
-    const got_index = try local_sym.getOrCreateGotEntry(self);
-    try self.got.writeEntry(self, got_index);
+    local_sym.flags.needs_got = true;
+    const gop = try local_sym.getOrCreateGotEntry(self);
+    try self.got.writeEntry(self, gop.index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
     const file_offset = self.shdrs.items[local_sym.output_section_index].sh_offset + section_offset;

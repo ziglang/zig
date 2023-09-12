@@ -311,6 +311,57 @@ pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
     zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
+pub fn scanRelocs(self: Atom, elf_file: *Elf) !void {
+    const file_ptr = elf_file.file(self.file_index).?;
+    const rels = self.relocs(elf_file);
+    var i: usize = 0;
+    while (i < rels.len) : (i += 1) {
+        const rel = rels[i];
+
+        if (rel.r_type() == elf.R_X86_64_NONE) continue;
+
+        const symbol = switch (file_ptr) {
+            .zig_module => elf_file.symbol(rel.r_sym()),
+            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
+            else => unreachable,
+        };
+
+        // While traversing relocations, mark symbols that require special handling such as
+        // pointer indirection via GOT, or a stub trampoline via PLT.
+        switch (rel.r_type()) {
+            elf.R_X86_64_64 => {},
+
+            elf.R_X86_64_32,
+            elf.R_X86_64_32S,
+            => {},
+
+            elf.R_X86_64_GOT32,
+            elf.R_X86_64_GOT64,
+            elf.R_X86_64_GOTPC32,
+            elf.R_X86_64_GOTPC64,
+            elf.R_X86_64_GOTPCREL,
+            elf.R_X86_64_GOTPCREL64,
+            elf.R_X86_64_GOTPCRELX,
+            elf.R_X86_64_REX_GOTPCRELX,
+            => {
+                symbol.flags.needs_got = true;
+            },
+
+            elf.R_X86_64_PLT32,
+            elf.R_X86_64_PLTOFF64,
+            => {
+                if (symbol.flags.import) {
+                    symbol.flags.needs_plt = true;
+                }
+            },
+
+            elf.R_X86_64_PC32 => {},
+
+            else => @panic("TODO"),
+        }
+    }
+}
+
 /// TODO mark relocs dirty
 pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
@@ -484,6 +535,9 @@ fn format2(
     }
 }
 
+// TODO this has to be u32 but for now, to avoid redesigning elfSym machinery for
+// ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
+// future.
 pub const Index = u16;
 
 const std = @import("std");

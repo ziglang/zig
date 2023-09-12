@@ -111,19 +111,23 @@ pub fn address(symbol: Symbol, opts: struct {
 }
 
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
-    if (!symbol.flags.got) return 0;
+    if (!symbol.flags.has_got) return 0;
     const extras = symbol.extra(elf_file).?;
     const entry = elf_file.got.entries.items[extras.got];
     return entry.address(elf_file);
 }
 
-pub fn getOrCreateGotEntry(symbol: *Symbol, elf_file: *Elf) !GotSection.Index {
-    const index = if (symbol.flags.got)
-        symbol.extra(elf_file).?.got
-    else
-        try elf_file.got.addGotSymbol(symbol.index, elf_file);
-    symbol.flags.got = true;
-    return index;
+const GetOrCreateGotEntryResult = struct {
+    found_existing: bool,
+    index: GotSection.Index,
+};
+
+pub fn getOrCreateGotEntry(symbol: *Symbol, elf_file: *Elf) !GetOrCreateGotEntryResult {
+    assert(symbol.flags.needs_got);
+    if (symbol.flags.has_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.got };
+    const index = try elf_file.got.addGotSymbol(symbol.index, elf_file);
+    symbol.flags.has_got = true;
+    return .{ .found_existing = false, .index = index };
 }
 
 // pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
@@ -310,9 +314,11 @@ pub const Flags = packed struct {
     output_symtab: bool = false,
 
     /// Whether the symbol contains GOT indirection.
-    got: bool = false,
+    needs_got: bool = false,
+    has_got: bool = false,
 
     /// Whether the symbol contains PLT indirection.
+    needs_plt: bool = false,
     plt: bool = false,
     /// Whether the PLT entry is canonical.
     is_canonical: bool = false,

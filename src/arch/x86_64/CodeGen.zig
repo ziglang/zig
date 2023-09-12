@@ -8156,6 +8156,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
                 const sym = elf_file.symbol(sym_index);
+                sym.flags.needs_got = true;
                 _ = try sym.getOrCreateGotEntry(elf_file);
                 const got_addr = sym.gotAddress(elf_file);
                 try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
@@ -10234,6 +10235,7 @@ fn genLazySymbolRef(
         const sym_index = elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
+        sym.flags.needs_got = true;
         _ = try sym.getOrCreateGotEntry(elf_file);
         const got_addr = sym.gotAddress(elf_file);
         const got_mem =

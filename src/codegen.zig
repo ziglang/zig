@@ -856,6 +856,7 @@ fn genDeclRef(
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);
+        sym.flags.needs_got = true;
         _ = try sym.getOrCreateGotEntry(elf_file);
         return GenResult.mcv(.{ .memory = sym.gotAddress(elf_file) });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
