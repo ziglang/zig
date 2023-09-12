@@ -1053,7 +1053,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.scanRelocs();
 
     // Allocate atoms parsed from input object files
-    self.allocateObjects();
+    try self.allocateObjects();
     self.allocateLinkerDefinedSymbols();
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
@@ -1405,8 +1405,22 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
-fn allocateObjects(self: *Elf) void {
-    _ = self;
+fn allocateObjects(self: *Elf) !void {
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.alive) continue;
+            try atom_ptr.allocate(self);
+        }
+
+        for (object.globals()) |global_index| {
+            const global = self.symbol(global_index);
+            if (global.file_index == index) {
+                global.value = global.atom(self).?.value;
+            }
+        }
+    }
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
