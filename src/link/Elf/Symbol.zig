@@ -70,9 +70,10 @@ pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
         .zig_module => |x| {
-            const is_global = x.globals_lookup.contains(symbol.name_offset);
-            if (is_global) return x.global_esyms.items[symbol.esym_index];
-            return x.local_esyms.items[symbol.esym_index];
+            const is_global = symbol.esym_index & 0x10000000 != 0;
+            const esym_index = symbol.esym_index & 0x0fffffff;
+            if (is_global) return x.global_esyms.items[esym_index];
+            return x.local_esyms.items[esym_index];
         },
         .linker_defined => |x| return x.symtab.items[symbol.esym_index],
         .object => |x| return x.symtab[symbol.esym_index],

@@ -30,18 +30,6 @@ pub const File = union(enum) {
         }
     }
 
-    pub fn resolveSymbols(file: File, elf_file: *Elf) void {
-        switch (file) {
-            inline else => |x| x.resolveSymbols(elf_file),
-        }
-    }
-
-    // pub fn resetGlobals(file: File, elf_file: *Elf) void {
-    //     switch (file) {
-    //         inline else => |x| x.resetGlobals(elf_file),
-    //     }
-    // }
-
     pub fn isAlive(file: File) bool {
         return switch (file) {
             .zig_module => true,

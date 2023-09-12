@@ -17,7 +17,7 @@ alignment: u8 = 0,
 input_section_index: Index = 0,
 
 /// Index of the output section.
-output_section_index: u16 = 0,
+output_section_index: Index = 0,
 
 /// Index of the input section containing this atom's relocs.
 relocs_section_index: Index = 0,
@@ -484,7 +484,7 @@ fn format2(
     }
 }
 
-pub const Index = u32;
+pub const Index = u16;
 
 const std = @import("std");
 const assert = std.debug.assert;

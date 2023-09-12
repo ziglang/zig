@@ -245,10 +245,6 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
         const off = try elf_file.strtab.insert(gpa, name);
         const gop = try elf_file.getOrPutGlobal(off);
         self.symbols.addOneAssumeCapacity().* = gop.index;
-
-        if (sym.st_shndx == elf.SHN_UNDEF) {
-            try elf_file.unresolved.put(gpa, gop.index, {});
-        }
     }
 }
 
@@ -388,34 +384,29 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf) !void {
 pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
-        const sym_idx = @as(u32, @intCast(first_global + i));
-        const this_sym = self.symtab[sym_idx];
+        const esym_index = @as(Symbol.Index, @intCast(first_global + i));
+        const esym = self.symtab[esym_index];
 
-        if (this_sym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
-        if (this_sym.st_shndx != elf.SHN_ABS and this_sym.st_shndx != elf.SHN_COMMON) {
-            const atom_index = self.atoms.items[this_sym.st_shndx];
+        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
+            const atom_index = self.atoms.items[esym.st_shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.alive) continue;
         }
 
-        _ = elf_file.unresolved.swapRemove(index);
-
         const global = elf_file.symbol(index);
-        if (self.asFile().symbolRank(this_sym, !self.alive) < global.symbolRank(elf_file)) {
-            const atom = switch (this_sym.st_shndx) {
+        if (self.asFile().symbolRank(esym, !self.alive) < global.symbolRank(elf_file)) {
+            const atom_index = switch (esym.st_shndx) {
                 elf.SHN_ABS, elf.SHN_COMMON => 0,
-                else => self.atoms.items[this_sym.st_shndx],
+                else => self.atoms.items[esym.st_shndx],
             };
-            global.* = .{
-                .value = this_sym.st_value,
-                .name = global.name,
-                .atom = atom,
-                .sym_idx = sym_idx,
-                .file = self.index,
-                .ver_idx = elf_file.default_sym_version,
-            };
-            if (this_sym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
+            global.value = esym.st_value;
+            global.atom_index = atom_index;
+            global.esym_index = esym_index;
+            global.file_index = self.index;
+            global.version_index = elf_file.default_sym_version;
+            if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
         }
     }
 }

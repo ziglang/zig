@@ -62,7 +62,7 @@ pub fn addAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Sym
 
     const esym_index = try self.addLocalEsym(gpa);
     const esym = &self.local_esyms.items[esym_index];
-    esym.st_shndx = output_section_index;
+    esym.st_shndx = atom_index;
     symbol_ptr.esym_index = esym_index;
 
     const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
@@ -74,9 +74,32 @@ pub fn addAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Sym
 }
 
 pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
-    _ = self;
-    _ = elf_file;
-    @panic("TODO");
+    for (self.globals(), 0..) |index, i| {
+        const esym_index = @as(Symbol.Index, @intCast(i)) | 0x10000000;
+        const esym = self.global_esyms.items[i];
+
+        if (esym.st_shndx == elf.SHN_UNDEF) continue;
+
+        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
+            const atom_index = self.atoms.keys()[esym.st_shndx];
+            const atom = elf_file.atom(atom_index) orelse continue;
+            if (!atom.alive) continue;
+        }
+
+        const global = elf_file.symbol(index);
+        if (self.asFile().symbolRank(esym, false) < global.symbolRank(elf_file)) {
+            const atom_index = switch (esym.st_shndx) {
+                elf.SHN_ABS, elf.SHN_COMMON => 0,
+                else => self.atoms.keys()[esym.st_shndx],
+            };
+            global.value = esym.st_value;
+            global.atom_index = atom_index;
+            global.esym_index = esym_index;
+            global.file_index = self.index;
+            global.version_index = elf_file.default_sym_version;
+            if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
+        }
+    }
 }
 
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {

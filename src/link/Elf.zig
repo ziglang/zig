@@ -1045,6 +1045,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     try self.addLinkerDefinedSymbols();
 
+    // Resolve symbols
+    self.resolveSymbols();
+
     if (self.unresolved.keys().len > 0) try self.reportUndefined();
 
     self.allocateLinkerDefinedSymbols();
@@ -1319,6 +1322,18 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
 
     ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+}
+
+fn resolveSymbols(self: *Elf) void {
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        zig_module.resolveSymbols(self);
+    }
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        object.resolveSymbols(self);
+    }
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -2697,7 +2712,7 @@ pub fn updateDeclExports(
         const name_off = try self.strtab.insert(gpa, exp_name);
         const esym = &zig_module.global_esyms.items[sym_index];
         esym.st_value = decl_sym.value;
-        esym.st_shndx = decl_sym.output_section_index;
+        esym.st_shndx = decl_sym.atom_index;
         esym.st_info = (stb_bits << 4) | stt_bits;
         esym.st_name = name_off;
 
