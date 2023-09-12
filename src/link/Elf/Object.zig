@@ -54,12 +54,13 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     const gpa = elf_file.base.allocator;
 
+    const shoff = math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
     const shdrs = @as(
         [*]align(1) const elf.Elf64_Shdr,
-        @ptrCast(self.data.ptr + self.header.?.e_shoff),
+        @ptrCast(self.data.ptr + shoff),
     )[0..self.header.?.e_shnum];
     try self.shdrs.appendUnalignedSlice(gpa, shdrs);
-    try self.strings.buffer.appendSlice(gpa, self.shdrContents(self.header.?.e_shstrndx));
+    try self.strings.buffer.appendSlice(gpa, try self.shdrContents(self.header.?.e_shstrndx));
 
     const symtab_index = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_SYMTAB => break @as(u16, @intCast(i)),
@@ -70,10 +71,10 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         const shdr = shdrs[index];
         self.first_global = shdr.sh_info;
 
-        const symtab = self.shdrContents(index);
+        const symtab = try self.shdrContents(index);
         const nsyms = @divExact(symtab.len, @sizeOf(elf.Elf64_Sym));
         self.symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(symtab.ptr))[0..nsyms];
-        self.strtab = self.shdrContents(@as(u16, @intCast(shdr.sh_link)));
+        self.strtab = try self.shdrContents(@as(u16, @intCast(shdr.sh_link)));
     }
 
     try self.initAtoms(elf_file);
@@ -114,7 +115,7 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                 };
 
                 const shndx = @as(u16, @intCast(i));
-                const group_raw_data = self.shdrContents(shndx);
+                const group_raw_data = try self.shdrContents(shndx);
                 const group_nmembers = @divExact(group_raw_data.len, @sizeOf(u32));
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
@@ -177,7 +178,7 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
     self.atoms.items[shndx] = atom_index;
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const data = self.shdrContents(shndx);
+        const data = try self.shdrContents(shndx);
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         atom.size = chdr.ch_size;
         atom.alignment = math.log2_int(u64, chdr.ch_addralign);
@@ -294,8 +295,8 @@ fn parseEhFrame(self: *Object, shndx: u16, elf_file: *Elf) !void {
     };
 
     const gpa = elf_file.base.allocator;
-    const raw = self.shdrContents(shndx);
-    const relocs = self.getRelocs(relocs_shndx);
+    const raw = try self.shdrContents(shndx);
+    const relocs = try self.getRelocs(relocs_shndx);
     const fdes_start = self.fdes.items.len;
     const cies_start = self.cies.items.len;
 
@@ -403,7 +404,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     }
 
     for (self.cies.items) |cie| {
-        for (cie.relocs(elf_file)) |rel| {
+        for (try cie.relocs(elf_file)) |rel| {
             const sym = elf_file.symbol(self.symbols.items[rel.r_sym()]);
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
@@ -656,10 +657,12 @@ pub fn globals(self: *Object) []const Symbol.Index {
     return self.symbols.items[start..];
 }
 
-pub fn shdrContents(self: *Object, index: u32) []const u8 {
+pub fn shdrContents(self: *Object, index: u32) error{Overflow}![]const u8 {
     assert(index < self.shdrs.items.len);
     const shdr = self.shdrs.items[index];
-    return self.data[shdr.sh_offset..][0..shdr.sh_size];
+    const offset = math.cast(usize, shdr.sh_offset) orelse return error.Overflow;
+    const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+    return self.data[offset..][0..size];
 }
 
 fn getString(self: *Object, off: u32) [:0]const u8 {
@@ -667,8 +670,8 @@ fn getString(self: *Object, off: u32) [:0]const u8 {
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);
 }
 
-pub fn comdatGroupMembers(self: *Object, index: u16) []align(1) const u32 {
-    const raw = self.shdrContents(index);
+pub fn comdatGroupMembers(self: *Object, index: u16) error{Overflow}![]align(1) const u32 {
+    const raw = try self.shdrContents(index);
     const nmembers = @divExact(raw.len, @sizeOf(u32));
     const members = @as([*]align(1) const u32, @ptrCast(raw.ptr))[1..nmembers];
     return members;
@@ -678,8 +681,8 @@ pub fn asFile(self: *Object) File {
     return .{ .object = self };
 }
 
-pub fn getRelocs(self: *Object, shndx: u32) []align(1) const elf.Elf64_Rela {
-    const raw = self.shdrContents(shndx);
+pub fn getRelocs(self: *Object, shndx: u32) error{Overflow}![]align(1) const elf.Elf64_Rela {
+    const raw = try self.shdrContents(shndx);
     const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
     return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
 }
@@ -819,7 +822,8 @@ fn formatComdatGroups(
         const cg = elf_file.comdatGroup(cg_index);
         const cg_owner = elf_file.comdatGroupOwner(cg.owner);
         if (cg_owner.file != object.index) continue;
-        for (object.comdatGroupMembers(cg.shndx)) |shndx| {
+        const cg_members = object.comdatGroupMembers(cg.shndx) catch continue;
+        for (cg_members) |shndx| {
             const atom_index = object.atoms.items[shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
             try writer.print("    atom({d}) : {s}\n", .{ atom_index, atom.name(elf_file) });

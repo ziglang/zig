@@ -1088,7 +1088,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             if (!atom_ptr.alive) continue;
             const shdr = &self.shdrs.items[atom_ptr.output_section_index];
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            const code = try gpa.alloc(u8, atom_ptr.size);
+            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
+            const code = try gpa.alloc(u8, size);
             defer gpa.free(code);
             const amt = try self.base.file.?.preadAll(code, file_offset);
             if (amt != code.len) return error.InputOutput;
@@ -3145,7 +3146,7 @@ fn writeSymtab(self: *Elf) !void {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
     };
-    const nsyms = @divExact(shdr.sh_size, sym_size);
+    const nsyms = math.cast(usize, @divExact(shdr.sh_size, sym_size)) orelse return error.Overflow;
 
     log.debug("writing {d} symbols at 0x{x}", .{ nsyms, shdr.sh_offset });
 

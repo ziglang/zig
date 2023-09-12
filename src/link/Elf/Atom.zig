@@ -51,7 +51,7 @@ pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
     return object.shdrs.items[self.input_section_index];
 }
 
-pub fn codeInObject(self: Atom, elf_file: *Elf) []const u8 {
+pub fn codeInObject(self: Atom, elf_file: *Elf) error{Overflow}![]const u8 {
     const object = elf_file.file(self.file_index).?.object;
     return object.shdrContents(self.input_section_index);
 }
@@ -60,7 +60,7 @@ pub fn codeInObject(self: Atom, elf_file: *Elf) []const u8 {
 /// Caller owns the memory.
 pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
     const gpa = elf_file.base.allocator;
-    const data = self.codeInObject(elf_file);
+    const data = try self.codeInObject(elf_file);
     const shdr = self.inputShdr(elf_file);
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
@@ -70,7 +70,8 @@ pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
                 var zlib_stream = std.compress.zlib.decompressStream(gpa, stream.reader()) catch
                     return error.InputOutput;
                 defer zlib_stream.deinit();
-                const decomp = try gpa.alloc(u8, chdr.ch_size);
+                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
+                const decomp = try gpa.alloc(u8, size);
                 const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
                 if (nread != decomp.len) {
                     return error.InputOutput;
@@ -288,7 +289,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     self.* = .{};
 }
 
-pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
+pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.Elf64_Rela {
     return switch (elf_file.file(self.file_index).?) {
         .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
@@ -314,7 +315,7 @@ pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
 
 pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
     const file_ptr = elf_file.file(self.file_index).?;
-    const rels = self.relocs(elf_file);
+    const rels = try self.relocs(elf_file);
     var i: usize = 0;
     while (i < rels.len) : (i += 1) {
         const rel = rels[i];
@@ -407,7 +408,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();
 
-    for (self.relocs(elf_file)) |rel| {
+    for (try self.relocs(elf_file)) |rel| {
         const r_type = rel.r_type();
         if (r_type == elf.R_X86_64_NONE) continue;
 
