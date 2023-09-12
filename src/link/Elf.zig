@@ -1047,6 +1047,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Resolve symbols
     self.resolveSymbols();
+    self.markImportsExports();
 
     if (self.unresolved.keys().len > 0) try self.reportUndefined();
 
@@ -1333,6 +1334,52 @@ fn resolveSymbols(self: *Elf) void {
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
         object.resolveSymbols(self);
+    }
+}
+
+fn markImportsExports(self: *Elf) void {
+    const is_dyn_lib = self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic;
+
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        for (zig_module.globals()) |global_index| {
+            const global = self.symbol(global_index);
+            if (global.version_index == elf.VER_NDX_LOCAL) continue;
+            const file_ptr = global.file(self) orelse continue;
+            const vis = @as(elf.STV, @enumFromInt(global.elfSym(self).st_other));
+            if (vis == .HIDDEN) continue;
+            // if (file == .shared and !global.isAbs(self)) {
+            //     global.flags.import = true;
+            //     continue;
+            // }
+            if (file_ptr.index() == index) {
+                global.flags.@"export" = true;
+                if (is_dyn_lib and vis != .PROTECTED) {
+                    global.flags.import = true;
+                }
+            }
+        }
+    }
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.globals()) |global_index| {
+            const global = self.symbol(global_index);
+            if (global.version_index == elf.VER_NDX_LOCAL) continue;
+            const file_ptr = global.file(self) orelse continue;
+            const vis = @as(elf.STV, @enumFromInt(global.elfSym(self).st_other));
+            if (vis == .HIDDEN) continue;
+            // if (file == .shared and !global.isAbs(self)) {
+            //     global.flags.import = true;
+            //     continue;
+            // }
+            if (file_ptr.index() == index) {
+                global.flags.@"export" = true;
+                if (is_dyn_lib and vis != .PROTECTED) {
+                    global.flags.import = true;
+                }
+            }
+        }
     }
 }
 
@@ -2941,6 +2988,13 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nglobals += zig_module.output_symtab_size.nglobals;
     }
 
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        object.updateSymtabSize(self);
+        sizes.nlocals += object.output_symtab_size.nlocals;
+        sizes.nglobals += object.output_symtab_size.nglobals;
+    }
+
     if (self.got_section_index) |_| {
         self.got.updateSymtabSize(self);
         sizes.nlocals += self.got.output_symtab_size.nlocals;
@@ -2994,6 +3048,13 @@ fn writeSymtab(self: *Elf) !void {
         zig_module.writeSymtab(self, ctx);
         ctx.ilocal += zig_module.output_symtab_size.nlocals;
         ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    }
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        object.writeSymtab(self, ctx);
+        ctx.ilocal += object.output_symtab_size.nlocals;
+        ctx.iglobal += object.output_symtab_size.nglobals;
     }
 
     if (self.got_section_index) |_| {

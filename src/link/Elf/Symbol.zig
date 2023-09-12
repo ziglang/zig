@@ -20,7 +20,7 @@ atom_index: Atom.Index = 0,
 output_section_index: u16 = 0,
 
 /// Index of the source symbol this symbol references.
-/// Use `sourceSymbol` to pull the source symbol from the relevant file.
+/// Use `elfSym` to pull the source symbol from the relevant file.
 esym_index: Index = 0,
 
 /// Index of the source version symbol this symbol references if any.
@@ -48,7 +48,7 @@ pub inline fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
 }
 
 pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
-    const s_sym = symbol.sourceSymbol(elf_file);
+    const s_sym = symbol.elfSym(elf_file);
     // const file_ptr = symbol.file(elf_file).?;
     // if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared) return elf.STT_FUNC;
     return s_sym.st_type();
@@ -66,7 +66,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
     return elf_file.file(symbol.file_index);
 }
 
-pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
+pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
         .zig_module => |x| {
@@ -82,7 +82,7 @@ pub fn sourceSymbol(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     const file_ptr = symbol.file(elf_file) orelse return std.math.maxInt(u32);
-    const sym = symbol.sourceSymbol(elf_file);
+    const sym = symbol.elfSym(elf_file);
     const in_archive = switch (file_ptr) {
         .object => |x| !x.alive,
         else => false,
@@ -173,13 +173,13 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         out.* = Elf.null_sym;
         return;
     };
-    const s_sym = symbol.sourceSymbol(elf_file);
+    const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
         if (symbol.isLocal()) break :blk 0;
         if (symbol.flags.weak) break :blk elf.STB_WEAK;
         // if (file_ptr == .shared) break :blk elf.STB_GLOBAL;
-        break :blk s_sym.st_bind();
+        break :blk esym.st_bind();
     };
     const st_shndx = blk: {
         // if (symbol.flags.copy_rel) break :blk elf_file.copy_rel_sect_index.?;
@@ -202,10 +202,10 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     out.* = .{
         .st_name = symbol.name_offset,
         .st_info = (st_bind << 4) | st_type,
-        .st_other = s_sym.st_other,
+        .st_other = esym.st_other,
         .st_shndx = st_shndx,
         .st_value = st_value,
-        .st_size = s_sym.st_size,
+        .st_size = esym.st_size,
     };
 }
 
@@ -274,7 +274,7 @@ fn format2(
     try writer.print("%{d} : {s} : @{x}", .{ symbol.index, symbol.fmtName(ctx.elf_file), symbol.value });
     if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
-            if (symbol.sourceSymbol(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
+            if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");

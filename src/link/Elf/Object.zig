@@ -430,7 +430,7 @@ pub fn markLive(self: *Object, elf_file: *Elf) void {
         const global = elf_file.symbol(index);
         const file = global.getFile(elf_file) orelse continue;
         const should_keep = sym.st_shndx == elf.SHN_UNDEF or
-            (sym.st_shndx == elf.SHN_COMMON and global.sourceSymbol(elf_file).st_shndx != elf.SHN_COMMON);
+            (sym.st_shndx == elf.SHN_COMMON and global.elfSym(elf_file).st_shndx != elf.SHN_COMMON);
         if (should_keep and !file.isAlive()) {
             file.setAlive();
             file.markLive(elf_file);
@@ -526,25 +526,22 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn calcSymtabSize(self: *Object, elf_file: *Elf) !void {
-    if (elf_file.options.strip_all) return;
-
+pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
         if (local.atom(elf_file)) |atom| if (!atom.alive) continue;
-        const s_sym = local.getSourceSymbol(elf_file);
-        switch (s_sym.st_type()) {
+        const esym = local.elfSym(elf_file);
+        switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => continue,
             else => {},
         }
         local.flags.output_symtab = true;
         self.output_symtab_size.nlocals += 1;
-        self.output_symtab_size.strsize += @as(u32, @intCast(local.getName(elf_file).len + 1));
     }
 
     for (self.globals()) |global_index| {
         const global = elf_file.symbol(global_index);
-        if (global.getFile(elf_file)) |file| if (file.getIndex() != self.index) continue;
+        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
         if (global.atom(elf_file)) |atom| if (!atom.alive) continue;
         global.flags.output_symtab = true;
         if (global.isLocal()) {
@@ -552,35 +549,28 @@ pub fn calcSymtabSize(self: *Object, elf_file: *Elf) !void {
         } else {
             self.output_symtab_size.nglobals += 1;
         }
-        self.output_symtab_size.strsize += @as(u32, @intCast(global.getName(elf_file).len + 1));
     }
 }
 
-pub fn writeSymtab(self: *Object, elf_file: *Elf, ctx: Elf.WriteSymtabCtx) !void {
-    if (elf_file.options.strip_all) return;
-
-    const gpa = elf_file.base.allocator;
-
+pub fn writeSymtab(self: *Object, elf_file: *Elf, ctx: anytype) void {
     var ilocal = ctx.ilocal;
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
         if (!local.flags.output_symtab) continue;
-        const st_name = try ctx.strtab.insert(gpa, local.getName(elf_file));
-        ctx.symtab[ilocal] = local.asElfSym(st_name, elf_file);
+        local.setOutputSym(elf_file, &ctx.symtab[ilocal]);
         ilocal += 1;
     }
 
     var iglobal = ctx.iglobal;
     for (self.globals()) |global_index| {
         const global = elf_file.symbol(global_index);
-        if (global.getFile(elf_file)) |file| if (file.getIndex() != self.index) continue;
+        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
         if (!global.flags.output_symtab) continue;
-        const st_name = try ctx.strtab.insert(gpa, global.getName(elf_file));
         if (global.isLocal()) {
-            ctx.symtab[ilocal] = global.asElfSym(st_name, elf_file);
+            global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
             ilocal += 1;
         } else {
-            ctx.symtab[iglobal] = global.asElfSym(st_name, elf_file);
+            global.setOutputSym(elf_file, &ctx.symtab[iglobal]);
             iglobal += 1;
         }
     }

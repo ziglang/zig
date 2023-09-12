@@ -105,7 +105,7 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
-        const esym = local.sourceSymbol(elf_file);
+        const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => {
                 local.flags.output_symtab = false;
