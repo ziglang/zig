@@ -998,7 +998,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     _ = compiler_rt_path;
 
     // Parse input files
-    for (self.base.options.objects) |obj| {
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    for (positionals.items) |obj| {
         const in_file = try std.fs.cwd().openFile(obj.path, .{});
         defer in_file.close();
 
