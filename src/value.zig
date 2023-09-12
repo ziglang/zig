@@ -268,6 +268,7 @@ pub const Value = struct {
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
+        const ip = &mod.intern_pool;
         switch (val.tag()) {
             .eu_payload => {
                 const pl = val.castTag(.eu_payload).?.data;
@@ -286,7 +287,7 @@ pub const Value = struct {
             .slice => {
                 const pl = val.castTag(.slice).?.data;
                 const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
-                var ptr_key = mod.intern_pool.indexToKey(ptr).ptr;
+                var ptr_key = ip.indexToKey(ptr).ptr;
                 assert(ptr_key.len == .none);
                 ptr_key.ty = ty.toIntern();
                 ptr_key.len = try pl.len.intern(Type.usize, mod);
@@ -311,11 +312,11 @@ pub const Value = struct {
                 const old_elems = val.castTag(.aggregate).?.data[0..len];
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
                 defer mod.gpa.free(new_elems);
-                const ty_key = mod.intern_pool.indexToKey(ty.toIntern());
+                const ty_key = ip.indexToKey(ty.toIntern());
                 for (new_elems, old_elems, 0..) |*new_elem, old_elem, field_i|
                     new_elem.* = try old_elem.intern(switch (ty_key) {
                         .struct_type => ty.structFieldType(field_i, mod),
-                        .anon_struct_type => |info| info.types[field_i].toType(),
+                        .anon_struct_type => |info| info.types.get(ip)[field_i].toType(),
                         inline .array_type, .vector_type => |info| info.child.toType(),
                         else => unreachable,
                     }, mod);

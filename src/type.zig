@@ -170,7 +170,8 @@ pub const Type = struct {
 
     /// Prints a name suitable for `@typeName`.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 const sign_char: u8 = switch (int_type.signedness) {
                     .signed => 'i',
@@ -257,7 +258,6 @@ pub const Type = struct {
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
             .error_set_type => |error_set_type| {
-                const ip = &mod.intern_pool;
                 const names = error_set_type.names;
                 try writer.writeAll("error{");
                 for (names.get(ip), 0..) |name, i| {
@@ -330,13 +330,13 @@ pub const Type = struct {
                     return writer.writeAll("@TypeOf(.{})");
                 }
                 try writer.writeAll("struct{");
-                for (anon_struct.types, anon_struct.values, 0..) |field_ty, val, i| {
+                for (anon_struct.types.get(ip), anon_struct.values.get(ip), 0..) |field_ty, val, i| {
                     if (i != 0) try writer.writeAll(", ");
                     if (val != .none) {
                         try writer.writeAll("comptime ");
                     }
                     if (anon_struct.names.len != 0) {
-                        try writer.print("{}: ", .{anon_struct.names[i].fmt(&mod.intern_pool)});
+                        try writer.print("{}: ", .{anon_struct.names.get(ip)[i].fmt(&mod.intern_pool)});
                     }
 
                     try print(field_ty.toType(), writer, mod);
@@ -587,7 +587,7 @@ pub const Type = struct {
                     }
                 },
                 .anon_struct_type => |tuple| {
-                    for (tuple.types, tuple.values) |field_ty, val| {
+                    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         if (val != .none) continue; // comptime field
                         if (try field_ty.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) return true;
                     }
@@ -1055,7 +1055,7 @@ pub const Type = struct {
                 },
                 .anon_struct_type => |tuple| {
                     var big_align: u32 = 0;
-                    for (tuple.types, tuple.values) |field_ty, val| {
+                    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         if (val != .none) continue; // comptime field
                         if (!(field_ty.toType().hasRuntimeBits(mod))) continue;
 
@@ -2155,7 +2155,7 @@ pub const Type = struct {
     pub fn vectorLen(ty: Type, mod: *const Module) u32 {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
-            .anon_struct_type => |tuple| @as(u32, @intCast(tuple.types.len)),
+            .anon_struct_type => |tuple| @intCast(tuple.types.len),
             else => unreachable,
         };
     }
@@ -2536,13 +2536,13 @@ pub const Type = struct {
                 },
 
                 .anon_struct_type => |tuple| {
-                    for (tuple.values) |val| {
+                    for (tuple.values.get(ip)) |val| {
                         if (val == .none) return null;
                     }
                     // In this case the struct has all comptime-known fields and
                     // therefore has one possible value.
                     // TODO: write something like getCoercedInts to avoid needing to dupe
-                    const duped_values = try mod.gpa.dupe(InternPool.Index, tuple.values);
+                    const duped_values = try mod.gpa.dupe(InternPool.Index, tuple.values.get(ip));
                     defer mod.gpa.free(duped_values);
                     return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
@@ -2732,7 +2732,7 @@ pub const Type = struct {
                 },
 
                 .anon_struct_type => |tuple| {
-                    for (tuple.types, tuple.values) |field_ty, val| {
+                    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         const have_comptime_val = val != .none;
                         if (!have_comptime_val and field_ty.toType().comptimeOnly(mod)) return true;
                     }
@@ -2996,13 +2996,14 @@ pub const Type = struct {
     }
 
     pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.keys()[field_index];
             },
-            .anon_struct_type => |anon_struct| anon_struct.names[field_index],
+            .anon_struct_type => |anon_struct| anon_struct.names.get(ip)[field_index],
             else => unreachable,
         };
     }
@@ -3032,7 +3033,7 @@ pub const Type = struct {
                 const union_obj = ip.loadUnionType(union_type);
                 return union_obj.field_types.get(ip)[index].toType();
             },
-            .anon_struct_type => |anon_struct| anon_struct.types[index].toType(),
+            .anon_struct_type => |anon_struct| anon_struct.types.get(ip)[index].toType(),
             else => unreachable,
         };
     }
@@ -3046,7 +3047,7 @@ pub const Type = struct {
                 return struct_obj.fields.values()[index].alignment(mod, struct_obj.layout);
             },
             .anon_struct_type => |anon_struct| {
-                return anon_struct.types[index].toType().abiAlignment(mod);
+                return anon_struct.types.get(ip)[index].toType().abiAlignment(mod);
             },
             .union_type => |union_type| {
                 const union_obj = ip.loadUnionType(union_type);
@@ -3057,7 +3058,8 @@ pub const Type = struct {
     }
 
     pub fn structFieldDefaultValue(ty: Type, index: usize, mod: *Module) Value {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 const val = struct_obj.fields.values()[index].default_val;
@@ -3066,7 +3068,7 @@ pub const Type = struct {
                 return val.toValue();
             },
             .anon_struct_type => |anon_struct| {
-                const val = anon_struct.values[index];
+                const val = anon_struct.values.get(ip)[index];
                 // TODO: avoid using `unreachable` to indicate this.
                 if (val == .none) return Value.@"unreachable";
                 return val.toValue();
@@ -3076,7 +3078,8 @@ pub const Type = struct {
     }
 
     pub fn structFieldValueComptime(ty: Type, mod: *Module, index: usize) !?Value {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 const field = struct_obj.fields.values()[index];
@@ -3087,9 +3090,9 @@ pub const Type = struct {
                 }
             },
             .anon_struct_type => |tuple| {
-                const val = tuple.values[index];
+                const val = tuple.values.get(ip)[index];
                 if (val == .none) {
-                    return tuple.types[index].toType().onePossibleValue(mod);
+                    return tuple.types.get(ip)[index].toType().onePossibleValue(mod);
                 } else {
                     return val.toValue();
                 }
@@ -3099,14 +3102,15 @@ pub const Type = struct {
     }
 
     pub fn structFieldIsComptime(ty: Type, index: usize, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 if (struct_obj.layout == .Packed) return false;
                 const field = struct_obj.fields.values()[index];
                 return field.is_comptime;
             },
-            .anon_struct_type => |anon_struct| anon_struct.values[index] != .none,
+            .anon_struct_type => |anon_struct| anon_struct.values.get(ip)[index] != .none,
             else => unreachable,
         };
     }
@@ -3202,7 +3206,7 @@ pub const Type = struct {
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
 
-                for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+                for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                     if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) {
                         // comptime field
                         if (i == index) return offset;

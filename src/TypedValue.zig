@@ -423,6 +423,7 @@ fn printAggregate(
     if (level == 0) {
         return writer.writeAll(".{ ... }");
     }
+    const ip = &mod.intern_pool;
     if (ty.zigTypeTag(mod) == .Struct) {
         try writer.writeAll(".{");
         const max_len = @min(ty.structFieldCount(mod), max_aggregate_items);
@@ -430,13 +431,13 @@ fn printAggregate(
         for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
 
-            const field_name = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            const field_name = switch (ip.indexToKey(ty.toIntern())) {
                 .struct_type => |x| mod.structPtrUnwrap(x.index).?.fields.keys()[i].toOptional(),
-                .anon_struct_type => |x| if (x.isTuple()) .none else x.names[i].toOptional(),
+                .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
                 else => unreachable,
             };
 
-            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(&mod.intern_pool)});
+            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(ip)});
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

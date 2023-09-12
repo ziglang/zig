@@ -8052,11 +8052,12 @@ fn instantiateGenericCall(
 
 fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
     const mod = sema.mod;
-    const tuple = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+    const ip = &mod.intern_pool;
+    const tuple = switch (ip.indexToKey(ty.toIntern())) {
         .anon_struct_type => |tuple| tuple,
         else => return,
     };
-    for (tuple.types, tuple.values) |field_ty, field_val| {
+    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
         try sema.resolveTupleLazyValues(block, src, field_ty.toType());
         if (field_val == .none) continue;
         // TODO: mutate in intern pool
@@ -12929,7 +12930,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             },
             .anon_struct_type => |anon_struct| {
                 if (anon_struct.names.len != 0) {
-                    break :hf mem.indexOfScalar(InternPool.NullTerminatedString, anon_struct.names, field_name) != null;
+                    break :hf mem.indexOfScalar(InternPool.NullTerminatedString, anon_struct.names.get(ip), field_name) != null;
                 } else {
                     const field_index = field_name.toUnsigned(ip) orelse break :hf false;
                     break :hf field_index < ty.structFieldCount(mod);
@@ -13558,11 +13559,11 @@ fn analyzeTupleCat(
         break :rs runtime_src;
     };
 
-    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+    const tuple_ty = try mod.intern_pool.getAnonStructType(mod.gpa, .{
         .types = types,
         .values = values,
         .names = &.{},
-    } });
+    });
 
     const runtime_src = opt_runtime_src orelse {
         const tuple_val = try mod.intern(.{ .aggregate = .{
@@ -13889,11 +13890,11 @@ fn analyzeTupleMul(
         break :rs runtime_src;
     };
 
-    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+    const tuple_ty = try mod.intern_pool.getAnonStructType(mod.gpa, .{
         .types = types,
         .values = values,
         .names = &.{},
-    } });
+    });
 
     const runtime_src = opt_runtime_src orelse {
         const tuple_val = try mod.intern(.{ .aggregate = .{
@@ -15217,6 +15218,7 @@ fn zirOverflowArithmetic(
     const lhs_ty = sema.typeOf(uncasted_lhs);
     const rhs_ty = sema.typeOf(uncasted_rhs);
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
 
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
 
@@ -15244,7 +15246,7 @@ fn zirOverflowArithmetic(
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
 
     const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
-    const overflow_ty = mod.intern_pool.indexToKey(tuple_ty.toIntern()).anon_struct_type.types[1].toType();
+    const overflow_ty = ip.indexToKey(tuple_ty.toIntern()).anon_struct_type.types.get(ip)[1].toType();
 
     var result: struct {
         inst: Air.Inst.Ref = .none,
@@ -15418,6 +15420,7 @@ fn splat(sema: *Sema, ty: Type, val: Value) !Value {
 
 fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const ov_ty = if (ty.zigTypeTag(mod) == .Vector) try mod.vectorType(.{
         .len = ty.vectorLen(mod),
         .child = .u1_type,
@@ -15425,11 +15428,11 @@ fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
 
     const types = [2]InternPool.Index{ ty.toIntern(), ov_ty.toIntern() };
     const values = [2]InternPool.Index{ .none, .none };
-    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+    const tuple_ty = try ip.getAnonStructType(mod.gpa, .{
         .types = &types,
         .values = &values,
         .names = &.{},
-    } });
+    });
     return tuple_ty.toType();
 }
 
@@ -17578,15 +17581,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         struct_field_vals = try gpa.alloc(InternPool.Index, tuple.types.len);
                         for (struct_field_vals, 0..) |*struct_field_val, i| {
                             const anon_struct_type = ip.indexToKey(ty.toIntern()).anon_struct_type;
-                            const field_ty = anon_struct_type.types[i];
-                            const field_val = anon_struct_type.values[i];
+                            const field_ty = anon_struct_type.types.get(ip)[i];
+                            const field_val = anon_struct_type.values.get(ip)[i];
                             const name_val = v: {
                                 var anon_decl = try block.startAnonDecl();
                                 defer anon_decl.deinit();
                                 // TODO: write something like getCoercedInts to avoid needing to dupe
                                 const bytes = if (tuple.names.len != 0)
                                     // https://github.com/ziglang/zig/issues/15709
-                                    try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).anon_struct_type.names[i]))
+                                    try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).anon_struct_type.names.get(ip)[i]))
                                 else
                                     try std.fmt.allocPrint(sema.arena, "{d}", .{i});
                                 const new_decl_ty = try mod.arrayType(.{
@@ -19254,7 +19257,7 @@ fn finishStructInit(
 
     switch (ip.indexToKey(struct_ty.toIntern())) {
         .anon_struct_type => |anon_struct| {
-            for (anon_struct.values, 0..) |default_val, i| {
+            for (anon_struct.values.get(ip), 0..) |default_val, i| {
                 if (field_inits[i] != .none) continue;
 
                 if (default_val == .none) {
@@ -19266,7 +19269,7 @@ fn finishStructInit(
                             root_msg = try sema.errMsg(block, init_src, template, .{i});
                         }
                     } else {
-                        const field_name = anon_struct.names[i];
+                        const field_name = anon_struct.names.get(ip)[i];
                         const template = "missing struct field: {}";
                         const args = .{field_name.fmt(ip)};
                         if (root_msg) |msg| {
@@ -19395,6 +19398,7 @@ fn structInitAnon(
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
+    const ip = &mod.intern_pool;
     const zir_datas = sema.code.instructions.items(.data);
 
     const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
@@ -19465,11 +19469,11 @@ fn structInitAnon(
         break :rs runtime_index;
     };
 
-    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+    const tuple_ty = try ip.getAnonStructType(gpa, .{
         .names = fields.keys(),
         .types = types,
         .values = values,
-    } });
+    });
 
     const runtime_index = opt_runtime_index orelse {
         const tuple_val = try mod.intern(.{ .aggregate = .{
@@ -19688,6 +19692,8 @@ fn arrayInitAnon(
     is_ref: bool,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    const gpa = sema.gpa;
+    const ip = &mod.intern_pool;
 
     const types = try sema.arena.alloc(InternPool.Index, operands.len);
     const values = try sema.arena.alloc(InternPool.Index, operands.len);
@@ -19701,7 +19707,7 @@ fn arrayInitAnon(
             if (types[i].toType().zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, operand_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
-                    errdefer msg.destroy(sema.gpa);
+                    errdefer msg.destroy(gpa);
 
                     try sema.addDeclaredHereNote(msg, types[i].toType());
                     break :msg msg;
@@ -19718,11 +19724,11 @@ fn arrayInitAnon(
         break :rs runtime_src;
     };
 
-    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+    const tuple_ty = try ip.getAnonStructType(gpa, .{
         .types = types,
         .values = values,
         .names = &.{},
-    } });
+    });
 
     const runtime_src = opt_runtime_src orelse {
         const tuple_val = try mod.intern(.{ .aggregate = .{
@@ -19832,7 +19838,7 @@ fn fieldType(
             .Struct => switch (ip.indexToKey(cur_ty.toIntern())) {
                 .anon_struct_type => |anon_struct| {
                     const field_index = try sema.anonStructFieldIndex(block, cur_ty, field_name, field_src);
-                    return Air.internedToRef(anon_struct.types[field_index]);
+                    return Air.internedToRef(anon_struct.types.get(ip)[field_index]);
                 },
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
@@ -30574,13 +30580,14 @@ fn coerceAnonStructToUnion(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const inst_ty = sema.typeOf(inst);
     const field_info: union(enum) {
         name: InternPool.NullTerminatedString,
         count: usize,
-    } = switch (mod.intern_pool.indexToKey(inst_ty.toIntern())) {
+    } = switch (ip.indexToKey(inst_ty.toIntern())) {
         .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 1)
-            .{ .name = anon_struct_type.names[0] }
+            .{ .name = anon_struct_type.names.get(ip)[0] }
         else
             .{ .count = anon_struct_type.names.len },
         .struct_type => |struct_type| name: {
@@ -30876,7 +30883,7 @@ fn coerceTupleToStruct(
         // https://github.com/ziglang/zig/issues/15709
         const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names[field_i]
+                anon_struct_type.names.get(ip)[field_i]
             else
                 try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
             .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.keys()[field_i],
@@ -30994,7 +31001,7 @@ fn coerceTupleToTuple(
         // https://github.com/ziglang/zig/issues/15709
         const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names[field_i]
+                anon_struct_type.names.get(ip)[field_i]
             else
                 try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
             .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.keys()[field_i],
@@ -31005,12 +31012,12 @@ fn coerceTupleToTuple(
             return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});
 
         const field_ty = switch (ip.indexToKey(tuple_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| anon_struct_type.types[field_index_usize].toType(),
+            .anon_struct_type => |anon_struct_type| anon_struct_type.types.get(ip)[field_index_usize].toType(),
             .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.values()[field_index_usize].ty,
             else => unreachable,
         };
         const default_val = switch (ip.indexToKey(tuple_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| anon_struct_type.values[field_index_usize],
+            .anon_struct_type => |anon_struct_type| anon_struct_type.values.get(ip)[field_index_usize],
             .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.values()[field_index_usize].default_val,
             else => unreachable,
         };
@@ -31048,7 +31055,7 @@ fn coerceTupleToTuple(
         if (field_ref.* != .none) continue;
 
         const default_val = switch (ip.indexToKey(tuple_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| anon_struct_type.values[i],
+            .anon_struct_type => |anon_struct_type| anon_struct_type.values.get(ip)[i],
             .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.values()[i].default_val,
             else => unreachable,
         };
@@ -32855,6 +32862,7 @@ fn resolvePeerTypesInner(
     peer_vals: []?Value,
 ) !PeerResolveResult {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
 
     var strat_reason: usize = 0;
     var s: PeerResolveStrategy = .unknown;
@@ -32912,7 +32920,7 @@ fn resolvePeerTypesInner(
                     .ErrorUnion => blk: {
                         const set_ty = ty.errorUnionSet(mod);
                         ty_ptr.* = ty.errorUnionPayload(mod);
-                        if (val_ptr.*) |eu_val| switch (mod.intern_pool.indexToKey(eu_val.toIntern())) {
+                        if (val_ptr.*) |eu_val| switch (ip.indexToKey(eu_val.toIntern())) {
                             .error_union => |eu| switch (eu.val) {
                                 .payload => |payload_ip| val_ptr.* = payload_ip.toValue(),
                                 .err_name => val_ptr.* = null,
@@ -33166,8 +33174,8 @@ fn resolvePeerTypesInner(
                 }).toIntern();
 
                 if (ptr_info.sentinel != .none and peer_info.sentinel != .none) {
-                    const peer_sent = try mod.intern_pool.getCoerced(sema.gpa, ptr_info.sentinel, ptr_info.child);
-                    const ptr_sent = try mod.intern_pool.getCoerced(sema.gpa, peer_info.sentinel, ptr_info.child);
+                    const peer_sent = try ip.getCoerced(sema.gpa, ptr_info.sentinel, ptr_info.child);
+                    const ptr_sent = try ip.getCoerced(sema.gpa, peer_info.sentinel, ptr_info.child);
                     if (ptr_sent == peer_sent) {
                         ptr_info.sentinel = ptr_sent;
                     } else {
@@ -33278,7 +33286,7 @@ fn resolvePeerTypesInner(
                 ptr_info.flags.is_volatile = ptr_info.flags.is_volatile or peer_info.flags.is_volatile;
 
                 const peer_sentinel: InternPool.Index = switch (peer_info.flags.size) {
-                    .One => switch (mod.intern_pool.indexToKey(peer_info.child)) {
+                    .One => switch (ip.indexToKey(peer_info.child)) {
                         .array_type => |array_type| array_type.sentinel,
                         else => .none,
                     },
@@ -33287,7 +33295,7 @@ fn resolvePeerTypesInner(
                 };
 
                 const cur_sentinel: InternPool.Index = switch (ptr_info.flags.size) {
-                    .One => switch (mod.intern_pool.indexToKey(ptr_info.child)) {
+                    .One => switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| array_type.sentinel,
                         else => .none,
                     },
@@ -33449,7 +33457,7 @@ fn resolvePeerTypesInner(
                 }
 
                 const sentinel_ty = switch (ptr_info.flags.size) {
-                    .One => switch (mod.intern_pool.indexToKey(ptr_info.child)) {
+                    .One => switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| array_type.child,
                         else => ptr_info.child,
                     },
@@ -33460,11 +33468,11 @@ fn resolvePeerTypesInner(
                     no_sentinel: {
                         if (peer_sentinel == .none) break :no_sentinel;
                         if (cur_sentinel == .none) break :no_sentinel;
-                        const peer_sent_coerced = try mod.intern_pool.getCoerced(sema.gpa, peer_sentinel, sentinel_ty);
-                        const cur_sent_coerced = try mod.intern_pool.getCoerced(sema.gpa, cur_sentinel, sentinel_ty);
+                        const peer_sent_coerced = try ip.getCoerced(sema.gpa, peer_sentinel, sentinel_ty);
+                        const cur_sent_coerced = try ip.getCoerced(sema.gpa, cur_sentinel, sentinel_ty);
                         if (peer_sent_coerced != cur_sent_coerced) break :no_sentinel;
                         // Sentinels match
-                        if (ptr_info.flags.size == .One) switch (mod.intern_pool.indexToKey(ptr_info.child)) {
+                        if (ptr_info.flags.size == .One) switch (ip.indexToKey(ptr_info.child)) {
                             .array_type => |array_type| ptr_info.child = (try mod.arrayType(.{
                                 .len = array_type.len,
                                 .child = array_type.child,
@@ -33478,7 +33486,7 @@ fn resolvePeerTypesInner(
                     }
                     // Clear existing sentinel
                     ptr_info.sentinel = .none;
-                    switch (mod.intern_pool.indexToKey(ptr_info.child)) {
+                    switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| ptr_info.child = (try mod.arrayType(.{
                             .len = array_type.len,
                             .child = array_type.child,
@@ -33501,7 +33509,7 @@ fn resolvePeerTypesInner(
                     .peer_idx_a = first_idx,
                     .peer_idx_b = other_idx,
                 } },
-                else => switch (mod.intern_pool.indexToKey(pointee)) {
+                else => switch (ip.indexToKey(pointee)) {
                     .array_type => |array_type| if (array_type.child == .noreturn_type) return .{ .conflict = .{
                         .peer_idx_a = first_idx,
                         .peer_idx_b = other_idx,
@@ -33785,7 +33793,7 @@ fn resolvePeerTypesInner(
                     is_tuple = ty.isTuple(mod);
                     field_count = ty.structFieldCount(mod);
                     if (!is_tuple) {
-                        const names = mod.intern_pool.indexToKey(ty.toIntern()).anon_struct_type.names;
+                        const names = ip.indexToKey(ty.toIntern()).anon_struct_type.names.get(ip);
                         field_names = try sema.arena.dupe(InternPool.NullTerminatedString, names);
                     }
                     continue;
@@ -33839,7 +33847,7 @@ fn resolvePeerTypesInner(
                         result_buf.* = result;
                         const field_name = if (is_tuple) name: {
                             break :name try std.fmt.allocPrint(sema.arena, "{d}", .{field_idx});
-                        } else try sema.arena.dupe(u8, mod.intern_pool.stringToSlice(field_names[field_idx]));
+                        } else try sema.arena.dupe(u8, ip.stringToSlice(field_names[field_idx]));
 
                         // The error info needs the field types, but we can't reuse sub_peer_tys
                         // since the recursive call may have clobbered it.
@@ -33892,11 +33900,11 @@ fn resolvePeerTypesInner(
                 field_val.* = if (comptime_val) |v| v.toIntern() else .none;
             }
 
-            const final_ty = try mod.intern(.{ .anon_struct_type = .{
+            const final_ty = try ip.getAnonStructType(mod.gpa, .{
                 .types = field_types,
                 .names = if (is_tuple) &.{} else field_names,
                 .values = field_vals,
-            } });
+            });
 
             return .{ .success = final_ty.toType() };
         },
@@ -34491,6 +34499,7 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
 /// be resolved.
 pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     switch (ty.zigTypeTag(mod)) {
         .Pointer => {
             return sema.resolveTypeFully(ty.childType(mod));
@@ -34498,7 +34507,7 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
         .Struct => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => return sema.resolveStructFully(ty),
             .anon_struct_type => |tuple| {
-                for (tuple.types) |field_ty| {
+                for (tuple.types.get(ip)) |field_ty| {
                     try sema.resolveTypeFully(field_ty.toType());
                 }
             },
@@ -34518,7 +34527,6 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
                 // the function is instantiated.
                 return;
             }
-            const ip = &mod.intern_pool;
             for (0..info.param_types.len) |i| {
                 const param_ty = info.param_types.get(ip)[i];
                 try sema.resolveTypeFully(param_ty.toType());
@@ -36133,7 +36141,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 },
 
                 .anon_struct_type => |tuple| {
-                    for (tuple.values) |val| {
+                    for (tuple.values.get(ip)) |val| {
                         if (val == .none) return null;
                     }
                     // In this case the struct has all comptime-known fields and
@@ -36141,7 +36149,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     // TODO: write something like getCoercedInts to avoid needing to dupe
                     return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
-                        .storage = .{ .elems = try sema.arena.dupe(InternPool.Index, tuple.values) },
+                        .storage = .{ .elems = try sema.arena.dupe(InternPool.Index, tuple.values.get(ip)) },
                     } })).toValue();
                 },
 
@@ -36611,7 +36619,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
             .anon_struct_type => |tuple| {
-                for (tuple.types, tuple.values) |field_ty, val| {
+                for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                     const have_comptime_val = val != .none;
                     if (!have_comptime_val and try sema.typeRequiresComptime(field_ty.toType())) {
                         return true;
@@ -36784,8 +36792,9 @@ fn anonStructFieldIndex(
     field_src: LazySrcLoc,
 ) !u32 {
     const mod = sema.mod;
-    switch (mod.intern_pool.indexToKey(struct_ty.toIntern())) {
-        .anon_struct_type => |anon_struct_type| for (anon_struct_type.names, 0..) |name, i| {
+    const ip = &mod.intern_pool;
+    switch (ip.indexToKey(struct_ty.toIntern())) {
+        .anon_struct_type => |anon_struct_type| for (anon_struct_type.names.get(ip), 0..) |name, i| {
             if (name == field_name) return @intCast(i);
         },
         .struct_type => |struct_type| if (mod.structPtrUnwrap(struct_type.index)) |struct_obj| {
@@ -36798,7 +36807,7 @@ fn anonStructFieldIndex(
         else => unreachable,
     }
     return sema.fail(block, field_src, "no field named '{}' in anonymous struct '{}'", .{
-        field_name.fmt(&mod.intern_pool), struct_ty.fmt(sema.mod),
+        field_name.fmt(ip), struct_ty.fmt(sema.mod),
     });
 }
 
