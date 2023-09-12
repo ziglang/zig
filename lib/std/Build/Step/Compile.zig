@@ -90,6 +90,14 @@ is_linking_libc: bool,
 is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
 
+// keep in sync with src/Compilation.zig:RcIncludes
+/// Behavior of automatic detection of include directories when compiling .rc files.
+///  any: Use MSVC if available, fall back to MinGW.
+///  msvc: Use MSVC include paths (must be present on the system).
+///  gnu: Use MinGW include paths (distributed with Zig).
+///  none: Do not use any autodetected include paths.
+rc_includes: enum { any, msvc, gnu, none } = .any,
+
 installed_path: ?[]const u8,
 
 /// Base address for an executable image.
@@ -1947,6 +1955,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 search_prefix, @errorName(e),
             }),
         }
+    }
+
+    if (self.rc_includes != .any) {
+        try zig_args.append("-rcincludes");
+        try zig_args.append(@tagName(self.rc_includes));
     }
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);

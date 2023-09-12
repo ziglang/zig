@@ -243,6 +243,17 @@ pub const RcSourceFile = struct {
     extra_flags: []const []const u8 = &.{},
 };
 
+pub const RcIncludes = enum {
+    /// Use MSVC if available, fall back to MinGW.
+    any,
+    /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).
+    msvc,
+    /// Use MinGW include paths (distributed with Zig).
+    gnu,
+    /// Do not use any autodetected include paths.
+    none,
+};
+
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
@@ -568,6 +579,7 @@ pub const InitOptions = struct {
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     rc_source_files: []const RcSourceFile = &[0]RcSourceFile{},
+    rc_includes: RcIncludes = .any,
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const Framework = &.{},
@@ -1001,16 +1013,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.libc_installation,
         );
 
-        const rc_dirs = try detectLibCIncludeDirs(
+        const rc_dirs = try detectWin32ResourceIncludeDirs(
             arena,
-            options.zig_lib_directory.path.?,
-            options.target,
-            options.is_native_abi,
-            // Set "link libc" to true here whenever there are rc files to compile, since
-            // the .rc preprocessor will need to know the libc include dirs even if we
-            // are not linking libc
-            options.rc_source_files.len > 0,
-            options.libc_installation,
+            options,
         );
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
@@ -2449,6 +2454,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         _ = try man.addFile(key.src.src_path, null);
         man.hash.addListOfBytes(key.src.extra_flags);
     }
+
+    man.hash.addListOfBytes(comp.rc_include_dir_list);
 
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
@@ -5154,6 +5161,67 @@ fn failCObjWithOwnedErrorMsg(
     }
     c_object.status = .failure;
     return error.AnalysisFail;
+}
+
+/// The include directories used when preprocessing .rc files are separate from the
+/// target. Which include directories are used is determined by `options.rc_includes`.
+///
+/// Note: It should be okay that the include directories used when compiling .rc
+/// files differ from the include directories used when compiling the main
+/// binary, since the .res format is not dependent on anything ABI-related. The
+/// only relevant differences would be things like `#define` constants being
+/// different in the MinGW headers vs the MSVC headers, but any such
+/// differences would likely be a MinGW bug.
+fn detectWin32ResourceIncludeDirs(arena: Allocator, options: InitOptions) !LibCDirs {
+    // Set the includes to .none here when there are no rc files to compile
+    var includes = if (options.rc_source_files.len > 0) options.rc_includes else .none;
+    if (builtin.target.os.tag != .windows) {
+        switch (includes) {
+            // MSVC can't be found when the host isn't Windows, so short-circuit.
+            .msvc => return error.WindowsSdkNotFound,
+            // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
+            .any => includes = .gnu,
+            .none, .gnu => {},
+        }
+    }
+    while (true) {
+        switch (includes) {
+            .any, .msvc => return detectLibCIncludeDirs(
+                arena,
+                options.zig_lib_directory.path.?,
+                .{
+                    .cpu = options.target.cpu,
+                    .os = options.target.os,
+                    .abi = .msvc,
+                    .ofmt = options.target.ofmt,
+                },
+                options.is_native_abi,
+                // The .rc preprocessor will need to know the libc include dirs even if we
+                // are not linking libc, so force 'link_libc' to true
+                true,
+                options.libc_installation,
+            ) catch |err| {
+                if (includes == .any) {
+                    // fall back to mingw
+                    includes = .gnu;
+                    continue;
+                }
+                return err;
+            },
+            .gnu => return detectLibCFromBuilding(arena, options.zig_lib_directory.path.?, .{
+                .cpu = options.target.cpu,
+                .os = options.target.os,
+                .abi = .gnu,
+                .ofmt = options.target.ofmt,
+            }),
+            .none => return LibCDirs{
+                .libc_include_dir_list = &[0][]u8{},
+                .libc_installation = null,
+                .libc_framework_dir_list = &.{},
+                .sysroot = null,
+            },
+        }
+    }
 }
 
 fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {

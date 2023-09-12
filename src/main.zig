@@ -473,6 +473,11 @@ const usage_build_generic =
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
     \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
+    \\  -rcincludes=[type]        Set the type of includes to use when compiling .rc source files
+    \\    any                     (default) Use msvc if available, fall back to gnu
+    \\    msvc                    Use msvc include paths (must be present on the system)
+    \\    gnu                     Use mingw include paths (distributed with Zig)
+    \\    none                    Do not use any autodetected include paths
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
@@ -927,6 +932,7 @@ fn buildOutputType(
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     var rc_source_files = std.ArrayList(Compilation.RcSourceFile).init(arena);
+    var rc_includes: Compilation.RcIncludes = .any;
     var res_files = std.ArrayList(Compilation.LinkObject).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
@@ -1046,6 +1052,10 @@ fn buildOutputType(
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_cflags.append(next_arg);
                         }
+                    } else if (mem.eql(u8, arg, "-rcincludes")) {
+                        rc_includes = parseRcIncludes(args_iter.nextOrFatal());
+                    } else if (mem.startsWith(u8, arg, "-rcincludes=")) {
+                        rc_includes = parseRcIncludes(arg["-rcincludes=".len..]);
                     } else if (mem.eql(u8, arg, "-rcflags")) {
                         extra_rcflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -3369,6 +3379,7 @@ fn buildOutputType(
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,
         .rc_source_files = rc_source_files.items,
+        .rc_includes = rc_includes,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = resolved_frameworks.items,
@@ -6531,4 +6542,9 @@ fn accessFrameworkPath(
     }
 
     return false;
+}
+
+fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
+    return std.meta.stringToEnum(Compilation.RcIncludes, arg) orelse
+        fatal("unsupported rc includes type: '{s}'", .{arg});
 }
