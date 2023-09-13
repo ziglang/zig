@@ -19,6 +19,7 @@ pub const Error = error{
     EndOfStream,
     LegacyPrefixAfterRex,
     UnknownOpcode,
+    Overflow,
     Todo,
 };
 
@@ -368,7 +369,7 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
         .imm64 => Immediate.u(try reader.readInt(u64, .Little)),
         else => unreachable,
     };
-    dis.pos += creader.bytes_read;
+    dis.pos += std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
     return imm;
 }
 
@@ -469,6 +470,6 @@ fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) !i32 {
             0b11 => unreachable,
         };
     };
-    dis.pos += creader.bytes_read;
+    dis.pos += std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
     return disp;
 }

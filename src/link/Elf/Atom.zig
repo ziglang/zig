@@ -425,6 +425,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         // We will use equation format to resolve relocations:
         // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
@@ -454,14 +455,14 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
         relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ({s})", .{
             fmtRelocType(r_type),
-            rel.r_offset,
+            r_offset,
             P,
             S + A,
             G + GOT + A,
             target.name(elf_file),
         });
 
-        try stream.seekTo(rel.r_offset);
+        try stream.seekTo(r_offset);
 
         switch (rel.r_type()) {
             elf.R_X86_64_NONE => unreachable,
@@ -481,7 +482,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
             elf.R_X86_64_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxGotpcrelx(code[rel.r_offset - 2 ..]) catch break :blk;
+                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
                     continue;
                 }
@@ -490,7 +491,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
             elf.R_X86_64_REX_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxRexGotpcrelx(code[rel.r_offset - 3 ..]) catch break :blk;
+                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
                     continue;
                 }
