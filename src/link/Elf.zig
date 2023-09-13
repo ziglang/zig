@@ -1690,7 +1690,11 @@ fn writeObjects(self: *Elf) !void {
             if (!atom_ptr.alive) continue;
 
             const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            if (shdr.sh_type == elf.SHT_NOBITS) continue;
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue; // TODO we don't yet know how to handle non-alloc sections
+
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            log.debug("writing atom({d}) at 0x{x}", .{ atom_ptr.atom_index, file_offset });
             const code = try atom_ptr.codeInObjectUncompressAlloc(self);
             defer gpa.free(code);
 
