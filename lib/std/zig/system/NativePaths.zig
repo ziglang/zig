@@ -100,7 +100,7 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
         return self;
     }
 
-    if (builtin.os.tag != .windows) {
+    if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
         const triple = try native_target.linuxTriple(arena);
 
         const qual = native_target.ptrBitWidth();
