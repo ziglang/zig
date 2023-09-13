@@ -40,6 +40,8 @@ phdr_got_index: ?u16 = null,
 phdr_load_ro_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Write flag
 phdr_load_rw_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with zerofill data.
+phdr_load_zerofill_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 page_size: u32,
@@ -56,6 +58,7 @@ got: GotSection = .{},
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
+bss_section_index: ?u16 = null,
 eh_frame_section_index: ?u16 = null,
 eh_frame_hdr_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
@@ -532,6 +535,26 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.phdr_table_dirty = true;
     }
 
+    if (self.phdr_load_zerofill_index == null) {
+        self.phdr_load_zerofill_index = @as(u16, @intCast(self.phdrs.items.len));
+        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const off = self.phdrs.items[self.phdr_load_rw_index.?].p_offset;
+        log.debug("found PT_LOAD zerofill free space 0x{x} to 0x{x}", .{ off, off });
+        // TODO Same as for GOT
+        const addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x14000000 else 0xf000;
+        try self.phdrs.append(gpa, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = off,
+            .p_filesz = 0,
+            .p_vaddr = addr,
+            .p_paddr = addr,
+            .p_memsz = 0,
+            .p_align = p_align,
+            .p_flags = elf.PF_R | elf.PF_W,
+        });
+        self.phdr_table_dirty = true;
+    }
+
     if (self.shstrtab_section_index == null) {
         self.shstrtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
         assert(self.shstrtab.buffer.items.len == 0);
@@ -652,6 +675,26 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         });
         try self.phdr_to_shdr_table.putNoClobber(gpa, self.data_section_index.?, self.phdr_load_rw_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_section_index.?, .{});
+        self.shdr_table_dirty = true;
+    }
+
+    if (self.bss_section_index == null) {
+        self.bss_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".bss"),
+            .sh_type = elf.SHT_NOBITS,
+            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = @as(u16, ptr_size),
+            .sh_entsize = 0,
+        });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.bss_section_index.?, self.phdr_load_zerofill_index.?);
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_section_index.?, .{});
         self.shdr_table_dirty = true;
     }
 
@@ -868,8 +911,9 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const phdr = &self.phdrs.items[phdr_index];
+    const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
-    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+    if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = if (self.last_atom_and_free_list_table.get(shdr_index)) |meta| blk: {
@@ -893,7 +937,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
 
     shdr.sh_size = needed_size;
     phdr.p_memsz = needed_size;
-    phdr.p_filesz = needed_size;
+
+    if (!is_zerofill) {
+        phdr.p_filesz = needed_size;
+    }
 
     self.markDirty(shdr_index, phdr_index);
 }
