@@ -62,6 +62,19 @@ pub const File = union(enum) {
         return (@as(u32, base) << 24) + file.index();
     }
 
+    pub fn resolveSymbols(file: File, elf_file: *Elf) void {
+        switch (file) {
+            inline else => |x| x.resolveSymbols(elf_file),
+        }
+    }
+
+    pub fn resetGlobals(file: File, elf_file: *Elf) void {
+        switch (file) {
+            .linker_defined => unreachable,
+            inline else => |x| x.resetGlobals(elf_file),
+        }
+    }
+
     pub fn setAlive(file: File) void {
         switch (file) {
             .zig_module, .linker_defined => {},

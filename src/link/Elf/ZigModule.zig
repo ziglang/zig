@@ -148,6 +148,15 @@ pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     }
 }
 
+pub fn resetGlobals(self: *ZigModule, elf_file: *Elf) void {
+    for (self.globals()) |index| {
+        const global = elf_file.symbol(index);
+        const off = global.name_offset;
+        global.* = .{};
+        global.name_offset = off;
+    }
+}
+
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);

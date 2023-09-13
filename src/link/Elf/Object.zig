@@ -485,9 +485,9 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
 pub fn resetGlobals(self: *Object, elf_file: *Elf) void {
     for (self.globals()) |index| {
         const global = elf_file.symbol(index);
-        const name = global.name;
+        const off = global.name_offset;
         global.* = .{};
-        global.name = name;
+        global.name_offset = off;
     }
 }
 
@@ -499,7 +499,7 @@ pub fn markLive(self: *Object, elf_file: *Elf) void {
         if (sym.st_bind() == elf.STB_WEAK) continue;
 
         const global = elf_file.symbol(index);
-        const file = global.getFile(elf_file) orelse continue;
+        const file = global.file(elf_file) orelse continue;
         const should_keep = sym.st_shndx == elf.SHN_UNDEF or
             (sym.st_shndx == elf.SHN_COMMON and global.elfSym(elf_file).st_shndx != elf.SHN_COMMON);
         if (should_keep and !file.isAlive()) {

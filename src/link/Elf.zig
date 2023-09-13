@@ -1052,13 +1052,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
-    const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
-        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
-        break :blk null;
-    };
-    _ = compiler_rt_path;
-
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
     var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
@@ -1082,6 +1075,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // in this set.
     for (comp.c_object_table.keys()) |key| {
         try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
+    if (compiler_rt_path) |path| {
+        try positionals.append(.{ .path = path });
     }
 
     for (positionals.items) |obj| {
@@ -1140,7 +1142,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
-    self.resolveSymbols();
+    try self.resolveSymbols();
     self.markImportsExports();
     self.claimUnresolved();
 
@@ -1403,6 +1405,7 @@ const ParseError = error{
     EndOfStream,
     FileSystem,
     NotSupported,
+    InvalidCharacter,
 } || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 fn parsePositional(
@@ -1414,10 +1417,32 @@ fn parsePositional(
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-    _ = must_link;
 
     if (Object.isObject(in_file)) {
         try self.parseObject(in_file, path, ctx);
+    } else {
+        try self.parseLibrary(in_file, path, .{
+            .path = null,
+            .needed = false,
+            .weak = false,
+        }, must_link, ctx);
+    }
+}
+
+fn parseLibrary(
+    self: *Elf,
+    in_file: std.fs.File,
+    path: []const u8,
+    lib: link.SystemLib,
+    must_link: bool,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    _ = lib;
+
+    if (Archive.isArchive(in_file)) {
+        try self.parseArchive(in_file, path, must_link, ctx);
     } else return error.UnknownFileType;
 }
 
@@ -1442,15 +1467,109 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn resolveSymbols(self: *Elf) void {
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.resolveSymbols(self);
+fn parseArchive(
+    self: *Elf,
+    in_file: std.fs.File,
+    path: []const u8,
+    must_link: bool,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    var archive = Archive{ .path = path, .data = data };
+    defer archive.deinit(gpa);
+    try archive.parse(self);
+
+    for (archive.objects.items) |extracted| {
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        self.files.set(index, .{ .object = extracted });
+        const object = &self.files.items(.data)[index].object;
+        object.index = index;
+        object.alive = must_link;
+        try object.parse(self);
+        try self.objects.append(gpa, index);
+
+        ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
+        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+    }
+}
+
+/// When resolving symbols, we approach the problem similarly to `mold`.
+/// 1. Resolve symbols across all objects (including those preemptively extracted archives).
+/// 2. Resolve symbols across all shared objects.
+/// 3. Mark live objects (see `Elf.markLive`)
+/// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
+/// 5. Remove references to dead objects/shared objects
+/// 6. Re-run symbol resolution on pruned objects and shared objects sets.
+fn resolveSymbols(self: *Elf) error{Overflow}!void {
+    // Resolve symbols in the ZigModule. For now, we assume that it's always live.
+    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
+    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
+
+    // Mark live objects.
+    self.markLive();
+
+    // Reset state of all globals after marking live objects.
+    if (self.zig_module_index) |index| self.file(index).?.resetGlobals(self);
+    for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
+
+    // Prune dead objects and shared objects.
+    var i: usize = 0;
+    while (i < self.objects.items.len) {
+        const index = self.objects.items[i];
+        if (!self.file(index).?.isAlive()) {
+            _ = self.objects.orderedRemove(i);
+        } else i += 1;
+    }
+
+    // Dedup comdat groups.
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.comdat_groups.items) |cg_index| {
+            const cg = self.comdatGroup(cg_index);
+            const cg_owner = self.comdatGroupOwner(cg.owner);
+            const owner_file_index = if (self.file(cg_owner.file)) |file_ptr|
+                file_ptr.object.index
+            else
+                std.math.maxInt(File.Index);
+            cg_owner.file = @min(owner_file_index, index);
+        }
     }
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        object.resolveSymbols(self);
+        for (object.comdat_groups.items) |cg_index| {
+            const cg = self.comdatGroup(cg_index);
+            const cg_owner = self.comdatGroupOwner(cg.owner);
+            if (cg_owner.file != index) {
+                for (try object.comdatGroupMembers(cg.shndx)) |shndx| {
+                    const atom_index = object.atoms.items[shndx];
+                    if (self.atom(atom_index)) |atom_ptr| {
+                        atom_ptr.alive = false;
+                        // atom_ptr.markFdesDead(self);
+                    }
+                }
+            }
+        }
+    }
+
+    // Re-resolve the symbols.
+    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
+}
+
+/// Traverses all objects and shared objects marking any object referenced by
+/// a live object/shared object as alive itself.
+/// This routine will prune unneeded objects extracted from archives and
+/// unneeded shared objects.
+fn markLive(self: *Elf) void {
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (file_ptr.isAlive()) file_ptr.markLive(self);
     }
 }
 
@@ -4059,6 +4178,7 @@ const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
 const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
+const Archive = @import("Elf/Archive.zig");
 pub const Atom = @import("Elf/Atom.zig");
 const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
