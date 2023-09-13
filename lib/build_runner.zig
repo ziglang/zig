@@ -81,6 +81,7 @@ pub fn main() !void {
         global_cache_directory,
         host,
         &cache,
+        dependencies.root_deps,
     );
     defer builder.destroy();
 
