@@ -460,9 +460,34 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
             elf.R_X86_64_64 => try cwriter.writeIntLittle(i64, S + A),
 
+            elf.R_X86_64_32 => try cwriter.writeIntLittle(u32, @as(u32, @truncate(@as(u64, @intCast(S + A))))),
+            elf.R_X86_64_32S => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A))),
+
             elf.R_X86_64_PLT32,
             elf.R_X86_64_PC32,
             => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
+
+            elf.R_X86_64_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P))),
+            elf.R_X86_64_GOTPC32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(GOT + A - P))),
+            elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A - P),
+
+            elf.R_X86_64_GOTPCRELX => {
+                if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
+                    x86_64.relaxGotpcrelx(code[rel.r_offset - 2 ..]) catch break :blk;
+                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    continue;
+                }
+                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+            },
+
+            elf.R_X86_64_REX_GOTPCRELX => {
+                if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
+                    x86_64.relaxRexGotpcrelx(code[rel.r_offset - 3 ..]) catch break :blk;
+                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    continue;
+                }
+                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+            },
 
             else => {
                 log.err("TODO: unhandled relocation type {}", .{fmtRelocType(rel.r_type())});
@@ -590,6 +615,58 @@ fn format2(
 // ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
 // future.
 pub const Index = u16;
+
+const x86_64 = struct {
+    pub fn relaxGotpcrelx(code: []u8) !void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        const inst = switch (old_inst.encoding.mnemonic) {
+            .call => try Instruction.new(old_inst.prefix, .call, &.{
+                // TODO: hack to force imm32s in the assembler
+                .{ .imm = Immediate.s(-129) },
+            }),
+            .jmp => try Instruction.new(old_inst.prefix, .jmp, &.{
+                // TODO: hack to force imm32s in the assembler
+                .{ .imm = Immediate.s(-129) },
+            }),
+            else => return error.RelaxFail,
+        };
+        relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+        const nop = try Instruction.new(.none, .nop, &.{});
+        encode(&.{ nop, inst }, code) catch return error.RelaxFail;
+    }
+
+    pub fn relaxRexGotpcrelx(code: []u8) !void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => {
+                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops);
+                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                encode(&.{inst}, code) catch return error.RelaxFail;
+            },
+            else => return error.RelaxFail,
+        }
+    }
+
+    fn disassemble(code: []const u8) ?Instruction {
+        var disas = Disassembler.init(code);
+        const inst = disas.next() catch return null;
+        return inst;
+    }
+
+    fn encode(insts: []const Instruction, code: []u8) !void {
+        var stream = std.io.fixedBufferStream(code);
+        const writer = stream.writer();
+        for (insts) |inst| {
+            try inst.encode(writer, .{});
+        }
+    }
+
+    const bits = @import("../../arch/x86_64/bits.zig");
+    const encoder = @import("../../arch/x86_64/encoder.zig");
+    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const Immediate = bits.Immediate;
+    const Instruction = encoder.Instruction;
+};
 
 const std = @import("std");
 const assert = std.debug.assert;
