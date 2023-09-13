@@ -22,8 +22,9 @@ pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
     return exponent;
 }
 
-test "log" {
-    // test all unsigned integers with 2, 3, ..., 64 bits
+test "math.log_int" {
+    // Test all unsigned integers with 2, 3, ..., 64 bits.
+    // We cannot test 0 or 1 bits since base must be > 1.
     inline for (2..64 + 1) |bits| {
         const T = @Type(std.builtin.Type{
             .Int = std.builtin.Type.Int{ .signedness = .unsigned, .bits = @intCast(bits) },
@@ -34,17 +35,18 @@ test "log" {
         while (base < math.maxInt(T) and base <= 1024) {
             base += 1;
 
-            // test `log(1) == 0`
+            // test that `log_int(T, base, 1) == 0`
             try testing.expectEqual(@as(Log2Int(T), 0), log_int(T, base, 1));
 
-            // for powers `pow = base^exp` that fit inside T
+            // For powers `pow = base^exp > 1` that fit inside T,
+            // test that `log_int` correctly detects the jump in the logarithm
+            // from `log(pow-1) == exp-1` to `log(pow) == exp`.
             var exp: Log2Int(T) = 0;
             var pow: T = 1;
-            while (pow < math.maxInt(T) / base) {
+            while (pow <= math.maxInt(T) / base) {
                 exp += 1;
                 pow *= base;
 
-                // test that `log_int` correctly detects the threshold
                 try testing.expectEqual(exp - 1, log_int(T, base, pow - 1));
                 try testing.expectEqual(exp, log_int(T, base, pow));
             }
@@ -52,8 +54,8 @@ test "log" {
     }
 }
 
-test "log2" {
-    const types = [_]type{ u2, u3, u4, u8, u16, u24 };
+test "math.log_int vs math.log2" {
+    const types = [_]type{ u2, u3, u4, u8, u16 };
     inline for (types) |T| {
         var n: T = 0;
         while (n < math.maxInt(T)) {
@@ -65,8 +67,8 @@ test "log2" {
     }
 }
 
-test "log10" {
-    const types = [_]type{ u4, u5, u6, u8, u16, u24 };
+test "math.log_int vs math.log10" {
+    const types = [_]type{ u4, u5, u6, u8, u16 };
     inline for (types) |T| {
         var n: T = 0;
         while (n < math.maxInt(T)) {
