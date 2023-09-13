@@ -1082,10 +1082,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-    _ = compiler_rt_path;
-    // if (compiler_rt_path) |path| {
-    //     try positionals.append(.{ .path = path });
-    // }
+    if (compiler_rt_path) |path| {
+        try positionals.append(.{ .path = path });
+    }
 
     for (positionals.items) |obj| {
         const in_file = try std.fs.cwd().openFile(obj.path, .{});
