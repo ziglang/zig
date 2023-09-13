@@ -164,12 +164,20 @@ pub const PtrWidth = enum { p32, p64 };
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.target.ofmt == .elf);
 
-    if (options.use_llvm) {
-        return createEmpty(allocator, options);
-    }
-
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
+
+    if (options.use_llvm) {
+        const use_lld = build_options.have_llvm and self.base.options.use_lld;
+        if (use_lld) return self;
+
+        if (options.module != null) {
+            self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
+                sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
+            });
+        }
+    }
+    errdefer if (self.base.intermediary_basename) |path| allocator.free(path);
 
     self.base.file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -389,8 +397,6 @@ pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
 }
 
 pub fn populateMissingMetadata(self: *Elf) !void {
-    assert(self.llvm_object == null);
-
     const gpa = self.base.allocator;
     const small_ptr = switch (self.ptr_width) {
         .p32 => true,
@@ -962,7 +968,7 @@ pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
 pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (self.base.options.emit == null) {
         if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
+            try llvm_object.flushModule(comp, prog_node);
         }
         return;
     }
@@ -981,7 +987,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     defer tracy.end();
 
     if (self.llvm_object) |llvm_object| {
-        return try llvm_object.flushModule(comp, prog_node);
+        try llvm_object.flushModule(comp, prog_node);
+
+        const use_lld = build_options.have_llvm and self.base.options.use_lld;
+        if (use_lld) return;
     }
 
     const gpa = self.base.allocator;
@@ -989,9 +998,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // TODO This linker code currently assumes there is only 1 compilation unit and it
-    // corresponds to the Zig source code.
-    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1002,8 +1014,19 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
+    var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
+
+    if (self.base.intermediary_basename) |path| {
+        const full_path = blk: {
+            if (fs.path.dirname(full_out_path)) |dirname| {
+                break :blk try fs.path.join(arena, &.{ dirname, path });
+            } else {
+                break :blk path;
+            }
+        };
+        try positionals.append(.{ .path = full_path });
+    }
+
     try positionals.ensureUnusedCapacity(self.base.options.objects.len);
     positionals.appendSliceAssumeCapacity(self.base.options.objects);
 
@@ -1025,6 +1048,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.none)) |metadata| {
+        const module = self.base.options.module.?;
+
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbol(
@@ -1051,7 +1076,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
 
     if (self.dwarf) |*dw| {
-        try dw.flushModule(module);
+        try dw.flushModule(self.base.options.module.?);
     }
 
     // If we haven't already, create a linker-generated input file comprising of
@@ -1099,6 +1124,19 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
     try self.writeObjects();
 
+    // Look for entry address in objects if not set by the incremental compiler.
+    if (self.entry_addr == null) {
+        const entry: ?[]const u8 = entry: {
+            if (self.base.options.entry) |entry| break :entry entry;
+            if (!self.isDynLib()) break :entry "_start";
+            break :entry null;
+        };
+        self.entry_addr = if (entry) |name| entry_addr: {
+            const global_index = self.globalByName(name) orelse break :entry_addr null;
+            break :entry_addr self.symbol(global_index).value;
+        } else null;
+    }
+
     // Generate and emit the symbol table.
     try self.updateSymtabSize();
     try self.writeSymtab();
@@ -1125,7 +1163,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
             const low_pc = text_phdr.p_vaddr;
             const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-            try dw.writeDbgInfoHeader(module, low_pc, high_pc);
+            try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
             self.debug_info_header_dirty = false;
         }
 
