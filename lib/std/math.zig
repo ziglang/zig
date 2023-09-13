@@ -363,6 +363,7 @@ test {
     _ = log2;
     _ = log10;
     _ = log10_int;
+    _ = log_int;
     _ = log1p;
     _ = asinh;
     _ = acosh;
