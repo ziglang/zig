@@ -4708,7 +4708,14 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        if (!build_options.only_core_functionality) {
+        if (build_options.only_core_functionality) {
+            const deps_pkg = try Package.createFilePkg(gpa, local_cache_directory, "dependencies.zig",
+                \\pub const packages = struct {};
+                \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
+                \\
+            );
+            try main_pkg.add(gpa, "@dependencies", deps_pkg);
+        } else {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
@@ -4717,12 +4724,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             // access dependencies by name, since `@import` requires string literals.
             var dependencies_source = std.ArrayList(u8).init(gpa);
             defer dependencies_source.deinit();
-            try dependencies_source.appendSlice("pub const imports = struct {\n");
-
-            // This will go into the same package. It contains the file system paths
-            // to all the build.zig files.
-            var build_roots_source = std.ArrayList(u8).init(gpa);
-            defer build_roots_source.deinit();
 
             var all_modules: Package.AllModules = .{};
             defer all_modules.deinit(gpa);
@@ -4746,11 +4747,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 global_cache_directory,
                 local_cache_directory,
                 &dependencies_source,
-                &build_roots_source,
-                "",
                 &wip_errors,
                 &all_modules,
                 root_prog_node,
+                null,
             );
             if (wip_errors.root_list.items.len > 0) {
                 var errors = try wip_errors.toOwnedBundle("");
@@ -4759,10 +4759,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 process.exit(1);
             }
             try fetch_result;
-
-            try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
-            try dependencies_source.appendSlice(build_roots_source.items);
-            try dependencies_source.appendSlice("};\n");
 
             const deps_pkg = try Package.createFilePkg(
                 gpa,
