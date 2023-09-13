@@ -322,11 +322,12 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 
         if (rel.r_type() == elf.R_X86_64_NONE) continue;
 
-        const symbol = switch (file_ptr) {
-            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
-            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
+        const symbol_index = switch (file_ptr) {
+            .zig_module => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };
+        const symbol = elf_file.symbol(symbol_index);
 
         // Check for violation of One Definition Rule for COMDATs.
         if (symbol.file(elf_file) == null) {
@@ -340,7 +341,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
         }
 
         // Report an undefined symbol.
-        try self.reportUndefined(elf_file, symbol, rel, undefs);
+        try self.reportUndefined(elf_file, symbol, symbol_index, rel, undefs);
 
         // While traversing relocations, mark symbols that require special handling such as
         // pointer indirection via GOT, or a stub trampoline via PLT.
@@ -379,7 +380,14 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 }
 
 // This function will report any undefined non-weak symbols that are not imports.
-fn reportUndefined(self: Atom, elf_file: *Elf, sym: *const Symbol, rel: elf.Elf64_Rela, undefs: anytype) !void {
+fn reportUndefined(
+    self: Atom,
+    elf_file: *Elf,
+    sym: *const Symbol,
+    sym_index: Symbol.Index,
+    rel: elf.Elf64_Rela,
+    undefs: anytype,
+) !void {
     const rel_esym = switch (elf_file.file(self.file_index).?) {
         .zig_module => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
@@ -392,7 +400,7 @@ fn reportUndefined(self: Atom, elf_file: *Elf, sym: *const Symbol, rel: elf.Elf6
         !sym.flags.import and
         esym.st_shndx == elf.SHN_UNDEF)
     {
-        const gop = try undefs.getOrPut(sym.index);
+        const gop = try undefs.getOrPut(sym_index);
         if (!gop.found_existing) {
             gop.value_ptr.* = std.ArrayList(Atom.Index).init(elf_file.base.allocator);
         }
@@ -417,6 +425,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         // We will use equation format to resolve relocations:
         // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
@@ -446,23 +455,48 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
 
         relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ({s})", .{
             fmtRelocType(r_type),
-            rel.r_offset,
+            r_offset,
             P,
             S + A,
             G + GOT + A,
             target.name(elf_file),
         });
 
-        try stream.seekTo(rel.r_offset);
+        try stream.seekTo(r_offset);
 
         switch (rel.r_type()) {
             elf.R_X86_64_NONE => unreachable,
 
             elf.R_X86_64_64 => try cwriter.writeIntLittle(i64, S + A),
 
+            elf.R_X86_64_32 => try cwriter.writeIntLittle(u32, @as(u32, @truncate(@as(u64, @intCast(S + A))))),
+            elf.R_X86_64_32S => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A))),
+
             elf.R_X86_64_PLT32,
             elf.R_X86_64_PC32,
             => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
+
+            elf.R_X86_64_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P))),
+            elf.R_X86_64_GOTPC32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(GOT + A - P))),
+            elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A - P),
+
+            elf.R_X86_64_GOTPCRELX => {
+                if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
+                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
+                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    continue;
+                }
+                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+            },
+
+            elf.R_X86_64_REX_GOTPCRELX => {
+                if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
+                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
+                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    continue;
+                }
+                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+            },
 
             else => {
                 log.err("TODO: unhandled relocation type {}", .{fmtRelocType(rel.r_type())});
@@ -590,6 +624,58 @@ fn format2(
 // ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
 // future.
 pub const Index = u16;
+
+const x86_64 = struct {
+    pub fn relaxGotpcrelx(code: []u8) !void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        const inst = switch (old_inst.encoding.mnemonic) {
+            .call => try Instruction.new(old_inst.prefix, .call, &.{
+                // TODO: hack to force imm32s in the assembler
+                .{ .imm = Immediate.s(-129) },
+            }),
+            .jmp => try Instruction.new(old_inst.prefix, .jmp, &.{
+                // TODO: hack to force imm32s in the assembler
+                .{ .imm = Immediate.s(-129) },
+            }),
+            else => return error.RelaxFail,
+        };
+        relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+        const nop = try Instruction.new(.none, .nop, &.{});
+        encode(&.{ nop, inst }, code) catch return error.RelaxFail;
+    }
+
+    pub fn relaxRexGotpcrelx(code: []u8) !void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => {
+                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops);
+                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                encode(&.{inst}, code) catch return error.RelaxFail;
+            },
+            else => return error.RelaxFail,
+        }
+    }
+
+    fn disassemble(code: []const u8) ?Instruction {
+        var disas = Disassembler.init(code);
+        const inst = disas.next() catch return null;
+        return inst;
+    }
+
+    fn encode(insts: []const Instruction, code: []u8) !void {
+        var stream = std.io.fixedBufferStream(code);
+        const writer = stream.writer();
+        for (insts) |inst| {
+            try inst.encode(writer, .{});
+        }
+    }
+
+    const bits = @import("../../arch/x86_64/bits.zig");
+    const encoder = @import("../../arch/x86_64/encoder.zig");
+    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const Immediate = bits.Immediate;
+    const Instruction = encoder.Instruction;
+};
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -40,6 +40,8 @@ phdr_got_index: ?u16 = null,
 phdr_load_ro_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Write flag
 phdr_load_rw_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with zerofill data.
+phdr_load_zerofill_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 page_size: u32,
@@ -56,6 +58,7 @@ got: GotSection = .{},
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
+bss_section_index: ?u16 = null,
 eh_frame_section_index: ?u16 = null,
 eh_frame_hdr_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
@@ -532,6 +535,26 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.phdr_table_dirty = true;
     }
 
+    if (self.phdr_load_zerofill_index == null) {
+        self.phdr_load_zerofill_index = @as(u16, @intCast(self.phdrs.items.len));
+        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const off = self.phdrs.items[self.phdr_load_rw_index.?].p_offset;
+        log.debug("found PT_LOAD zerofill free space 0x{x} to 0x{x}", .{ off, off });
+        // TODO Same as for GOT
+        const addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x14000000 else 0xf000;
+        try self.phdrs.append(gpa, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = off,
+            .p_filesz = 0,
+            .p_vaddr = addr,
+            .p_paddr = addr,
+            .p_memsz = 0,
+            .p_align = p_align,
+            .p_flags = elf.PF_R | elf.PF_W,
+        });
+        self.phdr_table_dirty = true;
+    }
+
     if (self.shstrtab_section_index == null) {
         self.shstrtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
         assert(self.shstrtab.buffer.items.len == 0);
@@ -652,6 +675,26 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         });
         try self.phdr_to_shdr_table.putNoClobber(gpa, self.data_section_index.?, self.phdr_load_rw_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_section_index.?, .{});
+        self.shdr_table_dirty = true;
+    }
+
+    if (self.bss_section_index == null) {
+        self.bss_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
+        try self.shdrs.append(gpa, .{
+            .sh_name = try self.shstrtab.insert(gpa, ".bss"),
+            .sh_type = elf.SHT_NOBITS,
+            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
+            .sh_addr = phdr.p_vaddr,
+            .sh_offset = phdr.p_offset,
+            .sh_size = phdr.p_filesz,
+            .sh_link = 0,
+            .sh_info = 0,
+            .sh_addralign = @as(u16, ptr_size),
+            .sh_entsize = 0,
+        });
+        try self.phdr_to_shdr_table.putNoClobber(gpa, self.bss_section_index.?, self.phdr_load_zerofill_index.?);
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_section_index.?, .{});
         self.shdr_table_dirty = true;
     }
 
@@ -868,8 +911,9 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const phdr = &self.phdrs.items[phdr_index];
+    const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
-    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+    if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = if (self.last_atom_and_free_list_table.get(shdr_index)) |meta| blk: {
@@ -893,7 +937,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
 
     shdr.sh_size = needed_size;
     phdr.p_memsz = needed_size;
-    phdr.p_filesz = needed_size;
+
+    if (!is_zerofill) {
+        phdr.p_filesz = needed_size;
+    }
 
     self.markDirty(shdr_index, phdr_index);
 }
@@ -1005,13 +1052,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
-    const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
-        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
-        break :blk null;
-    };
-    _ = compiler_rt_path;
-
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
     var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
@@ -1035,6 +1075,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // in this set.
     for (comp.c_object_table.keys()) |key| {
         try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
+    if (compiler_rt_path) |path| {
+        try positionals.append(.{ .path = path });
     }
 
     for (positionals.items) |obj| {
@@ -1093,7 +1142,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
-    self.resolveSymbols();
+    try self.resolveSymbols();
     self.markImportsExports();
     self.claimUnresolved();
 
@@ -1356,6 +1405,7 @@ const ParseError = error{
     EndOfStream,
     FileSystem,
     NotSupported,
+    InvalidCharacter,
 } || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 fn parsePositional(
@@ -1367,10 +1417,32 @@ fn parsePositional(
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-    _ = must_link;
 
     if (Object.isObject(in_file)) {
         try self.parseObject(in_file, path, ctx);
+    } else {
+        try self.parseLibrary(in_file, path, .{
+            .path = null,
+            .needed = false,
+            .weak = false,
+        }, must_link, ctx);
+    }
+}
+
+fn parseLibrary(
+    self: *Elf,
+    in_file: std.fs.File,
+    path: []const u8,
+    lib: link.SystemLib,
+    must_link: bool,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    _ = lib;
+
+    if (Archive.isArchive(in_file)) {
+        try self.parseArchive(in_file, path, must_link, ctx);
     } else return error.UnknownFileType;
 }
 
@@ -1395,15 +1467,109 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn resolveSymbols(self: *Elf) void {
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.resolveSymbols(self);
+fn parseArchive(
+    self: *Elf,
+    in_file: std.fs.File,
+    path: []const u8,
+    must_link: bool,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    var archive = Archive{ .path = path, .data = data };
+    defer archive.deinit(gpa);
+    try archive.parse(self);
+
+    for (archive.objects.items) |extracted| {
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        self.files.set(index, .{ .object = extracted });
+        const object = &self.files.items(.data)[index].object;
+        object.index = index;
+        object.alive = must_link;
+        try object.parse(self);
+        try self.objects.append(gpa, index);
+
+        ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
+        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+    }
+}
+
+/// When resolving symbols, we approach the problem similarly to `mold`.
+/// 1. Resolve symbols across all objects (including those preemptively extracted archives).
+/// 2. Resolve symbols across all shared objects.
+/// 3. Mark live objects (see `Elf.markLive`)
+/// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
+/// 5. Remove references to dead objects/shared objects
+/// 6. Re-run symbol resolution on pruned objects and shared objects sets.
+fn resolveSymbols(self: *Elf) error{Overflow}!void {
+    // Resolve symbols in the ZigModule. For now, we assume that it's always live.
+    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
+    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
+
+    // Mark live objects.
+    self.markLive();
+
+    // Reset state of all globals after marking live objects.
+    if (self.zig_module_index) |index| self.file(index).?.resetGlobals(self);
+    for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
+
+    // Prune dead objects and shared objects.
+    var i: usize = 0;
+    while (i < self.objects.items.len) {
+        const index = self.objects.items[i];
+        if (!self.file(index).?.isAlive()) {
+            _ = self.objects.orderedRemove(i);
+        } else i += 1;
+    }
+
+    // Dedup comdat groups.
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.comdat_groups.items) |cg_index| {
+            const cg = self.comdatGroup(cg_index);
+            const cg_owner = self.comdatGroupOwner(cg.owner);
+            const owner_file_index = if (self.file(cg_owner.file)) |file_ptr|
+                file_ptr.object.index
+            else
+                std.math.maxInt(File.Index);
+            cg_owner.file = @min(owner_file_index, index);
+        }
     }
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        object.resolveSymbols(self);
+        for (object.comdat_groups.items) |cg_index| {
+            const cg = self.comdatGroup(cg_index);
+            const cg_owner = self.comdatGroupOwner(cg.owner);
+            if (cg_owner.file != index) {
+                for (try object.comdatGroupMembers(cg.shndx)) |shndx| {
+                    const atom_index = object.atoms.items[shndx];
+                    if (self.atom(atom_index)) |atom_ptr| {
+                        atom_ptr.alive = false;
+                        // atom_ptr.markFdesDead(self);
+                    }
+                }
+            }
+        }
+    }
+
+    // Re-resolve the symbols.
+    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
+}
+
+/// Traverses all objects and shared objects marking any object referenced by
+/// a live object/shared object as alive itself.
+/// This routine will prune unneeded objects extracted from archives and
+/// unneeded shared objects.
+fn markLive(self: *Elf) void {
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (file_ptr.isAlive()) file_ptr.markLive(self);
     }
 }
 
@@ -1477,11 +1643,11 @@ fn scanRelocs(self: *Elf) !void {
 
     try self.reportUndefined(&undefs);
 
-    for (self.symbols.items) |*sym| {
+    for (self.symbols.items, 0..) |*sym, sym_index| {
         if (sym.flags.needs_got) {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
             // TODO how can we tell we need to write it again, aka the entry is dirty?
-            const gop = try sym.getOrCreateGotEntry(self);
+            const gop = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
             try self.got.writeEntry(self, gop.index);
         }
     }
@@ -1500,7 +1666,7 @@ fn allocateObjects(self: *Elf) !void {
             const local = self.symbol(local_index);
             const atom_ptr = local.atom(self) orelse continue;
             if (!atom_ptr.alive) continue;
-            local.value = atom_ptr.value;
+            local.value += atom_ptr.value;
         }
 
         for (object.globals()) |global_index| {
@@ -1508,7 +1674,7 @@ fn allocateObjects(self: *Elf) !void {
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.alive) continue;
             if (global.file_index == index) {
-                global.value = atom_ptr.value;
+                global.value += atom_ptr.value;
             }
         }
     }
@@ -1524,7 +1690,11 @@ fn writeObjects(self: *Elf) !void {
             if (!atom_ptr.alive) continue;
 
             const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            if (shdr.sh_type == elf.SHT_NOBITS) continue;
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue; // TODO we don't yet know how to handle non-alloc sections
+
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            log.debug("writing atom({d}) at 0x{x}", .{ atom_ptr.atom_index, file_offset });
             const code = try atom_ptr.codeInObjectUncompressAlloc(self);
             defer gpa.free(code);
 
@@ -2529,7 +2699,7 @@ fn updateDeclCode(
         esym.st_value = atom_ptr.value;
 
         sym.flags.needs_got = true;
-        const gop = try sym.getOrCreateGotEntry(self);
+        const gop = try sym.getOrCreateGotEntry(sym_index, self);
         try self.got.writeEntry(self, gop.index);
     }
 
@@ -2764,7 +2934,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_esym.st_value = atom_ptr.value;
 
     local_sym.flags.needs_got = true;
-    const gop = try local_sym.getOrCreateGotEntry(self);
+    const gop = try local_sym.getOrCreateGotEntry(symbol_index, self);
     try self.got.writeEntry(self, gop.index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
@@ -3635,7 +3805,7 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
             break :blk index;
         }
     };
-    self.symbols.items[index] = .{ .index = index };
+    self.symbols.items[index] = .{};
     return index;
 }
 
@@ -4012,6 +4182,7 @@ const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
 const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
+const Archive = @import("Elf/Archive.zig");
 pub const Atom = @import("Elf/Atom.zig");
 const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
