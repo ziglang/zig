@@ -113,7 +113,11 @@ pub const APFloatBaseSemantics = enum(c_int) {
     IEEEquad,
     PPCDoubleDouble,
     Float8E5M2,
+    Float8E5M2FNUZ,
     Float8E4M3FN,
+    Float8E4M3FNUZ,
+    Float8E4M3B11FNUZ,
+    FloatTF32,
     x87DoubleExtended,
 };
 

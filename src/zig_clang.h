@@ -1219,9 +1219,16 @@ enum ZigClangAPFloatBase_Semantics {
     ZigClangAPFloatBase_Semantics_BFloat,
     ZigClangAPFloatBase_Semantics_IEEEsingle,
     ZigClangAPFloatBase_Semantics_IEEEdouble,
-    ZigClangAPFloatBase_Semantics_x87DoubleExtended,
     ZigClangAPFloatBase_Semantics_IEEEquad,
     ZigClangAPFloatBase_Semantics_PPCDoubleDouble,
+    ZigClangAPFloatBase_Semantics_Float8E5M2,
+    ZigClangAPFloatBase_Semantics_Float8E5M2FNUZ,
+    ZigClangAPFloatBase_Semantics_Float8E4M3FN,
+    ZigClangAPFloatBase_Semantics_Float8E4M3FNUZ,
+    ZigClangAPFloatBase_Semantics_Float8E4M3B11FNUZ,
+    ZigClangAPFloatBase_Semantics_FloatTF32,
+    ZigClangAPFloatBase_Semantics_x87DoubleExtended,
+    ZigClangAPFloatBase_Semantics_MaxSemantics = ZigClangAPFloatBase_Semantics_x87DoubleExtended,
 };
 
 enum ZigClangStringLiteral_StringKind {

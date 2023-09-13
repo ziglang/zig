@@ -3986,3 +3986,17 @@ bool ZigClangIsLLVMUsingSeparateLibcxx() {
     return EC.category() != std::generic_category();
 }
 
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEhalf == llvm::APFloatBase::S_IEEEhalf, "");
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_BFloat == llvm::APFloatBase::S_BFloat);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEsingle == llvm::APFloatBase::S_IEEEsingle);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEdouble == llvm::APFloatBase::S_IEEEdouble);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEquad == llvm::APFloatBase::S_IEEEquad);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_PPCDoubleDouble == llvm::APFloatBase::S_PPCDoubleDouble);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E5M2 == llvm::APFloatBase::S_Float8E5M2);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E5M2FNUZ == llvm::APFloatBase::S_Float8E5M2FNUZ);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3FN == llvm::APFloatBase::S_Float8E4M3FN);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3FNUZ == llvm::APFloatBase::S_Float8E4M3FNUZ);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3B11FNUZ == llvm::APFloatBase::S_Float8E4M3B11FNUZ);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_FloatTF32 == llvm::APFloatBase::S_FloatTF32);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_x87DoubleExtended == llvm::APFloatBase::S_x87DoubleExtended);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_MaxSemantics == llvm::APFloatBase::S_MaxSemantics);
