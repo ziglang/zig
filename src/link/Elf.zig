@@ -1666,7 +1666,7 @@ fn allocateObjects(self: *Elf) !void {
             const local = self.symbol(local_index);
             const atom_ptr = local.atom(self) orelse continue;
             if (!atom_ptr.alive) continue;
-            local.value = atom_ptr.value;
+            local.value += atom_ptr.value;
         }
 
         for (object.globals()) |global_index| {
@@ -1674,7 +1674,7 @@ fn allocateObjects(self: *Elf) !void {
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.alive) continue;
             if (global.file_index == index) {
-                global.value = atom_ptr.value;
+                global.value += atom_ptr.value;
             }
         }
     }
