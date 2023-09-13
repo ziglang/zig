@@ -245,6 +245,9 @@ __handle_replacement_field(_Iterator __begin, _Iterator __end,
   using _CharT = iter_value_t<_Iterator>;
   __format::__parse_number_result __r = __format::__parse_arg_id(__begin, __end, __parse_ctx);
 
+  if (__r.__last == __end)
+    std::__throw_format_error("The argument index should end with a ':' or a '}'");
+
   bool __parse = *__r.__last == _CharT(':');
   switch (*__r.__last) {
   case _CharT(':'):

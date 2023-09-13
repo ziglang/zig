@@ -10,6 +10,7 @@
 #define _LIBCPP___LOCALE_LOCALE_BASE_API_LOCALE_GUARD_H
 
 #include <__config>
+#include <__locale> // for locale_t
 #include <clocale>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

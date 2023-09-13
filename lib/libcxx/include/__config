@@ -208,19 +208,16 @@
 
 // HARDENING {
 
-// TODO(hardening): remove this in LLVM 18.
-// This is for backward compatibility -- make enabling `_LIBCPP_ENABLE_ASSERTIONS` (which predates hardening modes)
-// equivalent to setting the hardened mode.
-#  ifdef _LIBCPP_ENABLE_ASSERTIONS
-#    warning "_LIBCPP_ENABLE_ASSERTIONS is deprecated, please use _LIBCPP_ENABLE_HARDENED_MODE instead."
-#    if _LIBCPP_ENABLE_ASSERTIONS != 0 && _LIBCPP_ENABLE_ASSERTIONS != 1
-#      error "_LIBCPP_ENABLE_ASSERTIONS must be set to 0 or 1"
-#    endif
-#    if _LIBCPP_ENABLE_ASSERTIONS
-#      define _LIBCPP_ENABLE_HARDENED_MODE 1
-#    endif
+#  ifndef _LIBCPP_ENABLE_ASSERTIONS
+#    define _LIBCPP_ENABLE_ASSERTIONS _LIBCPP_ENABLE_ASSERTIONS_DEFAULT
+#  endif
+#  if _LIBCPP_ENABLE_ASSERTIONS != 0 && _LIBCPP_ENABLE_ASSERTIONS != 1
+#    error "_LIBCPP_ENABLE_ASSERTIONS must be set to 0 or 1"
 #  endif
 
+// NOTE: These modes are experimental and are not stable yet in LLVM 17. Please refrain from using them and use the
+// documented libc++ "safe" mode instead.
+//
 // Enables the hardened mode which consists of all checks intended to be used in production. Hardened mode prioritizes
 // security-critical checks that can be done with relatively little overhead in constant time. Mutually exclusive with
 // `_LIBCPP_ENABLE_DEBUG_MODE`.
@@ -275,6 +272,11 @@
 #    error "Only one of _LIBCPP_ENABLE_HARDENED_MODE and _LIBCPP_ENABLE_DEBUG_MODE can be enabled."
 #  endif
 
+#  if _LIBCPP_ENABLE_ASSERTIONS && (_LIBCPP_ENABLE_HARDENED_MODE || _LIBCPP_ENABLE_DEBUG_MODE)
+#    error                                                                                                             \
+        "_LIBCPP_ENABLE_ASSERTIONS is mutually exclusive with _LIBCPP_ENABLE_HARDENED_MODE and _LIBCPP_ENABLE_DEBUG_MODE."
+#  endif
+
 // Hardened mode checks.
 
 // clang-format off
@@ -294,6 +296,18 @@
 // Debug mode checks.
 
 #  elif _LIBCPP_ENABLE_DEBUG_MODE
+
+// All checks enabled.
+#    define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)         _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)      _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(expression, message)    _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(expression, message)      _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_INTERNAL(expression, message)                  _LIBCPP_ASSERT(expression, message)
+#    define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)             _LIBCPP_ASSERT(expression, message)
+
+// Safe mode checks.
+
+#  elif _LIBCPP_ENABLE_ASSERTIONS
 
 // All checks enabled.
 #    define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)         _LIBCPP_ASSERT(expression, message)
