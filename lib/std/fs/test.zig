@@ -722,6 +722,12 @@ test "Dir.rename directories" {
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(test_dir_path, .{}));
             var dir = try ctx.dir.openDir(test_dir_renamed_path, .{});
 
+            // The next rename in this test can hit intermittent AccessDenied
+            // errors when certain conditions are true about the host system.
+            // For now, return early when the path type is UNC to avoid them.
+            // See https://github.com/ziglang/zig/issues/17134
+            if (ctx.path_type == .unc) return;
+
             // Put a file in the directory
             var file = try dir.createFile("test_file", .{ .read = true });
             file.close();
