@@ -1082,9 +1082,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-    if (compiler_rt_path) |path| {
-        try positionals.append(.{ .path = path });
-    }
+    _ = compiler_rt_path;
+    // if (compiler_rt_path) |path| {
+    //     try positionals.append(.{ .path = path });
+    // }
 
     for (positionals.items) |obj| {
         const in_file = try std.fs.cwd().openFile(obj.path, .{});
@@ -1643,11 +1644,11 @@ fn scanRelocs(self: *Elf) !void {
 
     try self.reportUndefined(&undefs);
 
-    for (self.symbols.items) |*sym| {
+    for (self.symbols.items, 0..) |*sym, sym_index| {
         if (sym.flags.needs_got) {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
             // TODO how can we tell we need to write it again, aka the entry is dirty?
-            const gop = try sym.getOrCreateGotEntry(self);
+            const gop = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
             try self.got.writeEntry(self, gop.index);
         }
     }
@@ -2695,7 +2696,7 @@ fn updateDeclCode(
         esym.st_value = atom_ptr.value;
 
         sym.flags.needs_got = true;
-        const gop = try sym.getOrCreateGotEntry(self);
+        const gop = try sym.getOrCreateGotEntry(sym_index, self);
         try self.got.writeEntry(self, gop.index);
     }
 
@@ -2930,7 +2931,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     local_esym.st_value = atom_ptr.value;
 
     local_sym.flags.needs_got = true;
-    const gop = try local_sym.getOrCreateGotEntry(self);
+    const gop = try local_sym.getOrCreateGotEntry(symbol_index, self);
     try self.got.writeEntry(self, gop.index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
@@ -3801,7 +3802,7 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
             break :blk index;
         }
     };
-    self.symbols.items[index] = .{ .index = index };
+    self.symbols.items[index] = .{};
     return index;
 }
 

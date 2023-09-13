@@ -322,11 +322,12 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 
         if (rel.r_type() == elf.R_X86_64_NONE) continue;
 
-        const symbol = switch (file_ptr) {
-            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
-            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
+        const symbol_index = switch (file_ptr) {
+            .zig_module => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };
+        const symbol = elf_file.symbol(symbol_index);
 
         // Check for violation of One Definition Rule for COMDATs.
         if (symbol.file(elf_file) == null) {
@@ -340,7 +341,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
         }
 
         // Report an undefined symbol.
-        try self.reportUndefined(elf_file, symbol, rel, undefs);
+        try self.reportUndefined(elf_file, symbol, symbol_index, rel, undefs);
 
         // While traversing relocations, mark symbols that require special handling such as
         // pointer indirection via GOT, or a stub trampoline via PLT.
@@ -379,7 +380,14 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 }
 
 // This function will report any undefined non-weak symbols that are not imports.
-fn reportUndefined(self: Atom, elf_file: *Elf, sym: *const Symbol, rel: elf.Elf64_Rela, undefs: anytype) !void {
+fn reportUndefined(
+    self: Atom,
+    elf_file: *Elf,
+    sym: *const Symbol,
+    sym_index: Symbol.Index,
+    rel: elf.Elf64_Rela,
+    undefs: anytype,
+) !void {
     const rel_esym = switch (elf_file.file(self.file_index).?) {
         .zig_module => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
@@ -392,7 +400,7 @@ fn reportUndefined(self: Atom, elf_file: *Elf, sym: *const Symbol, rel: elf.Elf6
         !sym.flags.import and
         esym.st_shndx == elf.SHN_UNDEF)
     {
-        const gop = try undefs.getOrPut(sym.index);
+        const gop = try undefs.getOrPut(sym_index);
         if (!gop.found_existing) {
             gop.value_ptr.* = std.ArrayList(Atom.Index).init(elf_file.base.allocator);
         }

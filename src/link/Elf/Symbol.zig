@@ -1,7 +1,5 @@
 //! Represents a defined symbol.
 
-index: Index = 0,
-
 /// Allocated address value of this symbol.
 value: u64 = 0,
 
@@ -117,10 +115,10 @@ const GetOrCreateGotEntryResult = struct {
     index: GotSection.Index,
 };
 
-pub fn getOrCreateGotEntry(symbol: *Symbol, elf_file: *Elf) !GetOrCreateGotEntryResult {
+pub fn getOrCreateGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateGotEntryResult {
     assert(symbol.flags.needs_got);
     if (symbol.flags.has_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.got };
-    const index = try elf_file.got.addGotSymbol(symbol.index, elf_file);
+    const index = try elf_file.got.addGotSymbol(symbol_index, elf_file);
     symbol.flags.has_got = true;
     return .{ .found_existing = false, .index = index };
 }
@@ -270,7 +268,7 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
-    try writer.print("%{d} : {s} : @{x}", .{ symbol.index, symbol.fmtName(ctx.elf_file), symbol.value });
+    try writer.print("%{d} : {s} : @{x}", .{ symbol.esym_index, symbol.fmtName(ctx.elf_file), symbol.value });
     if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
             if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
