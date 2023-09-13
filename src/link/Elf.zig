@@ -1124,6 +1124,19 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
     try self.writeObjects();
 
+    // Look for entry address in objects if not set by the incremental compiler.
+    if (self.entry_addr == null) {
+        const entry: ?[]const u8 = entry: {
+            if (self.base.options.entry) |entry| break :entry entry;
+            if (!self.isDynLib()) break :entry "_start";
+            break :entry null;
+        };
+        self.entry_addr = if (entry) |name| entry_addr: {
+            const global_index = self.globalByName(name) orelse break :entry_addr null;
+            break :entry_addr self.symbol(global_index).value;
+        } else null;
+    }
+
     // Generate and emit the symbol table.
     try self.updateSymtabSize();
     try self.writeSymtab();
