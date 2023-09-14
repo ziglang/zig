@@ -5,12 +5,12 @@ const assert = std.debug.assert;
 const Log2Int = math.Log2Int;
 
 /// Returns the logarithm of `x` for the provided `base`, rounding down to the nearest integer.
-/// Asserts that `base > 1` and `x != 0`.
+/// Asserts that `base > 1` and `x > 0`.
 pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log_int requires an unsigned integer, found " ++ @typeName(T));
 
-    assert(base > 1 and x != 0);
+    assert(base > 1 and x > 0);
 
     var exponent: Log2Int(T) = 0;
     var power: T = 1;
