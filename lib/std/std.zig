@@ -16,7 +16,8 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 /// Deprecated: use `process.Child`.
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
-pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringMap;
+pub const ComptimeStringMap = comptime_string_map.ComptimeStringMap;
+pub const ComptimeStringMapWithEql = comptime_string_map.ComptimeStringMapWithEql;
 pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
@@ -73,6 +74,8 @@ pub const coff = @import("coff.zig");
 
 /// Compression algorithms such as zlib, zstd, etc.
 pub const compress = @import("compress.zig");
+
+pub const comptime_string_map = @import("comptime_string_map.zig");
 
 /// Cryptography.
 pub const crypto = @import("crypto.zig");
