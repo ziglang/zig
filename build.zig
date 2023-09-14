@@ -204,7 +204,9 @@ pub fn build(b: *std.Build) !void {
         "Request creation of '.note.gnu.build-id' section",
     );
 
-    if (!no_bin) {
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
+    } else {
         const install_exe = b.addInstallArtifact(exe, .{
             .dest_dir = if (flat) .{ .override = .prefix } else .default,
         });
