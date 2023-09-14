@@ -1392,14 +1392,8 @@ fn arrayInitExpr(
 
     assert(array_init.ast.elements.len != 0); // Otherwise it would be struct init.
 
-    const types: struct {
-        array: Zir.Inst.Ref,
-        elem: Zir.Inst.Ref,
-    } = inst: {
-        if (array_init.ast.type_expr == 0) break :inst .{
-            .array = .none,
-            .elem = .none,
-        };
+    const array_ty: Zir.Inst.Ref, const elem_ty: Zir.Inst.Ref = inst: {
+        if (array_init.ast.type_expr == 0) break :inst .{ .none, .none };
 
         infer: {
             const array_type: Ast.full.ArrayType = tree.fullArrayType(array_init.ast.type_expr) orelse break :infer;
@@ -1414,10 +1408,7 @@ fn arrayInitExpr(
                         .lhs = len_inst,
                         .rhs = elem_type,
                     });
-                    break :inst .{
-                        .array = array_type_inst,
-                        .elem = elem_type,
-                    };
+                    break :inst .{ array_type_inst, elem_type };
                 } else {
                     const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, array_type.ast.sentinel);
                     const array_type_inst = try gz.addPlNode(
@@ -1429,10 +1420,7 @@ fn arrayInitExpr(
                             .sentinel = sentinel,
                         },
                     );
-                    break :inst .{
-                        .array = array_type_inst,
-                        .elem = elem_type,
-                    };
+                    break :inst .{ array_type_inst, elem_type };
                 }
             }
         }
@@ -1441,29 +1429,26 @@ fn arrayInitExpr(
             .ty = array_type_inst,
             .init_count = @intCast(array_init.ast.elements.len),
         });
-        break :inst .{
-            .array = array_type_inst,
-            .elem = .none,
-        };
+        break :inst .{ array_type_inst, .none };
     };
 
     switch (ri.rl) {
         .discard => {
-            if (types.elem != .none) {
-                const elem_ri: ResultInfo = .{ .rl = .{ .ty = types.elem } };
+            if (elem_ty != .none) {
+                const elem_ri: ResultInfo = .{ .rl = .{ .ty = elem_ty } };
                 for (array_init.ast.elements) |elem_init| {
                     _ = try expr(gz, scope, elem_ri, elem_init);
                 }
-            } else if (types.array != .none) {
+            } else if (array_ty != .none) {
                 for (array_init.ast.elements, 0..) |elem_init, i| {
-                    const elem_ty = try gz.add(.{
+                    const this_elem_ty = try gz.add(.{
                         .tag = .elem_type_index,
                         .data = .{ .bin = .{
-                            .lhs = types.array,
+                            .lhs = array_ty,
                             .rhs = @enumFromInt(i),
                         } },
                     });
-                    _ = try expr(gz, scope, .{ .rl = .{ .ty = elem_ty } }, elem_init);
+                    _ = try expr(gz, scope, .{ .rl = .{ .ty = this_elem_ty } }, elem_init);
                 }
             } else {
                 for (array_init.ast.elements) |elem_init| {
@@ -1473,15 +1458,15 @@ fn arrayInitExpr(
             return Zir.Inst.Ref.void_value;
         },
         .ref => {
-            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init_ref else .array_init_anon_ref;
-            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
+            const tag: Zir.Inst.Tag = if (array_ty != .none) .array_init_ref else .array_init_anon_ref;
+            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, elem_ty, tag);
         },
         .none => {
-            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
-            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
+            const tag: Zir.Inst.Tag = if (array_ty != .none) .array_init else .array_init_anon;
+            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, elem_ty, tag);
         },
         .ty, .coerced_ty => |ty_inst| {
-            const arr_ty = if (types.array != .none) types.array else blk: {
+            const arr_ty = if (array_ty != .none) array_ty else blk: {
                 const arr_ty = try gz.addUnNode(.opt_eu_base_ty, ty_inst, node);
                 _ = try gz.addPlNode(.validate_array_init_ty, node, Zir.Inst.ArrayInit{
                     .ty = arr_ty,
@@ -1489,29 +1474,29 @@ fn arrayInitExpr(
                 });
                 break :blk arr_ty;
             };
-            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, arr_ty, types.elem, .array_init);
+            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, arr_ty, elem_ty, .array_init);
             return rvalue(gz, ri, result, node);
         },
         .ptr => |ptr_res| {
-            return arrayInitExprRlPtr(gz, scope, node, ptr_res.inst, array_init.ast.elements, types.array);
+            return arrayInitExprRlPtr(gz, scope, node, ptr_res.inst, array_init.ast.elements, array_ty);
         },
         .inferred_ptr => |ptr_inst| {
-            if (types.array == .none) {
+            if (array_ty == .none) {
                 // We treat this case differently so that we don't get a crash when
                 // analyzing array_base_ptr against an alloc_inferred_mut.
                 // See corresponding logic in structInitExpr.
                 const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
                 return rvalue(gz, ri, result, node);
             } else {
-                return arrayInitExprRlPtr(gz, scope, node, ptr_inst, array_init.ast.elements, types.array);
+                return arrayInitExprRlPtr(gz, scope, node, ptr_inst, array_init.ast.elements, array_ty);
             }
         },
         .destructure => |destructure| {
-            if (types.array != .none) {
+            if (array_ty != .none) {
                 // We have a specific type, so there may be things like default
                 // field values messing with us. Do this as a standard typed
                 // init followed by an rvalue destructure.
-                const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, .array_init);
+                const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, elem_ty, .array_init);
                 return rvalue(gz, ri, result, node);
             }
             // Untyped init - destructure directly into result pointers
@@ -3177,10 +3162,7 @@ fn varDecl(
         .keyword_var => {
             const is_comptime = var_decl.comptime_token != null or gz.is_comptime;
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
-            const var_data: struct {
-                result_info: ResultInfo,
-                alloc: Zir.Inst.Ref,
-            } = if (var_decl.ast.type_node != 0) a: {
+            const alloc: Zir.Inst.Ref, const result_info: ResultInfo = if (var_decl.ast.type_node != 0) a: {
                 const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
                 const alloc = alloc: {
                     if (align_inst == .none) {
@@ -3199,7 +3181,7 @@ fn varDecl(
                         });
                     }
                 };
-                break :a .{ .alloc = alloc, .result_info = .{ .rl = .{ .ptr = .{ .inst = alloc } } } };
+                break :a .{ alloc, .{ .rl = .{ .ptr = .{ .inst = alloc } } } };
             } else a: {
                 const alloc = alloc: {
                     if (align_inst == .none) {
@@ -3219,24 +3201,24 @@ fn varDecl(
                     }
                 };
                 resolve_inferred_alloc = alloc;
-                break :a .{ .alloc = alloc, .result_info = .{ .rl = .{ .inferred_ptr = alloc } } };
+                break :a .{ alloc, .{ .rl = .{ .inferred_ptr = alloc } } };
             };
             const prev_anon_name_strategy = gz.anon_name_strategy;
             gz.anon_name_strategy = .dbg_var;
-            _ = try reachableExprComptime(gz, scope, var_data.result_info, var_decl.ast.init_node, node, is_comptime);
+            _ = try reachableExprComptime(gz, scope, result_info, var_decl.ast.init_node, node, is_comptime);
             gz.anon_name_strategy = prev_anon_name_strategy;
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
 
-            try gz.addDbgVar(.dbg_var_ptr, ident_name, var_data.alloc);
+            try gz.addDbgVar(.dbg_var_ptr, ident_name, alloc);
 
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
                 .gen_zir = gz,
                 .name = ident_name,
-                .ptr = var_data.alloc,
+                .ptr = alloc,
                 .token_src = name_token,
                 .maybe_comptime = is_comptime,
                 .id_cat = .@"local variable",
