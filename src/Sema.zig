@@ -3780,6 +3780,21 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         return sema.analyzeDeclRef(try anon_decl.finish(elem_ty, store_val, ptr_info.flags.alignment));
     }
 
+    // If this is already a comptime-mutable allocation, we don't want to emit an error - the stores
+    // were already performed at comptime! Just make the pointer constant as normal.
+    implicit_ct: {
+        const ptr_val = try sema.resolveMaybeUndefVal(alloc) orelse break :implicit_ct;
+        if (ptr_val.isComptimeMutablePtr(mod)) break :implicit_ct;
+        return sema.makePtrConst(block, alloc);
+    }
+
+    if (try sema.typeRequiresComptime(elem_ty)) {
+        // The value was initialized through RLS, so we didn't detect the runtime condition earlier.
+        // TODO: source location of runtime control flow
+        const init_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+        return sema.fail(block, init_src, "value with comptime-only type '{}' depends on runtime control flow", .{elem_ty.fmt(mod)});
+    }
+
     return sema.makePtrConst(block, alloc);
 }
 
