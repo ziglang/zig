@@ -354,7 +354,7 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
 }
 
 pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
+    const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
 
     if (eqlIgnoreCase(ignore_case, name, "c"))
         return true;
@@ -362,7 +362,6 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
     if (target.isMinGW()) {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
-
         if (eqlIgnoreCase(ignore_case, name, "uuid"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "mingw32"))
@@ -375,7 +374,7 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         return false;
     }
 
-    if (target.abi.isGnu() or target.abi.isMusl() or target.os.tag.isDarwin()) {
+    if (target.abi.isGnu() or target.abi.isMusl()) {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "rt"))
@@ -392,13 +391,38 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
     }
 
-    if (target.abi.isMusl() or target.os.tag.isDarwin()) {
+    if (target.abi.isMusl()) {
         if (eqlIgnoreCase(ignore_case, name, "crypt"))
             return true;
     }
 
-    if (target.os.tag.isDarwin() and eqlIgnoreCase(ignore_case, name, "System"))
-        return true;
+    if (target.os.tag.isDarwin()) {
+        if (eqlIgnoreCase(ignore_case, name, "System"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "c"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dbm"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dl"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "info"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "m"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "poll"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "proc"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "pthread"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
+            return true;
+    }
+
+    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
+        if (eqlIgnoreCase(ignore_case, name, "mx"))
+            return true;
+    }
 
     return false;
 }
