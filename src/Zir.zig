@@ -434,6 +434,10 @@ pub const Inst = struct {
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
         elem_val,
+        /// Same as `elem_val` but takes the index as an immediate value.
+        /// No OOB safety check is emitted. A prior instruction must validate this operation.
+        /// Uses the `elem_val_imm` union field.
+        elem_val_imm,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
         ensure_result_used,
@@ -725,6 +729,9 @@ pub const Inst = struct {
         /// Check that operand type supports the dereference operand (.*).
         /// Uses the `un_node` field.
         validate_deref,
+        /// Check that the operand's type is an array or tuple with the given number of elements.
+        /// Uses the `pl_node` field. Payload is `ValidateDestructure`.
+        validate_destructure,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -1069,6 +1076,7 @@ pub const Inst = struct {
                 .elem_ptr_node,
                 .elem_ptr_imm,
                 .elem_val_node,
+                .elem_val_imm,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
@@ -1145,6 +1153,7 @@ pub const Inst = struct {
                 .validate_struct_init,
                 .validate_array_init,
                 .validate_deref,
+                .validate_destructure,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_ref,
@@ -1295,6 +1304,7 @@ pub const Inst = struct {
                 .validate_struct_init,
                 .validate_array_init,
                 .validate_deref,
+                .validate_destructure,
                 .@"export",
                 .export_value,
                 .set_runtime_safety,
@@ -1369,6 +1379,7 @@ pub const Inst = struct {
                 .elem_ptr_node,
                 .elem_ptr_imm,
                 .elem_val_node,
+                .elem_val_imm,
                 .field_ptr,
                 .field_ptr_init,
                 .field_val,
@@ -1615,6 +1626,7 @@ pub const Inst = struct {
                 .elem_ptr_imm = .pl_node,
                 .elem_val = .pl_node,
                 .elem_val_node = .pl_node,
+                .elem_val_imm = .elem_val_imm,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
                 .ensure_err_union_payload_void = .un_node,
@@ -1689,6 +1701,7 @@ pub const Inst = struct {
                 .validate_struct_init = .pl_node,
                 .validate_array_init = .pl_node,
                 .validate_deref = .un_node,
+                .validate_destructure = .pl_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,
@@ -2295,6 +2308,12 @@ pub const Inst = struct {
             block: Ref, // If restored, the index is from this block's entrypoint
             operand: Ref, // If non-error (or .none), then restore the index
         },
+        elem_val_imm: struct {
+            /// The indexable value being accessed.
+            operand: Ref,
+            /// The index being accessed.
+            idx: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2334,6 +2353,7 @@ pub const Inst = struct {
             defer_err_code,
             save_err_ret_index,
             restore_err_ret_index,
+            elem_val_imm,
         };
     };
 
@@ -3232,6 +3252,15 @@ pub const Inst = struct {
         remapped_err_code: Index,
         index: u32,
         len: u32,
+    };
+
+    pub const ValidateDestructure = struct {
+        /// The value being destructured.
+        operand: Ref,
+        /// The `destructure_assign` node.
+        destructure_node: i32,
+        /// The expected field count.
+        expect_len: u32,
     };
 };
 

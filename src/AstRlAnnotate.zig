@@ -203,6 +203,16 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 else => unreachable,
             }
         },
+        .assign_destructure => {
+            const lhs_count = tree.extra_data[node_datas[node].lhs];
+            const all_lhs = tree.extra_data[node_datas[node].lhs + 1 ..][0..lhs_count];
+            for (all_lhs) |lhs| {
+                _ = try astrl.expr(lhs, block, ResultInfo.none);
+            }
+            // We don't need to gather any meaningful data here, because destructures always use RLS
+            _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.none);
+            return false;
+        },
         .assign => {
             _ = try astrl.expr(node_datas[node].lhs, block, ResultInfo.none);
             _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.typed_ptr);
