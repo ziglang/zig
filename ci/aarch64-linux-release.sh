@@ -81,8 +81,6 @@ rm -rf ../build-new
 mkdir ../build-new
 cd ../build-new
 
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
@@ -108,3 +106,8 @@ stage3/bin/zig build -p stage4 \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
 stage4/bin/zig test ../test/behavior.zig -I../test
+
+# After all correctness checking, compare performance against the merge-base.
+cd ..
+sh ci/measure-perf-delta.sh "$ZIG" "$TARGET" "$MCPU" "$PREFIX" || \
+  echo "Error occurred measuring the performance delta of this pull request." > perf.txt
