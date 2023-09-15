@@ -953,10 +953,18 @@ test "len" {
     try testing.expect(len(c_ptr) == 2);
 }
 
+const backend_supports_vectors = switch (builtin.zig_backend) {
+    .stage2_llvm, .stage2_c => true,
+    else => false,
+};
+
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
 
-    if (!@inComptime() and (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T))) {
+    if (backend_supports_vectors and
+        !@inComptime() and
+        (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
         switch (@import("builtin").cpu.arch) {
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
@@ -1066,7 +1074,10 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     if (start_index >= slice.len) return null;
 
     var i: usize = start_index;
-    if (!@inComptime() and (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T))) {
+    if (backend_supports_vectors and
+        !@inComptime() and
+        (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
         if (comptime std.simd.suggestVectorSize(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
