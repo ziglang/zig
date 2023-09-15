@@ -39,5 +39,5 @@ cd ..
 
 poop \
   "build-base/stage3/bin/zig build-exe test/standalone/hello_world/hello.zig" \
-  "build-head/stage3/bin/zig build-exe test/standalone/hello_world/hello.zig" \
-  > perf.txt
+  "build-new/stage3/bin/zig build-exe test/standalone/hello_world/hello.zig" \
+  > build-new/perf.txt
