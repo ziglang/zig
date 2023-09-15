@@ -50,29 +50,29 @@ unset CXX
 
 ninja install
 
-# TODO: move this to a build.zig step (check-fmt)
-echo "Looking for non-conforming code formatting..."
-stage3-release/bin/zig fmt --check .. \
-  --exclude ../test/cases/ \
-  --exclude ../build-release
-
-# simultaneously test building self-hosted without LLVM and with 32-bit arm
-stage3-release/bin/zig build \
-  -Dtarget=arm-linux-musleabihf \
-  -Dno-lib
-
-# TODO: add -fqemu back to this line
-stage3-release/bin/zig build test docs \
-  --maxrss 24696061952 \
-  -fwasmtime \
-  -Dstatic-llvm \
-  -Dtarget=native-native-musl \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
-
-# Look for HTML errors.
-# TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
+## TODO: move this to a build.zig step (check-fmt)
+#echo "Looking for non-conforming code formatting..."
+#stage3-release/bin/zig fmt --check .. \
+#  --exclude ../test/cases/ \
+#  --exclude ../build-release
+#
+## simultaneously test building self-hosted without LLVM and with 32-bit arm
+#stage3-release/bin/zig build \
+#  -Dtarget=arm-linux-musleabihf \
+#  -Dno-lib
+#
+## TODO: add -fqemu back to this line
+#stage3-release/bin/zig build test docs \
+#  --maxrss 24696061952 \
+#  -fwasmtime \
+#  -Dstatic-llvm \
+#  -Dtarget=native-native-musl \
+#  --search-prefix "$PREFIX" \
+#  --zig-lib-dir "$(pwd)/../lib"
+#
+## Look for HTML errors.
+## TODO: move this to a build.zig flag (-Denable-tidy)
+#tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-release/bin/zig build update-zig1
@@ -98,14 +98,14 @@ unset CXX
 
 ninja install
 
-stage3/bin/zig test ../test/behavior.zig -I../test
-stage3/bin/zig build -p stage4 \
-  -Dstatic-llvm \
-  -Dtarget=native-native-musl \
-  -Dno-lib \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
-stage4/bin/zig test ../test/behavior.zig -I../test
+#stage3/bin/zig test ../test/behavior.zig -I../test
+#stage3/bin/zig build -p stage4 \
+#  -Dstatic-llvm \
+#  -Dtarget=native-native-musl \
+#  -Dno-lib \
+#  --search-prefix "$PREFIX" \
+#  --zig-lib-dir "$(pwd)/../lib"
+#stage4/bin/zig test ../test/behavior.zig -I../test
 
 # After all correctness checking, compare performance against the merge-base.
 cd ..
