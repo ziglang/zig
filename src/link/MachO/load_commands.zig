@@ -467,8 +467,34 @@ pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
     };
 }
 
-pub fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
-    const stem = std.fs.path.stem(path);
+fn readSdkVersionString(arena: Allocator, dir: []const u8) ![]const u8 {
+    const sdk_path = try std.fs.path.join(arena, &.{ dir, "SDKSettings.json" });
+    const contents = try std.fs.cwd().readFileAlloc(arena, sdk_path, std.math.maxInt(u16));
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena, contents, .{});
+    if (parsed.value.object.get("MinimalDisplayName")) |ver| return ver.string;
+    return error.SdkVersionFailure;
+}
+
+pub fn inferSdkVersion(comp: *const Compilation) ?std.SemanticVersion {
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+    const options = comp.bin_file.options;
+
+    const sdk_dir = switch (options.libc_provider) {
+        .none => unreachable,
+        .installation => unreachable,
+        .sysroot => options.sysroot.?,
+        .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
+    };
+
+    // prefer meta information if available
+    if (readSdkVersionString(arena, sdk_dir)) |ver| {
+        return parseSdkVersion(ver);
+    } else |_| {}
+
+    // infer from pathname
+    const stem = std.fs.path.stem(sdk_dir);
     const start = for (stem, 0..) |c, i| {
         if (std.ascii.isDigit(c)) break i;
     } else stem.len;
@@ -532,3 +558,4 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
+const Compilation = @import("../../Compilation.zig");

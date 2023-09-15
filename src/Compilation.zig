@@ -1554,6 +1554,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .use_lld = use_lld,
             .use_llvm = use_llvm,
             .use_lib_llvm = use_lib_llvm,
+            .libc_provider = libc_dirs.provider,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
@@ -5654,6 +5655,7 @@ const LibCDirs = struct {
     libc_installation: ?*const LibCInstallation,
     libc_framework_dir_list: []const []const u8,
     sysroot: ?[]const u8,
+    provider: link.LibCProvider,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8) !LibCDirs {
@@ -5669,6 +5671,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8)
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .provider = .vendored,
     };
 }
 
@@ -5686,6 +5689,7 @@ pub fn detectLibCIncludeDirs(
             .libc_installation = null,
             .libc_framework_dir_list = &.{},
             .sysroot = null,
+            .provider = .none,
         };
     }
 
@@ -5743,6 +5747,7 @@ pub fn detectLibCIncludeDirs(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .provider = .none,
     };
 }
 
@@ -5797,6 +5802,7 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         .libc_installation = lci,
         .libc_framework_dir_list = framework_list.items,
         .sysroot = sysroot,
+        .provider = if (sysroot == null) .installation else .sysroot,
     };
 }
 
@@ -5858,6 +5864,7 @@ fn detectLibCFromBuilding(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .provider = .vendored,
     };
 }
 

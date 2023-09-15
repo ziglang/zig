@@ -134,6 +134,7 @@ pub const Options = struct {
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool,
     use_lib_llvm: bool,
+    libc_provider: LibCProvider,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,
@@ -281,6 +282,13 @@ pub const Options = struct {
 pub const HashStyle = enum { sysv, gnu, both };
 
 pub const CompressDebugSections = enum { none, zlib };
+
+pub const LibCProvider = enum {
+    none,
+    installation,
+    sysroot,
+    vendored,
+};
 
 pub const File = struct {
     tag: Tag,

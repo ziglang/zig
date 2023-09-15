@@ -558,10 +558,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     {
         const platform = Platform.fromTarget(self.base.options.target);
-        const sdk_version: ?std.SemanticVersion = if (self.base.options.sysroot) |path|
-            load_commands.inferSdkVersionFromSdkPath(path)
-        else
-            null;
+        const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(comp);
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
         } else if (platform.isVersionMinCompatible()) {
@@ -647,11 +644,6 @@ pub fn resolveLibSystem(
     var checked_paths = std.ArrayList([]const u8).init(tmp_arena);
 
     success: {
-        if (self.base.options.sysroot) |root| {
-            const dir = try fs.path.join(tmp_arena, &[_][]const u8{ root, "usr", "lib" });
-            if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
-        }
-
         for (search_dirs) |dir| if (try accessLibPath(
             tmp_arena,
             &test_path,
@@ -660,8 +652,18 @@ pub fn resolveLibSystem(
             "libSystem",
         )) break :success;
 
-        const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
-        if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+        switch (self.base.options.libc_provider) {
+            .none => unreachable,
+            .installation => unreachable,
+            .sysroot => {
+                const dir = try fs.path.join(tmp_arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
+                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+            },
+            .vendored => {
+                const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
+                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+            },
+        }
 
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return;
