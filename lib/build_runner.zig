@@ -1064,7 +1064,5 @@ fn get_tty_conf(color: Color, stderr: std.fs.File) std.io.tty.Config {
 fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
     return .{
         .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
     };
 }
