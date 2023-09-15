@@ -14,9 +14,9 @@ PREFIX="$4"
 
 git checkout "$GITHUB_BASE_REF"
 
-rm -rf ../build-base
-mkdir ../build-base
-cd ../build-base
+rm -rf build-base
+mkdir build-base
+cd build-base
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
