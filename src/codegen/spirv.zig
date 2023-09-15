@@ -1146,6 +1146,11 @@ pub const DeclGen = struct {
                 });
                 return result_id;
             },
+            .enum_tag => {
+                const int_val = try val.intFromEnum(ty, mod);
+                const int_ty = ty.intTagType(mod);
+                return try self.constant(int_ty, int_val, repr);
+            },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.
             else => {
