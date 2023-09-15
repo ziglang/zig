@@ -125,3 +125,8 @@ stage3/bin/zig build -p stage4 \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
 stage4/bin/zig test ../test/behavior.zig -I../test
+
+# After all correctness checking, compare performance against the merge-base.
+cd ..
+sh ci/measure-perf-delta.sh "$ZIG" "$TARGET" "$MCPU" "$PREFIX" || \
+  echo "$TARGET: Error occurred measuring the performance delta of this pull request." > build-new/perf.txt

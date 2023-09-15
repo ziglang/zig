@@ -10,6 +10,26 @@ concurrency:
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
   cancel-in-progress: true
 jobs:
+  x86_64-linux-release:
+    timeout-minutes: 420
+    runs-on: [self-hosted, Linux, x86_64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build and Test
+        run: sh ci/x86_64-linux-release.sh
+      - name: Post Perf Comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('build-new/perf.txt', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body,
+            });
   aarch64-linux-release:
     runs-on: [self-hosted, Linux, aarch64]
     steps:
