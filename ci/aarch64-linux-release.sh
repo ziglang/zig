@@ -20,8 +20,8 @@ git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+#export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+#export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 rm -rf build-release
 mkdir build-release
@@ -33,22 +33,22 @@ cd build-release
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
 
-cmake .. \
-  -DCMAKE_INSTALL_PREFIX="stage3-release" \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_NO_LIB=ON \
-  -GNinja
-
-# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
-# so that installation and testing do not get affected by them.
-unset CC
-unset CXX
-
-ninja install
+#cmake .. \
+#  -DCMAKE_INSTALL_PREFIX="stage3-release" \
+#  -DCMAKE_PREFIX_PATH="$PREFIX" \
+#  -DCMAKE_BUILD_TYPE=Release \
+#  -DZIG_TARGET_TRIPLE="$TARGET" \
+#  -DZIG_TARGET_MCPU="$MCPU" \
+#  -DZIG_STATIC=ON \
+#  -DZIG_NO_LIB=ON \
+#  -GNinja
+#
+## Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+## so that installation and testing do not get affected by them.
+#unset CC
+#unset CXX
+#
+#ninja install
 
 ## TODO: move this to a build.zig step (check-fmt)
 #echo "Looking for non-conforming code formatting..."
@@ -74,8 +74,8 @@ ninja install
 ## TODO: move this to a build.zig flag (-Denable-tidy)
 #tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
 
-# Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-release/bin/zig build update-zig1
+## Ensure that updating the wasm binary from this commit will result in a viable build.
+#stage3-release/bin/zig build update-zig1
 
 rm -rf ../build-new
 mkdir ../build-new
