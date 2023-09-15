@@ -1724,3 +1724,21 @@ comptime {
     assert(foo[1] == 2);
     assert(foo[2] == 0x55);
 }
+
+test "const with allocation before result is comptime-known" {
+    const x = blk: {
+        const y = [1]u32{2};
+        _ = y;
+        break :blk [1]u32{42};
+    };
+    comptime assert(@TypeOf(x) == [1]u32);
+    comptime assert(x[0] == 42);
+}
+
+test "const with specified type initialized with typed array is comptime-known" {
+    const x: [3]u16 = [3]u16{ 1, 2, 3 };
+    comptime assert(@TypeOf(x) == [3]u16);
+    comptime assert(x[0] == 1);
+    comptime assert(x[1] == 2);
+    comptime assert(x[2] == 3);
+}
