@@ -450,6 +450,42 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    fn constructDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
+        const mod = self.module;
+        const ty_ref = try self.resolveType(ty, .direct);
+        const ty_id = self.typeId(ty_ref);
+        const decl = mod.declPtr(decl_index);
+        const spv_decl_index = try self.resolveDecl(decl_index);
+        switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
+            .func => {
+                // TODO: Properly lower function pointers. For now we are going to hack around it and
+                // just generate an empty pointer. Function pointers are represented by usize for now,
+                // though.
+                // TODO: Add dependency
+                return try self.spv.constInt(ty_ref, 0);
+            },
+            .extern_func => unreachable, // TODO
+            else => {
+                const decl_id = self.spv.declPtr(spv_decl_index).result_id;
+                try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
+
+                switch (decl.@"addrspace") {
+                    .generic => {
+                        // Pointer should be generic, but is actually placed in CrossWorkgroup.
+                        const result_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                            .id_result_type = ty_id,
+                            .id_result = result_id,
+                            .pointer = decl_id,
+                        });
+                        return result_id;
+                    },
+                    else => return decl_id, // Variable is already correct, probably. Maybe needs a bitcast?
+                }
+            },
+        }
+    }
+
     const IndirectConstantLowering = struct {
         const undef = 0xAA;
 
@@ -1150,6 +1186,42 @@ pub const DeclGen = struct {
                 const int_val = try val.intFromEnum(ty, mod);
                 const int_ty = ty.intTagType(mod);
                 return try self.constant(int_ty, int_val, repr);
+            },
+            .ptr => |ptr| {
+                const ptr_ty = switch (ptr.len) {
+                    .none => ty,
+                    else => ty.slicePtrFieldType(mod),
+                };
+                const ptr_id = switch (ptr.addr) {
+                    .decl => |decl| try self.constructDeclRef(ptr_ty, decl),
+                    .mut_decl => |mut_decl| try self.constructDeclRef(ptr_ty, mut_decl.decl), // TODO
+                    .int => |int| blk: {
+                        const ptr_id = self.spv.allocId();
+                        // TODO: This can probably be an OpSpecConstantOp Bitcast, but
+                        // that is not implemented by Mesa yet. Therefore, just generate it
+                        // as a runtime operation.
+                        try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                            .id_result_type = try self.resolveTypeId(ptr_ty),
+                            .id_result = ptr_id,
+                            .integer_value = try self.constant(Type.usize, int.toValue(), .direct),
+                        });
+                        break :blk ptr_id;
+                    },
+                    .comptime_field => unreachable,
+                    else => |tag| return self.todo("pointer value of type {s}", .{@tagName(tag)}),
+                };
+                if (ptr.len == .none) {
+                    return ptr_id;
+                }
+
+                const len_id = try self.constant(Type.usize, ptr.len.toValue(), .indirect);
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+                    .id_result_type = self.typeId(result_ty_ref),
+                    .id_result = result_id,
+                    .constituents = &.{ ptr_id, len_id },
+                });
+                return result_id;
             },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.
