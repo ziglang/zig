@@ -111,7 +111,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
 
     const func = module.funcInfo(func_index);
     const decl = module.declPtr(func.owner_decl);
-    log.debug("lowering function {s}", .{ module.intern_pool.stringToSlice(decl.name) });
+    log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
@@ -127,7 +127,7 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
     }
 
     const decl = module.declPtr(decl_index);
-    log.debug("lowering declaration {s}", .{ module.intern_pool.stringToSlice(decl.name) });
+    log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
