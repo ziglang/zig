@@ -159,6 +159,12 @@ typedef int             memory_object_copy_strategy_t;
  *	internal.
  */
 
+#define         MEMORY_OBJECT_COPY_DELAY_FORK   6
+/*
+ * ...  Like MEMORY_OBJECT_COPY_DELAY for vm_map_fork() but like
+ *      MEMORY_OBJECT_COPY_NONE otherwise.
+ */
+
 typedef int             memory_object_return_t;
 /* Which pages to return to manager
  *  this time (lock_request) */

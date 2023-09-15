@@ -41,9 +41,9 @@
 
 #include <sys/cdefs.h>
 
-__BEGIN_DECLS
-
 #include <mach/error.h>
+
+__BEGIN_DECLS
 
 
 /*!

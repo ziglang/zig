@@ -234,11 +234,11 @@ namespace simd {
   static SIMD_CPPFUNC quatf operator*(const ::simd_quatf p, const float r) { return ::simd_mul(p, r); }
   static SIMD_CPPFUNC quatf operator*(const ::simd_quatf p, const ::simd_quatf q) { return ::simd_mul(p, q); }
   static SIMD_CPPFUNC quatf operator/(const ::simd_quatf p, const ::simd_quatf q) { return ::simd_mul(p, ::simd_inverse(q)); }
-  static SIMD_CPPFUNC quatf operator+=(quatf &p, const ::simd_quatf q) { return p = p+q; }
-  static SIMD_CPPFUNC quatf operator-=(quatf &p, const ::simd_quatf q) { return p = p-q; }
-  static SIMD_CPPFUNC quatf operator*=(quatf &p, const float r) { return p = p*r; }
-  static SIMD_CPPFUNC quatf operator*=(quatf &p, const ::simd_quatf q) { return p = p*q; }
-  static SIMD_CPPFUNC quatf operator/=(quatf &p, const ::simd_quatf q) { return p = p/q; }
+  static SIMD_INLINE SIMD_NODEBUG quatf operator+=(quatf &p, const ::simd_quatf q) { return p = p+q; }
+  static SIMD_INLINE SIMD_NODEBUG quatf operator-=(quatf &p, const ::simd_quatf q) { return p = p-q; }
+  static SIMD_INLINE SIMD_NODEBUG quatf operator*=(quatf &p, const float r) { return p = p*r; }
+  static SIMD_INLINE SIMD_NODEBUG quatf operator*=(quatf &p, const ::simd_quatf q) { return p = p*q; }
+  static SIMD_INLINE SIMD_NODEBUG quatf operator/=(quatf &p, const ::simd_quatf q) { return p = p/q; }
   
   /*! @abstract The conjugate of the quaternion `q`.                          */
   static SIMD_CPPFUNC quatf conjugate(const ::simd_quatf p) { return ::simd_conjugate(p); }
@@ -820,11 +820,11 @@ namespace simd {
   static SIMD_CPPFUNC quatd operator*(const ::simd_quatd p, const double r) { return ::simd_mul(p, r); }
   static SIMD_CPPFUNC quatd operator*(const ::simd_quatd p, const ::simd_quatd q) { return ::simd_mul(p, q); }
   static SIMD_CPPFUNC quatd operator/(const ::simd_quatd p, const ::simd_quatd q) { return ::simd_mul(p, ::simd_inverse(q)); }
-  static SIMD_CPPFUNC quatd operator+=(quatd &p, const ::simd_quatd q) { return p = p+q; }
-  static SIMD_CPPFUNC quatd operator-=(quatd &p, const ::simd_quatd q) { return p = p-q; }
-  static SIMD_CPPFUNC quatd operator*=(quatd &p, const double r) { return p = p*r; }
-  static SIMD_CPPFUNC quatd operator*=(quatd &p, const ::simd_quatd q) { return p = p*q; }
-  static SIMD_CPPFUNC quatd operator/=(quatd &p, const ::simd_quatd q) { return p = p/q; }
+  static SIMD_INLINE SIMD_NODEBUG quatd operator+=(quatd &p, const ::simd_quatd q) { return p = p+q; }
+  static SIMD_INLINE SIMD_NODEBUG quatd operator-=(quatd &p, const ::simd_quatd q) { return p = p-q; }
+  static SIMD_INLINE SIMD_NODEBUG quatd operator*=(quatd &p, const double r) { return p = p*r; }
+  static SIMD_INLINE SIMD_NODEBUG quatd operator*=(quatd &p, const ::simd_quatd q) { return p = p*q; }
+  static SIMD_INLINE SIMD_NODEBUG quatd operator/=(quatd &p, const ::simd_quatd q) { return p = p/q; }
   
   /*! @abstract The conjugate of the quaternion `q`.                          */
   static SIMD_CPPFUNC quatd conjugate(const ::simd_quatd p) { return ::simd_conjugate(p); }

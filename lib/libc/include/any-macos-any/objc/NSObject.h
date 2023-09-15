@@ -57,7 +57,10 @@ OBJC_EXPORT
 #pragma clang diagnostic pop
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-load-method"
 + (void)load;
+#pragma clang diagnostic pop
 
 + (void)initialize;
 - (instancetype)init

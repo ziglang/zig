@@ -97,10 +97,11 @@
 #define N_ENSYM 0x4e	/* end nsect sym: 0,,n_sect,0,address */
 #define	N_SSYM	0x60	/* structure elt: name,,NO_SECT,type,struct_offset */
 #define	N_SO	0x64	/* source file name: name,,n_sect,0,address */
-#define	N_OSO	0x66	/* object file name: name,,(see below),0,st_mtime */
+#define	N_OSO	0x66	/* object file name: name,,(see below),1,st_mtime */
 			/*   historically N_OSO set n_sect to 0. The N_OSO
 			 *   n_sect may instead hold the low byte of the
 			 *   cpusubtype value from the Mach-O header. */
+#define N_LIB	0x68    /* dynamic library file name: name,,NO_SECT,0,0 */
 #define	N_LSYM	0x80	/* local sym: name,,NO_SECT,type,offset */
 #define N_BINCL	0x82	/* include file beginning: name,,NO_SECT,0,sum */
 #define	N_SOL	0x84	/* #included file name: name,,n_sect,0,address */

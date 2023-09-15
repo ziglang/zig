@@ -2029,3 +2029,4 @@ static constexpr Vector_t<ScalarType, traits<typeN>::count> convert_sat(typeN ve
 #endif // __cplusplus
 #endif // SIMD_COMPILER_HAS_REQUIRED_FEATURES
 #endif // __SIMD_CONVERSION_HEADER__
+

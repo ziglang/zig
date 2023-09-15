@@ -161,6 +161,8 @@
 
 #define MAP_UNIX03       0x40000 /* UNIX03 compliance */
 
+#define MAP_TPRO         0x80000 /* Allocate a region that will be protected by TPRO */
+
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 
 /*
