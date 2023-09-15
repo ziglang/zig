@@ -214,6 +214,8 @@ pub fn getName(target: *const Package, gpa: Allocator, mod: Module) ![]const u8 
 
 pub const build_zig_basename = "build.zig";
 
+/// Fetches a package and all of its dependencies recursively. Writes the
+/// corresponding datastructures for the build runner into `dependencies_source`.
 pub fn fetchAndAddDependencies(
     pkg: *Package,
     deps_pkg: *Package,
@@ -224,11 +226,11 @@ pub fn fetchAndAddDependencies(
     global_cache_directory: Compilation.Directory,
     local_cache_directory: Compilation.Directory,
     dependencies_source: *std.ArrayList(u8),
-    build_roots_source: *std.ArrayList(u8),
-    name_prefix: []const u8,
     error_bundle: *std.zig.ErrorBundle.Wip,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
+    /// null for the root package
+    this_hash: ?[]const u8,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
@@ -242,6 +244,28 @@ pub fn fetchAndAddDependencies(
     ) catch |err| switch (err) {
         error.FileNotFound => {
             // Handle the same as no dependencies.
+            if (this_hash) |hash| {
+                const pkg_dir_sub_path = "p" ++ fs.path.sep_str ++ hash[0..hex_multihash_len];
+                const build_root = try global_cache_directory.join(arena, &.{pkg_dir_sub_path});
+                try dependencies_source.writer().print(
+                    \\    pub const {} = struct {{
+                    \\        pub const build_root = "{}";
+                    \\        pub const build_zig = @import("{}");
+                    \\        pub const deps: []const struct {{ []const u8, []const u8 }} = &.{{}};
+                    \\    }};
+                    \\
+                , .{
+                    std.zig.fmtId(hash),
+                    std.zig.fmtEscapes(build_root),
+                    std.zig.fmtEscapes(hash),
+                });
+            } else {
+                try dependencies_source.writer().writeAll(
+                    \\pub const packages = struct {};
+                    \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
+                    \\
+                );
+            }
             return;
         },
         else => |e| return e,
@@ -284,12 +308,13 @@ pub fn fetchAndAddDependencies(
 
     root_prog_node.setEstimatedTotalItems(all_modules.count());
 
+    if (this_hash == null) {
+        try dependencies_source.writer().writeAll("pub const packages = struct {\n");
+    }
+
     const deps_list = manifest.dependencies.values();
     for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
-
-        const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
-        const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
         const sub = try fetchAndUnpack(
             thread_pool,
@@ -297,10 +322,9 @@ pub fn fetchAndAddDependencies(
             global_cache_directory,
             dep,
             report,
-            build_roots_source,
-            fqn,
             all_modules,
             root_prog_node,
+            name,
         );
 
         if (!sub.found_existing) {
@@ -313,11 +337,10 @@ pub fn fetchAndAddDependencies(
                 global_cache_directory,
                 local_cache_directory,
                 dependencies_source,
-                build_roots_source,
-                sub_prefix,
                 error_bundle,
                 all_modules,
                 root_prog_node,
+                dep.hash.?,
             );
         }
 
@@ -329,10 +352,47 @@ pub fn fetchAndAddDependencies(
         } else {
             try deps_pkg.add(gpa, dep.hash.?, sub.mod);
         }
+    }
 
-        try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(dep.hash.?),
+    if (this_hash) |hash| {
+        const pkg_dir_sub_path = "p" ++ fs.path.sep_str ++ hash[0..hex_multihash_len];
+        const build_root = try global_cache_directory.join(arena, &.{pkg_dir_sub_path});
+        try dependencies_source.writer().print(
+            \\    pub const {} = struct {{
+            \\        pub const build_root = "{}";
+            \\        pub const build_zig = @import("{}");
+            \\        pub const deps: []const struct {{ []const u8, []const u8 }} = &.{{
+            \\
+        , .{
+            std.zig.fmtId(hash),
+            std.zig.fmtEscapes(build_root),
+            std.zig.fmtEscapes(hash),
         });
+        for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
+            try dependencies_source.writer().print(
+                "            .{{ \"{}\", \"{}\" }},\n",
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+            );
+        }
+        try dependencies_source.writer().writeAll(
+            \\        };
+            \\    };
+            \\
+        );
+    } else {
+        try dependencies_source.writer().writeAll(
+            \\};
+            \\
+            \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{
+            \\
+        );
+        for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
+            try dependencies_source.writer().print(
+                "    .{{ \"{}\", \"{}\" }},\n",
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+            );
+        }
+        try dependencies_source.writer().writeAll("};\n");
     }
 }
 
@@ -470,10 +530,11 @@ fn fetchAndUnpack(
     global_cache_directory: Compilation.Directory,
     dep: Manifest.Dependency,
     report: Report,
-    build_roots_source: *std.ArrayList(u8),
-    fqn: []const u8,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
+    /// This does not have to be any form of canonical or fully-qualified name: it
+    /// is only intended to be human-readable for progress reporting.
+    name_for_prog: []const u8,
 ) !struct { mod: *Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
@@ -484,31 +545,26 @@ fn fetchAndUnpack(
         const hex_digest = h[0..hex_multihash_len];
         const pkg_dir_sub_path = "p" ++ s ++ hex_digest;
 
-        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
-        errdefer gpa.free(build_root);
-
         var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :cached,
             else => |e| return e,
         };
         errdefer pkg_dir.close();
 
-        try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
-        });
-
         // The compiler has a rule that a file must not be included in multiple modules,
         // so we must detect if a module has been created for this package and reuse it.
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
             if (gop.value_ptr.*) |mod| {
-                gpa.free(build_root);
                 return .{
                     .mod = mod,
                     .found_existing = true,
                 };
             }
         }
+
+        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
+        errdefer gpa.free(build_root);
 
         root_prog_node.completeOne();
 
@@ -534,7 +590,7 @@ fn fetchAndUnpack(
         };
     }
 
-    var pkg_prog_node = root_prog_node.start(fqn, 0);
+    var pkg_prog_node = root_prog_node.start(name_for_prog, 0);
     defer pkg_prog_node.end();
     pkg_prog_node.activate();
     pkg_prog_node.context.refresh();
@@ -665,13 +721,6 @@ fn fetchAndUnpack(
         }));
         return error.PackageFetchFailed;
     }
-
-    const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
-    defer gpa.free(build_root);
-
-    try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
-        std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
-    });
 
     const mod = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
     try all_modules.put(gpa, actual_hex, mod);
