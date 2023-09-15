@@ -1223,6 +1223,40 @@ pub const DeclGen = struct {
                 });
                 return result_id;
             },
+            .opt => {
+                const payload_ty = ty.optionalChild(mod);
+                const maybe_payload_val = val.optionalValue(mod);
+
+                if (!payload_ty.hasRuntimeBits(mod)) {
+                    return try self.constBool(maybe_payload_val != null, .indirect);
+                } else if (ty.optionalReprIsPayload(mod)) {
+                    // Optional representation is a nullable pointer or slice.
+                    if (maybe_payload_val) |payload_val| {
+                        return try self.constant(payload_ty, payload_val, .indirect);
+                    } else {
+                        const ptr_ty_ref = try self.resolveType(ty, .indirect);
+                        return self.spv.constNull(ptr_ty_ref);
+                    }
+                }
+
+                // Optional representation is a structure.
+                // { Payload, Bool }
+
+                const payload_id = if (maybe_payload_val) |payload_val|
+                    try self.constant(payload_ty, payload_val, .indirect)
+                else
+                    try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
+
+                const has_pl_id = try self.constBool(maybe_payload_val != null, .indirect);
+
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+                    .id_result_type = self.typeId(result_ty_ref),
+                    .id_result = result_id,
+                    .constituents = &.{ payload_id, has_pl_id },
+                });
+                return result_id;
+            },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.
             else => {
