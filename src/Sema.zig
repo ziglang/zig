@@ -131,7 +131,6 @@ const CompileError = Module.CompileError;
 const SemaError = Module.SemaError;
 const Decl = Module.Decl;
 const CaptureScope = Module.CaptureScope;
-const WipCaptureScope = Module.WipCaptureScope;
 const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
@@ -308,7 +307,7 @@ pub const Block = struct {
     /// used to add a `func_instance` into the `InternPool`.
     params: std.MultiArrayList(Param) = .{},
 
-    wip_capture_scope: *CaptureScope,
+    wip_capture_scope: CaptureScope.Index,
 
     label: ?*Label = null,
     inlining: ?*Inlining,
@@ -951,20 +950,11 @@ fn analyzeBodyInner(
     // different values for the same Zir.Inst.Index, so in those cases, we will
     // have to create nested capture scopes; see the `.repeat` case below.
     const parent_capture_scope = block.wip_capture_scope;
-    parent_capture_scope.incRef();
-    var wip_captures: WipCaptureScope = .{
-        .scope = parent_capture_scope,
-        .gpa = sema.gpa,
-        .finalized = true, // don't finalize the parent scope
-    };
-    defer wip_captures.deinit();
 
     const mod = sema.mod;
     const map = &sema.inst_map;
     const tags = sema.code.instructions.items(.tag);
     const datas = sema.code.instructions.items(.data);
-
-    var orig_captures: usize = parent_capture_scope.captures.count();
 
     var crash_info = crash_report.prepAnalyzeBody(sema, block, body);
     crash_info.push();
@@ -1500,16 +1490,11 @@ fn analyzeBodyInner(
                     // Send comptime control flow back to the beginning of this block.
                     const src = LazySrcLoc.nodeOffset(datas[inst].node);
                     try sema.emitBackwardBranch(block, src);
-                    if (wip_captures.scope.captures.count() != orig_captures) {
-                        // We need to construct new capture scopes for the next loop iteration so it
-                        // can capture values without clobbering the earlier iteration's captures.
-                        // At first, we reused the parent capture scope as an optimization, but for
-                        // successive scopes we have to create new ones as children of the parent
-                        // scope.
-                        try wip_captures.reset(parent_capture_scope);
-                        block.wip_capture_scope = wip_captures.scope;
-                        orig_captures = 0;
-                    }
+
+                    // We need to construct new capture scopes for the next loop iteration so it
+                    // can capture values without clobbering the earlier iteration's captures.
+                    block.wip_capture_scope = try mod.createCaptureScope(parent_capture_scope);
+
                     i = 0;
                     continue;
                 } else {
@@ -1520,16 +1505,11 @@ fn analyzeBodyInner(
                 // Send comptime control flow back to the beginning of this block.
                 const src = LazySrcLoc.nodeOffset(datas[inst].node);
                 try sema.emitBackwardBranch(block, src);
-                if (wip_captures.scope.captures.count() != orig_captures) {
-                    // We need to construct new capture scopes for the next loop iteration so it
-                    // can capture values without clobbering the earlier iteration's captures.
-                    // At first, we reused the parent capture scope as an optimization, but for
-                    // successive scopes we have to create new ones as children of the parent
-                    // scope.
-                    try wip_captures.reset(parent_capture_scope);
-                    block.wip_capture_scope = wip_captures.scope;
-                    orig_captures = 0;
-                }
+
+                // We need to construct new capture scopes for the next loop iteration so it
+                // can capture values without clobbering the earlier iteration's captures.
+                block.wip_capture_scope = try mod.createCaptureScope(parent_capture_scope);
+
                 i = 0;
                 continue;
             },
@@ -1803,12 +1783,9 @@ fn analyzeBodyInner(
     }
     if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
 
-    if (!wip_captures.finalized) {
-        // We've updated the capture scope due to a `repeat` instruction where
-        // the body had a capture; finalize our child scope and reset
-        try wip_captures.finalize();
-        block.wip_capture_scope = parent_capture_scope;
-    }
+    // We may have overwritten the capture scope due to a `repeat` instruction where
+    // the body had a capture; restore it now.
+    block.wip_capture_scope = parent_capture_scope;
 
     return result;
 }
@@ -3157,15 +3134,12 @@ fn zirEnumDecl(
         sema.func_index = .none;
         defer sema.func_index = prev_func_index;
 
-        var wip_captures = try WipCaptureScope.init(gpa, new_decl.src_scope);
-        defer wip_captures.deinit();
-
         var enum_block: Block = .{
             .parent = null,
             .sema = sema,
             .src_decl = new_decl_index,
             .namespace = new_namespace_index,
-            .wip_capture_scope = wip_captures.scope,
+            .wip_capture_scope = try mod.createCaptureScope(new_decl.src_scope),
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -3175,8 +3149,6 @@ fn zirEnumDecl(
         if (body.len != 0) {
             try sema.analyzeBody(&enum_block, body);
         }
-
-        try wip_captures.finalize();
 
         if (tag_type_ref != .none) {
             const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
@@ -7298,15 +7270,12 @@ fn analyzeCall(
 
         try mod.declareDeclDependencyType(ics.callee().owner_decl_index, module_fn.owner_decl, .function_body);
 
-        var wip_captures = try WipCaptureScope.init(gpa, fn_owner_decl.src_scope);
-        defer wip_captures.deinit();
-
         var child_block: Block = .{
             .parent = null,
             .sema = sema,
             .src_decl = module_fn.owner_decl,
             .namespace = fn_owner_decl.src_namespace,
-            .wip_capture_scope = wip_captures.scope,
+            .wip_capture_scope = try mod.createCaptureScope(fn_owner_decl.src_scope),
             .instructions = .{},
             .label = null,
             .inlining = &inlining,
@@ -7513,8 +7482,6 @@ fn analyzeCall(
 
             break :res2 result;
         };
-
-        try wip_captures.finalize();
 
         break :res res2;
     } else res: {
@@ -7840,15 +7807,12 @@ fn instantiateGenericCall(
     };
     defer child_sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, sema.owner_decl.src_scope);
-    defer wip_captures.deinit();
-
     var child_block: Block = .{
         .parent = null,
         .sema = &child_sema,
         .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
-        .wip_capture_scope = wip_captures.scope,
+        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -7999,8 +7963,6 @@ fn instantiateGenericCall(
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = callee.ty.toType();
     const func_ty_info = mod.typeToFunc(func_ty).?;
-
-    try wip_captures.finalize();
 
     // If the call evaluated to a return type that requires comptime, never mind
     // our generic instantiation. Instead we need to perform a comptime call.
@@ -11897,11 +11859,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         const body = sema.code.extra[extra_index..][0..info.body_len];
         extra_index += info.body_len;
 
-        var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
-        defer wip_captures.deinit();
-
         case_block.instructions.shrinkRetainingCapacity(0);
-        case_block.wip_capture_scope = wip_captures.scope;
+        case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
         const item = case_vals.items[scalar_i];
         // `item` is already guaranteed to be constant known.
@@ -11928,8 +11887,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         } else {
             _ = try case_block.addNoOp(.unreach);
         }
-
-        try wip_captures.finalize();
 
         try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
         cases_extra.appendAssumeCapacity(1); // items_len
@@ -12177,11 +12134,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             var cond_body = try case_block.instructions.toOwnedSlice(gpa);
             defer gpa.free(cond_body);
 
-            var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
-            defer wip_captures.deinit();
-
             case_block.instructions.shrinkRetainingCapacity(0);
-            case_block.wip_capture_scope = wip_captures.scope;
+            case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
             const body = sema.code.extra[extra_index..][0..info.body_len];
             extra_index += info.body_len;
@@ -12199,8 +12153,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                     false,
                 );
             }
-
-            try wip_captures.finalize();
 
             if (is_first) {
                 is_first = false;
@@ -12407,11 +12359,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             }),
         };
 
-        var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
-        defer wip_captures.deinit();
-
         case_block.instructions.shrinkRetainingCapacity(0);
-        case_block.wip_capture_scope = wip_captures.scope;
+        case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
         if (mod.backendSupportsFeature(.is_named_enum_value) and special.body.len != 0 and block.wantSafety() and
             operand_ty.zigTypeTag(mod) == .Enum and (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
@@ -12455,8 +12404,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 _ = try case_block.addNoOp(.unreach);
             }
         }
-
-        try wip_captures.finalize();
 
         if (is_first) {
             final_else_body = case_block.instructions.items;
@@ -16557,51 +16504,53 @@ fn zirThis(
 }
 
 fn zirClosureCapture(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     // Closures are not necessarily constant values. For example, the
     // code might do something like this:
     // fn foo(x: anytype) void { const S = struct {field: @TypeOf(x)}; }
     // ...in which case the closure_capture instruction has access to a runtime
-    // value only. In such case we preserve the type and use a dummy runtime value.
+    // value only. In such case only the type is saved into the scope.
     const operand = try sema.resolveInst(inst_data.operand);
     const ty = sema.typeOf(operand);
-    const capture: CaptureScope.Capture = blk: {
-        if (try sema.resolveMaybeUndefValAllowVariables(operand)) |val| {
-            const ip_index = try val.intern(ty, sema.mod);
-            break :blk .{ .comptime_val = ip_index };
-        }
-        break :blk .{ .runtime_val = ty.toIntern() };
+    const key: CaptureScope.Key = .{
+        .zir_index = inst,
+        .index = block.wip_capture_scope,
     };
-    try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, capture);
+    if (try sema.resolveMaybeUndefValAllowVariables(operand)) |val| {
+        try mod.comptime_capture_scopes.put(gpa, key, try val.intern(ty, mod));
+    } else {
+        try mod.runtime_capture_scopes.put(gpa, key, ty.toIntern());
+    }
 }
 
 fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const ip = &mod.intern_pool;
+    //const ip = &mod.intern_pool;
     const inst_data = sema.code.instructions.items(.data)[inst].inst_node;
-    var scope: *CaptureScope = mod.declPtr(block.src_decl).src_scope.?;
+    var scope: CaptureScope.Index = mod.declPtr(block.src_decl).src_scope;
+    assert(scope != .none);
     // Note: The target closure must be in this scope list.
     // If it's not here, the zir is invalid, or the list is broken.
-    const capture = while (true) {
+    const capture_ty = while (true) {
         // Note: We don't need to add a dependency here, because
         // decls always depend on their lexical parents.
-
-        // Fail this decl if a scope it depended on failed.
-        if (scope.failed()) {
-            if (sema.owner_func_index != .none) {
-                ip.funcAnalysis(sema.owner_func_index).state = .dependency_failure;
-            } else {
-                sema.owner_decl.analysis = .dependency_failure;
-            }
-            return error.AnalysisFail;
-        }
-        if (scope.captures.get(inst_data.inst)) |capture| {
-            break capture;
-        }
-        scope = scope.parent.?;
+        const key: CaptureScope.Key = .{
+            .zir_index = inst_data.inst,
+            .index = scope,
+        };
+        if (mod.comptime_capture_scopes.get(key)) |val|
+            return Air.internedToRef(val);
+        if (mod.runtime_capture_scopes.get(key)) |ty|
+            break ty;
+        scope = scope.parent(mod);
+        assert(scope != .none);
     };
 
-    if (capture == .runtime_val and !block.is_typeof and sema.func_index == .none) {
+    // The comptime case is handled already above. Runtime case below.
+
+    if (!block.is_typeof and sema.func_index == .none) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope(mod);
@@ -16629,7 +16578,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    if (capture == .runtime_val and !block.is_typeof and !block.is_comptime and sema.func_index != .none) {
+    if (!block.is_typeof and !block.is_comptime and sema.func_index != .none) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope(mod);
@@ -16659,16 +16608,9 @@ fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    switch (capture) {
-        .runtime_val => |ty_ip_index| {
-            assert(block.is_typeof);
-            // We need a dummy runtime instruction with the correct type.
-            return block.addTy(.alloc, ty_ip_index.toType());
-        },
-        .comptime_val => |val_ip_index| {
-            return Air.internedToRef(val_ip_index);
-        },
-    }
+    assert(block.is_typeof);
+    // We need a dummy runtime instruction with the correct type.
+    return block.addTy(.alloc, capture_ty.toType());
 }
 
 fn zirRetAddr(
@@ -24988,7 +24930,7 @@ fn zirBuiltinExtern(
 
     // TODO check duplicate extern
 
-    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, null);
+    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, .none);
     errdefer mod.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.name = options.name;
@@ -34327,15 +34269,12 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         };
         defer sema.deinit();
 
-        var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
-        defer wip_captures.deinit();
-
         var block: Block = .{
             .parent = null,
             .sema = &sema,
             .src_decl = decl_index,
             .namespace = struct_obj.namespace,
-            .wip_capture_scope = wip_captures.scope,
+            .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -34356,7 +34295,6 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
 
         try sema.checkBackingIntType(&block, backing_int_src, backing_int_ty, fields_bit_sum);
         struct_obj.backing_int_ty = backing_int_ty;
-        try wip_captures.finalize();
         for (comptime_mutable_decls.items) |ct_decl_index| {
             const ct_decl = mod.declPtr(ct_decl_index);
             _ = try ct_decl.internValue(mod);
@@ -35018,15 +34956,12 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     };
     defer sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
-    defer wip_captures.deinit();
-
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = struct_obj.namespace,
-        .wip_capture_scope = wip_captures.scope,
+        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -35283,7 +35218,6 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             }
         }
     }
-    try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
         _ = try ct_decl.internValue(mod);
@@ -35361,15 +35295,12 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     };
     defer sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
-    defer wip_captures.deinit();
-
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = union_type.namespace,
-        .wip_capture_scope = wip_captures.scope,
+        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -35380,7 +35311,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         try sema.analyzeBody(&block_scope, body);
     }
 
-    try wip_captures.finalize();
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
         _ = try ct_decl.internValue(mod);
@@ -35823,18 +35753,16 @@ fn generateUnionTagTypeSimple(
 }
 
 fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const gpa = sema.gpa;
     const src = LazySrcLoc.nodeOffset(0);
-
-    var wip_captures = try WipCaptureScope.init(gpa, sema.owner_decl.src_scope);
-    defer wip_captures.deinit();
 
     var block: Block = .{
         .parent = null,
         .sema = sema,
         .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
-        .wip_capture_scope = wip_captures.scope,
+        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -35875,17 +35803,15 @@ fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Mod
 }
 
 fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
+    const mod = sema.mod;
     const ty_inst = try sema.getBuiltin(name);
-
-    var wip_captures = try WipCaptureScope.init(sema.gpa, sema.owner_decl.src_scope);
-    defer wip_captures.deinit();
 
     var block: Block = .{
         .parent = null,
         .sema = sema,
         .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
-        .wip_capture_scope = wip_captures.scope,
+        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
