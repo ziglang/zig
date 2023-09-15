@@ -389,7 +389,7 @@
 
       {#header_open|Zig Standard Library#}
       <p>
-        The <a href="https://ziglang.org/documentation/master/std/">Zig Standard Library</a> has its own documentation.
+        The <a href="std/index.html">Zig Standard Library</a> has its own documentation.
       </p>
       <p>
         Zig's Standard Library contains commonly used algorithms, data structures, and definitions to help you build programs or libraries.
