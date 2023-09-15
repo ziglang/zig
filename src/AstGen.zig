@@ -7526,18 +7526,8 @@ fn as(
     rhs: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
-    switch (ri.rl) {
-        .none, .discard, .ref, .ty, .coerced_ty => {
-            const result = try reachableExpr(gz, scope, .{ .rl = .{ .ty = dest_type } }, rhs, node);
-            return rvalue(gz, ri, result, node);
-        },
-        .ptr => |result_ptr| {
-            return asRlPtr(gz, scope, ri, node, result_ptr.inst, rhs, dest_type);
-        },
-        .inferred_ptr => |result_ptr| {
-            return asRlPtr(gz, scope, ri, node, result_ptr, rhs, dest_type);
-        },
-    }
+    const result = try reachableExpr(gz, scope, .{ .rl = .{ .ty = dest_type } }, rhs, node);
+    return rvalue(gz, ri, result, node);
 }
 
 fn unionInit(
@@ -7560,24 +7550,6 @@ fn unionInit(
         .field_name = field_name,
     });
     return rvalue(gz, ri, result, node);
-}
-
-fn asRlPtr(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    src_node: Ast.Node.Index,
-    result_ptr: Zir.Inst.Ref,
-    operand_node: Ast.Node.Index,
-    dest_type: Zir.Inst.Ref,
-) InnerError!Zir.Inst.Ref {
-    if (gz.astgen.nodes_need_rl.contains(src_node)) {
-        const casted_ptr = try gz.addPlNode(.coerce_result_ptr, src_node, Zir.Inst.Bin{ .lhs = dest_type, .rhs = result_ptr });
-        return reachableExpr(gz, scope, .{ .rl = .{ .ptr = .{ .inst = casted_ptr } } }, operand_node, src_node);
-    } else {
-        const result = try reachableExpr(gz, scope, .{ .rl = .{ .ty = dest_type } }, operand_node, src_node);
-        return rvalue(gz, ri, result, src_node);
-    }
 }
 
 fn bitCast(
