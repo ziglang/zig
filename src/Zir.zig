@@ -941,8 +941,16 @@ pub const Inst = struct {
         /// Allocates stack local memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.
         /// The node source location points to a var decl node.
+        /// A `make_ptr_const` instruction should be used once the value has
+        /// been stored to the allocation. To ensure comptime value detection
+        /// functions, there are some restrictions on how this pointer should be
+        /// used prior to the `make_ptr_const` instruction: no pointer derived
+        /// from this `alloc` may be returned from a block or stored to another
+        /// address. In other words, it must be trivial to determine whether any
+        /// given pointer derives from this one.
         alloc,
-        /// Same as `alloc` except mutable.
+        /// Same as `alloc` except mutable. As such, `make_ptr_const` need not be used,
+        /// and there are no restrictions on the usage of the pointer.
         alloc_mut,
         /// Allocates comptime-mutable memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.

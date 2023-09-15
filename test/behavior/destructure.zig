@@ -98,3 +98,43 @@ test "destructure from struct init with named tuple fields" {
     try expect(y == 200);
     try expect(z == 300);
 }
+
+test "destructure of comptime-known tuple is comptime-known" {
+    const x, const y = .{ 1, 2 };
+
+    comptime assert(@TypeOf(x) == comptime_int);
+    comptime assert(x == 1);
+
+    comptime assert(@TypeOf(y) == comptime_int);
+    comptime assert(y == 2);
+}
+
+test "destructure of comptime-known tuple where some destinations are runtime-known is comptime-known" {
+    var z: u32 = undefined;
+    var x: u8, const y, z = .{ 1, 2, 3 };
+
+    comptime assert(@TypeOf(y) == comptime_int);
+    comptime assert(y == 2);
+
+    try expect(x == 1);
+    try expect(z == 3);
+}
+
+test "destructure of tuple with comptime fields results in some comptime-known values" {
+    var runtime: u32 = 42;
+    const a, const b, const c, const d = .{ 123, runtime, 456, runtime };
+
+    // a, c are comptime-known
+    // b, d are runtime-known
+
+    comptime assert(@TypeOf(a) == comptime_int);
+    comptime assert(@TypeOf(b) == u32);
+    comptime assert(@TypeOf(c) == comptime_int);
+    comptime assert(@TypeOf(d) == u32);
+
+    comptime assert(a == 123);
+    comptime assert(c == 456);
+
+    try expect(b == 42);
+    try expect(d == 42);
+}
