@@ -36506,7 +36506,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.child.toType();
                 switch (child_ty.zigTypeTag(mod)) {
-                    .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                    .Fn => return !try sema.fnHasRuntimeBits(child_ty),
                     .Opaque => return false,
                     else => return sema.typeRequiresComptime(child_ty),
                 }
