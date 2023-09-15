@@ -168,6 +168,7 @@ pub fn relocateContext(context: *ThreadContext) void {
 }
 
 pub const have_getcontext = @hasDecl(os.system, "getcontext") and
+    builtin.os.tag != .openbsd and
     (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
@@ -997,7 +998,6 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             .base_address = undefined,
             .coff_image_base = coff_obj.getImageBase(),
             .coff_section_headers = undefined,
-            .debug_data = undefined,
         };
 
         if (coff_obj.getSectionByName(".debug_info")) |_| {
@@ -1022,31 +1022,32 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             };
 
             try DW.openDwarfDebugInfo(&dwarf, allocator);
-            di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
-            return di;
+            di.dwarf = dwarf;
         }
 
-        // Only used by pdb path
-        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
-        errdefer allocator.free(di.coff_section_headers);
-
         var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]);
+        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
         const raw_path = path_buf[0..len];
 
         const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
         defer allocator.free(path);
 
-        di.debug_data = PdbOrDwarf{ .pdb = undefined };
-        di.debug_data.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
-            error.FileNotFound, error.IsDir => return error.MissingDebugInfo,
+        di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
+            error.FileNotFound, error.IsDir => {
+                if (di.dwarf == null) return error.MissingDebugInfo;
+                return di;
+            },
             else => return err,
         };
-        try di.debug_data.pdb.parseInfoStream();
-        try di.debug_data.pdb.parseDbiStream();
+        try di.pdb.?.parseInfoStream();
+        try di.pdb.?.parseDbiStream();
 
-        if (!mem.eql(u8, &coff_obj.guid, &di.debug_data.pdb.guid) or coff_obj.age != di.debug_data.pdb.age)
+        if (!mem.eql(u8, &coff_obj.guid, &di.pdb.?.guid) or coff_obj.age != di.pdb.?.age)
             return error.InvalidDebugInfo;
+
+        // Only used by the pdb path
+        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
+        errdefer allocator.free(di.coff_section_headers);
 
         return di;
     }
@@ -1228,7 +1229,7 @@ pub fn readElfDebugInfo(
                 }
 
                 var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const cwd_path = fs.cwd().realpath("", &cwd_buf) catch break :blk;
+                const cwd_path = os.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
                 for (global_debug_directories) |global_directory| {
@@ -1695,7 +1696,7 @@ pub const DebugInfo = struct {
                 errdefer self.allocator.destroy(obj_di);
 
                 const mapped_module = @as([*]const u8, @ptrFromInt(module.base_address))[0..module.size];
-                var coff_obj = try coff.Coff.init(mapped_module);
+                var coff_obj = try coff.Coff.init(mapped_module, true);
 
                 // The string table is not mapped into memory by the loader, so if a section name is in the
                 // string table then we have to map the full image file from disk. This can happen when
@@ -1753,7 +1754,7 @@ pub const DebugInfo = struct {
                     errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @ptrFromInt(base_ptr)) == .SUCCESS);
 
                     const section_view = @as([*]const u8, @ptrFromInt(base_ptr))[0..coff_len];
-                    coff_obj = try coff.Coff.init(section_view);
+                    coff_obj = try coff.Coff.init(section_view, false);
 
                     module.mapped_file = .{
                         .file = coff_file,
@@ -2141,34 +2142,27 @@ pub const ModuleDebugInfo = switch (native_os) {
     },
     .uefi, .windows => struct {
         base_address: usize,
-        debug_data: PdbOrDwarf,
+        pdb: ?pdb.Pdb = null,
+        dwarf: ?DW.DwarfInfo = null,
         coff_image_base: u64,
-        /// Only used if debug_data is .pdb
+
+        /// Only used if pdb is non-null
         coff_section_headers: []coff.SectionHeader,
 
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
-            self.debug_data.deinit(allocator);
-            if (self.debug_data == .pdb) {
+            if (self.dwarf) |*dwarf| {
+                dwarf.deinit(allocator);
+            }
+
+            if (self.pdb) |*p| {
+                p.deinit();
                 allocator.free(self.coff_section_headers);
             }
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
-            // Translate the VA into an address into this object
-            const relocated_address = address - self.base_address;
-
-            switch (self.debug_data) {
-                .dwarf => |*dwarf| {
-                    const dwarf_address = relocated_address + self.coff_image_base;
-                    return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
-                },
-                .pdb => {
-                    // fallthrough to pdb handling
-                },
-            }
-
+        fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?SymbolInfo {
             var coff_section: *align(1) const coff.SectionHeader = undefined;
-            const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
+            const mod_index = for (self.pdb.?.sect_contribs) |sect_contrib| {
                 if (sect_contrib.Section > self.coff_section_headers.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
                 coff_section = &self.coff_section_headers[sect_contrib.Section - 1];
@@ -2180,18 +2174,18 @@ pub const ModuleDebugInfo = switch (native_os) {
                 }
             } else {
                 // we have no information to add to the address
-                return SymbolInfo{};
+                return null;
             };
 
-            const module = (try self.debug_data.pdb.getModule(mod_index)) orelse
+            const module = (try self.pdb.?.getModule(mod_index)) orelse
                 return error.InvalidDebugInfo;
             const obj_basename = fs.path.basename(module.obj_file_name);
 
-            const symbol_name = self.debug_data.pdb.getSymbolName(
+            const symbol_name = self.pdb.?.getSymbolName(
                 module,
                 relocated_address - coff_section.virtual_address,
             ) orelse "???";
-            const opt_line_info = try self.debug_data.pdb.getLineNumberInfo(
+            const opt_line_info = try self.pdb.?.getLineNumberInfo(
                 module,
                 relocated_address - coff_section.virtual_address,
             );
@@ -2201,6 +2195,22 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .compile_unit_name = obj_basename,
                 .line_info = opt_line_info,
             };
+        }
+
+        pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
+            // Translate the VA into an address into this object
+            const relocated_address = address - self.base_address;
+
+            if (self.pdb != null) {
+                if (try self.getSymbolFromPdb(relocated_address)) |symbol| return symbol;
+            }
+
+            if (self.dwarf) |*dwarf| {
+                const dwarf_address = relocated_address + self.coff_image_base;
+                return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
+            }
+
+            return SymbolInfo{};
         }
 
         pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {

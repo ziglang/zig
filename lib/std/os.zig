@@ -1908,6 +1908,8 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
     }
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    } else if (builtin.os.tag == .wasi) {
+        @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
     if (std.start.simplified_logic) return null;
@@ -2629,33 +2631,80 @@ pub fn renameatW(
     };
     defer windows.CloseHandle(src_fd);
 
-    const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
-    var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-    const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
-    if (struct_len > struct_buf_len) return error.NameTooLong;
+    var need_fallback = true;
+    var rc: windows.NTSTATUS = undefined;
+    // FILE_RENAME_INFORMATION_EX and FILE_RENAME_POSIX_SEMANTICS require >= win10_rs1,
+    // but FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5. We check >= rs5 here
+    // so that we only use POSIX_SEMANTICS when we know IGNORE_READONLY_ATTRIBUTE will also be
+    // supported in order to avoid either (1) using a redundant call that we can know in advance will return
+    // STATUS_NOT_SUPPORTED or (2) only setting IGNORE_READONLY_ATTRIBUTE when >= rs5
+    // and therefore having different behavior when the Windows version is >= rs1 but < rs5.
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
+        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (MAX_PATH_BYTES - 1);
+        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
+        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
+        if (struct_len > struct_buf_len) return error.NameTooLong;
 
-    const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
+        const rename_info = @as(*windows.FILE_RENAME_INFORMATION_EX, @ptrCast(&rename_info_buf));
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
-    rename_info.* = .{
-        .ReplaceIfExists = ReplaceIfExists,
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
-        .FileNameLength = @as(u32, @intCast(new_path_w.len * 2)), // already checked error.NameTooLong
-        .FileName = undefined,
-    };
-    @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+        var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
+        if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
+        rename_info.* = .{
+            .Flags = flags,
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
+            .FileName = undefined,
+        };
+        @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+        rc = windows.ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info,
+            @intCast(struct_len), // already checked for error.NameTooLong
+            .FileRenameInformationEx,
+        );
+        switch (rc) {
+            .SUCCESS => return,
+            // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
+            .INVALID_PARAMETER => {},
+            .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            // For all other statuses, fall down to the switch below to handle them.
+            else => need_fallback = false,
+        }
+    }
 
-    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    if (need_fallback) {
+        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
+        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
+        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
+        if (struct_len > struct_buf_len) return error.NameTooLong;
 
-    const rc = windows.ntdll.NtSetInformationFile(
-        src_fd,
-        &io_status_block,
-        rename_info,
-        @as(u32, @intCast(struct_len)), // already checked for error.NameTooLong
-        .FileRenameInformation,
-    );
+        const rename_info = @as(*windows.FILE_RENAME_INFORMATION, @ptrCast(&rename_info_buf));
+        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+
+        rename_info.* = .{
+            .Flags = ReplaceIfExists,
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
+            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
+            .FileName = undefined,
+        };
+        @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+
+        rc =
+            windows.ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info,
+            @intCast(struct_len), // already checked for error.NameTooLong
+            .FileRenameInformation,
+        );
+    }
 
     switch (rc) {
-        .SUCCESS => return,
+        .SUCCESS => {},
         .INVALID_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
@@ -2995,6 +3044,8 @@ pub const ReadLinkError = error{
     /// Windows-only. This error may occur if the opened reparse point is
     /// of unsupported type.
     UnsupportedReparsePointType,
+    /// On Windows, `\\server` or `\\server\share` was not found.
+    NetworkNotFound,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -5147,18 +5198,8 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
             .share_access = share_access,
             .creation = creation,
             .io_mode = .blocking,
+            .filter = .any,
         }) catch |err| switch (err) {
-            error.IsDir => break :blk w.OpenFile(pathname, .{
-                .dir = dir,
-                .access_mask = access_mask,
-                .share_access = share_access,
-                .creation = creation,
-                .io_mode = .blocking,
-                .filter = .dir_only,
-            }) catch |er| switch (er) {
-                error.WouldBlock => unreachable,
-                else => |e2| return e2,
-            },
             error.WouldBlock => unreachable,
             else => |e| return e,
         };
@@ -5169,11 +5210,30 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     return getFdPath(h_file, out_buffer);
 }
 
+pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
+    return switch (os.tag) {
+        // zig fmt: off
+        .windows,
+        .macos, .ios, .watchos, .tvos,
+        .linux,
+        .solaris,
+        .freebsd,
+        => true,
+        // zig fmt: on
+        .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
+        .netbsd => os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) != .lt,
+        else => false,
+    };
+}
+
 /// Return canonical path of handle `fd`.
 /// This function is very host-specific and is not universally supported by all hosts.
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
 pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    if (!comptime isGetFdPathSupportedOnTarget(builtin.os)) {
+        @compileError("querying for canonical path of a handle is unsupported on this host");
+    }
     switch (builtin.os.tag) {
         .windows => {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
@@ -5276,9 +5336,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             }
         },
         .dragonfly => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) == .lt) {
-                @compileError("querying for canonical path of a handle is unsupported on this host");
-            }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
@@ -5290,9 +5347,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..len];
         },
         .netbsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) == .lt) {
-                @compileError("querying for canonical path of a handle is unsupported on this host");
-            }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
@@ -5306,7 +5360,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
             return out_buffer[0..len];
         },
-        else => @compileError("querying for canonical path of a handle is unsupported on this host"),
+        else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above
     }
 }
 

@@ -125,7 +125,9 @@ const Owner = union(enum) {
             .func_index => |func_index| {
                 const mod = ctx.bin_file.options.module.?;
                 const decl_index = mod.funcOwnerDeclIndex(func_index);
-                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
+                    return elf_file.getOrCreateMetadataForDecl(decl_index);
+                } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
                     return macho_file.getAtom(atom).getSymbolIndex().?;
                 } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
@@ -136,7 +138,10 @@ const Owner = union(enum) {
                 } else unreachable;
             },
             .lazy_sym => |lazy_sym| {
-                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
+                    return elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
+                        ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
+                } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
                         return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                     return macho_file.getAtom(atom).getSymbolIndex().?;
@@ -8149,10 +8154,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             else => null,
         }) |owner_decl| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const atom_index = try elf_file.getOrCreateAtomForDecl(owner_decl);
-                const atom = elf_file.getAtom(atom_index);
-                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                const got_addr = atom.getOffsetTableAddress(elf_file);
+                const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
+                const sym = elf_file.symbol(sym_index);
+                sym.flags.needs_got = true;
+                _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                const got_addr = sym.gotAddress(elf_file);
                 try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
                     .base = .{ .reg = .ds },
                     .disp = @intCast(got_addr),
@@ -8178,7 +8184,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         } else if (func_value.getExternFunc(mod)) |extern_func| {
             const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
             const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
-            if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                const atom_index = try self.owner.getSymbolIndex(self);
+                const sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name);
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = .extern_fn_reloc,
+                    .data = .{ .reloc = .{
+                        .atom_index = atom_index,
+                        .sym_index = sym_index,
+                    } },
+                });
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 _ = try self.addInst(.{
@@ -10215,11 +10232,12 @@ fn genLazySymbolRef(
     lazy_sym: link.File.LazySymbol,
 ) InnerError!void {
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = elf_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+        const sym_index = elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const atom = elf_file.getAtom(atom_index);
-        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-        const got_addr = atom.getOffsetTableAddress(elf_file);
+        const sym = elf_file.symbol(sym_index);
+        sym.flags.needs_got = true;
+        _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+        const got_addr = sym.gotAddress(elf_file);
         const got_mem =
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(got_addr) });
         switch (tag) {
@@ -11534,6 +11552,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
     const result: MCValue = result: {
@@ -11553,8 +11572,8 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv = try self.allocRegOrMem(inst, false);
 
         const union_obj = mod.typeToUnion(union_ty).?;
-        const field_name = union_obj.fields.keys()[extra.field_index];
-        const tag_ty = union_obj.tag_ty;
+        const field_name = union_obj.field_names.get(ip)[extra.field_index];
+        const tag_ty = union_obj.enum_tag_ty.toType();
         const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);

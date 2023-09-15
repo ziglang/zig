@@ -4314,10 +4314,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (try self.air.value(callee, mod)) |func_value| {
         if (func_value.getFunction(mod)) |func| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                const atom = elf_file.getAtom(atom_index);
-                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
+                const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                const sym = elf_file.symbol(sym_index);
+                _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
                 try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);

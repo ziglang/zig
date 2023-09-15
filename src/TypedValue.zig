@@ -88,7 +88,7 @@ pub fn print(
                 try writer.writeAll(".{ ");
 
                 try print(.{
-                    .ty = mod.unionPtr(ip.indexToKey(ty.toIntern()).union_type.index).tag_ty,
+                    .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
@@ -238,7 +238,7 @@ pub fn print(
                 }
                 const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                    try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
+                    try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
                 }
                 try writer.writeAll("@enumFromInt(");
@@ -357,7 +357,7 @@ pub fn print(
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
-                                const field_name = container_ty.unionFields(mod).keys()[@as(usize, @intCast(field.index))];
+                                const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
@@ -423,6 +423,7 @@ fn printAggregate(
     if (level == 0) {
         return writer.writeAll(".{ ... }");
     }
+    const ip = &mod.intern_pool;
     if (ty.zigTypeTag(mod) == .Struct) {
         try writer.writeAll(".{");
         const max_len = @min(ty.structFieldCount(mod), max_aggregate_items);
@@ -430,13 +431,13 @@ fn printAggregate(
         for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
 
-            const field_name = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            const field_name = switch (ip.indexToKey(ty.toIntern())) {
                 .struct_type => |x| mod.structPtrUnwrap(x.index).?.fields.keys()[i].toOptional(),
-                .anon_struct_type => |x| if (x.isTuple()) .none else x.names[i].toOptional(),
+                .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
                 else => unreachable,
             };
 
-            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(&mod.intern_pool)});
+            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(ip)});
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

@@ -279,26 +279,9 @@ pub const Murmur3_32 = struct {
     }
 };
 
-fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
-    const hashbytes = hashbits / 8;
-    var key: [256]u8 = [1]u8{0} ** 256;
-    var hashes: [hashbytes * 256]u8 = [1]u8{0} ** (hashbytes * 256);
-
-    var i: u32 = 0;
-    while (i < 256) : (i += 1) {
-        key[i] = @as(u8, @truncate(i));
-
-        var h = hash_fn(key[0..i], 256 - i);
-        if (native_endian == .Big)
-            h = @byteSwap(h);
-        @memcpy(hashes[i * hashbytes ..][0..hashbytes], @as([*]u8, @ptrCast(&h)));
-    }
-
-    return @as(u32, @truncate(hash_fn(&hashes, 0)));
-}
+const verify = @import("verify.zig");
 
 test "murmur2_32" {
-    try testing.expectEqual(SMHasherTest(Murmur2_32.hashWithSeed, 32), 0x27864C1E);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -311,8 +294,18 @@ test "murmur2_32" {
     try testing.expectEqual(Murmur2_32.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur2_32.hashUint64(v1));
 }
 
+test "murmur2_32 smhasher" {
+    const Test = struct {
+        fn do() !void {
+            try testing.expectEqual(verify.smhasher(Murmur2_32.hashWithSeed), 0x27864C1E);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(30000);
+    try comptime Test.do();
+}
+
 test "murmur2_64" {
-    try std.testing.expectEqual(SMHasherTest(Murmur2_64.hashWithSeed, 64), 0x1F0D3804);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -325,8 +318,18 @@ test "murmur2_64" {
     try testing.expectEqual(Murmur2_64.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur2_64.hashUint64(v1));
 }
 
+test "mumur2_64 smhasher" {
+    const Test = struct {
+        fn do() !void {
+            try std.testing.expectEqual(verify.smhasher(Murmur2_64.hashWithSeed), 0x1F0D3804);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(30000);
+    try comptime Test.do();
+}
+
 test "murmur3_32" {
-    try std.testing.expectEqual(SMHasherTest(Murmur3_32.hashWithSeed, 32), 0xB0F57EE3);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -337,4 +340,15 @@ test "murmur3_32" {
     }
     try testing.expectEqual(Murmur3_32.hash(@as([*]u8, @ptrCast(&v0le))[0..4]), Murmur3_32.hashUint32(v0));
     try testing.expectEqual(Murmur3_32.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur3_32.hashUint64(v1));
+}
+
+test "mumur3_32 smhasher" {
+    const Test = struct {
+        fn do() !void {
+            try std.testing.expectEqual(verify.smhasher(Murmur3_32.hashWithSeed), 0xB0F57EE3);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(30000);
+    try comptime Test.do();
 }

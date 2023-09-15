@@ -746,6 +746,13 @@ const SystemLib = struct {
     }
 };
 
+/// Similar to `link.Framework` except it doesn't store yet unresolved
+/// path to the framework.
+const Framework = struct {
+    needed: bool = false,
+    weak: bool = false,
+};
+
 const CliModule = struct {
     mod: *Package,
     /// still in CLI arg format
@@ -919,7 +926,7 @@ fn buildOutputType(
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
-    var frameworks: std.StringArrayHashMapUnmanaged(Compilation.Framework) = .{};
+    var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(arena);
     var linker_export_symbol_names = std.ArrayList([]const u8).init(arena);
@@ -1156,12 +1163,20 @@ fn buildOutputType(
                         try clang_argv.append(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(.I, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-isystem") or mem.eql(u8, arg, "-iwithsysroot")) {
+                    } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(.isystem, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iwithsysroot")) {
+                        try cssan.addIncludePath(.iwithsysroot, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-idirafter")) {
                         try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-iframework") or mem.eql(u8, arg, "-iframeworkwithsysroot")) {
-                        try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iframework")) {
+                        const path = args_iter.nextOrFatal();
+                        try cssan.addIncludePath(.iframework, arg, path, false);
+                        try framework_dirs.append(path); // Forward to the backend as -F
+                    } else if (mem.eql(u8, arg, "-iframeworkwithsysroot")) {
+                        const path = args_iter.nextOrFatal();
+                        try cssan.addIncludePath(.iframeworkwithsysroot, arg, path, false);
+                        try framework_dirs.append(path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
                         version = std.SemanticVersion.parse(next_arg) catch |err| {
@@ -2860,6 +2875,59 @@ fn buildOutputType(
     }
     // After this point, resolved_system_libs is used instead of external_system_libs.
 
+    // We now repeat part of the process for frameworks.
+    var resolved_frameworks = std.ArrayList(Compilation.Framework).init(arena);
+
+    if (frameworks.keys().len > 0) {
+        var test_path = std.ArrayList(u8).init(gpa);
+        defer test_path.deinit();
+
+        var checked_paths = std.ArrayList(u8).init(gpa);
+        defer checked_paths.deinit();
+
+        var failed_frameworks = std.ArrayList(struct {
+            name: []const u8,
+            checked_paths: []const u8,
+        }).init(arena);
+
+        framework: for (frameworks.keys(), frameworks.values()) |framework_name, info| {
+            checked_paths.clearRetainingCapacity();
+
+            for (framework_dirs.items) |framework_dir_path| {
+                if (try accessFrameworkPath(
+                    &test_path,
+                    &checked_paths,
+                    framework_dir_path,
+                    framework_name,
+                )) {
+                    const path = try arena.dupe(u8, test_path.items);
+                    try resolved_frameworks.append(.{
+                        .needed = info.needed,
+                        .weak = info.weak,
+                        .path = path,
+                    });
+                    continue :framework;
+                }
+            }
+
+            try failed_frameworks.append(.{
+                .name = framework_name,
+                .checked_paths = try arena.dupe(u8, checked_paths.items),
+            });
+        }
+
+        if (failed_frameworks.items.len > 0) {
+            for (failed_frameworks.items) |f| {
+                const searched_paths = if (f.checked_paths.len == 0) " none" else f.checked_paths;
+                std.log.err("unable to find framework '{s}'. searched paths: {s}", .{
+                    f.name, searched_paths,
+                });
+            }
+            process.exit(1);
+        }
+    }
+    // After this point, resolved_frameworks is used instead of frameworks.
+
     const object_format = target_info.target.ofmt;
 
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
@@ -3253,7 +3321,7 @@ fn buildOutputType(
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
-        .frameworks = frameworks,
+        .frameworks = resolved_frameworks.items,
         .system_lib_names = resolved_system_libs.items(.name),
         .system_lib_infos = resolved_system_libs.items(.lib),
         .wasi_emulated_libs = wasi_emulated_libs.items,
@@ -4192,12 +4260,14 @@ pub const usage_libc =
     \\Options:
     \\  -h, --help             Print this help and exit
     \\  -target [name]         <arch><sub>-<os>-<abi> see the targets command
+    \\  -includes              Print the libc include directories for the target
     \\
 ;
 
 pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     var input_file: ?[]const u8 = null;
     var target_arch_os_abi: []const u8 = "native";
+    var print_includes: bool = false;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4211,6 +4281,8 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
                     if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                     i += 1;
                     target_arch_os_abi = args[i];
+                } else if (mem.eql(u8, arg, "-includes")) {
+                    print_includes = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -4225,6 +4297,59 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     const cross_target = try parseCrossTargetOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
+
+    if (print_includes) {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+
+        const libc_installation: ?*LibCInstallation = libc: {
+            if (input_file) |libc_file| {
+                var libc = try arena.create(LibCInstallation);
+                libc.* = LibCInstallation.parse(arena, libc_file, cross_target) catch |err| {
+                    fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
+                };
+                break :libc libc;
+            } else {
+                break :libc null;
+            }
+        };
+
+        const self_exe_path = try introspect.findZigExePath(arena);
+        var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+        };
+        defer zig_lib_directory.handle.close();
+
+        const target = cross_target.toTarget();
+        const is_native_abi = cross_target.isNativeAbi();
+
+        var libc_dirs = Compilation.detectLibCIncludeDirs(
+            arena,
+            zig_lib_directory.path.?,
+            target,
+            is_native_abi,
+            true,
+            libc_installation,
+        ) catch |err| {
+            const zig_target = try target.zigTriple(arena);
+            fatal("unable to detect libc for target {s}: {s}", .{ zig_target, @errorName(err) });
+        };
+
+        if (libc_dirs.libc_include_dir_list.len == 0) {
+            const zig_target = try target.zigTriple(arena);
+            fatal("no include dirs detected for target {s}", .{zig_target});
+        }
+
+        var bw = io.bufferedWriter(io.getStdOut().writer());
+        var writer = bw.writer();
+        for (libc_dirs.libc_include_dir_list) |include_dir| {
+            try writer.writeAll(include_dir);
+            try writer.writeByte('\n');
+        }
+        try bw.flush();
+        return cleanExit();
+    }
 
     if (input_file) |libc_file| {
         var libc = LibCInstallation.parse(gpa, libc_file, cross_target) catch |err| {
@@ -6191,6 +6316,11 @@ const ClangSearchSanitizer = struct {
                 if (m.idirafter) std.log.warn(wtxt, .{ dir, "isystem", "idirafter" });
                 if (m.iframework) std.log.warn(wtxt, .{ dir, "isystem", "iframework" });
             },
+            .iwithsysroot => {
+                if (m.iwithsysroot) return;
+                m.iwithsysroot = true;
+                if (m.iframeworkwithsysroot) std.log.warn(wtxt, .{ dir, "iwithsysroot", "iframeworkwithsysroot" });
+            },
             .idirafter => {
                 if (m.idirafter) return;
                 m.idirafter = true;
@@ -6205,18 +6335,25 @@ const ClangSearchSanitizer = struct {
                 if (m.isystem) std.log.warn(wtxt, .{ dir, "iframework", "isystem" });
                 if (m.idirafter) std.log.warn(wtxt, .{ dir, "iframework", "idirafter" });
             },
+            .iframeworkwithsysroot => {
+                if (m.iframeworkwithsysroot) return;
+                m.iframeworkwithsysroot = true;
+                if (m.iwithsysroot) std.log.warn(wtxt, .{ dir, "iframeworkwithsysroot", "iwithsysroot" });
+            },
         }
         try self.argv.append(arg);
         if (!joined) try self.argv.append(dir);
     }
 
-    const Group = enum { I, isystem, idirafter, iframework };
+    const Group = enum { I, isystem, iwithsysroot, idirafter, iframework, iframeworkwithsysroot };
 
     const Membership = packed struct {
         I: bool = false,
         isystem: bool = false,
+        iwithsysroot: bool = false,
         idirafter: bool = false,
         iframework: bool = false,
+        iframeworkwithsysroot: bool = false,
     };
 };
 
@@ -6309,6 +6446,35 @@ fn accessLibPath(
             error.FileNotFound => break :mingw,
             else => |e| fatal("unable to search for static library '{s}': {s}", .{
                 test_path.items, @errorName(e),
+            }),
+        };
+        return true;
+    }
+
+    return false;
+}
+
+fn accessFrameworkPath(
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList(u8),
+    framework_dir_path: []const u8,
+    framework_name: []const u8,
+) !bool {
+    const sep = fs.path.sep_str;
+
+    for (&[_][]const u8{ "tbd", "dylib" }) |ext| {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}.{s}", .{
+            framework_dir_path,
+            framework_name,
+            framework_name,
+            ext,
+        });
+        try checked_paths.writer().print("\n {s}", .{test_path.items});
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| fatal("unable to search for {s} framework '{s}': {s}", .{
+                ext, test_path.items, @errorName(e),
             }),
         };
         return true;

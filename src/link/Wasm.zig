@@ -3005,7 +3005,6 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 fn populateErrorNameTable(wasm: *Wasm) !void {
     const symbol_index = wasm.error_table_symbol orelse return;
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = symbol_index }).?;
-    const atom = wasm.getAtomPtr(atom_index);
 
     // Rather than creating a symbol for each individual error name,
     // we create a symbol for the entire region of error names. We then calculate
@@ -3030,6 +3029,8 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
     for (mod.global_error_set.keys()) |error_name_nts| {
+        const atom = wasm.getAtomPtr(atom_index);
+
         const error_name = mod.intern_pool.stringToSlice(error_name_nts);
         const len = @as(u32, @intCast(error_name.len + 1)); // names are 0-termianted
 
@@ -3193,7 +3194,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4254,7 +4255,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (wasm.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);

@@ -1,17 +1,3 @@
-const DwarfInfo = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const dwarf = std.dwarf;
-const leb = std.leb;
-const log = std.log.scoped(.macho);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-pub const AbbrevLookupTable = std.AutoHashMap(u64, struct { pos: usize, len: usize });
-pub const SubprogramLookupByName = std.StringHashMap(struct { addr: u64, size: u64 });
-
 debug_info: []const u8,
 debug_abbrev: []const u8,
 debug_str: []const u8,
@@ -458,7 +444,8 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         },
 
         else => {
-            log.err("unhandled DW_FORM_* value with identifier {x}", .{form});
+            // TODO figure out how to handle this
+            log.debug("unhandled DW_FORM_* value with identifier {x}", .{form});
             return error.UnhandledDwFormValue;
         },
     }
@@ -501,3 +488,17 @@ fn getString(self: DwarfInfo, off: u64) []const u8 {
     assert(off < self.debug_str.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.debug_str.ptr + @as(usize, @intCast(off)))), 0);
 }
+
+const DwarfInfo = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const dwarf = std.dwarf;
+const leb = std.leb;
+const log = std.log.scoped(.macho);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+pub const AbbrevLookupTable = std.AutoHashMap(u64, struct { pos: usize, len: usize });
+pub const SubprogramLookupByName = std.StringHashMap(struct { addr: u64, size: u64 });

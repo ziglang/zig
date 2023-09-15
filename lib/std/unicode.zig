@@ -293,6 +293,58 @@ pub const Utf8Iterator = struct {
     }
 };
 
+pub fn utf16IsHighSurrogate(c: u16) bool {
+    return c & ~@as(u16, 0x03ff) == 0xd800;
+}
+
+pub fn utf16IsLowSurrogate(c: u16) bool {
+    return c & ~@as(u16, 0x03ff) == 0xdc00;
+}
+
+/// Returns how many code units the UTF-16 representation would require
+/// for the given codepoint.
+pub fn utf16CodepointSequenceLength(c: u21) !u2 {
+    if (c <= 0xFFFF) return 1;
+    if (c <= 0x10FFFF) return 2;
+    return error.CodepointTooLarge;
+}
+
+test utf16CodepointSequenceLength {
+    try testing.expectEqual(@as(u2, 1), try utf16CodepointSequenceLength('a'));
+    try testing.expectEqual(@as(u2, 1), try utf16CodepointSequenceLength(0xFFFF));
+    try testing.expectEqual(@as(u2, 2), try utf16CodepointSequenceLength(0x10000));
+    try testing.expectEqual(@as(u2, 2), try utf16CodepointSequenceLength(0x10FFFF));
+    try testing.expectError(error.CodepointTooLarge, utf16CodepointSequenceLength(0x110000));
+}
+
+/// Given the first code unit of a UTF-16 codepoint, returns a number 1-2
+/// indicating the total length of the codepoint in UTF-16 code units.
+/// If this code unit does not match the form of a UTF-16 start code unit, returns Utf16InvalidStartCodeUnit.
+pub fn utf16CodeUnitSequenceLength(first_code_unit: u16) !u2 {
+    if (utf16IsHighSurrogate(first_code_unit)) return 2;
+    if (utf16IsLowSurrogate(first_code_unit)) return error.Utf16InvalidStartCodeUnit;
+    return 1;
+}
+
+test utf16CodeUnitSequenceLength {
+    try testing.expectEqual(@as(u2, 1), try utf16CodeUnitSequenceLength('a'));
+    try testing.expectEqual(@as(u2, 1), try utf16CodeUnitSequenceLength(0xFFFF));
+    try testing.expectEqual(@as(u2, 2), try utf16CodeUnitSequenceLength(0xDBFF));
+    try testing.expectError(error.Utf16InvalidStartCodeUnit, utf16CodeUnitSequenceLength(0xDFFF));
+}
+
+/// Decodes the codepoint encoded in the given pair of UTF-16 code units.
+/// Asserts that `surrogate_pair.len >= 2` and that the first code unit is a high surrogate.
+/// If the second code unit is not a low surrogate, error.ExpectedSecondSurrogateHalf is returned.
+pub fn utf16DecodeSurrogatePair(surrogate_pair: []const u16) !u21 {
+    assert(surrogate_pair.len >= 2);
+    assert(utf16IsHighSurrogate(surrogate_pair[0]));
+    const high_half: u21 = surrogate_pair[0];
+    const low_half = surrogate_pair[1];
+    if (!utf16IsLowSurrogate(low_half)) return error.ExpectedSecondSurrogateHalf;
+    return 0x10000 + ((high_half & 0x03ff) << 10) | (low_half & 0x03ff);
+}
+
 pub const Utf16LeIterator = struct {
     bytes: []const u8,
     i: usize,
@@ -307,19 +359,20 @@ pub const Utf16LeIterator = struct {
     pub fn nextCodepoint(it: *Utf16LeIterator) !?u21 {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
-        const c0: u21 = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
+        var code_units: [2]u16 = undefined;
+        code_units[0] = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
         it.i += 2;
-        if (c0 & ~@as(u21, 0x03ff) == 0xd800) {
+        if (utf16IsHighSurrogate(code_units[0])) {
             // surrogate pair
             if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
-            const c1: u21 = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
-            if (c1 & ~@as(u21, 0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
+            code_units[1] = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
+            const codepoint = try utf16DecodeSurrogatePair(&code_units);
             it.i += 2;
-            return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
-        } else if (c0 & ~@as(u21, 0x03ff) == 0xdc00) {
+            return codepoint;
+        } else if (utf16IsLowSurrogate(code_units[0])) {
             return error.UnexpectedSecondSurrogateHalf;
         } else {
-            return c0;
+            return code_units[0];
         }
     }
 };

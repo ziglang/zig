@@ -965,6 +965,7 @@ fn buildFlexibleArrayFn(
     field_decl: *const clang.FieldDecl,
 ) TypeError!Node {
     const field_qt = field_decl.getType();
+    const field_qt_canon = qualTypeCanon(field_qt);
 
     const u8_type = try Tag.type.create(c.arena, "u8");
     const self_param_name = "self";
@@ -979,7 +980,7 @@ fn buildFlexibleArrayFn(
         .is_noalias = false,
     };
 
-    const array_type = @as(*const clang.ArrayType, @ptrCast(field_qt.getTypePtr()));
+    const array_type = @as(*const clang.ArrayType, @ptrCast(field_qt_canon));
     const element_qt = array_type.getElementType();
     const element_type = try transQualType(c, scope, element_qt, field_decl.getLocation());
 
@@ -1049,21 +1050,33 @@ fn buildFlexibleArrayFn(
     return Node.initPayload(&payload.base);
 }
 
+/// Return true if `field_decl` is the flexible array field for its parent record
 fn isFlexibleArrayFieldDecl(c: *Context, field_decl: *const clang.FieldDecl) bool {
-    return qualTypeCanon(field_decl.getType()).isIncompleteOrZeroLengthArrayType(c.clang_context);
+    const record_decl = field_decl.getParent() orelse return false;
+    const record_flexible_field = flexibleArrayField(c, record_decl) orelse return false;
+    return field_decl == record_flexible_field;
 }
 
+/// Find the flexible array field for a record if any. A flexible array field is an
+/// incomplete or zero-length array that occurs as the last field of a record.
 /// clang's RecordDecl::hasFlexibleArrayMember is not suitable for determining
 /// this because it returns false for a record that ends with a zero-length
 /// array, but we consider those to be flexible arrays
-fn hasFlexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) bool {
+fn flexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) ?*const clang.FieldDecl {
     var it = record_def.field_begin();
     const end_it = record_def.field_end();
+    var flexible_field: ?*const clang.FieldDecl = null;
     while (it.neq(end_it)) : (it = it.next()) {
         const field_decl = it.deref();
-        if (isFlexibleArrayFieldDecl(c, field_decl)) return true;
+        const ty = qualTypeCanon(field_decl.getType());
+        const incomplete_or_zero_size = ty.isIncompleteOrZeroLengthArrayType(c.clang_context);
+        if (incomplete_or_zero_size) {
+            flexible_field = field_decl;
+        } else {
+            flexible_field = null;
+        }
     }
-    return false;
+    return flexible_field;
 }
 
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
@@ -1117,7 +1130,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         var functions = std.ArrayList(Node).init(c.gpa);
         defer functions.deinit();
 
-        const has_flexible_array = hasFlexibleArrayField(c, record_def);
+        const flexible_field = flexibleArrayField(c, record_def);
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
         const end_it = record_def.field_end();
@@ -1143,7 +1156,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 unnamed_field_count += 1;
                 is_anon = true;
             }
-            if (isFlexibleArrayFieldDecl(c, field_decl)) {
+            if (flexible_field == field_decl) {
                 const flexible_array_fn = buildFlexibleArrayFn(c, scope, layout, field_name, field_decl) catch |err| switch (err) {
                     error.UnsupportedType => {
                         try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
@@ -1164,7 +1177,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 else => |e| return e,
             };
 
-            const alignment = if (has_flexible_array and field_decl.getFieldIndex() == 0)
+            const alignment = if (flexible_field != null and field_decl.getFieldIndex() == 0)
                 @as(c_uint, @intCast(record_alignment))
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();

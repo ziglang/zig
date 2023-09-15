@@ -81,9 +81,9 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
     if (comptime builtin.target.isDarwin()) {
         if (std.zig.system.darwin.isSdkInstalled(arena)) sdk: {
             const sdk = std.zig.system.darwin.getSdk(arena, native_target) orelse break :sdk;
-            try self.addLibDir(try std.fs.path.join(arena, &.{ sdk.path, "usr/lib" }));
-            try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk.path, "System/Library/Frameworks" }));
-            try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk.path, "usr/include" }));
+            try self.addLibDir(try std.fs.path.join(arena, &.{ sdk, "usr/lib" }));
+            try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/Frameworks" }));
+            try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk, "usr/include" }));
             return self;
         }
         return self;
@@ -100,7 +100,7 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
         return self;
     }
 
-    if (builtin.os.tag != .windows) {
+    if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
         const triple = try native_target.linuxTriple(arena);
 
         const qual = native_target.ptrBitWidth();

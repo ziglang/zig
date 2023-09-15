@@ -1,30 +1,6 @@
-const DebugSymbols = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const assert = std.debug.assert;
-const fs = std.fs;
-const link = @import("../../link.zig");
-const load_commands = @import("load_commands.zig");
-const log = std.log.scoped(.dsym);
-const macho = std.macho;
-const makeStaticString = MachO.makeStaticString;
-const math = std.math;
-const mem = std.mem;
-const padToIdeal = MachO.padToIdeal;
-const trace = @import("../../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const Dwarf = @import("../Dwarf.zig");
-const MachO = @import("../MachO.zig");
-const Module = @import("../../Module.zig");
-const StringTable = @import("../strtab.zig").StringTable;
-const Type = @import("../../type.zig").Type;
-
 allocator: Allocator,
 dwarf: Dwarf,
 file: fs.File,
-page_size: u16,
 
 symtab_cmd: macho.symtab_command = .{},
 
@@ -62,13 +38,14 @@ pub const Reloc = struct {
 
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols) !void {
+pub fn populateMissingMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
 
-        const off = @as(u64, @intCast(self.page_size));
+        const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+        const off = @as(u64, @intCast(page_size));
         const ideal_size: u16 = 200 + 128 + 160 + 250;
-        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), self.page_size);
+        const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), page_size);
 
         log.debug("found __DWARF segment free space 0x{x} to 0x{x}", .{ off, off + needed_size });
 
@@ -355,7 +332,8 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
         file_size = @max(file_size, header.offset + header.size);
     }
 
-    const aligned_size = mem.alignForward(u64, file_size, self.page_size);
+    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+    const aligned_size = mem.alignForward(u64, file_size, page_size);
     dwarf_segment.vmaddr = base_vmaddr;
     dwarf_segment.filesize = aligned_size;
     dwarf_segment.vmsize = aligned_size;
@@ -364,12 +342,12 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
     linkedit.vmaddr = mem.alignForward(
         u64,
         dwarf_segment.vmaddr + aligned_size,
-        self.page_size,
+        page_size,
     );
     linkedit.fileoff = mem.alignForward(
         u64,
         dwarf_segment.fileoff + aligned_size,
-        self.page_size,
+        page_size,
     );
     log.debug("found __LINKEDIT segment free space at 0x{x}", .{linkedit.fileoff});
 }
@@ -457,8 +435,9 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, macho_file: *MachO) !void {
     try self.writeSymtab(macho_file);
     try self.writeStrtab();
 
+    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
-    const aligned_size = mem.alignForward(u64, seg.filesize, self.page_size);
+    const aligned_size = mem.alignForward(u64, seg.filesize, page_size);
     seg.vmsize = aligned_size;
 }
 
@@ -473,7 +452,7 @@ fn writeSymtab(self: *DebugSymbols, macho_file: *MachO) !void {
 
     for (macho_file.locals.items, 0..) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
-        const sym_loc = MachO.SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)), .file = null };
+        const sym_loc = MachO.SymbolWithLoc{ .sym_index = @as(u32, @intCast(sym_id)) };
         if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
         if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
         var out_sym = sym;
@@ -567,3 +546,26 @@ pub fn getSection(self: DebugSymbols, sect: u8) macho.section_64 {
     assert(sect < self.sections.items.len);
     return self.sections.items[sect];
 }
+
+const DebugSymbols = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const assert = std.debug.assert;
+const fs = std.fs;
+const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
+const log = std.log.scoped(.dsym);
+const macho = std.macho;
+const makeStaticString = MachO.makeStaticString;
+const math = std.math;
+const mem = std.mem;
+const padToIdeal = MachO.padToIdeal;
+const trace = @import("../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const Dwarf = @import("../Dwarf.zig");
+const MachO = @import("../MachO.zig");
+const Module = @import("../../Module.zig");
+const StringTable = @import("../strtab.zig").StringTable;
+const Type = @import("../../type.zig").Type;

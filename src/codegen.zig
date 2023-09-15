@@ -185,8 +185,9 @@ pub fn generateSymbol(
     defer tracy.end();
 
     const mod = bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+    switch (ip.indexToKey(typed_value.val.toIntern())) {
         .runtime_value => |rt| typed_value.val = rt.val.toValue(),
         else => {},
     }
@@ -205,7 +206,7 @@ pub fn generateSymbol(
         return .ok;
     }
 
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+    switch (ip.indexToKey(typed_value.val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -385,7 +386,7 @@ pub fn generateSymbol(
                 try code.appendNTimes(0, padding);
             }
         },
-        .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
+        .aggregate => |aggregate| switch (ip.indexToKey(typed_value.ty.toIntern())) {
             .array_type => |array_type| switch (aggregate.storage) {
                 .bytes => |bytes| try code.appendSlice(bytes),
                 .elems, .repeated_elem => {
@@ -437,12 +438,16 @@ pub fn generateSymbol(
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
-                for (tuple.types, tuple.values, 0..) |field_ty, comptime_val, index| {
+                for (
+                    tuple.types.get(ip),
+                    tuple.values.get(ip),
+                    0..,
+                ) |field_ty, comptime_val, index| {
                     if (comptime_val != .none) continue;
                     if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
                     const field_val = switch (aggregate.storage) {
-                        .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                        .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                             .ty = field_ty,
                             .storage = .{ .u64 = bytes[index] },
                         } }),
@@ -484,7 +489,7 @@ pub fn generateSymbol(
                         const field_ty = field.ty;
 
                         const field_val = switch (aggregate.storage) {
-                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
                                 .storage = .{ .u64 = bytes[index] },
                             } }),
@@ -522,8 +527,8 @@ pub fn generateSymbol(
 
                         if (!field_ty.hasRuntimeBits(mod)) continue;
 
-                        const field_val = switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
-                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                        const field_val = switch (ip.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
+                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
                                 .storage = .{ .u64 = bytes[field_offset.field] },
                             } }),
@@ -570,10 +575,9 @@ pub fn generateSymbol(
                 }
             }
 
-            const union_ty = mod.typeToUnion(typed_value.ty).?;
+            const union_obj = mod.typeToUnion(typed_value.ty).?;
             const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
-            assert(union_ty.haveFieldTypes());
-            const field_ty = union_ty.fields.values()[field_index].ty;
+            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
             if (!field_ty.hasRuntimeBits(mod)) {
                 try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
             } else {
@@ -593,7 +597,7 @@ pub fn generateSymbol(
 
             if (layout.tag_size > 0 and layout.tag_align < layout.payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = union_ty.tag_ty,
+                    .ty = union_obj.enum_tag_ty.toType(),
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
@@ -854,10 +858,11 @@ fn genDeclRef(
     const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
-        const atom = elf_file.getAtom(atom_index);
-        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(elf_file) });
+        const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
+        const sym = elf_file.symbol(sym_index);
+        sym.flags.needs_got = true;
+        _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+        return GenResult.mcv(.{ .memory = sym.gotAddress(elf_file) });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -892,7 +897,7 @@ fn genUnnamedConst(
         return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
+        return GenResult.mcv(.{ .memory = elf_file.symbol(local_sym_index).value });
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

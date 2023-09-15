@@ -77,6 +77,8 @@ max_stdio_size: usize = 10 * 1024 * 1024,
 captured_stdout: ?*Output = null,
 captured_stderr: ?*Output = null,
 
+dep_output_file: ?*Output = null,
+
 has_side_effects: bool = false,
 
 pub const StdIn = union(enum) {
@@ -238,6 +240,33 @@ pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source:
     };
     self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
+}
+
+/// Add a path argument to a dep file (.d) for the child process to write its
+/// discovered additional dependencies.
+/// Only one dep file argument is allowed by instance.
+pub fn addDepFileOutputArg(self: *Run, basename: []const u8) std.Build.LazyPath {
+    return self.addPrefixedDepFileOutputArg("", basename);
+}
+
+/// Add a prefixed path argument to a dep file (.d) for the child process to
+/// write its discovered additional dependencies.
+/// Only one dep file argument is allowed by instance.
+pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) void {
+    assert(self.dep_output_file == null);
+
+    const b = self.step.owner;
+
+    const dep_file = b.allocator.create(Output) catch @panic("OOM");
+    dep_file.* = .{
+        .prefix = b.dupe(prefix),
+        .basename = b.dupe(basename),
+        .generated_file = .{ .step = &self.step },
+    };
+
+    self.dep_output_file = dep_file;
+
+    self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
@@ -558,6 +587,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     try runCommand(self, argv_list.items, has_side_effects, &digest, prog_node);
+
+    if (self.dep_output_file) |dep_output_file|
+        try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
 
     try step.writeManifest(&man);
 }
@@ -1016,6 +1048,7 @@ fn evalZigTest(
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
     var test_count: u32 = 0;
+    var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
 
@@ -1080,14 +1113,22 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
-                fail_count += @intFromBool(tr_hdr.flags.fail);
-                skip_count += @intFromBool(tr_hdr.flags.skip);
-                leak_count += @intFromBool(tr_hdr.flags.leak);
+                fail_count +|= @intFromBool(tr_hdr.flags.fail);
+                skip_count +|= @intFromBool(tr_hdr.flags.skip);
+                leak_count +|= @intFromBool(tr_hdr.flags.leak);
+                log_err_count +|= tr_hdr.flags.log_err_count;
 
-                if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
+                if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    const label = if (tr_hdr.flags.fail)
+                        "failed"
+                    else if (tr_hdr.flags.leak)
+                        "leaked"
+                    else if (tr_hdr.flags.log_err_count > 0)
+                        "logged errors"
+                    else
+                        unreachable;
                     if (msg.len > 0) {
                         try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
                     } else {
@@ -1121,6 +1162,7 @@ fn evalZigTest(
             .fail_count = fail_count,
             .skip_count = skip_count,
             .leak_count = leak_count,
+            .log_err_count = log_err_count,
         },
         .test_metadata = metadata,
     };

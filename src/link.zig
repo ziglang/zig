@@ -37,6 +37,7 @@ pub const SystemLib = struct {
 pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
+    path: []const u8,
 };
 
 pub const SortSection = enum { name, alignment };
@@ -56,15 +57,11 @@ pub fn hashAddSystemLibs(
     }
 }
 
-pub fn hashAddFrameworks(
-    hh: *Cache.HashHelper,
-    hm: std.StringArrayHashMapUnmanaged(Framework),
-) void {
-    const keys = hm.keys();
-    hh.addListOfBytes(keys);
-    for (hm.values()) |value| {
-        hh.add(value.needed);
-        hh.add(value.weak);
+pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
+    for (hm) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
     }
 }
 
@@ -208,7 +205,7 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: std.StringArrayHashMapUnmanaged(Framework),
+    frameworks: []const Framework,
     /// These are *always* dynamically linked. Static libraries will be
     /// provided as positional arguments.
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -231,7 +228,6 @@ pub const Options = struct {
 
     version: ?std.SemanticVersion,
     compatibility_version: ?std.SemanticVersion,
-    darwin_sdk_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
@@ -276,7 +272,6 @@ pub const Options = struct {
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
-        self.frameworks = .{};
         self.system_libs = .{};
         self.force_undefined_symbols = .{};
         return copied_state;
@@ -554,7 +549,7 @@ pub const File = struct {
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name, lib_name),
-            .elf   => unreachable,
+            .elf   => return @fieldParentPtr(Elf, "base", base).getGlobalSymbol(name, lib_name),
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name, lib_name),
             .plan9 => unreachable,
             .spirv => unreachable,
@@ -642,7 +637,6 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
         base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
@@ -699,19 +693,15 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
-        EmptyStubFile,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,
-        FrameworkNotFound,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,
@@ -728,27 +718,19 @@ pub const File = struct {
         LLD_LinkingIsTODO_ForSpirV,
         LibCInstallationMissingCRTDir,
         LibCInstallationNotAvailable,
-        LibraryNotFound,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
         MalformedDwarf,
         MalformedSection,
         MemoryTooBig,
         MemoryTooSmall,
-        MismatchedCpuArchitecture,
         MissAlignment,
         MissingEndForBody,
         MissingEndForExpression,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,
-        MultipleSymbolDefinitions,
         NoObjectsToLink,
-        NotObject,
         NotObjectFile,
         NotSupported,
         OutOfMemory,
@@ -760,21 +742,15 @@ pub const File = struct {
         SymbolMismatchingType,
         TODOImplementPlan9Objs,
         TODOImplementWritingLibFiles,
-        TODOImplementWritingStaticLibFiles,
         UnableToSpawnSelf,
         UnableToSpawnWasm,
         UnableToWriteArchive,
         UndefinedLocal,
-        /// TODO: merge with UndefinedSymbolReference
         UndefinedSymbol,
-        /// TODO: merge with UndefinedSymbol
-        UndefinedSymbolReference,
         Underflow,
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
-        UnhandledSymbolType,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,
@@ -868,6 +844,14 @@ pub const File = struct {
             .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
             .wasm, .spirv, .nvptx => return ErrorFlags{},
+        }
+    }
+
+    pub fn miscErrors(base: *File) []const ErrorMsg {
+        switch (base.tag) {
+            .elf => return @fieldParentPtr(Elf, "base", base).misc_errors.items,
+            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
+            else => return &.{},
         }
     }
 
@@ -1132,6 +1116,19 @@ pub const File = struct {
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
+    };
+
+    pub const ErrorMsg = struct {
+        msg: []const u8,
+        notes: []ErrorMsg = &.{},
+
+        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
+            for (self.notes) |*note| {
+                note.deinit(gpa);
+            }
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
     };
 
     pub const LazySymbol = struct {

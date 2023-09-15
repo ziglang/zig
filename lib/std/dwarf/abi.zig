@@ -10,7 +10,7 @@ pub fn supportsUnwinding(target: std.Target) bool {
             else => false,
         },
         .x86_64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .openbsd, .macos, .solaris => true,
+            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris => true,
             else => false,
         },
         .arm => switch (target.os.tag) {
@@ -18,7 +18,7 @@ pub fn supportsUnwinding(target: std.Target) bool {
             else => false,
         },
         .aarch64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .macos => true,
+            .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
         else => false,
@@ -229,7 +229,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .x86_64 => switch (builtin.os.tag) {
-            .linux, .netbsd, .solaris => switch (reg_number) {
+            .linux, .solaris => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDX]),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RCX]),
@@ -292,7 +292,7 @@ pub fn regBytes(
                 // TODO: Extract xmm state from sc_fpstate?
                 else => error.InvalidRegister,
             },
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.ss.rax),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.ss.rdx),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.ss.rcx),
@@ -338,7 +338,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .aarch64 => switch (builtin.os.tag) {
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),

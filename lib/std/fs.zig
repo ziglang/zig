@@ -1949,7 +1949,13 @@ pub const Dir = struct {
             return self.symLinkWasi(target_path, sym_link_path, flags);
         }
         if (builtin.os.tag == .windows) {
-            const target_path_w = try os.windows.sliceToPrefixedFileW(self.fd, target_path);
+            // Target path does not use sliceToPrefixedFileW because certain paths
+            // are handled differently when creating a symlink than they would be
+            // when converting to an NT namespaced path. CreateSymbolicLink in
+            // symLinkW will handle the necessary conversion.
+            var target_path_w: os.windows.PathSpace = undefined;
+            target_path_w.len = try std.unicode.utf8ToUtf16Le(&target_path_w.data, target_path);
+            target_path_w.data[target_path_w.len] = 0;
             const sym_link_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sym_link_path);
             return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
         }
@@ -1987,7 +1993,10 @@ pub const Dir = struct {
     /// are null-terminated, WTF16 encoded.
     pub fn symLinkW(
         self: Dir,
-        target_path_w: []const u16,
+        /// WTF-16, does not need to be NT-prefixed. The NT-prefixing
+        /// of this path is handled by CreateSymbolicLink.
+        target_path_w: [:0]const u16,
+        /// WTF-16, must be NT-prefixed or relative
         sym_link_path_w: []const u16,
         flags: SymLinkFlags,
     ) !void {
@@ -2644,21 +2653,17 @@ pub const Dir = struct {
     ///
     /// `sub_path` may be absolute, in which case `self` is ignored.
     pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-        switch (builtin.os.tag) {
-            .windows => {
-                var file = try self.openFile(sub_path, .{});
-                defer file.close();
-                return file.stat();
-            },
-            .wasi => {
-                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
-                return Stat.fromSystem(st);
-            },
-            else => {
-                const st = try os.fstatat(self.fd, sub_path, 0);
-                return Stat.fromSystem(st);
-            },
+        if (builtin.os.tag == .windows) {
+            var file = try self.openFile(sub_path, .{});
+            defer file.close();
+            return file.stat();
         }
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+            return Stat.fromSystem(st);
+        }
+        const st = try os.fstatat(self.fd, sub_path, 0);
+        return Stat.fromSystem(st);
     }
 
     const Permissions = File.Permissions;
@@ -2786,7 +2791,7 @@ pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.
     try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
-pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
 }
@@ -2940,8 +2945,12 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
-        const wide_slice = selfExePathW();
-        const prefixed_path_w = try os.windows.wToPrefixedFileW(null, wide_slice);
+        // If ImagePathName is a symlink, then it will contain the path of the symlink,
+        // not the path that the symlink points to. However, because we are opening
+        // the file, we can let the openFileW call follow the symlink for us.
+        const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+        const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+        const prefixed_path_w = try os.windows.wToPrefixedFileW(null, image_path_name);
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
@@ -2968,7 +2977,7 @@ pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
     return allocator.dupe(u8, try selfExePath(&buf));
 }
 
-/// Get the path to the current executable.
+/// Get the path to the current executable. Follows symlinks.
 /// If you only need the directory, use selfExeDirPath.
 /// If you only want an open file handle, use openSelfExe.
 /// This function may return an error if the current executable
@@ -3051,21 +3060,20 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             return error.FileNotFound;
         },
         .windows => {
-            const utf16le_slice = selfExePathW();
-            // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
-            return out_buffer[0..end_index];
+            const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+            const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+
+            // If ImagePathName is a symlink, then it will contain the path of the
+            // symlink, not the path that the symlink points to. We want the path
+            // that the symlink points to, though, so we need to get the realpath.
+            const pathname_w = try os.windows.wToPrefixedFileW(null, image_path_name);
+            return std.fs.cwd().realpathW(pathname_w.span(), out_buffer);
         },
-        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }
 
-/// The result is UTF16LE-encoded.
-pub fn selfExePathW() [:0]const u16 {
-    const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return image_path_name.Buffer[0 .. image_path_name.Length / 2 :0];
-}
+pub const selfExePathW = @compileError("deprecated; use selfExePath instead");
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.

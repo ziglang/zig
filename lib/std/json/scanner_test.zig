@@ -236,6 +236,7 @@ const string_test_cases = .{
     .{ "\\u000a", "\n" },
     .{ "𝄞", "\u{1D11E}" },
     .{ "\\uD834\\uDD1E", "\u{1D11E}" },
+    .{ "\\uD87F\\uDFFE", "\u{2FFFE}" },
     .{ "\\uff20", "＠" },
 };
 
@@ -396,7 +397,7 @@ test "skipValue" {
 }
 
 fn testEnsureStackCapacity(do_ensure: bool) !void {
-    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, 1);
+    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
     const failing_allocator = fail_alloc.allocator();
 
     const nestings = 999; // intentionally not a power of 2.

@@ -102,6 +102,10 @@ args: ?[][]const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
 debug_pkg_config: bool = false,
+/// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
+/// in particular at `Step` creation.
+/// Set to 0 to disable stack collection.
+debug_stack_frames_count: u8 = 8,
 
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
@@ -410,7 +414,12 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{ .scalar = serializeCpu(allocator, v.getCpu()) catch unreachable },
+                    .value = .{
+                        .scalar = if (v.isNativeCpu())
+                            "native"
+                        else
+                            serializeCpu(allocator, v.getCpu()) catch unreachable,
+                    },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -1953,26 +1962,14 @@ pub fn dumpBadGetPathHelp(
     try stderr.writeAll("    The step was created by this stack trace:\n");
     tty_config.setColor(w, .reset) catch {};
 
-    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-        try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        return;
-    };
-    const ally = debug_info.allocator;
-    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
-        try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
-        return;
-    };
+    s.dump(stderr);
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
+        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
-            try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
-            return;
-        };
+        as.dump(stderr);
     }
-
     tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};

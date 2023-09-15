@@ -1747,10 +1747,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (try self.air.value(callee, mod)) |func_value| {
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
-                    const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                    const atom = elf_file.getAtom(atom_index);
-                    _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                    const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
+                    const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                    const sym = elf_file.symbol(sym_index);
+                    _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                    const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
                     try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                     _ = try self.addInst(.{
                         .tag = .jalr,

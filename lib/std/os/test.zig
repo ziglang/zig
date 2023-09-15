@@ -193,7 +193,7 @@ test "symlink with relative paths" {
         os.windows.CreateSymbolicLink(
             cwd.fd,
             &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
-            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            &[_:0]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
             false,
         ) catch |err| switch (err) {
             // Symlink requires admin privileges on windows, so this test can legitimately fail.
@@ -351,7 +351,7 @@ test "readlinkat" {
         os.windows.CreateSymbolicLink(
             tmp.dir.fd,
             &[_]u16{ 'l', 'i', 'n', 'k' },
-            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            &[_:0]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
             false,
         ) catch |err| switch (err) {
             // Symlink requires admin privileges on windows, so this test can legitimately fail.
@@ -660,6 +660,11 @@ test "mmap" {
 }
 
 test "getenv" {
+    if (native_os == .wasi and !builtin.link_libc) {
+        // std.os.getenv is not supported on WASI due to the need of allocation
+        return error.SkipZigTest;
+    }
+
     if (native_os == .windows) {
         try expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {

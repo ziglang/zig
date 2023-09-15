@@ -124,6 +124,13 @@ endif()
 
 set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
 
+# Detect system libcxx name.
+if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
+    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.zig")
+else()
+    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
+endif()
+
 find_package(llvm 16)
 find_package(clang 16)
 find_package(lld 16)
@@ -276,7 +283,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/math/log.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/log2.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/math/nan.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/signbit.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/math/sqrt.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/mem.zig"
@@ -516,6 +522,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/AstRlAnnotate.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
@@ -548,6 +555,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Disassembler.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Encoding.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Mir.zig"
@@ -577,6 +585,15 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/lld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Archive.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Atom.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/LinkerDefined.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Symbol.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigModule.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/file.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/synthetic_sections.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Atom.zig"
@@ -588,7 +605,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/UnwindInfo.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/ZldAtom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Rebase.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dead_strip.zig"
@@ -690,7 +706,9 @@ target_link_libraries(zigcpp LINK_PUBLIC
 )
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
-if(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
+  set(ZIG_HOST_TARGET_ARCH "x86")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
@@ -699,14 +717,16 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
+string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
   include(CheckSymbolExists)
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
   endif()
 endif()
+string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
@@ -716,6 +736,9 @@ if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
 elseif(MINGW)
   set(ZIG_HOST_TARGET_ABI "-gnu")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)hf?(eb)?$")
+  string(REGEX REPLACE "^(arm|thumb)hf?((eb)?)$" "\\1\\2" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
+  set(ZIG_HOST_TARGET_ABI "-eabihf")
 else()
   set(ZIG_HOST_TARGET_ABI "")
 endif()

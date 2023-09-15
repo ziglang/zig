@@ -28,248 +28,6 @@
 //! After the optional exported symbol information is a byte of how many edges (0-255) that
 //! this node has leaving it, followed by each edge. Each edge is a zero terminated UTF8 of
 //! the addition chars in the symbol, followed by a uleb128 offset for the node that edge points to.
-const Trie = @This();
-
-const std = @import("std");
-const mem = std.mem;
-const leb = std.leb;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const testing = std.testing;
-const assert = std.debug.assert;
-const Allocator = mem.Allocator;
-
-pub const Node = struct {
-    base: *Trie,
-
-    /// Terminal info associated with this node.
-    /// If this node is not a terminal node, info is null.
-    terminal_info: ?struct {
-        /// Export flags associated with this exported symbol.
-        export_flags: u64,
-        /// VM address offset wrt to the section this symbol is defined against.
-        vmaddr_offset: u64,
-    } = null,
-
-    /// Offset of this node in the trie output byte stream.
-    trie_offset: ?u64 = null,
-
-    /// List of all edges originating from this node.
-    edges: std.ArrayListUnmanaged(Edge) = .{},
-
-    node_dirty: bool = true,
-
-    /// Edge connecting to nodes in the trie.
-    pub const Edge = struct {
-        from: *Node,
-        to: *Node,
-        label: []u8,
-
-        fn deinit(self: *Edge, allocator: Allocator) void {
-            self.to.deinit(allocator);
-            allocator.destroy(self.to);
-            allocator.free(self.label);
-            self.from = undefined;
-            self.to = undefined;
-            self.label = undefined;
-        }
-    };
-
-    fn deinit(self: *Node, allocator: Allocator) void {
-        for (self.edges.items) |*edge| {
-            edge.deinit(allocator);
-        }
-        self.edges.deinit(allocator);
-    }
-
-    /// Inserts a new node starting from `self`.
-    fn put(self: *Node, allocator: Allocator, label: []const u8) !*Node {
-        // Check for match with edges from this node.
-        for (self.edges.items) |*edge| {
-            const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
-            if (match == 0) continue;
-            if (match == edge.label.len) return edge.to.put(allocator, label[match..]);
-
-            // Found a match, need to splice up nodes.
-            // From: A -> B
-            // To: A -> C -> B
-            const mid = try allocator.create(Node);
-            mid.* = .{ .base = self.base };
-            var to_label = try allocator.dupe(u8, edge.label[match..]);
-            allocator.free(edge.label);
-            const to_node = edge.to;
-            edge.to = mid;
-            edge.label = try allocator.dupe(u8, label[0..match]);
-            self.base.node_count += 1;
-
-            try mid.edges.append(allocator, .{
-                .from = mid,
-                .to = to_node,
-                .label = to_label,
-            });
-
-            return if (match == label.len) mid else mid.put(allocator, label[match..]);
-        }
-
-        // Add a new node.
-        const node = try allocator.create(Node);
-        node.* = .{ .base = self.base };
-        self.base.node_count += 1;
-
-        try self.edges.append(allocator, .{
-            .from = self,
-            .to = node,
-            .label = try allocator.dupe(u8, label),
-        });
-
-        return node;
-    }
-
-    /// Recursively parses the node from the input byte stream.
-    fn read(self: *Node, allocator: Allocator, reader: anytype) Trie.ReadError!usize {
-        self.node_dirty = true;
-        const trie_offset = try reader.context.getPos();
-        self.trie_offset = trie_offset;
-
-        var nread: usize = 0;
-
-        const node_size = try leb.readULEB128(u64, reader);
-        if (node_size > 0) {
-            const export_flags = try leb.readULEB128(u64, reader);
-            // TODO Parse special flags.
-            assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
-                export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-
-            const vmaddr_offset = try leb.readULEB128(u64, reader);
-
-            self.terminal_info = .{
-                .export_flags = export_flags,
-                .vmaddr_offset = vmaddr_offset,
-            };
-        }
-
-        const nedges = try reader.readByte();
-        self.base.node_count += nedges;
-
-        nread += (try reader.context.getPos()) - trie_offset;
-
-        var i: usize = 0;
-        while (i < nedges) : (i += 1) {
-            const edge_start_pos = try reader.context.getPos();
-
-            const label = blk: {
-                var label_buf = std.ArrayList(u8).init(allocator);
-                while (true) {
-                    const next = try reader.readByte();
-                    if (next == @as(u8, 0))
-                        break;
-                    try label_buf.append(next);
-                }
-                break :blk try label_buf.toOwnedSlice();
-            };
-
-            const seek_to = try leb.readULEB128(u64, reader);
-            const return_pos = try reader.context.getPos();
-
-            nread += return_pos - edge_start_pos;
-            try reader.context.seekTo(seek_to);
-
-            const node = try allocator.create(Node);
-            node.* = .{ .base = self.base };
-
-            nread += try node.read(allocator, reader);
-            try self.edges.append(allocator, .{
-                .from = self,
-                .to = node,
-                .label = label,
-            });
-            try reader.context.seekTo(return_pos);
-        }
-
-        return nread;
-    }
-
-    /// Writes this node to a byte stream.
-    /// The children of this node *are* not written to the byte stream
-    /// recursively. To write all nodes to a byte stream in sequence,
-    /// iterate over `Trie.ordered_nodes` and call this method on each node.
-    /// This is one of the requirements of the MachO.
-    /// Panics if `finalize` was not called before calling this method.
-    fn write(self: Node, writer: anytype) !void {
-        assert(!self.node_dirty);
-        if (self.terminal_info) |info| {
-            // Terminal node info: encode export flags and vmaddr offset of this symbol.
-            var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
-            var info_stream = std.io.fixedBufferStream(&info_buf);
-            // TODO Implement for special flags.
-            assert(info.export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
-                info.export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-            try leb.writeULEB128(info_stream.writer(), info.export_flags);
-            try leb.writeULEB128(info_stream.writer(), info.vmaddr_offset);
-
-            // Encode the size of the terminal node info.
-            var size_buf: [@sizeOf(u64)]u8 = undefined;
-            var size_stream = std.io.fixedBufferStream(&size_buf);
-            try leb.writeULEB128(size_stream.writer(), info_stream.pos);
-
-            // Now, write them to the output stream.
-            try writer.writeAll(size_buf[0..size_stream.pos]);
-            try writer.writeAll(info_buf[0..info_stream.pos]);
-        } else {
-            // Non-terminal node is delimited by 0 byte.
-            try writer.writeByte(0);
-        }
-        // Write number of edges (max legal number of edges is 256).
-        try writer.writeByte(@as(u8, @intCast(self.edges.items.len)));
-
-        for (self.edges.items) |edge| {
-            // Write edge label and offset to next node in trie.
-            try writer.writeAll(edge.label);
-            try writer.writeByte(0);
-            try leb.writeULEB128(writer, edge.to.trie_offset.?);
-        }
-    }
-
-    const FinalizeResult = struct {
-        /// Current size of this node in bytes.
-        node_size: u64,
-
-        /// True if the trie offset of this node in the output byte stream
-        /// would need updating; false otherwise.
-        updated: bool,
-    };
-
-    /// Updates offset of this node in the output byte stream.
-    fn finalize(self: *Node, offset_in_trie: u64) !FinalizeResult {
-        var stream = std.io.countingWriter(std.io.null_writer);
-        var writer = stream.writer();
-
-        var node_size: u64 = 0;
-        if (self.terminal_info) |info| {
-            try leb.writeULEB128(writer, info.export_flags);
-            try leb.writeULEB128(writer, info.vmaddr_offset);
-            try leb.writeULEB128(writer, stream.bytes_written);
-        } else {
-            node_size += 1; // 0x0 for non-terminal nodes
-        }
-        node_size += 1; // 1 byte for edge count
-
-        for (self.edges.items) |edge| {
-            const next_node_offset = edge.to.trie_offset orelse 0;
-            node_size += edge.label.len + 1;
-            try leb.writeULEB128(writer, next_node_offset);
-        }
-
-        const trie_offset = self.trie_offset orelse 0;
-        const updated = offset_in_trie != trie_offset;
-        self.trie_offset = offset_in_trie;
-        self.node_dirty = false;
-        node_size += stream.bytes_written;
-
-        return FinalizeResult{ .node_size = node_size, .updated = updated };
-    }
-};
-
 /// The root node of the trie.
 root: ?*Node = null,
 
@@ -611,3 +369,245 @@ test "ordering bug" {
     _ = try trie.write(stream.writer());
     try expectEqualHexStrings(&exp_buffer, buffer);
 }
+
+pub const Node = struct {
+    base: *Trie,
+
+    /// Terminal info associated with this node.
+    /// If this node is not a terminal node, info is null.
+    terminal_info: ?struct {
+        /// Export flags associated with this exported symbol.
+        export_flags: u64,
+        /// VM address offset wrt to the section this symbol is defined against.
+        vmaddr_offset: u64,
+    } = null,
+
+    /// Offset of this node in the trie output byte stream.
+    trie_offset: ?u64 = null,
+
+    /// List of all edges originating from this node.
+    edges: std.ArrayListUnmanaged(Edge) = .{},
+
+    node_dirty: bool = true,
+
+    /// Edge connecting to nodes in the trie.
+    pub const Edge = struct {
+        from: *Node,
+        to: *Node,
+        label: []u8,
+
+        fn deinit(self: *Edge, allocator: Allocator) void {
+            self.to.deinit(allocator);
+            allocator.destroy(self.to);
+            allocator.free(self.label);
+            self.from = undefined;
+            self.to = undefined;
+            self.label = undefined;
+        }
+    };
+
+    fn deinit(self: *Node, allocator: Allocator) void {
+        for (self.edges.items) |*edge| {
+            edge.deinit(allocator);
+        }
+        self.edges.deinit(allocator);
+    }
+
+    /// Inserts a new node starting from `self`.
+    fn put(self: *Node, allocator: Allocator, label: []const u8) !*Node {
+        // Check for match with edges from this node.
+        for (self.edges.items) |*edge| {
+            const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
+            if (match == 0) continue;
+            if (match == edge.label.len) return edge.to.put(allocator, label[match..]);
+
+            // Found a match, need to splice up nodes.
+            // From: A -> B
+            // To: A -> C -> B
+            const mid = try allocator.create(Node);
+            mid.* = .{ .base = self.base };
+            var to_label = try allocator.dupe(u8, edge.label[match..]);
+            allocator.free(edge.label);
+            const to_node = edge.to;
+            edge.to = mid;
+            edge.label = try allocator.dupe(u8, label[0..match]);
+            self.base.node_count += 1;
+
+            try mid.edges.append(allocator, .{
+                .from = mid,
+                .to = to_node,
+                .label = to_label,
+            });
+
+            return if (match == label.len) mid else mid.put(allocator, label[match..]);
+        }
+
+        // Add a new node.
+        const node = try allocator.create(Node);
+        node.* = .{ .base = self.base };
+        self.base.node_count += 1;
+
+        try self.edges.append(allocator, .{
+            .from = self,
+            .to = node,
+            .label = try allocator.dupe(u8, label),
+        });
+
+        return node;
+    }
+
+    /// Recursively parses the node from the input byte stream.
+    fn read(self: *Node, allocator: Allocator, reader: anytype) Trie.ReadError!usize {
+        self.node_dirty = true;
+        const trie_offset = try reader.context.getPos();
+        self.trie_offset = trie_offset;
+
+        var nread: usize = 0;
+
+        const node_size = try leb.readULEB128(u64, reader);
+        if (node_size > 0) {
+            const export_flags = try leb.readULEB128(u64, reader);
+            // TODO Parse special flags.
+            assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
+                export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
+
+            const vmaddr_offset = try leb.readULEB128(u64, reader);
+
+            self.terminal_info = .{
+                .export_flags = export_flags,
+                .vmaddr_offset = vmaddr_offset,
+            };
+        }
+
+        const nedges = try reader.readByte();
+        self.base.node_count += nedges;
+
+        nread += (try reader.context.getPos()) - trie_offset;
+
+        var i: usize = 0;
+        while (i < nedges) : (i += 1) {
+            const edge_start_pos = try reader.context.getPos();
+
+            const label = blk: {
+                var label_buf = std.ArrayList(u8).init(allocator);
+                while (true) {
+                    const next = try reader.readByte();
+                    if (next == @as(u8, 0))
+                        break;
+                    try label_buf.append(next);
+                }
+                break :blk try label_buf.toOwnedSlice();
+            };
+
+            const seek_to = try leb.readULEB128(u64, reader);
+            const return_pos = try reader.context.getPos();
+
+            nread += return_pos - edge_start_pos;
+            try reader.context.seekTo(seek_to);
+
+            const node = try allocator.create(Node);
+            node.* = .{ .base = self.base };
+
+            nread += try node.read(allocator, reader);
+            try self.edges.append(allocator, .{
+                .from = self,
+                .to = node,
+                .label = label,
+            });
+            try reader.context.seekTo(return_pos);
+        }
+
+        return nread;
+    }
+
+    /// Writes this node to a byte stream.
+    /// The children of this node *are* not written to the byte stream
+    /// recursively. To write all nodes to a byte stream in sequence,
+    /// iterate over `Trie.ordered_nodes` and call this method on each node.
+    /// This is one of the requirements of the MachO.
+    /// Panics if `finalize` was not called before calling this method.
+    fn write(self: Node, writer: anytype) !void {
+        assert(!self.node_dirty);
+        if (self.terminal_info) |info| {
+            // Terminal node info: encode export flags and vmaddr offset of this symbol.
+            var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
+            var info_stream = std.io.fixedBufferStream(&info_buf);
+            // TODO Implement for special flags.
+            assert(info.export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
+                info.export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
+            try leb.writeULEB128(info_stream.writer(), info.export_flags);
+            try leb.writeULEB128(info_stream.writer(), info.vmaddr_offset);
+
+            // Encode the size of the terminal node info.
+            var size_buf: [@sizeOf(u64)]u8 = undefined;
+            var size_stream = std.io.fixedBufferStream(&size_buf);
+            try leb.writeULEB128(size_stream.writer(), info_stream.pos);
+
+            // Now, write them to the output stream.
+            try writer.writeAll(size_buf[0..size_stream.pos]);
+            try writer.writeAll(info_buf[0..info_stream.pos]);
+        } else {
+            // Non-terminal node is delimited by 0 byte.
+            try writer.writeByte(0);
+        }
+        // Write number of edges (max legal number of edges is 256).
+        try writer.writeByte(@as(u8, @intCast(self.edges.items.len)));
+
+        for (self.edges.items) |edge| {
+            // Write edge label and offset to next node in trie.
+            try writer.writeAll(edge.label);
+            try writer.writeByte(0);
+            try leb.writeULEB128(writer, edge.to.trie_offset.?);
+        }
+    }
+
+    const FinalizeResult = struct {
+        /// Current size of this node in bytes.
+        node_size: u64,
+
+        /// True if the trie offset of this node in the output byte stream
+        /// would need updating; false otherwise.
+        updated: bool,
+    };
+
+    /// Updates offset of this node in the output byte stream.
+    fn finalize(self: *Node, offset_in_trie: u64) !FinalizeResult {
+        var stream = std.io.countingWriter(std.io.null_writer);
+        var writer = stream.writer();
+
+        var node_size: u64 = 0;
+        if (self.terminal_info) |info| {
+            try leb.writeULEB128(writer, info.export_flags);
+            try leb.writeULEB128(writer, info.vmaddr_offset);
+            try leb.writeULEB128(writer, stream.bytes_written);
+        } else {
+            node_size += 1; // 0x0 for non-terminal nodes
+        }
+        node_size += 1; // 1 byte for edge count
+
+        for (self.edges.items) |edge| {
+            const next_node_offset = edge.to.trie_offset orelse 0;
+            node_size += edge.label.len + 1;
+            try leb.writeULEB128(writer, next_node_offset);
+        }
+
+        const trie_offset = self.trie_offset orelse 0;
+        const updated = offset_in_trie != trie_offset;
+        self.trie_offset = offset_in_trie;
+        self.node_dirty = false;
+        node_size += stream.bytes_written;
+
+        return FinalizeResult{ .node_size = node_size, .updated = updated };
+    }
+};
+
+const Trie = @This();
+
+const std = @import("std");
+const mem = std.mem;
+const leb = std.leb;
+const log = std.log.scoped(.link);
+const macho = std.macho;
+const testing = std.testing;
+const assert = std.debug.assert;
+const Allocator = mem.Allocator;

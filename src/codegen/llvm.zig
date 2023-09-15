@@ -1909,12 +1909,12 @@ pub const Object = struct {
                 const int_info = ty.intInfo(mod);
                 assert(int_info.bits != 0);
 
-                for (enum_type.names, 0..) |field_name_ip, i| {
+                for (enum_type.names.get(ip), 0..) |field_name_ip, i| {
                     const field_name_z = ip.stringToSlice(field_name_ip);
 
                     var bigint_space: Value.BigIntSpace = undefined;
                     const bigint = if (enum_type.values.len != 0)
-                        enum_type.values[i].toValue().toBigInt(&bigint_space, mod)
+                        enum_type.values.get(ip)[i].toValue().toBigInt(&bigint_space, mod)
                     else
                         std.math.big.int.Mutable.init(&bigint_space.limbs, i).toConst();
 
@@ -2382,7 +2382,7 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                switch (ip.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |tuple| {
                         var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                         defer di_fields.deinit(gpa);
@@ -2392,7 +2392,7 @@ pub const Object = struct {
                         comptime assert(struct_layout_version == 2);
                         var offset: u64 = 0;
 
-                        for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+                        for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                             if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                             const field_size = field_ty.toType().abiSize(mod);
@@ -2401,7 +2401,7 @@ pub const Object = struct {
                             offset = field_offset + field_size;
 
                             const field_name = if (tuple.names.len != 0)
-                                mod.intern_pool.stringToSlice(tuple.names[i])
+                                ip.stringToSlice(tuple.names.get(ip)[i])
                             else
                                 try std.fmt.allocPrintZ(gpa, "{d}", .{i});
                             defer if (tuple.names.len == 0) gpa.free(field_name);
@@ -2491,7 +2491,7 @@ pub const Object = struct {
                     const field_offset = std.mem.alignForward(u64, offset, field_align);
                     offset = field_offset + field_size;
 
-                    const field_name = mod.intern_pool.stringToSlice(fields.keys()[field_and_index.index]);
+                    const field_name = ip.stringToSlice(fields.keys()[field_and_index.index]);
 
                     try di_fields.append(gpa, dib.createMemberType(
                         fwd_decl.toScope(),
@@ -2546,8 +2546,8 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                const union_obj = mod.typeToUnion(ty).?;
-                if (!union_obj.haveFieldTypes() or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                const union_type = ip.indexToKey(ty.toIntern()).union_type;
+                if (!union_type.haveFieldTypes(ip) or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -2556,10 +2556,11 @@ pub const Object = struct {
                     return union_di_ty;
                 }
 
-                const layout = ty.unionGetLayout(mod);
+                const union_obj = ip.loadUnionType(union_type);
+                const layout = mod.getUnionLayout(union_obj);
 
                 if (layout.payload_size == 0) {
-                    const tag_di_ty = try o.lowerDebugType(union_obj.tag_ty, .full);
+                    const tag_di_ty = try o.lowerDebugType(union_obj.enum_tag_ty.toType(), .full);
                     const di_fields = [_]*llvm.DIType{tag_di_ty};
                     const full_di_ty = dib.createStructType(
                         compile_unit_scope,
@@ -2586,22 +2587,20 @@ pub const Object = struct {
                 var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                 defer di_fields.deinit(gpa);
 
-                try di_fields.ensureUnusedCapacity(gpa, union_obj.fields.count());
+                try di_fields.ensureUnusedCapacity(gpa, union_obj.field_names.len);
 
-                var it = union_obj.fields.iterator();
-                while (it.next()) |kv| {
-                    const field_name = kv.key_ptr.*;
-                    const field = kv.value_ptr.*;
+                for (0..union_obj.field_names.len) |field_index| {
+                    const field_ty = union_obj.field_types.get(ip)[field_index];
+                    if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                    if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    const field_size = field_ty.toType().abiSize(mod);
+                    const field_align = mod.unionFieldNormalAlignment(union_obj, @intCast(field_index));
 
-                    const field_size = field.ty.abiSize(mod);
-                    const field_align = field.normalAlignment(mod);
-
-                    const field_di_ty = try o.lowerDebugType(field.ty, .full);
+                    const field_di_ty = try o.lowerDebugType(field_ty.toType(), .full);
+                    const field_name = union_obj.field_names.get(ip)[field_index];
                     di_fields.appendAssumeCapacity(dib.createMemberType(
                         fwd_decl.toScope(),
-                        mod.intern_pool.stringToSlice(field_name),
+                        ip.stringToSlice(field_name),
                         null, // file
                         0, // line
                         field_size * 8, // size in bits
@@ -2659,7 +2658,7 @@ pub const Object = struct {
                     layout.tag_align * 8, // align in bits
                     tag_offset * 8, // offset in bits
                     0, // flags
-                    try o.lowerDebugType(union_obj.tag_ty, .full),
+                    try o.lowerDebugType(union_obj.enum_tag_ty.toType(), .full),
                 );
 
                 const payload_di = dib.createMemberType(
@@ -3078,6 +3077,7 @@ pub const Object = struct {
     fn lowerTypeInner(o: *Object, t: Type) Allocator.Error!Builder.Type {
         const mod = o.module;
         const target = mod.getTarget();
+        const ip = &mod.intern_pool;
         return switch (t.toIntern()) {
             .u0_type, .i0_type => unreachable,
             inline .u1_type,
@@ -3134,17 +3134,6 @@ pub const Object = struct {
             .null_type,
             .undefined_type,
             .enum_literal_type,
-            .atomic_order_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .address_space_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_modifier_type,
-            .prefetch_options_type,
-            .export_options_type,
-            .extern_options_type,
-            .type_info_type,
             => unreachable,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
@@ -3183,7 +3172,7 @@ pub const Object = struct {
             .var_args_param_type,
             .none,
             => unreachable,
-            else => switch (mod.intern_pool.indexToKey(t.toIntern())) {
+            else => switch (ip.indexToKey(t.toIntern())) {
                 .int_type => |int_type| try o.builder.intType(int_type.bits),
                 .ptr_type => |ptr_type| type: {
                     const ptr_ty = try o.builder.ptrType(
@@ -3275,7 +3264,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    const name = try o.builder.string(mod.intern_pool.stringToSlice(
+                    const name = try o.builder.string(ip.stringToSlice(
                         try struct_obj.getFullyQualifiedName(mod),
                     ));
                     const ty = try o.builder.opaqueType(name);
@@ -3336,7 +3325,10 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
 
-                    for (anon_struct_type.types, anon_struct_type.values) |field_ty, field_val| {
+                    for (
+                        anon_struct_type.types.get(ip),
+                        anon_struct_type.values.get(ip),
+                    ) |field_ty, field_val| {
                         if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                         const field_align = field_ty.toType().abiAlignment(mod);
@@ -3368,40 +3360,40 @@ pub const Object = struct {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (gop.found_existing) return gop.value_ptr.*;
 
-                    const union_obj = mod.unionPtr(union_type.index);
-                    const layout = union_obj.getLayout(mod, union_type.hasTag());
+                    const union_obj = ip.loadUnionType(union_type);
+                    const layout = mod.getUnionLayout(union_obj);
 
-                    if (union_obj.layout == .Packed) {
+                    if (union_obj.flagsPtr(ip).layout == .Packed) {
                         const int_ty = try o.builder.intType(@intCast(t.bitSize(mod)));
                         gop.value_ptr.* = int_ty;
                         return int_ty;
                     }
 
                     if (layout.payload_size == 0) {
-                        const enum_tag_ty = try o.lowerType(union_obj.tag_ty);
+                        const enum_tag_ty = try o.lowerType(union_obj.enum_tag_ty.toType());
                         gop.value_ptr.* = enum_tag_ty;
                         return enum_tag_ty;
                     }
 
-                    const name = try o.builder.string(mod.intern_pool.stringToSlice(
-                        try union_obj.getFullyQualifiedName(mod),
+                    const name = try o.builder.string(ip.stringToSlice(
+                        try mod.declPtr(union_obj.decl).getFullyQualifiedName(mod),
                     ));
                     const ty = try o.builder.opaqueType(name);
                     gop.value_ptr.* = ty; // must be done before any recursive calls
 
-                    const aligned_field = union_obj.fields.values()[layout.most_aligned_field];
-                    const aligned_field_ty = try o.lowerType(aligned_field.ty);
+                    const aligned_field_ty = union_obj.field_types.get(ip)[layout.most_aligned_field].toType();
+                    const aligned_field_llvm_ty = try o.lowerType(aligned_field_ty);
 
                     const payload_ty = ty: {
                         if (layout.most_aligned_field_size == layout.payload_size) {
-                            break :ty aligned_field_ty;
+                            break :ty aligned_field_llvm_ty;
                         }
                         const padding_len = if (layout.tag_size == 0)
                             layout.abi_size - layout.most_aligned_field_size
                         else
                             layout.payload_size - layout.most_aligned_field_size;
                         break :ty try o.builder.structType(.@"packed", &.{
-                            aligned_field_ty,
+                            aligned_field_llvm_ty,
                             try o.builder.arrayType(padding_len, .i8),
                         });
                     };
@@ -3413,7 +3405,7 @@ pub const Object = struct {
                         );
                         return ty;
                     }
-                    const enum_tag_ty = try o.lowerType(union_obj.tag_ty);
+                    const enum_tag_ty = try o.lowerType(union_obj.enum_tag_ty.toType());
 
                     // Put the tag before or after the payload depending on which one's
                     // alignment is greater.
@@ -3441,7 +3433,7 @@ pub const Object = struct {
                 .opaque_type => |opaque_type| {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
-                        const name = try o.builder.string(mod.intern_pool.stringToSlice(
+                        const name = try o.builder.string(ip.stringToSlice(
                             try mod.opaqueFullyQualifiedName(opaque_type),
                         ));
                         gop.value_ptr.* = try o.builder.opaqueType(name);
@@ -3562,10 +3554,11 @@ pub const Object = struct {
 
     fn lowerValue(o: *Object, arg_val: InternPool.Index) Error!Builder.Constant {
         const mod = o.module;
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
 
         var val = arg_val.toValue();
-        const arg_val_key = mod.intern_pool.indexToKey(arg_val);
+        const arg_val_key = ip.indexToKey(arg_val);
         switch (arg_val_key) {
             .runtime_value => |rt| val = rt.val.toValue(),
             else => {},
@@ -3574,7 +3567,7 @@ pub const Object = struct {
             return o.builder.undefConst(try o.lowerType(arg_val_key.typeOf().toType()));
         }
 
-        const val_key = mod.intern_pool.indexToKey(val.toIntern());
+        const val_key = ip.indexToKey(val.toIntern());
         const ty = val_key.typeOf().toType();
         return switch (val_key) {
             .int_type,
@@ -3760,7 +3753,7 @@ pub const Object = struct {
                     fields[0..llvm_ty_fields.len],
                 ), vals[0..llvm_ty_fields.len]);
             },
-            .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .aggregate => |aggregate| switch (ip.indexToKey(ty.toIntern())) {
                 .array_type => |array_type| switch (aggregate.storage) {
                     .bytes => |bytes| try o.builder.stringConst(try o.builder.string(bytes)),
                     .elems => |elems| {
@@ -3884,7 +3877,11 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
                     var need_unnamed = false;
-                    for (tuple.types, tuple.values, 0..) |field_ty, field_val, field_index| {
+                    for (
+                        tuple.types.get(ip),
+                        tuple.values.get(ip),
+                        0..,
+                    ) |field_ty, field_val, field_index| {
                         if (field_val != .none) continue;
                         if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
@@ -4035,11 +4032,10 @@ pub const Object = struct {
                 if (layout.payload_size == 0) return o.lowerValue(un.tag);
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_index = ty.unionTagFieldIndex(un.tag.toValue(), o.module).?;
-                assert(union_obj.haveFieldTypes());
+                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
 
-                const field_ty = union_obj.fields.values()[field_index].ty;
-                if (union_obj.layout == .Packed) {
+                const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+                if (union_obj.getLayout(ip) == .Packed) {
                     if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(union_ty, 0);
                     const small_int_val = try o.builder.castConst(
                         if (field_ty.isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
@@ -9217,7 +9213,8 @@ pub const FuncGen = struct {
     fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
         const o = self.dg.object;
         const mod = o.module;
-        const enum_type = mod.intern_pool.indexToKey(enum_ty.toIntern()).enum_type;
+        const ip = &mod.intern_pool;
+        const enum_type = ip.indexToKey(enum_ty.toIntern()).enum_type;
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
@@ -9229,7 +9226,7 @@ pub const FuncGen = struct {
         const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(enum_type.tag_ty.toType())}, .normal),
-            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(&mod.intern_pool)}),
+            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, mod.getTarget()),
         );
 
@@ -9252,8 +9249,8 @@ pub const FuncGen = struct {
             try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
         defer wip_switch.finish(&wip);
 
-        for (enum_type.names, 0..) |name, field_index| {
-            const name_string = try o.builder.string(mod.intern_pool.stringToSlice(name));
+        for (enum_type.names.get(ip), 0..) |name, field_index| {
+            const name_string = try o.builder.string(ip.stringToSlice(name));
             const name_init = try o.builder.stringNullConst(name_string);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
@@ -9686,6 +9683,7 @@ pub const FuncGen = struct {
     fn airUnionInit(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
+        const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
         const union_ty = self.typeOfIndex(inst);
@@ -9693,13 +9691,13 @@ pub const FuncGen = struct {
         const layout = union_ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(union_ty).?;
 
-        if (union_obj.layout == .Packed) {
+        if (union_obj.getLayout(ip) == .Packed) {
             const big_bits = union_ty.bitSize(mod);
             const int_llvm_ty = try o.builder.intType(@intCast(big_bits));
-            const field = union_obj.fields.values()[extra.field_index];
+            const field_ty = union_obj.field_types.get(ip)[extra.field_index].toType();
             const non_int_val = try self.resolveInst(extra.init);
-            const small_int_ty = try o.builder.intType(@intCast(field.ty.bitSize(mod)));
-            const small_int_val = if (field.ty.isPtrAtRuntime(mod))
+            const small_int_ty = try o.builder.intType(@intCast(field_ty.bitSize(mod)));
+            const small_int_val = if (field_ty.isPtrAtRuntime(mod))
                 try self.wip.cast(.ptrtoint, non_int_val, small_int_ty, "")
             else
                 try self.wip.cast(.bitcast, non_int_val, small_int_ty, "");
@@ -9708,7 +9706,7 @@ pub const FuncGen = struct {
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
-            const union_field_name = union_obj.fields.keys()[extra.field_index];
+            const union_field_name = union_obj.field_names.get(ip)[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
             const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
@@ -9729,18 +9727,17 @@ pub const FuncGen = struct {
         const alignment = Builder.Alignment.fromByteUnits(layout.abi_align);
         const result_ptr = try self.buildAlloca(union_llvm_ty, alignment);
         const llvm_payload = try self.resolveInst(extra.init);
-        assert(union_obj.haveFieldTypes());
-        const field = union_obj.fields.values()[extra.field_index];
-        const field_llvm_ty = try o.lowerType(field.ty);
-        const field_size = field.ty.abiSize(mod);
-        const field_align = field.normalAlignment(mod);
+        const field_ty = union_obj.field_types.get(ip)[extra.field_index].toType();
+        const field_llvm_ty = try o.lowerType(field_ty);
+        const field_size = field_ty.abiSize(mod);
+        const field_align = mod.unionFieldNormalAlignment(union_obj, extra.field_index);
         const llvm_usize = try o.lowerType(Type.usize);
         const usize_zero = try o.builder.intValue(llvm_usize, 0);
         const i32_zero = try o.builder.intValue(.i32, 0);
 
         const llvm_union_ty = t: {
             const payload_ty = p: {
-                if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const padding_len = layout.payload_size;
                     break :p try o.builder.arrayType(padding_len, .i8);
                 }
@@ -9753,7 +9750,7 @@ pub const FuncGen = struct {
                 });
             };
             if (layout.tag_size == 0) break :t try o.builder.structType(.normal, &.{payload_ty});
-            const tag_ty = try o.lowerType(union_obj.tag_ty);
+            const tag_ty = try o.lowerType(union_obj.enum_tag_ty.toType());
             var fields: [3]Builder.Type = undefined;
             var fields_len: usize = 2;
             if (layout.tag_align >= layout.payload_align) {
@@ -9771,7 +9768,7 @@ pub const FuncGen = struct {
         // Now we follow the layout as expressed above with GEP instructions to set the
         // tag and the payload.
         const field_ptr_ty = try mod.ptrType(.{
-            .child = field.ty.toIntern(),
+            .child = field_ty.toIntern(),
             .flags = .{ .alignment = InternPool.Alignment.fromNonzeroByteUnits(field_align) },
         });
         if (layout.tag_size == 0) {
@@ -9796,9 +9793,9 @@ pub const FuncGen = struct {
             const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
             const indices: [2]Builder.Value = .{ usize_zero, try o.builder.intValue(.i32, tag_index) };
             const field_ptr = try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, &indices, "");
-            const tag_ty = try o.lowerType(union_obj.tag_ty);
+            const tag_ty = try o.lowerType(union_obj.enum_tag_ty.toType());
             const llvm_tag = try o.builder.intValue(tag_ty, tag_int);
-            const tag_alignment = Builder.Alignment.fromByteUnits(union_obj.tag_ty.abiAlignment(mod));
+            const tag_alignment = Builder.Alignment.fromByteUnits(union_obj.enum_tag_ty.toType().abiAlignment(mod));
             _ = try self.wip.store(.normal, llvm_tag, field_ptr, tag_alignment);
         }
 
@@ -9847,7 +9844,7 @@ pub const FuncGen = struct {
         }
 
         _ = try self.wip.callIntrinsic(.normal, .none, .prefetch, &.{.ptr}, &.{
-            try self.resolveInst(prefetch.ptr),
+            try self.sliceOrArrayPtr(try self.resolveInst(prefetch.ptr), self.typeOf(prefetch.ptr)),
             try o.builder.intValue(.i32, prefetch.rw),
             try o.builder.intValue(.i32, prefetch.locality),
             try o.builder.intValue(.i32, prefetch.cache),
@@ -10547,10 +10544,11 @@ fn llvmField(ty: Type, field_index: usize, mod: *Module) ?LlvmField {
     var offset: u64 = 0;
     var big_align: u32 = 0;
 
-    const struct_type = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+    const ip = &mod.intern_pool;
+    const struct_type = switch (ip.indexToKey(ty.toIntern())) {
         .anon_struct_type => |tuple| {
             var llvm_field_index: c_uint = 0;
-            for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+            for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                 if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                 const field_align = field_ty.toType().abiAlignment(mod);
@@ -11128,6 +11126,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
     const max_fields_byval = 0;
+    const ip = &mod.intern_pool;
 
     switch (ty.zigTypeTag(mod)) {
         .Type,
@@ -11156,10 +11155,10 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout(mod) == .Packed) return false;
-            const struct_type = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                 .anon_struct_type => |tuple| {
                     var count: usize = 0;
-                    for (tuple.types, tuple.values) |field_ty, field_val| {
+                    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                         if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                         count += 1;
