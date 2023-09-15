@@ -5656,31 +5656,14 @@ const LibCDirs = struct {
     sysroot: ?[]const u8,
 };
 
-fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
-    const arch_name = @tagName(target.cpu.arch);
-    const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
-        @tagName(target.os.tag),
-        target.os.version_range.semver.min.major,
-    });
+fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8) !LibCDirs {
     const s = std.fs.path.sep_str;
-    const list = try arena.alloc([]const u8, 3);
-
+    const list = try arena.alloc([]const u8, 1);
     list[0] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
-        .{ zig_lib_dir, arch_name, os_name },
-    );
-    list[1] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-        .{ zig_lib_dir, os_name },
-    );
-    list[2] = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
         .{zig_lib_dir},
     );
-
     return LibCDirs{
         .libc_include_dir_list = list,
         .libc_installation = null,
@@ -5823,7 +5806,7 @@ fn detectLibCFromBuilding(
     target: std.Target,
 ) !LibCDirs {
     if (target.isDarwin())
-        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
+        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir);
 
     const generic_name = target_util.libCGenericName(target);
     // Some architectures are handled by the same set of headers.

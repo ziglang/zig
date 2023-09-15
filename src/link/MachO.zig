@@ -661,10 +661,7 @@ pub fn resolveLibSystem(
         )) break :success;
 
         const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
-        const lib_name = try std.fmt.allocPrint(tmp_arena, "libSystem.{d}", .{
-            self.base.options.target.os.version_range.semver.min.major,
-        });
-        if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, lib_name)) break :success;
+        if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
 
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return;
