@@ -1021,9 +1021,10 @@ pub const DeclGen = struct {
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
-    /// When the constant is simple, it can be generated directly using OpConstant instructions. When
-    /// the constant is more complicated however, it needs to be lowered to an indirect constant, which
-    /// is then loaded using OpLoad. Such values are loaded into the UniformConstant storage class by default.
+    /// When the constant is simple, it can be generated directly using OpConstant instructions.
+    /// When the constant is more complicated however, it needs to be constructed using multiple values. This
+    /// is done by emitting a sequence of instructions that initialize the value.
+    //
     /// This function should only be called during function code generation.
     fn constant(self: *DeclGen, ty: Type, arg_val: Value, repr: Repr) !IdRef {
         const mod = self.module;
@@ -1037,7 +1038,7 @@ pub const DeclGen = struct {
         }
 
         log.debug("constant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtValue(ty, self.module) });
-        if (val.isUndef(mod)) {
+        if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_ref);
         }
 
@@ -1060,8 +1061,7 @@ pub const DeclGen = struct {
             .inferred_error_set_type,
             => unreachable, // types, not values
 
-            .undef => unreachable, // handled above
-            .runtime_value => unreachable, // ???
+            .undef, .runtime_value => unreachable, // handled above
 
             .variable,
             .extern_func,
@@ -1102,6 +1102,49 @@ pub const DeclGen = struct {
             .err => |err| {
                 const value = try mod.getErrorValue(err.name);
                 return try self.spv.constInt(result_ty_ref, value);
+            },
+            .error_union => |error_union| {
+                // TODO: Error unions may be constructed with constant instructions if the payload type
+                // allows it. For now, just generate it here regardless.
+                const err_ty = switch (error_union.val) {
+                    .err_name => ty.errorUnionSet(mod),
+                    .payload => Type.err_int,
+                };
+                const err_val = switch (error_union.val) {
+                    .err_name => |err_name| (try mod.intern(.{ .err = .{
+                        .ty = ty.errorUnionSet(mod).toIntern(),
+                        .name = err_name,
+                    } })).toValue(),
+                    .payload => try mod.intValue(Type.err_int, 0),
+                };
+                const payload_ty = ty.errorUnionPayload(mod);
+                const eu_layout = self.errorUnionLayout(payload_ty);
+                if (!eu_layout.payload_has_bits) {
+                    // We use the error type directly as the type.
+                    return try self.constant(err_ty, err_val, .indirect);
+                }
+
+                const payload_val = switch (error_union.val) {
+                    .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
+                    .payload => |payload| payload,
+                }.toValue();
+
+                var constituents: [2]IdRef = undefined;
+                if (eu_layout.error_first) {
+                    constituents[0] = try self.constant(err_ty, err_val, .indirect);
+                    constituents[1] = try self.constant(payload_ty, payload_val, .indirect);
+                } else {
+                    constituents[0] = try self.constant(payload_ty, payload_val, .indirect);
+                    constituents[1] = try self.constant(err_ty, err_val, .indirect);
+                }
+
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+                    .id_result_type = self.typeId(result_ty_ref),
+                    .id_result = result_id,
+                    .constituents = &constituents,
+                });
+                return result_id;
             },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.
@@ -1316,7 +1359,6 @@ pub const DeclGen = struct {
                     const entry = try self.type_map.getOrPut(self.gpa, ty.toIntern());
                     if (entry.found_existing) return entry.value_ptr.ty_ref;
 
-                    const ip = &mod.intern_pool;
                     const fn_info = mod.typeToFunc(ty).?;
                     // TODO: Put this somewhere in Sema.zig
                     if (fn_info.is_var_args)
