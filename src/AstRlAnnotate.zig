@@ -800,6 +800,8 @@ fn blockExpr(astrl: *AstRlAnnotate, parent_block: ?*Block, ri: ResultInfo, node:
 }
 
 fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.Node.Index, args: []const Ast.Node.Index) !bool {
+    _ = ri; // Currently, no builtin consumes its result location.
+
     const tree = astrl.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const builtin_token = main_tokens[node];
@@ -818,11 +820,8 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         },
         .as => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
-            const rhs_consumes_rl = try astrl.expr(args[1], block, ri);
-            if (rhs_consumes_rl) {
-                try astrl.nodes_need_rl.putNoClobber(astrl.gpa, node, {});
-            }
-            return rhs_consumes_rl;
+            _ = try astrl.expr(args[1], block, ResultInfo.type_only);
+            return false;
         },
         .bit_cast => {
             _ = try astrl.expr(args[0], block, ResultInfo.none);

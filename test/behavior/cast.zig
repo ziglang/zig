@@ -2502,3 +2502,21 @@ test "numeric coercions with undefined" {
     to = 42.0;
     try expectEqual(@as(f32, 42.0), to);
 }
+
+test "@as does not corrupt values with incompatible representations" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const x: f32 = @as(f16, blk: {
+        if (false) {
+            // Trick the compiler into trying to use a result pointer if it can!
+            break :blk .{undefined};
+        }
+        break :blk 1.23;
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, 1.23), x, 0.001);
+}
