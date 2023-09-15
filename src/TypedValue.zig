@@ -257,9 +257,12 @@ pub fn print(
             },
             .ptr => |ptr| {
                 if (ptr.addr == .int) {
-                    const i = ip.indexToKey(ptr.addr.int).int;
-                    switch (i.storage) {
-                        inline else => |addr| return writer.print("{x:0>8}", .{addr}),
+                    switch (ip.indexToKey(ptr.addr.int)) {
+                        .int => |i| switch (i.storage) {
+                            inline else => |addr| return writer.print("{x:0>8}", .{addr}),
+                        },
+                        .undef => return writer.writeAll("undefined"),
+                        else => unreachable,
                     }
                 }
 
