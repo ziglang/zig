@@ -9,7 +9,7 @@ fi
 
 ZIG="$1"
 TARGET="$2"
-MPCU="$3"
+MCPU="$3"
 PREFIX="$4"
 
 git checkout "$GITHUB_BASE_REF"
@@ -37,7 +37,13 @@ ninja install
 
 cd ..
 
-poop \
+OUT="build-new/perf.txt"
+echo "$TARGET perf delta against $GITHUB_BASE_REF:" >"$OUT"
+echo '```' >>"$OUT"
+
+$HOME/local/bin/poop \
   "build-base/stage3/bin/zig build-exe test/standalone/hello_world/hello.zig" \
   "build-new/stage3/bin/zig build-exe test/standalone/hello_world/hello.zig" \
-  > build-new/perf.txt
+  >> build-new/perf.txt
+
+echo '```' >>"$OUT"

@@ -110,4 +110,4 @@ ninja install
 # After all correctness checking, compare performance against the merge-base.
 cd ..
 sh ci/measure-perf-delta.sh "$ZIG" "$TARGET" "$MCPU" "$PREFIX" || \
-  echo "Error occurred measuring the performance delta of this pull request." > build-new/perf.txt
+  echo "$TARGET: Error occurred measuring the performance delta of this pull request." > build-new/perf.txt
