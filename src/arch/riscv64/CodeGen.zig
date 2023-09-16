@@ -1080,7 +1080,7 @@ fn binOp(
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty, mod));
+                    assert(lhs_ty.eql(rhs_ty));
                     const int_info = lhs_ty.intInfo(mod);
                     if (int_info.bits <= 64) {
                         // TODO immediate operands
@@ -1839,7 +1839,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     const ty = self.typeOf(bin_op.lhs);
     const mod = self.bin_file.options.module.?;
-    assert(ty.eql(self.typeOf(bin_op.rhs), mod));
+    assert(ty.eql(self.typeOf(bin_op.rhs)));
     if (ty.zigTypeTag(mod) == .ErrorSet)
         return self.fail("TODO implement cmp for errors", .{});
 

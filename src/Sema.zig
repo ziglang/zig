@@ -2735,7 +2735,7 @@ fn coerceResultPtr(
             if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
                 return Air.internedToRef(ptr_val.toIntern());
             }
-            if (pointee_ty.eql(Type.null, sema.mod)) {
+            if (pointee_ty.eql(Type.null)) {
                 const null_inst = Air.internedToRef(Value.null.toIntern());
                 _ = try block.addBinOp(.store, new_ptr, null_inst);
                 return .void_value;
@@ -4106,7 +4106,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             for (peer_inst_list, placeholders) |peer_inst, placeholder_inst| {
                 const sub_ptr_ty = sema.typeOf(Air.indexToRef(placeholder_inst));
 
-                if (mut_final_ptr_ty.eql(sub_ptr_ty, mod)) {
+                if (mut_final_ptr_ty.eql(sub_ptr_ty)) {
                     // New result location type is the same as the old one; nothing
                     // to do here.
                     continue;
@@ -5967,7 +5967,7 @@ fn analyzeBlockBody(
         const br_operand = sema.air_instructions.items(.data)[br].br.operand;
         const br_operand_src = src;
         const br_operand_ty = sema.typeOf(br_operand);
-        if (br_operand_ty.eql(resolved_ty, mod)) {
+        if (br_operand_ty.eql(resolved_ty)) {
             // No type coercion needed.
             continue;
         }
@@ -7629,7 +7629,7 @@ fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Typ
         });
     }
     const func_decl = mod.funcOwnerDeclPtr(sema.owner_func_index);
-    if (!func_ty.eql(func_decl.ty, mod)) {
+    if (!func_ty.eql(func_decl.ty)) {
         return sema.fail(block, call_src, "unable to perform tail call: type of function being called '{}' does not match type of calling function '{}'", .{
             func_ty.fmt(mod), func_decl.ty.fmt(mod),
         });
@@ -10746,7 +10746,7 @@ const SwitchProngAnalysis = struct {
                 // Fast path: if all the operands are the same type already, we don't need to hit
                 // PTR! This will also allow us to emit simpler code.
                 const same_types = for (field_tys[1..]) |field_ty| {
-                    if (!field_ty.eql(field_tys[0], sema.mod)) break false;
+                    if (!field_ty.eql(field_tys[0])) break false;
                 } else true;
 
                 const capture_ty = if (same_types) field_tys[0] else capture_ty: {
@@ -16278,7 +16278,7 @@ fn zirCmpEq(
     if (lhs_ty_tag == .Type and rhs_ty_tag == .Type) {
         const lhs_as_type = try sema.analyzeAsType(block, lhs_src, lhs);
         const rhs_as_type = try sema.analyzeAsType(block, rhs_src, rhs);
-        return if (lhs_as_type.eql(rhs_as_type, mod) == (op == .eq)) .bool_true else .bool_false;
+        return if (lhs_as_type.eql(rhs_as_type) == (op == .eq)) .bool_true else .bool_false;
     }
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, true);
 }
@@ -21907,7 +21907,7 @@ fn ptrCastFull(
                     .len = arr_len.toIntern(),
                 } })));
             } else {
-                assert(dest_ptr_ty.eql(dest_ty, mod));
+                assert(dest_ptr_ty.eql(dest_ty));
                 return Air.internedToRef((try mod.getCoerced(ptr_val, dest_ty)).toIntern());
             }
         }
@@ -21957,7 +21957,7 @@ fn ptrCastFull(
                 .operand = ptr,
             } },
         });
-        if (intermediate_ty.eql(dest_ptr_ty, mod)) {
+        if (intermediate_ty.eql(dest_ptr_ty)) {
             // We only changed the address space, so no need for a bitcast
             break :ptr intermediate;
         }
@@ -21981,7 +21981,7 @@ fn ptrCastFull(
             } },
         });
     } else {
-        assert(dest_ptr_ty.eql(dest_ty, mod));
+        assert(dest_ptr_ty.eql(dest_ty));
         return result_ptr;
     }
 }
@@ -23875,7 +23875,7 @@ fn analyzeMinMax(
         switch (bounds_status) {
             .unknown, .defined => refine_bounds: {
                 const ty = sema.typeOf(operand);
-                if (!ty.scalarType(mod).isInt(mod) and !ty.scalarType(mod).eql(Type.comptime_int, mod)) {
+                if (!ty.scalarType(mod).isInt(mod) and !ty.scalarType(mod).eql(Type.comptime_int)) {
                     bounds_status = .non_integral;
                     break :refine_bounds;
                 }
@@ -23946,7 +23946,7 @@ fn analyzeMinMax(
         const val = (try sema.resolveMaybeUndefVal(ct_minmax_ref)).?;
         const orig_ty = sema.typeOf(ct_minmax_ref);
 
-        if (opt_runtime_idx == null and orig_ty.scalarType(mod).eql(Type.comptime_int, mod)) {
+        if (opt_runtime_idx == null and orig_ty.scalarType(mod).eql(Type.comptime_int)) {
             // If all arguments were `comptime_int`, and there are no runtime args, we'll preserve that type
             break :refine;
         }
@@ -24047,7 +24047,7 @@ fn analyzeMinMax(
         .child = refined_scalar_ty.toIntern(),
     }) else refined_scalar_ty;
 
-    if (!refined_ty.eql(unrefined_ty, mod)) {
+    if (!refined_ty.eql(unrefined_ty)) {
         // We've reduced the type - cast the result down
         return block.addTyOp(.intcast, refined_ty, cur_minmax.?);
     }
@@ -26355,7 +26355,7 @@ fn fieldCallBind(
                                 first_param_type.zigTypeTag(mod) == .Pointer and
                                 (first_param_type.ptrSize(mod) == .One or
                                 first_param_type.ptrSize(mod) == .C) and
-                                first_param_type.childType(mod).eql(concrete_ty, mod)))
+                                first_param_type.childType(mod).eql(concrete_ty)))
                         {
                         // zig fmt: on
                             // Note that if the param type is generic poison, we know that it must
@@ -26367,7 +26367,7 @@ fn fieldCallBind(
                                 .func_inst = decl_val,
                                 .arg0_inst = object_ptr,
                             } };
-                        } else if (first_param_type.eql(concrete_ty, mod)) {
+                        } else if (first_param_type.eql(concrete_ty)) {
                             const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                             return .{ .method = .{
                                 .func_inst = decl_val,
@@ -26375,7 +26375,7 @@ fn fieldCallBind(
                             } };
                         } else if (first_param_type.zigTypeTag(mod) == .Optional) {
                             const child = first_param_type.optionalChild(mod);
-                            if (child.eql(concrete_ty, mod)) {
+                            if (child.eql(concrete_ty)) {
                                 const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                                 return .{ .method = .{
                                     .func_inst = decl_val,
@@ -26383,7 +26383,7 @@ fn fieldCallBind(
                                 } };
                             } else if (child.zigTypeTag(mod) == .Pointer and
                                 child.ptrSize(mod) == .One and
-                                child.childType(mod).eql(concrete_ty, mod))
+                                child.childType(mod).eql(concrete_ty))
                             {
                                 return .{ .method = .{
                                     .func_inst = decl_val,
@@ -26391,7 +26391,7 @@ fn fieldCallBind(
                                 } };
                             }
                         } else if (first_param_type.zigTypeTag(mod) == .ErrorUnion and
-                            first_param_type.errorUnionPayload(mod).eql(concrete_ty, mod))
+                            first_param_type.errorUnionPayload(mod).eql(concrete_ty))
                         {
                             const deref = try sema.analyzeLoad(block, src, object_ptr, src);
                             return .{ .method = .{
@@ -27575,7 +27575,7 @@ fn coerceExtra(
     try sema.resolveTypeFields(inst_ty);
     const target = mod.getTarget();
     // If the types are the same, we can return the operand.
-    if (dest_ty.eql(inst_ty, mod))
+    if (dest_ty.eql(inst_ty))
         return inst;
 
     const maybe_inst_val = try sema.resolveMaybeUndefVal(inst);
@@ -28071,7 +28071,7 @@ fn coerceExtra(
             .Union => blk: {
                 // union to its own tag type
                 const union_tag_ty = inst_ty.unionTagType(mod) orelse break :blk;
-                if (union_tag_ty.eql(dest_ty, mod)) {
+                if (union_tag_ty.eql(dest_ty)) {
                     return sema.unionToTag(block, dest_ty, inst, inst_src);
                 }
             },
@@ -28607,7 +28607,7 @@ fn coerceInMemoryAllowed(
 ) CompileError!InMemoryCoercionResult {
     const mod = sema.mod;
 
-    if (dest_ty.eql(src_ty, mod))
+    if (dest_ty.eql(src_ty))
         return .ok;
 
     const dest_tag = dest_ty.zigTypeTag(mod);
@@ -29360,7 +29360,7 @@ fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
 
     // We have a pointer-to-array and a pointer-to-vector. If the elements and
     // lengths match, return the result.
-    if (array_ty.childType(mod).eql(vector_ty.childType(mod), sema.mod) and
+    if (array_ty.childType(mod).eql(vector_ty.childType(mod)) and
         array_ty.arrayLen(mod) == vector_ty.vectorLen(mod))
     {
         return ptr_ref;
@@ -30120,7 +30120,7 @@ fn beginComptimePtrLoad(
                 // our parent is not an elem_ptr with the same elem_ty, since that would be "unflattened"
                 switch (mod.intern_pool.indexToKey(elem_ptr.base)) {
                     .ptr => |base_ptr| switch (base_ptr.addr) {
-                        .elem => |base_elem| assert(!mod.intern_pool.typeOf(base_elem.base).toType().elemType2(mod).eql(elem_ty, mod)),
+                        .elem => |base_elem| assert(!mod.intern_pool.typeOf(base_elem.base).toType().elemType2(mod).eql(elem_ty)),
                         else => {},
                     },
                     else => {},
@@ -30157,7 +30157,7 @@ fn beginComptimePtrLoad(
                 if (maybe_array_ty) |load_ty| {
                     // It's possible that we're loading a [N]T, in which case we'd like to slice
                     // the pointee array directly from our parent array.
-                    if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty, mod)) {
+                    if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty)) {
                         const len = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel(mod));
                         const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                         deref.pointee = if (elem_ptr.index + len <= check_len) TypedValue{
@@ -30305,7 +30305,7 @@ fn bitCastVal(
     buffer_offset: usize,
 ) !?Value {
     const mod = sema.mod;
-    if (old_ty.eql(new_ty, mod)) return val;
+    if (old_ty.eql(new_ty)) return val;
 
     // For types with well-defined memory layouts, we serialize them a byte buffer,
     // then deserialize to the new type.
@@ -32949,7 +32949,7 @@ fn resolvePeerTypesInner(
         .nullable => {
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
-                if (!ty.eql(Type.null, mod)) return .{ .conflict = .{
+                if (!ty.eql(Type.null)) return .{ .conflict = .{
                     .peer_idx_a = strat_reason,
                     .peer_idx_b = i,
                 } };
@@ -33036,7 +33036,7 @@ fn resolvePeerTypesInner(
                     .peer_idx_b = i,
                 } };
 
-                if (!ty.childType(mod).eql(elem_ty, mod)) {
+                if (!ty.childType(mod).eql(elem_ty)) {
                     return .{ .conflict = .{
                         .peer_idx_a = first_arr_idx,
                         .peer_idx_b = i,
@@ -33581,11 +33581,11 @@ fn resolvePeerTypesInner(
                     .Enum => switch (ty.zigTypeTag(mod)) {
                         .EnumLiteral => {},
                         .Enum => {
-                            if (!ty.eql(cur_ty, mod)) return generic_err;
+                            if (!ty.eql(cur_ty)) return generic_err;
                         },
                         .Union => {
                             const tag_ty = ty.unionTagTypeHypothetical(mod);
-                            if (!tag_ty.eql(cur_ty, mod)) return generic_err;
+                            if (!tag_ty.eql(cur_ty)) return generic_err;
                             opt_cur_ty = ty;
                             cur_ty_idx = i;
                         },
@@ -33595,10 +33595,10 @@ fn resolvePeerTypesInner(
                         .EnumLiteral => {},
                         .Enum => {
                             const cur_tag_ty = cur_ty.unionTagTypeHypothetical(mod);
-                            if (!ty.eql(cur_tag_ty, mod)) return generic_err;
+                            if (!ty.eql(cur_tag_ty)) return generic_err;
                         },
                         .Union => {
-                            if (!ty.eql(cur_ty, mod)) return generic_err;
+                            if (!ty.eql(cur_ty)) return generic_err;
                         },
                         else => unreachable,
                     },
@@ -33737,7 +33737,7 @@ fn resolvePeerTypesInner(
                     },
                     .Float => {
                         if (opt_cur_ty) |cur_ty| {
-                            if (cur_ty.eql(ty, mod)) continue;
+                            if (cur_ty.eql(ty)) continue;
                             // Recreate the type so we eliminate any c_longdouble
                             const bits = @max(cur_ty.floatBits(target), ty.floatBits(target));
                             opt_cur_ty = switch (bits) {
@@ -33910,7 +33910,7 @@ fn resolvePeerTypesInner(
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
                 if (expect_ty) |expect| {
-                    if (!ty.eql(expect, mod)) return .{ .conflict = .{
+                    if (!ty.eql(expect)) return .{ .conflict = .{
                         .peer_idx_a = first_idx,
                         .peer_idx_b = i,
                     } };
@@ -33973,7 +33973,7 @@ fn typeIsArrayLike(sema: *Sema, ty: Type) ?ArrayLike {
             if (!ty.isTuple(mod)) return null;
             const elem_ty = ty.structFieldType(0, mod);
             for (1..field_count) |i| {
-                if (!ty.structFieldType(i, mod).eql(elem_ty, mod)) {
+                if (!ty.structFieldType(i, mod).eql(elem_ty)) {
                     return null;
                 }
             }
@@ -36088,7 +36088,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                                 field_val.* = field.default_val;
                                 continue;
                             }
-                            if (field.ty.eql(ty, mod)) {
+                            if (field.ty.eql(ty)) {
                                 const msg = try Module.ErrorMsg.create(
                                     sema.gpa,
                                     s.srcLoc(mod),
@@ -36142,7 +36142,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                         return only.toValue();
                     }
                     const only_field_ty = union_obj.field_types.get(ip)[0].toType();
-                    if (only_field_ty.eql(ty, mod)) {
+                    if (only_field_ty.eql(ty)) {
                         const msg = try Module.ErrorMsg.create(
                             sema.gpa,
                             mod.declPtr(union_obj.decl).srcLoc(mod),

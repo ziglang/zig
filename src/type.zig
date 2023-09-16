@@ -112,8 +112,7 @@ pub const Type = struct {
         };
     }
 
-    pub fn eql(a: Type, b: Type, mod: *const Module) bool {
-        _ = mod; // TODO: remove this parameter
+    pub fn eql(a: Type, b: Type) bool {
         // The InternPool data structure hashes based on Key to make interned objects
         // unique. An Index can be treated simply as u32 value for the
         // purpose of Type/Value hashing and equality.
@@ -467,10 +466,12 @@ pub const Type = struct {
             .empty_struct_type => false,
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.bits != 0,
-                .ptr_type => {
+                .ptr_type => |ptr_type| {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
+                    const child_ty = ptr_type.child.toType();
+                    if (child_ty.zigTypeTag(mod) == .Fn) return !mod.typeToFunc(child_ty).?.is_generic;
                     if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
                 },
@@ -2647,7 +2648,7 @@ pub const Type = struct {
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
                     switch (child_ty.zigTypeTag(mod)) {
-                        .Fn => return !child_ty.isFnOrHasRuntimeBits(mod),
+                        .Fn => return mod.typeToFunc(child_ty).?.is_generic,
                         .Opaque => return false,
                         else => return child_ty.comptimeOnly(mod),
                     }

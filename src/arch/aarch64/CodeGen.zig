@@ -1421,7 +1421,7 @@ fn minMax(
         .Float => return self.fail("TODO ARM min/max on floats", .{}),
         .Vector => return self.fail("TODO ARM min/max on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 var lhs_reg: Register = undefined;
@@ -1914,7 +1914,7 @@ fn addSub(
         .Float => return self.fail("TODO binary operations on floats", .{}),
         .Vector => return self.fail("TODO binary operations on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 const lhs_immediate = try lhs_bind.resolveToImmediate(self);
@@ -1974,7 +1974,7 @@ fn mul(
     switch (lhs_ty.zigTypeTag(mod)) {
         .Vector => return self.fail("TODO binary operations on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 // TODO add optimisations for multiplication
@@ -2023,7 +2023,7 @@ fn divTrunc(
         .Float => return self.fail("TODO div on floats", .{}),
         .Vector => return self.fail("TODO div on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 switch (int_info.signedness) {
@@ -2057,7 +2057,7 @@ fn divFloor(
         .Float => return self.fail("TODO div on floats", .{}),
         .Vector => return self.fail("TODO div on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 switch (int_info.signedness) {
@@ -2090,7 +2090,7 @@ fn divExact(
         .Float => return self.fail("TODO div on floats", .{}),
         .Vector => return self.fail("TODO div on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 switch (int_info.signedness) {
@@ -2126,7 +2126,7 @@ fn rem(
         .Float => return self.fail("TODO rem/mod on floats", .{}),
         .Vector => return self.fail("TODO rem/mod on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 var lhs_reg: Register = undefined;
@@ -2249,7 +2249,7 @@ fn bitwise(
     switch (lhs_ty.zigTypeTag(mod)) {
         .Vector => return self.fail("TODO binary operations on vectors", .{}),
         .Int => {
-            assert(lhs_ty.eql(rhs_ty, mod));
+            assert(lhs_ty.eql(rhs_ty));
             const int_info = lhs_ty.intInfo(mod);
             if (int_info.bits <= 64) {
                 // TODO implement bitwise operations with immediates
@@ -2400,7 +2400,7 @@ fn ptrArithmetic(
     const mod = self.bin_file.options.module.?;
     switch (lhs_ty.zigTypeTag(mod)) {
         .Pointer => {
-            assert(rhs_ty.eql(Type.usize, mod));
+            assert(rhs_ty.eql(Type.usize));
 
             const ptr_ty = lhs_ty;
             const elem_ty = switch (ptr_ty.ptrSize(mod)) {
@@ -2535,7 +2535,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(mod)) {
             .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
             .Int => {
-                assert(lhs_ty.eql(rhs_ty, mod));
+                assert(lhs_ty.eql(rhs_ty));
                 const int_info = lhs_ty.intInfo(mod);
                 switch (int_info.bits) {
                     1...31, 33...63 => {
@@ -2663,7 +2663,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(mod)) {
             .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
             .Int => {
-                assert(lhs_ty.eql(rhs_ty, mod));
+                assert(lhs_ty.eql(rhs_ty));
                 const int_info = lhs_ty.intInfo(mod);
                 if (int_info.bits <= 32) {
                     const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
