@@ -4129,4 +4129,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }) != 0) {}
         \\}
     });
+
+    cases.add("macro using argument as struct name is not translated",
+        \\#define FOO(x) struct x
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: untranslatable usage of arg `x`");
+    });
 }
