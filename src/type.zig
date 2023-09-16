@@ -467,12 +467,10 @@ pub const Type = struct {
             .empty_struct_type => false,
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.bits != 0,
-                .ptr_type => |ptr_type| {
+                .ptr_type => {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    const child_ty = ptr_type.child.toType();
-                    if (child_ty.zigTypeTag(mod) == .Fn) return !mod.typeToFunc(child_ty).?.is_generic;
                     if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
                 },
@@ -2649,7 +2647,7 @@ pub const Type = struct {
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
                     switch (child_ty.zigTypeTag(mod)) {
-                        .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                        .Fn => return !child_ty.isFnOrHasRuntimeBits(mod),
                         .Opaque => return false,
                         else => return child_ty.comptimeOnly(mod),
                     }

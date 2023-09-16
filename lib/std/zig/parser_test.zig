@@ -4348,12 +4348,12 @@ test "zig fmt: invalid else branch statement" {
         \\    for ("") |_| {} else defer {}
         \\}
     , &[_]Error{
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
     });
 }
 
@@ -6078,7 +6078,7 @@ test "recovery: missing for payload" {
     try testError(
         \\comptime {
         \\    const a = for(a) {};
-        \\    const a: for(a) blk: {};
+        \\    const a: for(a) blk: {} = {};
         \\    for(a) {}
         \\}
     , &[_]Error{

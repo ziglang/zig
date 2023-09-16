@@ -1018,6 +1018,7 @@ fn analyzeBodyInner(
             .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
+            .elem_val_imm                 => try sema.zirElemValImm(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
@@ -1376,6 +1377,11 @@ fn analyzeBodyInner(
             },
             .validate_deref => {
                 try sema.zirValidateDeref(block, inst);
+                i += 1;
+                continue;
+            },
+            .validate_destructure => {
+                try sema.zirValidateDestructure(block, inst);
                 i += 1;
                 continue;
             },
@@ -3780,6 +3786,21 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         return sema.analyzeDeclRef(try anon_decl.finish(elem_ty, store_val, ptr_info.flags.alignment));
     }
 
+    // If this is already a comptime-mutable allocation, we don't want to emit an error - the stores
+    // were already performed at comptime! Just make the pointer constant as normal.
+    implicit_ct: {
+        const ptr_val = try sema.resolveMaybeUndefVal(alloc) orelse break :implicit_ct;
+        if (ptr_val.isComptimeMutablePtr(mod)) break :implicit_ct;
+        return sema.makePtrConst(block, alloc);
+    }
+
+    if (try sema.typeRequiresComptime(elem_ty)) {
+        // The value was initialized through RLS, so we didn't detect the runtime condition earlier.
+        // TODO: source location of runtime control flow
+        const init_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+        return sema.fail(block, init_src, "value with comptime-only type '{}' depends on runtime control flow", .{elem_ty.fmt(mod)});
+    }
+
     return sema.makePtrConst(block, alloc);
 }
 
@@ -5160,6 +5181,43 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
+    }
+}
+
+fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.ValidateDestructure, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const destructure_src = LazySrcLoc.nodeOffset(extra.destructure_node);
+    const operand = try sema.resolveInst(extra.operand);
+    const operand_ty = sema.typeOf(operand);
+
+    const can_destructure = switch (operand_ty.zigTypeTag(mod)) {
+        .Array => true,
+        .Struct => operand_ty.isTuple(mod),
+        else => false,
+    };
+
+    if (!can_destructure) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "type '{}' cannot be destructured", .{operand_ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, destructure_src, msg, "result destructured here", .{});
+            break :msg msg;
+        });
+    }
+
+    if (operand_ty.arrayLen(mod) != extra.expect_len) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "expected {} elements for destructure, found {}", .{
+                extra.expect_len,
+                operand_ty.arrayLen(mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, destructure_src, msg, "result destructured here", .{});
+            break :msg msg;
+        });
     }
 }
 
@@ -10289,6 +10347,17 @@ fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     return sema.elemVal(block, src, array, elem_index, elem_index_src, true);
 }
 
+fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const mod = sema.mod;
+    const inst_data = sema.code.instructions.items(.data)[inst].elem_val_imm;
+    const array = try sema.resolveInst(inst_data.operand);
+    const elem_index = try mod.intRef(Type.usize, inst_data.idx);
+    return sema.elemVal(block, .unneeded, array, elem_index, .unneeded, false);
+}
+
 fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -11023,17 +11092,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
-    const raw_operand: struct { val: Air.Inst.Ref, ptr: Air.Inst.Ref } = blk: {
+    const raw_operand_val: Air.Inst.Ref, const raw_operand_ptr: Air.Inst.Ref = blk: {
         const maybe_ptr = try sema.resolveInst(extra.data.operand);
         if (operand_is_ref) {
             const val = try sema.analyzeLoad(block, src, maybe_ptr, operand_src);
-            break :blk .{ .val = val, .ptr = maybe_ptr };
+            break :blk .{ val, maybe_ptr };
         } else {
-            break :blk .{ .val = maybe_ptr, .ptr = undefined };
+            break :blk .{ maybe_ptr, undefined };
         }
     };
 
-    const operand = try sema.switchCond(block, operand_src, raw_operand.val);
+    const operand = try sema.switchCond(block, operand_src, raw_operand_val);
 
     // AstGen guarantees that the instruction immediately preceding
     // switch_block(_ref) is a dbg_stmt
@@ -11091,7 +11160,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         },
     };
 
-    const maybe_union_ty = sema.typeOf(raw_operand.val);
+    const maybe_union_ty = sema.typeOf(raw_operand_val);
     const union_originally = maybe_union_ty.zigTypeTag(mod) == .Union;
 
     // Duplicate checking variables later also used for `inline else`.
@@ -11642,8 +11711,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     const spa: SwitchProngAnalysis = .{
         .sema = sema,
         .parent_block = block,
-        .operand = raw_operand.val,
-        .operand_ptr = raw_operand.ptr,
+        .operand = raw_operand_val,
+        .operand_ptr = raw_operand_ptr,
         .cond = operand,
         .else_error_ty = else_error_ty,
         .switch_block_inst = inst,
@@ -15431,11 +15500,7 @@ fn analyzeArithmetic(
 
     const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
-    const rs: struct {
-        src: LazySrcLoc,
-        air_tag: Air.Inst.Tag,
-        air_tag_safe: Air.Inst.Tag,
-    } = rs: {
+    const runtime_src: LazySrcLoc, const air_tag: Air.Inst.Tag, const air_tag_safe: Air.Inst.Tag = rs: {
         switch (zir_tag) {
             .add, .add_unsafe => {
                 // For integers:intAddSat
@@ -15482,8 +15547,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try Value.floatAdd(lhs_val, rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .add_safe };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .add_safe };
+                    } else break :rs .{ rhs_src, air_tag, .add_safe };
+                } else break :rs .{ lhs_src, air_tag, .add_safe };
             },
             .addwrap => {
                 // Integers only; floats are checked above.
@@ -15503,8 +15568,8 @@ fn analyzeArithmetic(
                     }
                     if (maybe_lhs_val) |lhs_val| {
                         return Air.internedToRef((try sema.numberAddWrapScalar(lhs_val, rhs_val, resolved_type)).toIntern());
-                    } else break :rs .{ .src = lhs_src, .air_tag = .add_wrap, .air_tag_safe = .add_wrap };
-                } else break :rs .{ .src = rhs_src, .air_tag = .add_wrap, .air_tag_safe = .add_wrap };
+                    } else break :rs .{ lhs_src, .add_wrap, .add_wrap };
+                } else break :rs .{ rhs_src, .add_wrap, .add_wrap };
             },
             .add_sat => {
                 // Integers only; floats are checked above.
@@ -15530,14 +15595,14 @@ fn analyzeArithmetic(
 
                         return Air.internedToRef(val.toIntern());
                     } else break :rs .{
-                        .src = lhs_src,
-                        .air_tag = .add_sat,
-                        .air_tag_safe = .add_sat,
+                        lhs_src,
+                        .add_sat,
+                        .add_sat,
                     };
                 } else break :rs .{
-                    .src = rhs_src,
-                    .air_tag = .add_sat,
-                    .air_tag_safe = .add_sat,
+                    rhs_src,
+                    .add_sat,
+                    .add_sat,
                 };
             },
             .sub => {
@@ -15580,8 +15645,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try Value.floatSub(lhs_val, rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .sub_safe };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .sub_safe };
+                    } else break :rs .{ rhs_src, air_tag, .sub_safe };
+                } else break :rs .{ lhs_src, air_tag, .sub_safe };
             },
             .subwrap => {
                 // Integers only; floats are checked above.
@@ -15601,8 +15666,8 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         return Air.internedToRef((try sema.numberSubWrapScalar(lhs_val, rhs_val, resolved_type)).toIntern());
-                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_wrap, .air_tag_safe = .sub_wrap };
-                } else break :rs .{ .src = lhs_src, .air_tag = .sub_wrap, .air_tag_safe = .sub_wrap };
+                    } else break :rs .{ rhs_src, .sub_wrap, .sub_wrap };
+                } else break :rs .{ lhs_src, .sub_wrap, .sub_wrap };
             },
             .sub_sat => {
                 // Integers only; floats are checked above.
@@ -15627,8 +15692,8 @@ fn analyzeArithmetic(
                             try lhs_val.intSubSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return Air.internedToRef(val.toIntern());
-                    } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat, .air_tag_safe = .sub_sat };
-                } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat, .air_tag_safe = .sub_sat };
+                    } else break :rs .{ rhs_src, .sub_sat, .sub_sat };
+                } else break :rs .{ lhs_src, .sub_sat, .sub_sat };
             },
             .mul => {
                 // For integers:
@@ -15720,8 +15785,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try lhs_val.floatMul(rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag, .air_tag_safe = .mul_safe };
-                } else break :rs .{ .src = rhs_src, .air_tag = air_tag, .air_tag_safe = .mul_safe };
+                    } else break :rs .{ lhs_src, air_tag, .mul_safe };
+                } else break :rs .{ rhs_src, air_tag, .mul_safe };
             },
             .mulwrap => {
                 // Integers only; floats are handled above.
@@ -15765,8 +15830,8 @@ fn analyzeArithmetic(
                             return mod.undefRef(resolved_type);
                         }
                         return Air.internedToRef((try lhs_val.numberMulWrap(rhs_val, resolved_type, sema.arena, mod)).toIntern());
-                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_wrap, .air_tag_safe = .mul_wrap };
-                } else break :rs .{ .src = rhs_src, .air_tag = .mul_wrap, .air_tag_safe = .mul_wrap };
+                    } else break :rs .{ lhs_src, .mul_wrap, .mul_wrap };
+                } else break :rs .{ rhs_src, .mul_wrap, .mul_wrap };
             },
             .mul_sat => {
                 // Integers only; floats are checked above.
@@ -15816,20 +15881,20 @@ fn analyzeArithmetic(
                             try lhs_val.intMulSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return Air.internedToRef(val.toIntern());
-                    } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat, .air_tag_safe = .mul_sat };
-                } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat, .air_tag_safe = .mul_sat };
+                    } else break :rs .{ lhs_src, .mul_sat, .mul_sat };
+                } else break :rs .{ rhs_src, .mul_sat, .mul_sat };
             },
             else => unreachable,
         }
     };
 
-    try sema.requireRuntimeBlock(block, src, rs.src);
+    try sema.requireRuntimeBlock(block, src, runtime_src);
     if (block.wantSafety() and want_safety and scalar_tag == .Int) {
         if (mod.backendSupportsFeature(.safety_checked_instructions)) {
             _ = try sema.preparePanicId(block, .integer_overflow);
-            return block.addBinOp(rs.air_tag_safe, casted_lhs, casted_rhs);
+            return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
         } else {
-            const maybe_op_ov: ?Air.Inst.Tag = switch (rs.air_tag) {
+            const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
                 .add => .add_with_overflow,
                 .sub => .sub_with_overflow,
                 .mul => .mul_with_overflow,
@@ -15866,7 +15931,7 @@ fn analyzeArithmetic(
             }
         }
     }
-    return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
+    return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
 
 fn analyzePtrArithmetic(
@@ -32276,16 +32341,10 @@ fn compareIntsOnlyPossibleResult(
 
     // For any other comparison, we need to know if the LHS value is
     // equal to the maximum or minimum possible value of the RHS type.
-    const edge: struct { min: bool, max: bool } = edge: {
-        if (is_zero and rhs_info.signedness == .unsigned) break :edge .{
-            .min = true,
-            .max = false,
-        };
+    const is_min, const is_max = edge: {
+        if (is_zero and rhs_info.signedness == .unsigned) break :edge .{ true, false };
 
-        if (req_bits != rhs_info.bits) break :edge .{
-            .min = false,
-            .max = false,
-        };
+        if (req_bits != rhs_info.bits) break :edge .{ false, false };
 
         const ty = try mod.intType(
             if (is_negative) .signed else .unsigned,
@@ -32294,24 +32353,18 @@ fn compareIntsOnlyPossibleResult(
         const pop_count = lhs_val.popCount(ty, mod);
 
         if (is_negative) {
-            break :edge .{
-                .min = pop_count == 1,
-                .max = false,
-            };
+            break :edge .{ pop_count == 1, false };
         } else {
-            break :edge .{
-                .min = false,
-                .max = pop_count == req_bits - sign_adj,
-            };
+            break :edge .{ false, pop_count == req_bits - sign_adj };
         }
     };
 
     assert(fits);
     return switch (op) {
-        .lt => if (edge.max) false else null,
-        .lte => if (edge.min) true else null,
-        .gt => if (edge.min) false else null,
-        .gte => if (edge.max) true else null,
+        .lt => if (is_max) false else null,
+        .lte => if (is_min) true else null,
+        .gt => if (is_min) false else null,
+        .gte => if (is_max) true else null,
         .eq, .neq => unreachable,
     };
 }
@@ -32548,7 +32601,7 @@ const PeerResolveStrategy = enum {
             either,
         };
 
-        const res: struct { ReasonMethod, PeerResolveStrategy } = switch (s0) {
+        const reason_method: ReasonMethod, const strat: PeerResolveStrategy = switch (s0) {
             .unknown => .{ .all_s1, s1 },
             .error_set => switch (s1) {
                 .error_set => .{ .either, .error_set },
@@ -32616,7 +32669,7 @@ const PeerResolveStrategy = enum {
             .exact => .{ .all_s0, .exact },
         };
 
-        switch (res[0]) {
+        switch (reason_method) {
             .all_s0 => {
                 if (!s0_is_a) {
                     reason_peer.* = b_peer_idx;
@@ -32633,7 +32686,7 @@ const PeerResolveStrategy = enum {
             },
         }
 
-        return res[1];
+        return strat;
     }
 
     fn select(ty: Type, mod: *Module) PeerResolveStrategy {
@@ -36453,7 +36506,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.child.toType();
                 switch (child_ty.zigTypeTag(mod)) {
-                    .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                    .Fn => return !try sema.fnHasRuntimeBits(child_ty),
                     .Opaque => return false,
                     else => return sema.typeRequiresComptime(child_ty),
                 }

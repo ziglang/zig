@@ -242,6 +242,7 @@ const Writer = struct {
             .bool_br_or,
             => try self.writeBoolBr(stream, inst),
 
+            .validate_destructure => try self.writeValidateDestructure(stream, inst),
             .validate_array_init_ty => try self.writeValidateArrayInitTy(stream, inst),
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
@@ -356,6 +357,8 @@ const Writer = struct {
             => try self.writePlNodeBin(stream, inst),
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
+
+            .elem_val_imm => try self.writeElemValImm(stream, inst),
 
             .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
 
@@ -581,6 +584,20 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].un_tok;
         try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeValidateDestructure(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ValidateDestructure, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.operand);
+        try stream.print(", {d}) (destructure=", .{extra.expect_len});
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.destructure_node));
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
@@ -890,6 +907,12 @@ const Writer = struct {
         }
         try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeElemValImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].elem_val_imm;
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.print(", {d})", .{inst_data.idx});
     }
 
     fn writeElemPtrImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

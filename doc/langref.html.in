@@ -12382,21 +12382,22 @@ ComptimeDecl <- KEYWORD_comptime Block
 
 Decl
     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
-VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
+VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection?
+
+GlobalVarDecl <- VarDeclProto (EQUAL Expr)? SEMICOLON
 
 ContainerField
-     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
-      / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
+    <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
+     / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
-    <- KEYWORD_comptime? VarDecl
-     / KEYWORD_comptime BlockExprStatement
+    <- KEYWORD_comptime ComptimeStatement
      / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_suspend BlockExprStatement
      / KEYWORD_defer BlockExprStatement
@@ -12404,7 +12405,11 @@ Statement
      / IfStatement
      / LabeledStatement
      / SwitchExpr
-     / AssignExpr SEMICOLON
+     / VarDeclExprStatement
+
+ComptimeStatement
+    <- BlockExpr
+     / VarDeclExprStatement
 
 IfStatement
     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
@@ -12428,8 +12433,17 @@ BlockExprStatement
 
 BlockExpr <- BlockLabel? Block
 
+# An expression, assignment, or any destructure, as a statement.
+VarDeclExprStatement
+    <- VarDeclProto (COMMA (VarDeclProto / Expr))* EQUAL Expr SEMICOLON
+     / Expr (AssignOp Expr / (COMMA (VarDeclProto / Expr))+ EQUAL Expr)? SEMICOLON
+
 # *** Expression Level ***
-AssignExpr <- Expr (AssignOp Expr)?
+
+# An assignment or a destructure whose LHS are all lvalue expressions.
+AssignExpr <- Expr (AssignOp Expr / (COMMA Expr)+ EQUAL Expr)?
+
+SingleAssignExpr <- Expr (AssignOp Expr)?
 
 Expr <- BoolOrExpr
 
@@ -12570,7 +12584,7 @@ IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
 
 WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
 
-ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
+ForPrefix <- KEYWORD_for LPAREN ForArgumentsList RPAREN PtrListPayload
 
 # Payloads
 Payload <- PIPE IDENTIFIER PIPE
@@ -12579,15 +12593,21 @@ PtrPayload <- PIPE ASTERISK? IDENTIFIER PIPE
 
 PtrIndexPayload <- PIPE ASTERISK? IDENTIFIER (COMMA IDENTIFIER)? PIPE
 
+PtrListPayload <- PIPE ASTERISK? IDENTIFIER (COMMA ASTERISK? IDENTIFIER)* COMMA? PIPE
 
 # Switch specific
-SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
+SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? SingleAssignExpr
 
 SwitchCase
     <- SwitchItem (COMMA SwitchItem)* COMMA?
      / KEYWORD_else
 
 SwitchItem <- Expr (DOT3 Expr)?
+
+# For specific
+ForArgumentsList <- ForItem (COMMA ForItem)* COMMA?
+
+ForItem <- Expr (DOT2 Expr?)?
 
 # Operators
 AssignOp
@@ -12799,7 +12819,7 @@ STRINGLITERAL
      / (line_string                 skip)+
 IDENTIFIER
     <- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / "@\"" string_char* "\""                            skip
+     / "@" STRINGLITERALSINGLE
 BUILTINIDENTIFIER <- "@"[A-Za-z_][A-Za-z0-9_]* skip
 
 
@@ -12895,7 +12915,6 @@ KEYWORD_fn          <- 'fn'          end_of_word
 KEYWORD_for         <- 'for'         end_of_word
 KEYWORD_if          <- 'if'          end_of_word
 KEYWORD_inline      <- 'inline'      end_of_word
-KEYWORD_linksection <- 'linksection' end_of_word
 KEYWORD_noalias     <- 'noalias'     end_of_word
 KEYWORD_nosuspend   <- 'nosuspend'   end_of_word
 KEYWORD_noinline    <- 'noinline'    end_of_word
@@ -12906,6 +12925,7 @@ KEYWORD_packed      <- 'packed'      end_of_word
 KEYWORD_pub         <- 'pub'         end_of_word
 KEYWORD_resume      <- 'resume'      end_of_word
 KEYWORD_return      <- 'return'      end_of_word
+KEYWORD_linksection <- 'linksection' end_of_word
 KEYWORD_struct      <- 'struct'      end_of_word
 KEYWORD_suspend     <- 'suspend'     end_of_word
 KEYWORD_switch      <- 'switch'      end_of_word
@@ -12925,9 +12945,9 @@ keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
          / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue / KEYWORD_defer
          / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
          / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if
-         / KEYWORD_inline / KEYWORD_linksection / KEYWORD_noalias / KEYWORD_noinline
-	 / KEYWORD_nosuspend / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse
-  	 / KEYWORD_packed / KEYWORD_pub / KEYWORD_resume / KEYWORD_return
+         / KEYWORD_inline / KEYWORD_noalias / KEYWORD_nosuspend / KEYWORD_noinline
+         / KEYWORD_opaque / KEYWORD_or / KEYWORD_orelse / KEYWORD_packed
+         / KEYWORD_pub / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend / KEYWORD_switch / KEYWORD_test
          / KEYWORD_threadlocal / KEYWORD_try / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
