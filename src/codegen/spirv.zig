@@ -1066,9 +1066,10 @@ pub const DeclGen = struct {
         const mod = self.module;
         const target = self.getTarget();
         const result_ty_ref = try self.resolveType(ty, repr);
+        const ip = &mod.intern_pool;
 
         var val = arg_val;
-        switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        switch (ip.indexToKey(val.toIntern())) {
             .runtime_value => |rt| val = rt.val.toValue(),
             else => {},
         }
@@ -1078,7 +1079,7 @@ pub const DeclGen = struct {
             return self.spv.constUndef(result_ty_ref);
         }
 
-        switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        switch (ip.indexToKey(val.toIntern())) {
             .int_type,
             .ptr_type,
             .array_type,
@@ -1174,13 +1175,7 @@ pub const DeclGen = struct {
                     constituents[1] = try self.constant(err_ty, err_val, .indirect);
                 }
 
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-                    .id_result_type = self.typeId(result_ty_ref),
-                    .id_result = result_id,
-                    .constituents = &constituents,
-                });
-                return result_id;
+                return try self.constructStruct(result_ty_ref, &constituents);
             },
             .enum_tag => {
                 const int_val = try val.intFromEnum(ty, mod);
@@ -1215,13 +1210,7 @@ pub const DeclGen = struct {
                 }
 
                 const len_id = try self.constant(Type.usize, ptr.len.toValue(), .indirect);
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-                    .id_result_type = self.typeId(result_ty_ref),
-                    .id_result = result_id,
-                    .constituents = &.{ ptr_id, len_id },
-                });
-                return result_id;
+                return try self.constructStruct(result_ty_ref, &.{ ptr_id, len_id });
             },
             .opt => {
                 const payload_ty = ty.optionalChild(mod);
@@ -1242,23 +1231,51 @@ pub const DeclGen = struct {
                 // Optional representation is a structure.
                 // { Payload, Bool }
 
+                const has_pl_id = try self.constBool(maybe_payload_val != null, .indirect);
                 const payload_id = if (maybe_payload_val) |payload_val|
                     try self.constant(payload_ty, payload_val, .indirect)
                 else
                     try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
 
-                const has_pl_id = try self.constBool(maybe_payload_val != null, .indirect);
-
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-                    .id_result_type = self.typeId(result_ty_ref),
-                    .id_result = result_id,
-                    .constituents = &.{ payload_id, has_pl_id },
-                });
-                return result_id;
+                return try self.constructStruct(result_ty_ref, &.{ payload_id, has_pl_id });
             },
-            // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
-            // OpVariable that is not really required.
+            .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
+                .array_type => |array_type| {
+                    const elem_ty = array_type.child.toType();
+                    const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
+
+                    var constituents = try self.gpa.alloc(IdRef, ty.arrayLenIncludingSentinel(mod));
+                    defer self.gpa.free(constituents);
+
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| {
+                            // TODO: This is really space inefficient, perhaps there is a better
+                            // way to do it?
+                            for (bytes, 0..) |byte, i| {
+                                constituents[i] = try self.spv.constInt(elem_ty_ref, byte);
+                            }
+                        },
+                        .elems => |elems| {
+                            for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                constituents[i] = try self.constant(elem_ty, elems[i].toValue(), .indirect);
+                            }
+                        },
+                        .repeated_elem => |elem| {
+                            const val_id = try self.constant(elem_ty, elem.toValue(), .indirect);
+                            for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                constituents[i] = val_id;
+                            }
+                        },
+                    }
+                    if (array_type.sentinel != .none) {
+                        constituents[constituents.len - 1] = try self.constant(elem_ty, array_type.sentinel.toValue(), .indirect);
+                    }
+                    return try self.constructStruct(result_ty_ref, constituents);
+                },
+                .vector_type => return self.todo("constant aggregate of type {}", .{ty.fmt(mod)}),
+                .anon_struct_type => unreachable, // TODO
+                else => unreachable,
+            },
             else => {
                 // The value cannot be generated directly, so generate it as an indirect constant,
                 // and then perform an OpLoad.
