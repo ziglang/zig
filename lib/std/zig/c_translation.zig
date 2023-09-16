@@ -385,7 +385,7 @@ pub const Macros = struct {
 
     fn L_SUFFIX_ReturnType(comptime number: anytype) type {
         switch (@typeInfo(@TypeOf(number))) {
-            .Int, .ComptimeInt  => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
+            .Int, .ComptimeInt => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
             .Float, .ComptimeFloat => return c_longdouble,
             else => @compileError("Invalid value for L suffix"),
         }
@@ -393,7 +393,7 @@ pub const Macros = struct {
     pub fn L_SUFFIX(comptime number: anytype) L_SUFFIX_ReturnType(number) {
         switch (@typeInfo(@TypeOf(number))) {
             .Int, .ComptimeInt => return promoteIntLiteral(c_long, number, .decimal),
-            .Float, .ComptimeFloat  => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
+            .Float, .ComptimeFloat => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
             else => @compileError("Invalid value for L suffix"),
         }
     }
