@@ -174,6 +174,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
+/// The function IDs of global variable initializers
+initializers: std.ArrayListUnmanaged(IdRef) = .{},
+
 pub fn init(gpa: Allocator, arena: Allocator) Module {
     return .{
         .gpa = gpa,
@@ -201,6 +204,8 @@ pub fn deinit(self: *Module) void {
 
     self.globals.globals.deinit(self.gpa);
     self.globals.section.deinit(self.gpa);
+
+    self.initializers.deinit(self.gpa);
 
     self.* = undefined;
 }

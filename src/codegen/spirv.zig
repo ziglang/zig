@@ -425,6 +425,7 @@ pub const DeclGen = struct {
         // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
         // For now, just initialize the struct by setting the fields manually...
         // TODO: Make this OpCompositeConstruct when we can
+        // TODO: Make this Function storage type
         const ptr_composite_id = try self.alloc(result_ty_ref, null);
         // Note: using 32-bit ints here because usize crashes the translator as well
         const index_ty_ref = try self.intType(.unsigned, 32);
@@ -450,6 +451,40 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    /// Construct a struct at runtime.
+    /// result_ty_ref must be an array type.
+    fn constructArray(self: *DeclGen, result_ty_ref: CacheRef, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        // TODO: Make this Function storage type
+        const ptr_composite_id = try self.alloc(result_ty_ref, null);
+        // Note: using 32-bit ints here because usize crashes the translator as well
+        const index_ty_ref = try self.intType(.unsigned, 32);
+
+        const spv_composite_ty = self.spv.cache.lookup(result_ty_ref).array_type;
+        const elem_ty_ref = spv_composite_ty.element_type;
+        const ptr_elem_ty_ref = try self.spv.ptrType(elem_ty_ref, .Generic);
+
+        for (constituents, 0..) |constitent_id, index| {
+            const index_id = try self.spv.constInt(index_ty_ref, index);
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{index_id});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .pointer = ptr_composite_id,
+        });
+        return result_id;
+    }
+
     fn constructDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
         const mod = self.module;
         const ty_ref = try self.resolveType(ty, .direct);
@@ -459,10 +494,9 @@ pub const DeclGen = struct {
         switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
             .func => {
                 // TODO: Properly lower function pointers. For now we are going to hack around it and
-                // just generate an empty pointer. Function pointers are represented by usize for now,
-                // though.
+                // just generate an empty pointer. Function pointers are represented by a pointer to usize.
                 // TODO: Add dependency
-                return try self.spv.constInt(ty_ref, 0);
+                return try self.spv.constNull(ty_ref);
             },
             .extern_func => unreachable, // TODO
             else => {
@@ -1074,7 +1108,7 @@ pub const DeclGen = struct {
             else => {},
         }
 
-        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtValue(ty, self.module) });
+        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(ty, mod) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_ref);
         }
@@ -1270,7 +1304,7 @@ pub const DeclGen = struct {
                     if (array_type.sentinel != .none) {
                         constituents[constituents.len - 1] = try self.constant(elem_ty, array_type.sentinel.toValue(), .indirect);
                     }
-                    return try self.constructStruct(result_ty_ref, constituents);
+                    return try self.constructArray(result_ty_ref, constituents);
                 },
                 .struct_type => {
                     const struct_ty = mod.typeToStruct(ty).?;
@@ -1281,18 +1315,14 @@ pub const DeclGen = struct {
                     var constituents = std.ArrayList(IdRef).init(self.gpa);
                     defer constituents.deinit();
 
-                    for (struct_ty.fields.values(), 0..) |field, i| {
-                        if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
+                    var field_it = struct_ty.runtimeFieldIterator(mod);
+                    while (field_it.next()) |field_and_index| {
+                        const field = field_and_index.field;
+                        const index = field_and_index.index;
+                        // TODO: Padding?
+                        const field_val = try val.fieldValue(mod, index);
+                        const field_id = try self.constant(field.ty, field_val, .indirect);
 
-                        const field_val = switch (aggregate.storage) {
-                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field.ty.toIntern(),
-                                .storage = .{ .u64 = bytes[i] },
-                            } }),
-                            .elems => |elems| elems[i],
-                            .repeated_elem => |elem| elem,
-                        };
-                        const field_id = try self.constant(field.ty, field_val.toValue(), .indirect);
                         try constituents.append(field_id);
                     }
 
@@ -1306,33 +1336,35 @@ pub const DeclGen = struct {
                 // type that has the right field active, then pointer-cast and store
                 // the active field, and finally load and return the entire union.
 
-                const layout = ty.unionGetLayout(mod);
                 const union_ty = mod.typeToUnion(ty).?;
 
                 if (union_ty.getLayout(ip) == .Packed) {
                     return self.todo("packed union types", .{});
-                } else if (layout.payload_size == 0) {
+                }
+
+                const active_field = ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
+                const layout = self.unionLayout(ty, active_field);
+
+                if (layout.payload_size == 0) {
                     // No payload, so represent this as just the tag type.
                     return try self.constant(ty.unionTagTypeSafety(mod).?, un.tag.toValue(), .indirect);
                 }
 
-                const has_tag = layout.tag_size != 0;
-                const tag_first = layout.tag_align >= layout.payload_align;
-
-                const un_ptr_ty_ref = try self.spv.ptrType(result_ty_ref, .Function);
+                const un_active_ty_ref = try self.resolveUnionType(ty, active_field);
+                const un_active_ptr_ty_ref = try self.spv.ptrType(un_active_ty_ref, .Function);
+                const un_general_ptr_ty_ref = try self.spv.ptrType(result_ty_ref, .Function);
 
                 const var_id = self.spv.allocId();
                 try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
-                    .id_result_type = self.typeId(un_ptr_ty_ref),
+                    .id_result_type = self.typeId(un_active_ptr_ty_ref),
                     .id_result = var_id,
                     .storage_class = .Function,
                 });
 
                 const index_ty_ref = try self.intType(.unsigned, 32);
 
-                if (has_tag) {
-                    const tag_index: u32 = if (tag_first) 0 else 1;
-                    const index_id = try self.spv.constInt(index_ty_ref, tag_index);
+                if (layout.tag_size != 0) {
+                    const index_id = try self.spv.constInt(index_ty_ref, @as(u32, @intCast(layout.tag_index)));
                     const tag_ty = ty.unionTagTypeSafety(mod).?;
                     const tag_ty_ref = try self.resolveType(tag_ty, .indirect);
                     const tag_ptr_ty_ref = try self.spv.ptrType(tag_ty_ref, .Function);
@@ -1344,56 +1376,39 @@ pub const DeclGen = struct {
                     });
                 }
 
-                const pl_index: u32 = if (tag_first) 1 else 0;
-                const index_id = try self.spv.constInt(index_ty_ref, pl_index);
-                const active_field = ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
-                const active_field_ty = union_ty.field_types.get(ip)[active_field].toType();
-                const active_field_ty_ref = try self.resolveType(active_field_ty, .indirect);
-                const active_field_ptr_ty_ref = try self.spv.ptrType(active_field_ty_ref, .Function);
-                const ptr_id = try self.accessChain(active_field_ptr_ty_ref, var_id, &.{index_id});
-                const value_id = try self.constant(active_field_ty, un.val.toValue(), .indirect);
-                try self.func.body.emit(self.spv.gpa, .OpStore, .{
-                    .pointer = ptr_id,
-                    .object = value_id,
-                });
+                if (layout.active_field_size != 0) {
+                    const index_id = try self.spv.constInt(index_ty_ref, @as(u32, @intCast(layout.active_field_index)));
+                    const active_field_ty_ref = try self.resolveType(layout.active_field_ty, .indirect);
+                    const active_field_ptr_ty_ref = try self.spv.ptrType(active_field_ty_ref, .Function);
+                    const ptr_id = try self.accessChain(active_field_ptr_ty_ref, var_id, &.{index_id});
+                    const value_id = try self.constant(layout.active_field_ty, un.val.toValue(), .indirect);
+                    try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                        .pointer = ptr_id,
+                        .object = value_id,
+                    });
+                }
 
                 // Just leave the padding fields uninitialized...
+                // TODO: Or should we initialize them with undef explicitly?
+
+                // Now cast the pointer and load it as the 'generic' union type.
+
+                const casted_var_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = self.typeId(un_general_ptr_ty_ref),
+                    .id_result = casted_var_id,
+                    .operand = var_id,
+                });
 
                 const result_id = self.spv.allocId();
                 try self.func.body.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = self.typeId(result_ty_ref),
                     .id_result = result_id,
-                    .pointer = var_id,
+                    .pointer = casted_var_id,
                 });
                 return result_id;
             },
-            else => {
-                // The value cannot be generated directly, so generate it as an indirect constant,
-                // and then perform an OpLoad.
-                const result_id = self.spv.allocId();
-                const alignment = ty.abiAlignment(mod);
-                const spv_decl_index = try self.spv.allocDecl(.global);
-
-                try self.lowerIndirectConstant(
-                    spv_decl_index,
-                    ty,
-                    val,
-                    .UniformConstant,
-                    false,
-                    @intCast(alignment.toByteUnits(0)),
-                );
-                log.debug("indirect constant: index = {}", .{@intFromEnum(spv_decl_index)});
-                try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
-
-                try self.func.body.emit(self.spv.gpa, .OpLoad, .{
-                    .id_result_type = self.typeId(result_ty_ref),
-                    .id_result = result_id,
-                    .pointer = self.spv.declPtr(spv_decl_index).result_id,
-                });
-                // TODO: Convert bools? This logic should hook into `load`. It should be a dead
-                // path though considering .Bool is handled above.
-                return result_id;
-            },
+            .memoized_call => unreachable,
         }
     }
 
@@ -1458,72 +1473,61 @@ pub const DeclGen = struct {
     fn resolveUnionType(self: *DeclGen, ty: Type, maybe_active_field: ?usize) !CacheRef {
         const mod = self.module;
         const ip = &mod.intern_pool;
-        const layout = ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(ty).?;
 
         if (union_obj.getLayout(ip) == .Packed) {
             return self.todo("packed union types", .{});
         }
 
+        const layout = self.unionLayout(ty, maybe_active_field);
+
         if (layout.payload_size == 0) {
             // No payload, so represent this as just the tag type.
             return try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
         }
 
-        const entry = try self.type_map.getOrPut(self.gpa, ty.toIntern());
-        if (entry.found_existing) return entry.value_ptr.ty_ref;
+        // TODO: We need to add the active field to the key.
+        // const entry = try self.type_map.getOrPut(self.gpa, ty.toIntern());
+        // if (entry.found_existing) return entry.value_ptr.ty_ref;
 
-        var member_types = std.BoundedArray(CacheRef, 4){};
-        var member_names = std.BoundedArray(CacheString, 4){};
+        var member_types: [4]CacheRef = undefined;
+        var member_names: [4]CacheString = undefined;
 
-        const has_tag = layout.tag_size != 0;
-        const tag_first = layout.tag_align.compare(.gte, layout.payload_align);
         const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
 
-        if (has_tag and tag_first) {
+        if (layout.tag_size != 0) {
             const tag_ty_ref = try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
-            member_types.appendAssumeCapacity(tag_ty_ref);
-            member_names.appendAssumeCapacity(try self.spv.resolveString("(tag)"));
+            member_types[layout.tag_index] = tag_ty_ref;
+            member_names[layout.tag_index] = try self.spv.resolveString("(tag)");
         }
 
-        const active_field = maybe_active_field orelse layout.most_aligned_field;
-        const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
-
-        const active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime(mod)) blk: {
-            const active_payload_ty_ref = try self.resolveType(active_field_ty, .indirect);
-            member_types.appendAssumeCapacity(active_payload_ty_ref);
-            member_names.appendAssumeCapacity(try self.spv.resolveString("(payload)"));
-            break :blk active_field_ty.abiSize(mod);
-        } else 0;
-
-        const payload_padding_len = layout.payload_size - active_field_size;
-        if (payload_padding_len != 0) {
-            const payload_padding_ty_ref = try self.spv.arrayType(@as(u32, @intCast(payload_padding_len)), u8_ty_ref);
-            member_types.appendAssumeCapacity(payload_padding_ty_ref);
-            member_names.appendAssumeCapacity(try self.spv.resolveString("(payload padding)"));
+        if (layout.active_field_size != 0) {
+            const active_payload_ty_ref = try self.resolveType(layout.active_field_ty, .indirect);
+            member_types[layout.active_field_index] = active_payload_ty_ref;
+            member_names[layout.active_field_index] = try self.spv.resolveString("(payload)");
         }
 
-        if (has_tag and !tag_first) {
-            const tag_ty_ref = try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
-            member_types.appendAssumeCapacity(tag_ty_ref);
-            member_names.appendAssumeCapacity(try self.spv.resolveString("(tag)"));
+        if (layout.payload_padding_size != 0) {
+            const payload_padding_ty_ref = try self.spv.arrayType(@intCast(layout.payload_padding_size), u8_ty_ref);
+            member_types[layout.payload_padding_index] = payload_padding_ty_ref;
+            member_names[layout.payload_padding_index] = try self.spv.resolveString("(payload padding)");
         }
 
-        if (layout.padding != 0) {
-            const padding_ty_ref = try self.spv.arrayType(layout.padding, u8_ty_ref);
-            member_types.appendAssumeCapacity(padding_ty_ref);
-            member_names.appendAssumeCapacity(try self.spv.resolveString("(padding)"));
+        if (layout.padding_size != 0) {
+            const padding_ty_ref = try self.spv.arrayType(@intCast(layout.padding_size), u8_ty_ref);
+            member_types[layout.padding_index] = padding_ty_ref;
+            member_names[layout.padding_index] = try self.spv.resolveString("(padding)");
         }
 
         const ty_ref = try self.spv.resolve(.{ .struct_type = .{
             .name = try self.resolveTypeName(ty),
-            .member_types = member_types.slice(),
-            .member_names = member_names.slice(),
+            .member_types = member_types[0..layout.total_fields],
+            .member_names = member_names[0..layout.total_fields],
         } });
 
-        entry.value_ptr.* = .{
-            .ty_ref = ty_ref,
-        };
+        // entry.value_ptr.* = .{
+        //     .ty_ref = ty_ref,
+        // };
 
         return ty_ref;
     }
@@ -1532,7 +1536,7 @@ pub const DeclGen = struct {
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!CacheRef {
         const mod = self.module;
         const ip = &mod.intern_pool;
-        log.debug("resolveType: ty = {}", .{ty.fmt(self.module)});
+        log.debug("resolveType: ty = {}", .{ty.fmt(mod)});
         const target = self.getTarget();
         switch (ty.zigTypeTag(mod)) {
             .Void, .NoReturn => return try self.spv.resolve(.void_type),
@@ -1854,6 +1858,85 @@ pub const DeclGen = struct {
         };
     }
 
+    const UnionLayout = struct {
+        active_field: usize,
+        active_field_ty: Type,
+        payload_size: usize,
+
+        tag_size: usize,
+        tag_index: usize,
+        active_field_size: usize,
+        active_field_index: usize,
+        payload_padding_size: usize,
+        payload_padding_index: usize,
+        padding_size: usize,
+        padding_index: usize,
+        total_fields: usize,
+    };
+
+    fn unionLayout(self: *DeclGen, ty: Type, maybe_active_field: ?usize) UnionLayout {
+        const mod = self.module;
+        const ip = &mod.intern_pool;
+        const layout = ty.unionGetLayout(self.module);
+        const union_obj = mod.typeToUnion(ty).?;
+
+        const active_field = maybe_active_field orelse layout.most_aligned_field;
+        const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
+
+        var union_layout = UnionLayout{
+            .active_field = active_field,
+            .active_field_ty = active_field_ty,
+            .payload_size = layout.payload_size,
+            .tag_size = layout.tag_size,
+            .tag_index = undefined,
+            .active_field_size = undefined,
+            .active_field_index = undefined,
+            .payload_padding_size = undefined,
+            .payload_padding_index = undefined,
+            .padding_size = layout.padding,
+            .padding_index = undefined,
+            .total_fields = undefined,
+        };
+
+        union_layout.active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime(mod))
+            active_field_ty.abiSize(mod)
+        else
+            0;
+        union_layout.payload_padding_size = layout.payload_size - union_layout.active_field_size;
+
+        const tag_first = layout.tag_align.compare(.gte, layout.payload_align);
+        var field_index: usize = 0;
+
+        if (union_layout.tag_size != 0 and tag_first) {
+            union_layout.tag_index = field_index;
+            field_index += 1;
+        }
+
+        if (union_layout.active_field_size != 0) {
+            union_layout.active_field_index = field_index;
+            field_index += 1;
+        }
+
+        if (union_layout.payload_padding_size != 0) {
+            union_layout.payload_padding_index = field_index;
+            field_index += 1;
+        }
+
+        if (union_layout.tag_size != 0 and !tag_first) {
+            union_layout.tag_index = field_index;
+            field_index += 1;
+        }
+
+        if (union_layout.padding_size != 0) {
+            union_layout.padding_index = field_index;
+            field_index += 1;
+        }
+
+        union_layout.total_fields = field_index;
+
+        return union_layout;
+    }
+
     /// The SPIR-V backend is not yet advanced enough to support the std testing infrastructure.
     /// In order to be able to run tests, we "temporarily" lower test kernels into separate entry-
     /// points. The test executor will then be able to invoke these to run the tests.
@@ -1995,22 +2078,60 @@ pub const DeclGen = struct {
                 return self.todo("importing extern variables", .{});
             }
 
-            // TODO: integrate with variable().
+            // Currently, initializers for CrossWorkgroup variables is not implemented
+            // in Mesa. Therefore we generate an initialization kernel instead.
 
+            const void_ty_ref = try self.resolveType(Type.void, .direct);
+
+            const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
+                .return_type = void_ty_ref,
+                .parameters = &.{},
+            } });
+
+            // Generate the actual variable for the global...
             const final_storage_class = spvStorageClass(decl.@"addrspace");
             const actual_storage_class = switch (final_storage_class) {
                 .Generic => .CrossWorkgroup,
                 else => final_storage_class,
             };
 
-            try self.lowerIndirectConstant(
-                spv_decl_index,
-                decl.ty,
-                init_val,
-                actual_storage_class,
-                final_storage_class == .Generic,
-                @intCast(decl.alignment.toByteUnits(0)),
-            );
+            const ty_ref = try self.resolveType(decl.ty, .indirect);
+            const ptr_ty_ref = try self.spv.ptrType(ty_ref, actual_storage_class);
+
+            const begin = self.spv.beginGlobal();
+            try self.spv.globals.section.emit(self.spv.gpa, .OpVariable, .{
+                .id_result_type = self.typeId(ptr_ty_ref),
+                .id_result = decl_id,
+                .storage_class = actual_storage_class,
+            });
+            // TODO: We should be able to get rid of this by now...
+            self.spv.endGlobal(spv_decl_index, begin);
+
+            // Now emit the instructions that initialize the variable.
+            const initializer_id = self.spv.allocId();
+            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                .id_result_type = self.typeId(void_ty_ref),
+                .id_result = initializer_id,
+                .function_control = .{},
+                .function_type = self.typeId(initializer_proto_ty_ref),
+            });
+            const root_block_id = self.spv.allocId();
+            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                .id_result = root_block_id,
+            });
+            self.current_block_label_id = root_block_id;
+
+            const val_id = try self.constant(decl.ty, init_val, .indirect);
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = decl_id,
+                .object = val_id,
+            });
+
+            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+            try self.spv.addFunction(spv_decl_index, self.func);
+
+            try self.spv.initializers.append(self.spv.gpa, initializer_id);
         }
     }
 
