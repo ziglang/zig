@@ -708,7 +708,7 @@ pub const DeclGen = struct {
                     const elem_ty = array_type.child.toType();
                     const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
-                    const constituents = try self.gpa.alloc(IdRef, ty.arrayLenIncludingSentinel(mod));
+                    const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
                     defer self.gpa.free(constituents);
 
                     switch (aggregate.storage) {
@@ -1289,19 +1289,19 @@ pub const DeclGen = struct {
     }
 
     const UnionLayout = struct {
-        active_field: usize,
+        active_field: u32,
         active_field_ty: Type,
-        payload_size: usize,
+        payload_size: u32,
 
-        tag_size: usize,
-        tag_index: usize,
-        active_field_size: usize,
-        active_field_index: usize,
-        payload_padding_size: usize,
-        payload_padding_index: usize,
-        padding_size: usize,
-        padding_index: usize,
-        total_fields: usize,
+        tag_size: u32,
+        tag_index: u32,
+        active_field_size: u32,
+        active_field_index: u32,
+        payload_padding_size: u32,
+        payload_padding_index: u32,
+        padding_size: u32,
+        padding_index: u32,
+        total_fields: u32,
     };
 
     fn unionLayout(self: *DeclGen, ty: Type, maybe_active_field: ?usize) UnionLayout {
@@ -1314,28 +1314,28 @@ pub const DeclGen = struct {
         const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
 
         var union_layout = UnionLayout{
-            .active_field = active_field,
+            .active_field = @intCast(active_field),
             .active_field_ty = active_field_ty,
-            .payload_size = layout.payload_size,
-            .tag_size = layout.tag_size,
+            .payload_size = @intCast(layout.payload_size),
+            .tag_size = @intCast(layout.tag_size),
             .tag_index = undefined,
             .active_field_size = undefined,
             .active_field_index = undefined,
             .payload_padding_size = undefined,
             .payload_padding_index = undefined,
-            .padding_size = layout.padding,
+            .padding_size = @intCast(layout.padding),
             .padding_index = undefined,
             .total_fields = undefined,
         };
 
         union_layout.active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime(mod))
-            active_field_ty.abiSize(mod)
+            @intCast(active_field_ty.abiSize(mod))
         else
             0;
-        union_layout.payload_padding_size = layout.payload_size - union_layout.active_field_size;
+        union_layout.payload_padding_size = @intCast(layout.payload_size - union_layout.active_field_size);
 
         const tag_first = layout.tag_align.compare(.gte, layout.payload_align);
-        var field_index: usize = 0;
+        var field_index: u32 = 0;
 
         if (union_layout.tag_size != 0 and tag_first) {
             union_layout.tag_index = field_index;
@@ -1534,6 +1534,7 @@ pub const DeclGen = struct {
                 .id_result = decl_id,
                 .storage_class = actual_storage_class,
             });
+            self.spv.globalPtr(spv_decl_index).?.result_id = decl_id;
 
             // Now emit the instructions that initialize the variable.
             const initializer_id = self.spv.allocId();
