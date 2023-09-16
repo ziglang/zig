@@ -29922,8 +29922,13 @@ fn beginComptimePtrMutation(
                         // We might have a pointer to multiple elements of the array (e.g. a pointer
                         // to a sub-array). In this case, we just have to reinterpret the relevant
                         // bytes of the whole array rather than any single element.
-                        const elem_abi_size_u64 = try sema.typeAbiSize(base_elem_ty);
-                        if (elem_abi_size_u64 < try sema.typeAbiSize(ptr_elem_ty)) {
+                        reinterp_multi_elem: {
+                            if (try sema.typeRequiresComptime(base_elem_ty)) break :reinterp_multi_elem;
+                            if (try sema.typeRequiresComptime(ptr_elem_ty)) break :reinterp_multi_elem;
+
+                            const elem_abi_size_u64 = try sema.typeAbiSize(base_elem_ty);
+                            if (elem_abi_size_u64 >= try sema.typeAbiSize(ptr_elem_ty)) break :reinterp_multi_elem;
+
                             const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
                             const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                             return .{
