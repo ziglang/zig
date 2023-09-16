@@ -1895,4 +1895,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Closure over local in typeof",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int x = 123;
+        \\    union { typeof(x) val; } u = { x };
+        \\    if (u.val != 123) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
