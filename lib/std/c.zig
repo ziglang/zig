@@ -408,7 +408,11 @@ pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
-pub usingnamespace if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
+pub usingnamespace if (builtin.target.isAndroid()) struct {
+    // android bionic libc does not implement getcontext,
+    // and std.os.linux.getcontext also cannot be built for
+    // bionic libc currently.
+} else if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
     // musl does not implement getcontext
     pub const getcontext = std.os.linux.getcontext;
 } else struct {
