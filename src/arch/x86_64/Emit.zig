@@ -41,7 +41,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .offset = end_offset - 4,
                     .length = @as(u5, @intCast(end_offset - start_offset)),
                 }),
-                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                    // Add relocation to the decl.
+                    const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                    try atom_ptr.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | std.elf.R_X86_64_PLT32,
+                        .r_addend = -4,
+                    });
+                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
                     const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     const target = macho_file.getGlobalByIndex(symbol.sym_index);

@@ -203,6 +203,16 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 else => unreachable,
             }
         },
+        .assign_destructure => {
+            const lhs_count = tree.extra_data[node_datas[node].lhs];
+            const all_lhs = tree.extra_data[node_datas[node].lhs + 1 ..][0..lhs_count];
+            for (all_lhs) |lhs| {
+                _ = try astrl.expr(lhs, block, ResultInfo.none);
+            }
+            // We don't need to gather any meaningful data here, because destructures always use RLS
+            _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.none);
+            return false;
+        },
         .assign => {
             _ = try astrl.expr(node_datas[node].lhs, block, ResultInfo.none);
             _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.typed_ptr);
@@ -800,6 +810,8 @@ fn blockExpr(astrl: *AstRlAnnotate, parent_block: ?*Block, ri: ResultInfo, node:
 }
 
 fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.Node.Index, args: []const Ast.Node.Index) !bool {
+    _ = ri; // Currently, no builtin consumes its result location.
+
     const tree = astrl.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const builtin_token = main_tokens[node];
@@ -818,11 +830,8 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         },
         .as => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
-            const rhs_consumes_rl = try astrl.expr(args[1], block, ri);
-            if (rhs_consumes_rl) {
-                try astrl.nodes_need_rl.putNoClobber(astrl.gpa, node, {});
-            }
-            return rhs_consumes_rl;
+            _ = try astrl.expr(args[1], block, ResultInfo.type_only);
+            return false;
         },
         .bit_cast => {
             _ = try astrl.expr(args[0], block, ResultInfo.none);

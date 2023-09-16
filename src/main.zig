@@ -4260,12 +4260,14 @@ pub const usage_libc =
     \\Options:
     \\  -h, --help             Print this help and exit
     \\  -target [name]         <arch><sub>-<os>-<abi> see the targets command
+    \\  -includes              Print the libc include directories for the target
     \\
 ;
 
 pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     var input_file: ?[]const u8 = null;
     var target_arch_os_abi: []const u8 = "native";
+    var print_includes: bool = false;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4279,6 +4281,8 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
                     if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                     i += 1;
                     target_arch_os_abi = args[i];
+                } else if (mem.eql(u8, arg, "-includes")) {
+                    print_includes = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -4293,6 +4297,59 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     const cross_target = try parseCrossTargetOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
+
+    if (print_includes) {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+
+        const libc_installation: ?*LibCInstallation = libc: {
+            if (input_file) |libc_file| {
+                var libc = try arena.create(LibCInstallation);
+                libc.* = LibCInstallation.parse(arena, libc_file, cross_target) catch |err| {
+                    fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
+                };
+                break :libc libc;
+            } else {
+                break :libc null;
+            }
+        };
+
+        const self_exe_path = try introspect.findZigExePath(arena);
+        var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+        };
+        defer zig_lib_directory.handle.close();
+
+        const target = cross_target.toTarget();
+        const is_native_abi = cross_target.isNativeAbi();
+
+        var libc_dirs = Compilation.detectLibCIncludeDirs(
+            arena,
+            zig_lib_directory.path.?,
+            target,
+            is_native_abi,
+            true,
+            libc_installation,
+        ) catch |err| {
+            const zig_target = try target.zigTriple(arena);
+            fatal("unable to detect libc for target {s}: {s}", .{ zig_target, @errorName(err) });
+        };
+
+        if (libc_dirs.libc_include_dir_list.len == 0) {
+            const zig_target = try target.zigTriple(arena);
+            fatal("no include dirs detected for target {s}", .{zig_target});
+        }
+
+        var bw = io.bufferedWriter(io.getStdOut().writer());
+        var writer = bw.writer();
+        for (libc_dirs.libc_include_dir_list) |include_dir| {
+            try writer.writeAll(include_dir);
+            try writer.writeByte('\n');
+        }
+        try bw.flush();
+        return cleanExit();
+    }
 
     if (input_file) |libc_file| {
         var libc = LibCInstallation.parse(gpa, libc_file, cross_target) catch |err| {
@@ -4651,7 +4708,14 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        if (!build_options.only_core_functionality) {
+        if (build_options.only_core_functionality) {
+            const deps_pkg = try Package.createFilePkg(gpa, local_cache_directory, "dependencies.zig",
+                \\pub const packages = struct {};
+                \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
+                \\
+            );
+            try main_pkg.add(gpa, "@dependencies", deps_pkg);
+        } else {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
@@ -4660,12 +4724,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             // access dependencies by name, since `@import` requires string literals.
             var dependencies_source = std.ArrayList(u8).init(gpa);
             defer dependencies_source.deinit();
-            try dependencies_source.appendSlice("pub const imports = struct {\n");
-
-            // This will go into the same package. It contains the file system paths
-            // to all the build.zig files.
-            var build_roots_source = std.ArrayList(u8).init(gpa);
-            defer build_roots_source.deinit();
 
             var all_modules: Package.AllModules = .{};
             defer all_modules.deinit(gpa);
@@ -4689,11 +4747,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 global_cache_directory,
                 local_cache_directory,
                 &dependencies_source,
-                &build_roots_source,
-                "",
                 &wip_errors,
                 &all_modules,
                 root_prog_node,
+                null,
             );
             if (wip_errors.root_list.items.len > 0) {
                 var errors = try wip_errors.toOwnedBundle("");
@@ -4702,10 +4759,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 process.exit(1);
             }
             try fetch_result;
-
-            try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
-            try dependencies_source.appendSlice(build_roots_source.items);
-            try dependencies_source.appendSlice("};\n");
 
             const deps_pkg = try Package.createFilePkg(
                 gpa,

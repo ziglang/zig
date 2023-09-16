@@ -2392,7 +2392,7 @@ pub const Object = struct {
                         comptime assert(struct_layout_version == 2);
                         var offset: u64 = 0;
 
-                        for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+                        for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                             if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                             const field_size = field_ty.toType().abiSize(mod);
@@ -2401,7 +2401,7 @@ pub const Object = struct {
                             offset = field_offset + field_size;
 
                             const field_name = if (tuple.names.len != 0)
-                                ip.stringToSlice(tuple.names[i])
+                                ip.stringToSlice(tuple.names.get(ip)[i])
                             else
                                 try std.fmt.allocPrintZ(gpa, "{d}", .{i});
                             defer if (tuple.names.len == 0) gpa.free(field_name);
@@ -3325,7 +3325,10 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
 
-                    for (anon_struct_type.types, anon_struct_type.values) |field_ty, field_val| {
+                    for (
+                        anon_struct_type.types.get(ip),
+                        anon_struct_type.values.get(ip),
+                    ) |field_ty, field_val| {
                         if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                         const field_align = field_ty.toType().abiAlignment(mod);
@@ -3874,7 +3877,11 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: u32 = 0;
                     var need_unnamed = false;
-                    for (tuple.types, tuple.values, 0..) |field_ty, field_val, field_index| {
+                    for (
+                        tuple.types.get(ip),
+                        tuple.values.get(ip),
+                        0..,
+                    ) |field_ty, field_val, field_index| {
                         if (field_val != .none) continue;
                         if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
@@ -10537,10 +10544,11 @@ fn llvmField(ty: Type, field_index: usize, mod: *Module) ?LlvmField {
     var offset: u64 = 0;
     var big_align: u32 = 0;
 
-    const struct_type = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+    const ip = &mod.intern_pool;
+    const struct_type = switch (ip.indexToKey(ty.toIntern())) {
         .anon_struct_type => |tuple| {
             var llvm_field_index: c_uint = 0;
-            for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+            for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                 if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                 const field_align = field_ty.toType().abiAlignment(mod);
@@ -11118,6 +11126,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
     const max_fields_byval = 0;
+    const ip = &mod.intern_pool;
 
     switch (ty.zigTypeTag(mod)) {
         .Type,
@@ -11146,10 +11155,10 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout(mod) == .Packed) return false;
-            const struct_type = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                 .anon_struct_type => |tuple| {
                     var count: usize = 0;
-                    for (tuple.types, tuple.values) |field_ty, field_val| {
+                    for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                         if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                         count += 1;

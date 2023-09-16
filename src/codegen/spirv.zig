@@ -1227,6 +1227,7 @@ pub const DeclGen = struct {
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!CacheRef {
         const mod = self.module;
+        const ip = &mod.intern_pool;
         log.debug("resolveType: ty = {}", .{ty.fmt(self.module)});
         const target = self.getTarget();
         switch (ty.zigTypeTag(mod)) {
@@ -1271,7 +1272,6 @@ pub const DeclGen = struct {
             },
             .Fn => switch (repr) {
                 .direct => {
-                    const ip = &mod.intern_pool;
                     const fn_info = mod.typeToFunc(ty).?;
                     // TODO: Put this somewhere in Sema.zig
                     if (fn_info.is_var_args)
@@ -1333,13 +1333,13 @@ pub const DeclGen = struct {
                 } });
             },
             .Struct => {
-                const struct_ty = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                const struct_ty = switch (ip.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |tuple| {
                         const member_types = try self.gpa.alloc(CacheRef, tuple.values.len);
                         defer self.gpa.free(member_types);
 
                         var member_index: usize = 0;
-                        for (tuple.types, tuple.values) |field_ty, field_val| {
+                        for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
                             if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
 
                             member_types[member_index] = try self.resolveType(field_ty.toType(), .indirect);
@@ -1369,12 +1369,12 @@ pub const DeclGen = struct {
                 while (it.next()) |field_and_index| {
                     const field = field_and_index.field;
                     const index = field_and_index.index;
-                    const field_name = mod.intern_pool.stringToSlice(struct_obj.fields.keys()[index]);
+                    const field_name = ip.stringToSlice(struct_obj.fields.keys()[index]);
                     try member_types.append(try self.resolveType(field.ty, .indirect));
                     try member_names.append(try self.spv.resolveString(field_name));
                 }
 
-                const name = mod.intern_pool.stringToSlice(try struct_obj.getFullyQualifiedName(self.module));
+                const name = ip.stringToSlice(try struct_obj.getFullyQualifiedName(self.module));
 
                 return try self.spv.resolve(.{ .struct_type = .{
                     .name = try self.spv.resolveString(name),

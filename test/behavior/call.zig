@@ -491,3 +491,13 @@ test "argument to generic function has correct result type" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "call inline fn through pointer" {
+    const S = struct {
+        inline fn foo(x: u8) !void {
+            try expect(x == 123);
+        }
+    };
+    const f = &S.foo;
+    try f(123);
+}

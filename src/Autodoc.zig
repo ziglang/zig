@@ -766,15 +766,12 @@ const DocData = struct {
         array: []usize, // index in `exprs`
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
-        alignOf: usize, // index in `exprs`
         typeOf: usize, // index in `exprs`
-        typeInfo: usize, // index in `exprs`
         typeOf_peer: []usize,
         errorUnion: usize, // index in `types`
         as: As,
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
-        intFromEnum: usize, // index in `exprs`
         compileError: usize, // index in `exprs`
         optionalPayload: usize, // index in `exprs`
         elemVal: ElemVal,
@@ -794,9 +791,15 @@ const DocData = struct {
         mulAdd: MulAdd,
         switchIndex: usize, // index in `exprs`
         switchOp: SwitchOp,
+        unOp: UnOp,
+        unOpIndex: usize,
         binOp: BinOp,
         binOpIndex: usize,
         load: usize, // index in `exprs`
+        const UnOp = struct {
+            param: usize, // index in `exprs`
+            name: []const u8 = "", // tag name
+        };
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
@@ -1521,6 +1524,23 @@ fn walkInstruction(
                 .expr = .{ .load = load_idx },
             };
         },
+        .ref => {
+            const un_tok = data[inst_index].un_tok;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_tok.operand,
+                need_type,
+                call_ctx,
+            );
+            const ref_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .expr = .{ .@"&" = ref_idx },
+            };
+        },
 
         // @check array_cat and array_mul
         .add,
@@ -1654,8 +1674,7 @@ fn walkInstruction(
         .frame_type,
         .frame_size,
         .int_from_ptr,
-        .bit_not,
-        .bool_not,
+        .type_info,
         // @check
         .clz,
         .ctz,
@@ -1678,11 +1697,47 @@ fn walkInstruction(
             const param_index = self.exprs.items.len;
             try self.exprs.append(self.arena, param.expr);
 
-            self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
+            self.exprs.items[bin_index] = .{
+                .builtin = .{
+                    .name = @tagName(tags[inst_index]),
+                    .param = param_index,
+                },
+            };
 
             return DocData.WalkResult{
                 .typeRef = param.typeRef orelse .{ .type = @intFromEnum(Ref.type_type) },
                 .expr = .{ .builtinIndex = bin_index },
+            };
+        },
+        .bit_not,
+        .bool_not,
+        .negate_wrap,
+        => {
+            const un_node = data[inst_index].un_node;
+            const un_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .unOp = .{ .param = 0 } });
+            const param = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_node.operand,
+                false,
+                call_ctx,
+            );
+
+            const param_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, param.expr);
+
+            self.exprs.items[un_index] = .{
+                .unOp = .{
+                    .name = @tagName(tags[inst_index]),
+                    .param = param_index,
+                },
+            };
+
+            return DocData.WalkResult{
+                .typeRef = param.typeRef,
+                .expr = .{ .unOpIndex = un_index },
             };
         },
         .bool_br_and, .bool_br_or => {
@@ -2390,12 +2445,20 @@ fn walkInstruction(
                 .int => |*int| int.negated = true,
                 .int_big => |*int_big| int_big.negated = true,
                 else => {
-                    printWithContext(
-                        file,
-                        inst_index,
-                        "TODO: support negation for more types",
-                        .{},
-                    );
+                    const un_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, .{ .unOp = .{ .param = 0 } });
+                    const param_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, operand.expr);
+                    self.exprs.items[un_index] = .{
+                        .unOp = .{
+                            .name = @tagName(tags[inst_index]),
+                            .param = param_index,
+                        },
+                    };
+                    return DocData.WalkResult{
+                        .typeRef = operand.typeRef,
+                        .expr = .{ .unOpIndex = un_index },
+                    };
                 },
             }
             return operand;
@@ -2449,12 +2512,20 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
+            const builtin_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
+            self.exprs.items[builtin_index] = .{
+                .builtin = .{
+                    .name = @tagName(tags[inst_index]),
+                    .param = operand_index,
+                },
+            };
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @intFromEnum(Ref.comptime_int_type) },
-                .expr = .{ .intFromEnum = operand_index },
+                .expr = .{ .builtinIndex = builtin_index },
             };
         },
         .switch_block => {
@@ -2545,27 +2616,6 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
                 .expr = .{ .typeOf = operand_index },
-            };
-        },
-        .type_info => {
-            // @check
-            const un_node = data[inst_index].un_node;
-
-            const operand = try self.walkRef(
-                file,
-                parent_scope,
-                parent_src,
-                un_node.operand,
-                need_type,
-                call_ctx,
-            );
-
-            const operand_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, operand.expr);
-
-            return DocData.WalkResult{
-                .typeRef = operand.typeRef,
-                .expr = .{ .typeInfo = operand_index },
             };
         },
         .as_node, .as_shift_operand => {

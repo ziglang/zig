@@ -373,11 +373,11 @@ pub const Key = union(enum) {
     };
 
     pub const AnonStructType = struct {
-        types: []const Index,
+        types: Index.Slice,
         /// This may be empty, indicating this is a tuple.
-        names: []const NullTerminatedString,
+        names: NullTerminatedString.Slice,
         /// These elements may be `none`, indicating runtime-known.
-        values: []const Index,
+        values: Index.Slice,
 
         pub fn isTuple(self: AnonStructType) bool {
             return self.names.len == 0;
@@ -1020,9 +1020,9 @@ pub const Key = union(enum) {
 
             .anon_struct_type => |anon_struct_type| {
                 var hasher = Hash.init(seed);
-                for (anon_struct_type.types) |elem| std.hash.autoHash(&hasher, elem);
-                for (anon_struct_type.values) |elem| std.hash.autoHash(&hasher, elem);
-                for (anon_struct_type.names) |elem| std.hash.autoHash(&hasher, elem);
+                for (anon_struct_type.types.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
+                for (anon_struct_type.values.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
+                for (anon_struct_type.names.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
                 return hasher.final();
             },
 
@@ -1352,9 +1352,9 @@ pub const Key = union(enum) {
             },
             .anon_struct_type => |a_info| {
                 const b_info = b.anon_struct_type;
-                return std.mem.eql(Index, a_info.types, b_info.types) and
-                    std.mem.eql(Index, a_info.values, b_info.values) and
-                    std.mem.eql(NullTerminatedString, a_info.names, b_info.names);
+                return std.mem.eql(Index, a_info.types.get(ip), b_info.types.get(ip)) and
+                    std.mem.eql(Index, a_info.values.get(ip), b_info.values.get(ip)) and
+                    std.mem.eql(NullTerminatedString, a_info.names.get(ip), b_info.names.get(ip));
             },
             .error_set_type => |a_info| {
                 const b_info = b.error_set_type;
@@ -2113,9 +2113,9 @@ pub const static_keys = [_]Key{
 
     // empty_struct_type
     .{ .anon_struct_type = .{
-        .types = &.{},
-        .names = &.{},
-        .values = &.{},
+        .types = .{ .start = 0, .len = 0 },
+        .names = .{ .start = 0, .len = 0 },
+        .values = .{ .start = 0, .len = 0 },
     } },
 
     .{ .simple_value = .undefined },
@@ -3025,7 +3025,17 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
 
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
-    for (static_keys) |key| _ = ip.get(gpa, key) catch unreachable;
+    for (static_keys[0..@intFromEnum(Index.empty_struct_type)]) |key| {
+        _ = ip.get(gpa, key) catch unreachable;
+    }
+    _ = ip.getAnonStructType(gpa, .{
+        .types = &.{},
+        .names = &.{},
+        .values = &.{},
+    }) catch unreachable;
+    for (static_keys[@intFromEnum(Index.empty_struct_type) + 1 ..]) |key| {
+        _ = ip.get(gpa, key) catch unreachable;
+    }
 
     if (std.debug.runtime_safety) {
         // Sanity check.
@@ -3155,30 +3165,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .namespace = @as(Module.Namespace.Index, @enumFromInt(data)).toOptional(),
         } },
 
-        .type_struct_anon => {
-            const type_struct_anon = ip.extraDataTrail(TypeStructAnon, data);
-            const fields_len = type_struct_anon.data.fields_len;
-            const types = ip.extra.items[type_struct_anon.end..][0..fields_len];
-            const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
-            const names = ip.extra.items[type_struct_anon.end + 2 * fields_len ..][0..fields_len];
-            return .{ .anon_struct_type = .{
-                .types = @ptrCast(types),
-                .values = @ptrCast(values),
-                .names = @ptrCast(names),
-            } };
-        },
-        .type_tuple_anon => {
-            const type_struct_anon = ip.extraDataTrail(TypeStructAnon, data);
-            const fields_len = type_struct_anon.data.fields_len;
-            const types = ip.extra.items[type_struct_anon.end..][0..fields_len];
-            const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
-            return .{ .anon_struct_type = .{
-                .types = @ptrCast(types),
-                .values = @ptrCast(values),
-                .names = &.{},
-            } };
-        },
-
+        .type_struct_anon => .{ .anon_struct_type = extraTypeStructAnon(ip, data) },
+        .type_tuple_anon => .{ .anon_struct_type = extraTypeTupleAnon(ip, data) },
         .type_union => .{ .union_type = extraUnionType(ip, data) },
 
         .type_enum_auto => {
@@ -3577,6 +3565,44 @@ fn extraUnionType(ip: *const InternPool, extra_index: u32) Key.UnionType {
     };
 }
 
+fn extraTypeStructAnon(ip: *const InternPool, extra_index: u32) Key.AnonStructType {
+    const type_struct_anon = ip.extraDataTrail(TypeStructAnon, extra_index);
+    const fields_len = type_struct_anon.data.fields_len;
+    return .{
+        .types = .{
+            .start = type_struct_anon.end,
+            .len = fields_len,
+        },
+        .values = .{
+            .start = type_struct_anon.end + fields_len,
+            .len = fields_len,
+        },
+        .names = .{
+            .start = type_struct_anon.end + fields_len + fields_len,
+            .len = fields_len,
+        },
+    };
+}
+
+fn extraTypeTupleAnon(ip: *const InternPool, extra_index: u32) Key.AnonStructType {
+    const type_struct_anon = ip.extraDataTrail(TypeStructAnon, extra_index);
+    const fields_len = type_struct_anon.data.fields_len;
+    return .{
+        .types = .{
+            .start = type_struct_anon.end,
+            .len = fields_len,
+        },
+        .values = .{
+            .start = type_struct_anon.end + fields_len,
+            .len = fields_len,
+        },
+        .names = .{
+            .start = 0,
+            .len = 0,
+        },
+    };
+}
+
 fn extraFuncType(ip: *const InternPool, extra_index: u32) Key.FuncType {
     const type_function = ip.extraDataTrail(Tag.TypeFunction, extra_index);
     var index: usize = type_function.end;
@@ -3864,44 +3890,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
 
-        .anon_struct_type => |anon_struct_type| {
-            assert(anon_struct_type.types.len == anon_struct_type.values.len);
-            for (anon_struct_type.types) |elem| assert(elem != .none);
-
-            const fields_len: u32 = @intCast(anon_struct_type.types.len);
-            if (anon_struct_type.names.len == 0) {
-                try ip.extra.ensureUnusedCapacity(
-                    gpa,
-                    @typeInfo(TypeStructAnon).Struct.fields.len + (fields_len * 2),
-                );
-                ip.items.appendAssumeCapacity(.{
-                    .tag = .type_tuple_anon,
-                    .data = ip.addExtraAssumeCapacity(TypeStructAnon{
-                        .fields_len = fields_len,
-                    }),
-                });
-                ip.extra.appendSliceAssumeCapacity(@ptrCast(anon_struct_type.types));
-                ip.extra.appendSliceAssumeCapacity(@ptrCast(anon_struct_type.values));
-                return @enumFromInt(ip.items.len - 1);
-            }
-
-            assert(anon_struct_type.names.len == anon_struct_type.types.len);
-
-            try ip.extra.ensureUnusedCapacity(
-                gpa,
-                @typeInfo(TypeStructAnon).Struct.fields.len + (fields_len * 3),
-            );
-            ip.items.appendAssumeCapacity(.{
-                .tag = .type_struct_anon,
-                .data = ip.addExtraAssumeCapacity(TypeStructAnon{
-                    .fields_len = fields_len,
-                }),
-            });
-            ip.extra.appendSliceAssumeCapacity(@ptrCast(anon_struct_type.types));
-            ip.extra.appendSliceAssumeCapacity(@ptrCast(anon_struct_type.values));
-            ip.extra.appendSliceAssumeCapacity(@ptrCast(anon_struct_type.names));
-            return @enumFromInt(ip.items.len - 1);
-        },
+        .anon_struct_type => unreachable, // use getAnonStructType() instead
 
         .union_type => unreachable, // use getUnionType() instead
 
@@ -4408,7 +4397,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     }
                 },
                 .anon_struct_type => |anon_struct_type| {
-                    for (aggregate.storage.values(), anon_struct_type.types) |elem, ty| {
+                    for (aggregate.storage.values(), anon_struct_type.types.get(ip)) |elem, ty| {
                         assert(ip.typeOf(elem) == ty);
                     }
                 },
@@ -4426,7 +4415,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             switch (ty_key) {
                 .anon_struct_type => |anon_struct_type| opv: {
                     switch (aggregate.storage) {
-                        .bytes => |bytes| for (anon_struct_type.values, bytes) |value, byte| {
+                        .bytes => |bytes| for (anon_struct_type.values.get(ip), bytes) |value, byte| {
                             if (value != ip.getIfExists(.{ .int = .{
                                 .ty = .u8_type,
                                 .storage = .{ .u64 = byte },
@@ -4434,10 +4423,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         },
                         .elems => |elems| if (!std.mem.eql(
                             Index,
-                            anon_struct_type.values,
+                            anon_struct_type.values.get(ip),
                             elems,
                         )) break :opv,
-                        .repeated_elem => |elem| for (anon_struct_type.values) |value| {
+                        .repeated_elem => |elem| for (anon_struct_type.values.get(ip)) |value| {
                             if (value != elem) break :opv;
                         },
                     }
@@ -4642,6 +4631,53 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
     ip.items.appendAssumeCapacity(.{
         .tag = .type_union,
         .data = union_type_extra_index,
+    });
+    return @enumFromInt(ip.items.len - 1);
+}
+
+pub const AnonStructTypeInit = struct {
+    types: []const Index,
+    /// This may be empty, indicating this is a tuple.
+    names: []const NullTerminatedString,
+    /// These elements may be `none`, indicating runtime-known.
+    values: []const Index,
+};
+
+pub fn getAnonStructType(ip: *InternPool, gpa: Allocator, ini: AnonStructTypeInit) Allocator.Error!Index {
+    assert(ini.types.len == ini.values.len);
+    for (ini.types) |elem| assert(elem != .none);
+
+    const prev_extra_len = ip.extra.items.len;
+    const fields_len: u32 = @intCast(ini.types.len);
+
+    try ip.extra.ensureUnusedCapacity(
+        gpa,
+        @typeInfo(TypeStructAnon).Struct.fields.len + (fields_len * 3),
+    );
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+
+    const extra_index = ip.addExtraAssumeCapacity(TypeStructAnon{
+        .fields_len = fields_len,
+    });
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.types));
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.values));
+
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const key: Key = .{
+        .anon_struct_type = if (ini.names.len == 0) extraTypeTupleAnon(ip, extra_index) else k: {
+            assert(ini.names.len == ini.types.len);
+            ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
+            break :k extraTypeStructAnon(ip, extra_index);
+        },
+    };
+    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
+    if (gop.found_existing) {
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+    ip.items.appendAssumeCapacity(.{
+        .tag = if (ini.names.len == 0) .type_tuple_anon else .type_struct_anon,
+        .data = extra_index,
     });
     return @enumFromInt(ip.items.len - 1);
 }
@@ -6056,7 +6092,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             for (agg_elems, 0..) |*elem, i| {
                 const new_elem_ty = switch (ip.indexToKey(new_ty)) {
                     inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
+                    .anon_struct_type => |anon_struct_type| anon_struct_type.types.get(ip)[i],
                     .struct_type => |struct_type| ip.structPtr(struct_type.index.unwrap().?)
                         .fields.values()[i].ty.toIntern(),
                     else => unreachable,

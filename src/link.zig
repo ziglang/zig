@@ -549,7 +549,7 @@ pub const File = struct {
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name, lib_name),
-            .elf   => unreachable,
+            .elf   => return @fieldParentPtr(Elf, "base", base).getGlobalSymbol(name, lib_name),
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name, lib_name),
             .plan9 => unreachable,
             .spirv => unreachable,
@@ -849,6 +849,7 @@ pub const File = struct {
 
     pub fn miscErrors(base: *File) []const ErrorMsg {
         switch (base.tag) {
+            .elf => return @fieldParentPtr(Elf, "base", base).misc_errors.items,
             .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
             else => return &.{},
         }

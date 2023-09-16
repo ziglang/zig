@@ -66,7 +66,7 @@ pub const Wyhash = struct {
     }
 
     pub fn final(self: *Wyhash) u64 {
-        var input = self.buf[0..self.buf_len];
+        var input: []const u8 = self.buf[0..self.buf_len];
         var newSelf = self.shallowCopy(); // ensure idempotency
 
         if (self.total_len <= 16) {
@@ -196,6 +196,7 @@ pub const Wyhash = struct {
     }
 };
 
+const verify = @import("verify.zig");
 const expectEqual = std.testing.expectEqual;
 
 const TestVector = struct {
@@ -229,51 +230,26 @@ test "test vectors at comptime" {
     }
 }
 
-test "test vectors streaming" {
-    const step = 5;
-
-    for (vectors) |e| {
-        var wh = Wyhash.init(e.seed);
-        var i: usize = 0;
-        while (i < e.input.len) : (i += step) {
-            const len = if (i + step > e.input.len) e.input.len - i else step;
-            wh.update(e.input[i..][0..len]);
+test "smhasher" {
+    const Test = struct {
+        fn do() !void {
+            try expectEqual(verify.smhasher(Wyhash.hash), 0xBD5E840C);
         }
-        try expectEqual(e.expected, wh.final());
-    }
+    };
+    try Test.do();
+    @setEvalBranchQuota(50000);
+    try comptime Test.do();
 }
 
-test "test ensure idempotent final call" {
-    const e: TestVector = .{ .seed = 6, .expected = 0xc39cab13b115aad3, .input = "12345678901234567890123456789012345678901234567890123456789012345678901234567890" };
-    var wh = Wyhash.init(e.seed);
-    wh.update(e.input);
-
-    for (0..10) |_| {
-        try expectEqual(e.expected, wh.final());
-    }
-}
-
-test "iterative non-divisible update" {
-    var buf: [8192]u8 = undefined;
-    for (&buf, 0..) |*e, i| {
-        e.* = @as(u8, @truncate(i));
-    }
-
-    const seed = 0x128dad08f;
-
-    var end: usize = 32;
-    while (end < buf.len) : (end += 32) {
-        const non_iterative_hash = Wyhash.hash(seed, buf[0..end]);
-
-        var wy = Wyhash.init(seed);
-        var i: usize = 0;
-        while (i < end) : (i += 33) {
-            wy.update(buf[i..@min(i + 33, end)]);
+test "iterative api" {
+    const Test = struct {
+        fn do() !void {
+            try verify.iterativeApi(Wyhash);
         }
-        const iterative_hash = wy.final();
-
-        try std.testing.expectEqual(iterative_hash, non_iterative_hash);
-    }
+    };
+    try Test.do();
+    @setEvalBranchQuota(50000);
+    try comptime Test.do();
 }
 
 test "iterative maintains last sixteen" {

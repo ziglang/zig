@@ -438,7 +438,11 @@ pub fn generateSymbol(
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
-                for (tuple.types, tuple.values, 0..) |field_ty, comptime_val, index| {
+                for (
+                    tuple.types.get(ip),
+                    tuple.values.get(ip),
+                    0..,
+                ) |field_ty, comptime_val, index| {
                     if (comptime_val != .none) continue;
                     if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
@@ -854,10 +858,11 @@ fn genDeclRef(
     const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
-        const atom = elf_file.getAtom(atom_index);
-        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(elf_file) });
+        const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
+        const sym = elf_file.symbol(sym_index);
+        sym.flags.needs_got = true;
+        _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+        return GenResult.mcv(.{ .memory = sym.gotAddress(elf_file) });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -892,7 +897,7 @@ fn genUnnamedConst(
         return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
+        return GenResult.mcv(.{ .memory = elf_file.symbol(local_sym_index).value });
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

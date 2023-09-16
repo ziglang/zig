@@ -327,7 +327,7 @@ pub const DeclState = struct {
                         // DW.AT.name, DW.FORM.string
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
 
-                        for (fields.types, 0..) |field_ty, field_index| {
+                        for (fields.types.get(ip), 0..) |field_ty, field_index| {
                             // DW.AT.member
                             try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                             // DW.AT.name, DW.FORM.string
@@ -1108,7 +1108,7 @@ pub fn commitDeclState(
                         switch (self.bin_file.tag) {
                             .elf => {
                                 const elf_file = self.bin_file.cast(File.Elf).?;
-                                const debug_line_sect = &elf_file.sections.items(.shdr)[elf_file.debug_line_section_index.?];
+                                const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
                                 const file_pos = debug_line_sect.sh_offset + src_fn.off;
                                 try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
                             },
@@ -1170,7 +1170,7 @@ pub fn commitDeclState(
                     const elf_file = self.bin_file.cast(File.Elf).?;
                     const shdr_index = elf_file.debug_line_section_index.?;
                     try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                    const debug_line_sect = elf_file.sections.items(.shdr)[shdr_index];
+                    const debug_line_sect = elf_file.shdrs.items[shdr_index];
                     const file_pos = debug_line_sect.sh_offset + src_fn.off;
                     try pwriteDbgLineNops(
                         elf_file.base.file.?,
@@ -1337,7 +1337,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
                 switch (self.bin_file.tag) {
                     .elf => {
                         const elf_file = self.bin_file.cast(File.Elf).?;
-                        const debug_info_sect = &elf_file.sections.items(.shdr)[elf_file.debug_info_section_index.?];
+                        const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
                         const file_pos = debug_info_sect.sh_offset + atom.off;
                         try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
@@ -1415,7 +1415,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
             const elf_file = self.bin_file.cast(File.Elf).?;
             const shdr_index = elf_file.debug_info_section_index.?;
             try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-            const debug_info_sect = elf_file.sections.items(.shdr)[shdr_index];
+            const debug_info_sect = &elf_file.shdrs.items[shdr_index];
             const file_pos = debug_info_sect.sh_offset + atom.off;
             try pwriteDbgInfoNops(
                 elf_file.base.file.?,
@@ -1496,7 +1496,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const shdr = elf_file.sections.items(.shdr)[elf_file.debug_line_section_index.?];
+            const shdr = elf_file.shdrs.items[elf_file.debug_line_section_index.?];
             const file_pos = shdr.sh_offset + atom.off + self.getRelocDbgLineOff();
             try elf_file.base.file.?.pwriteAll(&data, file_pos);
         },
@@ -1713,7 +1713,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
             const elf_file = self.bin_file.cast(File.Elf).?;
             const shdr_index = elf_file.debug_abbrev_section_index.?;
             try elf_file.growNonAllocSection(shdr_index, needed_size, 1, false);
-            const debug_abbrev_sect = elf_file.sections.items(.shdr)[shdr_index];
+            const debug_abbrev_sect = &elf_file.shdrs.items[shdr_index];
             const file_pos = debug_abbrev_sect.sh_offset + abbrev_offset;
             try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
         },
@@ -1828,7 +1828,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_info_sect = elf_file.sections.items(.shdr)[elf_file.debug_info_section_index.?];
+            const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
             const file_pos = debug_info_sect.sh_offset;
             try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
         },
@@ -2147,7 +2147,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
             const elf_file = self.bin_file.cast(File.Elf).?;
             const shdr_index = elf_file.debug_aranges_section_index.?;
             try elf_file.growNonAllocSection(shdr_index, needed_size, 16, false);
-            const debug_aranges_sect = elf_file.sections.items(.shdr)[shdr_index];
+            const debug_aranges_sect = &elf_file.shdrs.items[shdr_index];
             const file_pos = debug_aranges_sect.sh_offset;
             try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
         },
@@ -2312,9 +2312,9 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
             .elf => {
                 const elf_file = self.bin_file.cast(File.Elf).?;
                 const shdr_index = elf_file.debug_line_section_index.?;
-                const needed_size = elf_file.sections.items(.shdr)[shdr_index].sh_size + delta;
+                const needed_size = elf_file.shdrs.items[shdr_index].sh_size + delta;
                 try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                const file_pos = elf_file.sections.items(.shdr)[shdr_index].sh_offset + first_fn.off;
+                const file_pos = elf_file.shdrs.items[shdr_index].sh_offset + first_fn.off;
 
                 const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
                 if (amt != buffer.len) return error.InputOutput;
@@ -2377,7 +2377,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     switch (self.bin_file.tag) {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_line_sect = elf_file.sections.items(.shdr)[elf_file.debug_line_section_index.?];
+            const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
             const file_pos = debug_line_sect.sh_offset;
             try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
         },
@@ -2500,7 +2500,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
             switch (self.bin_file.tag) {
                 .elf => {
                     const elf_file = self.bin_file.cast(File.Elf).?;
-                    const debug_info_sect = &elf_file.sections.items(.shdr)[elf_file.debug_info_section_index.?];
+                    const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
                     break :blk debug_info_sect.sh_offset;
                 },
                 .macho => {
