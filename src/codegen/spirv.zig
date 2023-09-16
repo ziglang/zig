@@ -1244,7 +1244,7 @@ pub const DeclGen = struct {
                     const elem_ty = array_type.child.toType();
                     const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
-                    var constituents = try self.gpa.alloc(IdRef, ty.arrayLenIncludingSentinel(mod));
+                    const constituents = try self.gpa.alloc(IdRef, ty.arrayLenIncludingSentinel(mod));
                     defer self.gpa.free(constituents);
 
                     switch (aggregate.storage) {
@@ -1272,8 +1272,33 @@ pub const DeclGen = struct {
                     }
                     return try self.constructStruct(result_ty_ref, constituents);
                 },
-                .vector_type => return self.todo("constant aggregate of type {}", .{ty.fmt(mod)}),
-                .anon_struct_type => unreachable, // TODO
+                .struct_type => {
+                    const struct_ty = mod.typeToStruct(ty).?;
+                    if (struct_ty.layout == .Packed) {
+                        return self.todo("packed struct constants", .{});
+                    }
+
+                    var constituents = std.ArrayList(IdRef).init(self.gpa);
+                    defer constituents.deinit();
+
+                    for (struct_ty.fields.values(), 0..) |field, i| {
+                        if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
+
+                        const field_val = switch (aggregate.storage) {
+                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
+                                .ty = field.ty.toIntern(),
+                                .storage = .{ .u64 = bytes[i] },
+                            } }),
+                            .elems => |elems| elems[i],
+                            .repeated_elem => |elem| elem,
+                        };
+                        const field_id = try self.constant(field.ty, field_val.toValue(), .indirect);
+                        try constituents.append(field_id);
+                    }
+
+                    return try self.constructStruct(result_ty_ref, constituents.items);
+                },
+                .vector_type, .anon_struct_type => unreachable, // TODO
                 else => unreachable,
             },
             else => {
