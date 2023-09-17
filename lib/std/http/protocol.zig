@@ -534,9 +534,9 @@ pub const HeadersParser = struct {
 
                         if (r.next_chunk_length == 0) r.done = true;
 
-                        return 0;
-                    } else {
-                        const out_avail = buffer.len;
+                        return out_index;
+                    } else if (out_index < buffer.len) {
+                        const out_avail = buffer.len - out_index;
 
                         const can_read = @as(usize, @intCast(@min(data_avail, out_avail)));
                         const nread = try conn.read(buffer[0..can_read]);
@@ -545,6 +545,8 @@ pub const HeadersParser = struct {
                         if (r.next_chunk_length == 0) r.done = true;
 
                         return nread;
+                    } else {
+                        return out_index;
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
@@ -558,6 +560,7 @@ pub const HeadersParser = struct {
                         .chunk_data => if (r.next_chunk_length == 0) {
                             if (std.mem.eql(u8, conn.peek(), "\r\n")) {
                                 r.state = .finished;
+                                r.done = true;
                             } else {
                                 // The trailer section is formatted identically to the header section.
                                 r.state = .seen_rn;
