@@ -327,8 +327,8 @@ fn _start() callconv(.Naked) noreturn {
             // argc is stored after a register window (16 registers) plus stack bias
             \\ mov %%g0, %%i6
             \\ add %%o6, 2175, %%l0
-            \\ stx %%l0, %[argc_argv_ptr]
             \\ ba %[posixCallMainAndExit]
+            \\  stx %%l0, %[argc_argv_ptr]
             ,
             else => @compileError("unsupported arch"),
         }
