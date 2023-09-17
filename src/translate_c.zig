@@ -5524,22 +5524,38 @@ const MacroCtx = struct {
         return MacroSlicer{ .source = self.source, .tokens = self.list };
     }
 
-    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?[]const u8 {
+    const MacroTranslateError = union(enum) {
+        undefined_identifier: []const u8,
+        invalid_arg_usage: []const u8,
+    };
+
+    fn checkTranslatableMacro(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?MacroTranslateError {
         const slicer = self.makeSlicer();
+        var last_is_type_kw = false;
         var i: usize = 1; // index 0 is the macro name
         while (i < self.list.len) : (i += 1) {
             const token = self.list[i];
             switch (token.id) {
                 .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
+                .Keyword_struct, .Keyword_union, .Keyword_enum => if (!last_is_type_kw) {
+                    last_is_type_kw = true;
+                    continue;
+                },
                 .Identifier => {
                     const identifier = slicer.slice(token);
                     const is_param = for (params) |param| {
                         if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
                     } else false;
-                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) return identifier;
+                    if (is_param and last_is_type_kw) {
+                        return .{ .invalid_arg_usage = identifier };
+                    }
+                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) {
+                        return .{ .undefined_identifier = identifier };
+                    }
                 },
                 else => {},
             }
+            last_is_type_kw = false;
         }
         return null;
     }
@@ -5649,8 +5665,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
-    if (m.containsUndefinedIdentifier(scope, &.{})) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, &.{})) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => unreachable, // no args
+    };
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5698,8 +5716,10 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     try m.skip(c, .RParen);
 
-    if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, fn_params.items)) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => |ident| return m.fail(c, "unable to translate macro: untranslatable usage of arg `{s}`", .{ident}),
+    };
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;

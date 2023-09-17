@@ -7468,7 +7468,7 @@ fn localVarRef(
                 }
 
                 // Can't close over a runtime variable
-                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime) {
+                if (num_namespaces_out != 0 and !local_ptr.maybe_comptime and !gz.is_typeof) {
                     const ident_name = try astgen.identifierTokenString(ident_token);
                     return astgen.failNodeNotes(ident, "mutable '{s}' not accessible from here", .{ident_name}, &.{
                         try astgen.errNoteTok(local_ptr.token_src, "declared mutable here", .{}),
@@ -8041,6 +8041,7 @@ fn typeOf(
 
         var typeof_scope = gz.makeSubBlock(scope);
         typeof_scope.is_comptime = false;
+        typeof_scope.is_typeof = true;
         typeof_scope.c_import = false;
         defer typeof_scope.unstack();
 
@@ -10882,6 +10883,9 @@ const GenZir = struct {
     /// whenever we know Sema will analyze the current block with `is_comptime`,
     /// for instance when we're within a `struct_decl` or a `block_comptime`.
     is_comptime: bool,
+    /// Whether we're in an expression within a `@TypeOf` operand. In this case, closure of runtime
+    /// variables is permitted where it is usually not.
+    is_typeof: bool = false,
     /// This is set to true for inline loops; false otherwise.
     is_inline: bool = false,
     c_import: bool = false,
@@ -10953,6 +10957,7 @@ const GenZir = struct {
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{
             .is_comptime = gz.is_comptime,
+            .is_typeof = gz.is_typeof,
             .c_import = gz.c_import,
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
