@@ -2651,17 +2651,35 @@ pub const DeclGen = struct {
         object_ptr: IdRef,
         field_index: u32,
     ) !?IdRef {
+        const result_ty_ref = try self.resolveType(result_ptr_ty, .direct);
+
         const mod = self.module;
         const object_ty = object_ptr_ty.childType(mod);
         switch (object_ty.zigTypeTag(mod)) {
             .Struct => switch (object_ty.containerLayout(mod)) {
                 .Packed => unreachable, // TODO
                 else => {
-                    const result_ty_ref = try self.resolveType(result_ptr_ty, .direct);
                     return try self.accessChain(result_ty_ref, object_ptr, &.{field_index});
                 },
             },
-            else => unreachable, // TODO
+            .Union => switch (object_ty.containerLayout(mod)) {
+                .Packed => unreachable, // TODO
+                else => {
+                    const storage_class = spvStorageClass(object_ptr_ty.ptrAddressSpace(mod));
+                    const un_active_ty_ref = try self.resolveUnionType(object_ty, field_index);
+                    const un_active_ptr_ty_ref = try self.spv.ptrType(un_active_ty_ref, storage_class);
+
+                    const casted_id = self.spv.allocId();
+                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                        .id_result_type = self.typeId(un_active_ptr_ty_ref),
+                        .id_result = casted_id,
+                        .operand = object_ptr,
+                    });
+                    const layout = self.unionLayout(object_ty, field_index);
+                    return try self.accessChain(result_ty_ref, casted_id, &.{layout.active_field_index});
+                },
+            },
+            else => unreachable,
         }
     }
 
