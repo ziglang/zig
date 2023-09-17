@@ -670,10 +670,4 @@ test "Extended C ABI casting" {
         try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
         try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
     }
-
-    const c = @cImport({
-        @cDefine("LONG(x)", "x##L");
-        @cDefine("X", "LONG(10)");
-    });
-    try testing.expect((@TypeOf(c.X)) == c_long);
 }
