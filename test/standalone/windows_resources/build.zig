@@ -11,11 +11,14 @@ pub fn build(b: *std.Build) void {
         .abi = .gnu,
     };
 
-    add(b, native_target, test_step);
-    add(b, cross_target, test_step);
+    add(b, native_target, .any, test_step);
+    add(b, cross_target, .any, test_step);
+
+    add(b, native_target, .gnu, test_step);
+    add(b, cross_target, .gnu, test_step);
 }
 
-fn add(b: *std.Build, target: std.zig.CrossTarget, test_step: *std.Build.Step) void {
+fn add(b: *std.Build, target: std.zig.CrossTarget, rc_includes: enum { any, gnu }, test_step: *std.Build.Step) void {
     const exe = b.addExecutable(.{
         .name = "zig_resource_test",
         .root_source_file = .{ .path = "main.zig" },
@@ -26,6 +29,10 @@ fn add(b: *std.Build, target: std.zig.CrossTarget, test_step: *std.Build.Step) v
         .file = .{ .path = "res/zig.rc" },
         .flags = &.{"/c65001"}, // UTF-8 code page
     });
+    exe.rc_includes = switch (rc_includes) {
+        .any => .any,
+        .gnu => .gnu,
+    };
 
     _ = exe.getEmittedBin();
 

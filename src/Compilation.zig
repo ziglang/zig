@@ -4513,6 +4513,19 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             "-fms-compatibility", // Allow things like "header.h" to be resolved relative to the 'root' .rc file, among other things
             "-DRC_INVOKED", // https://learn.microsoft.com/en-us/windows/win32/menurc/predefined-macros
         });
+        // Using -fms-compatibility and targeting the gnu abi interact in a strange way:
+        // - Targeting the GNU abi stops _MSC_VER from being defined
+        // - Passing -fms-compatibility stops __GNUC__ from being defined
+        // Neither being defined is a problem for things like things like MinGW's
+        // vadefs.h, which will fail during preprocessing if neither are defined.
+        // So, when targeting the GNU abi, we need to force __GNUC__ to be defined.
+        //
+        // TODO: This is a workaround that should be removed if possible.
+        if (comp.getTarget().isGnu()) {
+            // This is the same default gnuc version that Clang uses:
+            // https://github.com/llvm/llvm-project/blob/4b5366c9512aa273a5272af1d833961e1ed156e7/clang/lib/Driver/ToolChains/Clang.cpp#L6738
+            try argv.append("-fgnuc-version=4.2.1");
+        }
         for (options.extra_include_paths.items) |extra_include_path| {
             try argv.append("--include-directory");
             try argv.append(extra_include_path);
