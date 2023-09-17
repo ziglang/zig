@@ -1896,7 +1896,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     continue;
                 }
             },
-            .generated => {},
+            .generated, .dependency => {},
         };
 
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
