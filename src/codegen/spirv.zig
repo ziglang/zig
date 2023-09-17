@@ -1681,6 +1681,8 @@ pub const DeclGen = struct {
             .int_from_float    => try self.airIntFromFloat(inst),
             .not             => try self.airNot(inst),
 
+            .array_to_slice => try self.airArrayToSlice(inst),
+
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
@@ -2425,6 +2427,30 @@ pub const DeclGen = struct {
         }
 
         return result_id;
+    }
+
+    fn airArrayToSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const array_ptr_ty = self.typeOf(ty_op.operand);
+        const array_ty = array_ptr_ty.childType(mod);
+        const elem_ty = array_ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
+        const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
+        const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(array_ptr_ty.ptrAddressSpace(mod)));
+        const slice_ty = self.typeOfIndex(inst);
+        const slice_ty_ref = try self.resolveType(slice_ty, .direct);
+        const size_ty_ref = try self.sizeType();
+
+        const array_ptr_id = try self.resolve(ty_op.operand);
+        const len_id = try self.constInt(size_ty_ref, array_ty.arrayLen(mod));
+
+        if (!array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            unreachable; // TODO
+        }
+
+        // Convert the pointer-to-array to a pointer to the first element.
+        const elem_ptr_id = try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
+        return try self.constructStruct(slice_ty_ref, &.{ elem_ptr_id, len_id });
     }
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {

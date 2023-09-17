@@ -29,7 +29,6 @@ comptime {
 
 test "slicing" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var array: [20]i32 = undefined;
 
@@ -346,7 +345,6 @@ test "empty array to slice" {
 test "@ptrCast slice to pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -572,7 +570,6 @@ test "slice syntax resulting in pointer-to-array" {
 test "slice pointer-to-array null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         var array = [5:0]u8{ 1, 2, 3, 4, 5 };
@@ -714,7 +711,6 @@ test "slice sentinel access at comptime" {
 test "slicing array with sentinel as end index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn do() !void {
@@ -733,7 +729,6 @@ test "slicing array with sentinel as end index" {
 test "slicing slice with sentinel as end index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn do() !void {
@@ -762,7 +757,6 @@ test "slice len modification at comptime" {
 }
 
 test "slice field ptr const" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const const_slice: []const u8 = "string";
 
@@ -777,7 +771,6 @@ test "slice field ptr const" {
 
 test "slice field ptr var" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var var_slice: []const u8 = "string";
 
