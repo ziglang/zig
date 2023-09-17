@@ -231,3 +231,8 @@ test "@typeInfo on @cImport result" {
 
     try expect(@typeInfo(h).Struct.decls.len > 1);
 }
+
+test "Macro that uses Long type concatenation casting" {
+    try expect((@TypeOf(h.X)) == c_long);
+    try expectEqual(h.X, @as(c_long, 10));
+}
