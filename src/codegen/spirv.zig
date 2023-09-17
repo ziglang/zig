@@ -801,7 +801,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) !IdRef {
+    fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) Error!IdRef {
         const result_ty_ref = try self.resolveType(ptr_ty, .direct);
         const mod = self.module;
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
@@ -1692,9 +1692,9 @@ pub const DeclGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .int_from_ptr        => try self.airIntFromPtr(inst),
-            .float_from_int    => try self.airFloatFromInt(inst),
-            .int_from_float    => try self.airIntFromFloat(inst),
+            .int_from_ptr    => try self.airIntFromPtr(inst),
+            .float_from_int  => try self.airFloatFromInt(inst),
+            .int_from_float  => try self.airIntFromFloat(inst),
             .not             => try self.airNot(inst),
 
             .array_to_slice => try self.airArrayToSlice(inst),

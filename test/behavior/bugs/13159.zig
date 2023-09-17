@@ -11,7 +11,6 @@ const Bar = packed struct {
 
 test {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var foo = Bar.Baz.fizz;
     try expect(foo == .fizz);

@@ -9,8 +9,6 @@ test "switch on empty enum" {
 }
 
 test "switch on empty enum with a specified tag type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const E = enum(u8) {};
     var e: E = undefined;
     switch (e) {}
@@ -18,7 +16,6 @@ test "switch on empty enum with a specified tag type" {
 
 test "switch on empty auto numbered tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = union(enum(u8)) {};
     var u: U = undefined;

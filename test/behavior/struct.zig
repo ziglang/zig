@@ -109,7 +109,6 @@ fn testMutation(foo: *StructFoo) void {
 
 test "struct byval assign" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var foo1: StructFoo = undefined;
     var foo2: StructFoo = undefined;
@@ -129,8 +128,6 @@ test "call struct static method" {
 const should_be_11 = StructWithNoFields.add(5, 6);
 
 test "invoke static method in global scope" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(should_be_11 == 11);
 }
 
@@ -255,7 +252,6 @@ test "usingnamespace within struct scope" {
 test "struct field init with catch" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -367,8 +363,6 @@ test "self-referencing struct via array member" {
 }
 
 test "empty struct method call" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const es = EmptyStruct{};
     try expect(es.method() == 1234);
 }
@@ -553,7 +547,6 @@ test "implicit cast packed struct field to const ptr" {
 
 test "zero-bit field in packed struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
         x: u10,
@@ -949,8 +942,6 @@ test "tuple assigned to variable" {
 }
 
 test "comptime struct field" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
 
@@ -988,7 +979,6 @@ test "struct with union field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Value = struct {
         ref: u32 = 2,
@@ -1439,8 +1429,6 @@ test "struct field has a pointer to an aligned version of itself" {
 }
 
 test "struct has only one reference" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn optionalStructParam(_: ?struct { x: u8 }) void {}
         fn errorUnionStructParam(_: error{}!struct { x: u8 }) void {}
@@ -1510,7 +1498,6 @@ test "discarded struct initialization works as expected" {
 
 test "function pointer in struct returns the struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         const A = @This();
@@ -1560,7 +1547,6 @@ test "optional field init with tuple" {
 
 test "if inside struct init inside if" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const MyStruct = struct { x: u32 };
     const b: u32 = 5;

@@ -754,7 +754,6 @@ test "slice len modification at comptime" {
 }
 
 test "slice field ptr const" {
-
     const const_slice: []const u8 = "string";
 
     const const_ptr_const_slice = &const_slice;

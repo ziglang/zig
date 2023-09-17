@@ -5,8 +5,6 @@ const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 
 test "break and continue inside loop inside defer expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testBreakContInDefer(10);
     comptime testBreakContInDefer(10);
 }

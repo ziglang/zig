@@ -11,8 +11,6 @@ const B = extern struct {
 };
 
 test {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var a: *A = undefined;
     try expect(@TypeOf(&a.value.a) == *volatile u32);
     try expect(@TypeOf(&a.value.b) == *volatile i32);
@@ -26,8 +24,6 @@ const D = extern union {
     b: i32,
 };
 test {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var c: *C = undefined;
     try expect(@TypeOf(&c.value.a) == *volatile u32);
     try expect(@TypeOf(&c.value.b) == *volatile i32);

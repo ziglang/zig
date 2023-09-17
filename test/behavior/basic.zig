@@ -606,7 +606,6 @@ test "self reference through fn ptr field" {
 
 test "global variable initialized to global variable array element" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(global_ptr == &gdt[0]);
 }
