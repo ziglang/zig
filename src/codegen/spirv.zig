@@ -1658,7 +1658,8 @@ pub const DeclGen = struct {
             .rem_optimized,
             => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem, false),
 
-            .add_with_overflow => try self.airOverflowArithOp(inst),
+            .add_with_overflow => try self.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
+            .sub_with_overflow => try self.airAddSubOverflow(inst, .OpISub, .OpUGreaterThan, .OpSGreaterThan),
 
             .shuffle => try self.airShuffle(inst),
 
@@ -1878,7 +1879,13 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airOverflowArithOp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airAddSubOverflow(
+        self: *DeclGen,
+        inst: Air.Inst.Index,
+        comptime add: Opcode,
+        comptime ucmp: Opcode,
+        comptime scmp: Opcode,
+    ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -1910,7 +1917,7 @@ pub const DeclGen = struct {
 
         // TODO: Operations other than addition.
         const value_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpIAdd, .{
+        try self.func.body.emit(self.spv.gpa, add, .{
             .id_result_type = operand_ty_id,
             .id_result = value_id,
             .operand_1 = lhs,
@@ -1920,8 +1927,9 @@ pub const DeclGen = struct {
         const overflowed_id = switch (info.signedness) {
             .unsigned => blk: {
                 // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
+                // For subtraction the conditions need to be swapped.
                 const overflowed_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpULessThan, .{
+                try self.func.body.emit(self.spv.gpa, ucmp, .{
                     .id_result_type = self.typeId(bool_ty_ref),
                     .id_result = overflowed_id,
                     .operand_1 = value_id,
@@ -1930,13 +1938,22 @@ pub const DeclGen = struct {
                 break :blk overflowed_id;
             },
             .signed => blk: {
-                // Overflow happened if:
+                // lhs - rhs
+                // For addition, overflow happened if:
                 // - rhs is negative and value > lhs
                 // - rhs is positive and value < lhs
                 // This can be shortened to:
-                //   (rhs < 0 && value > lhs) || (rhs >= 0 && value <= lhs)
+                //   (rhs < 0 and value > lhs) or (rhs >= 0 and value <= lhs)
                 // = (rhs < 0) == (value > lhs)
+                // = (rhs < 0) == (lhs < value)
                 // Note that signed overflow is also wrapping in spir-v.
+                // For subtraction, overflow happened if:
+                // - rhs is negative and value < lhs
+                // - rhs is positive and value > lhs
+                // This can be shortened to:
+                //   (rhs < 0 and value < lhs) or (rhs >= 0 and value >= lhs)
+                // = (rhs < 0) == (value < lhs)
+                // = (rhs < 0) == (lhs > value)
 
                 const rhs_lt_zero_id = self.spv.allocId();
                 const zero_id = try self.constInt(operand_ty_ref, 0);
@@ -1948,11 +1965,11 @@ pub const DeclGen = struct {
                 });
 
                 const value_gt_lhs_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpSGreaterThan, .{
+                try self.func.body.emit(self.spv.gpa, scmp, .{
                     .id_result_type = self.typeId(bool_ty_ref),
                     .id_result = value_gt_lhs_id,
-                    .operand_1 = value_id,
-                    .operand_2 = lhs,
+                    .operand_1 = lhs,
+                    .operand_2 = value_id,
                 });
 
                 const overflowed_id = self.spv.allocId();
