@@ -444,8 +444,14 @@ pub const DeclGen = struct {
         // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
         // For now, just initialize the struct by setting the fields manually...
         // TODO: Make this OpCompositeConstruct when we can
-        // TODO: Make this Function storage type
-        const ptr_composite_id = try self.alloc(result_ty_ref, null);
+        const ptr_ty_ref = try self.spv.ptrType(result_ty_ref, .Function);
+        const ptr_composite_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(ptr_ty_ref),
+            .id_result = ptr_composite_id,
+            .storage_class = .Function,
+        });
+
         // Note: using 32-bit ints here because usize crashes the translator as well
         const index_ty_ref = try self.intType(.unsigned, 32);
 
@@ -454,7 +460,7 @@ pub const DeclGen = struct {
 
         for (constituents, member_types, 0..) |constitent_id, member_ty_ref, index| {
             const index_id = try self.constInt(index_ty_ref, index);
-            const ptr_member_ty_ref = try self.spv.ptrType(member_ty_ref, .Generic);
+            const ptr_member_ty_ref = try self.spv.ptrType(member_ty_ref, .Function);
             const ptr_id = try self.accessChain(ptr_member_ty_ref, ptr_composite_id, &.{index_id});
             try self.func.body.emit(self.spv.gpa, .OpStore, .{
                 .pointer = ptr_id,
@@ -479,13 +485,20 @@ pub const DeclGen = struct {
         // For now, just initialize the struct by setting the fields manually...
         // TODO: Make this OpCompositeConstruct when we can
         // TODO: Make this Function storage type
-        const ptr_composite_id = try self.alloc(result_ty_ref, null);
+        const ptr_ty_ref = try self.spv.ptrType(result_ty_ref, .Function);
+        const ptr_composite_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(ptr_ty_ref),
+            .id_result = ptr_composite_id,
+            .storage_class = .Function,
+        });
+
         // Note: using 32-bit ints here because usize crashes the translator as well
         const index_ty_ref = try self.intType(.unsigned, 32);
 
         const spv_composite_ty = self.spv.cache.lookup(result_ty_ref).array_type;
         const elem_ty_ref = spv_composite_ty.element_type;
-        const ptr_elem_ty_ref = try self.spv.ptrType(elem_ty_ref, .Generic);
+        const ptr_elem_ty_ref = try self.spv.ptrType(elem_ty_ref, .Function);
 
         for (constituents, 0..) |constitent_id, index| {
             const index_id = try self.constInt(index_ty_ref, index);
