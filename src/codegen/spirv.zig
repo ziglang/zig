@@ -2206,8 +2206,8 @@ pub const DeclGen = struct {
                     .gte => .OpFOrdGreaterThanEqual,
                 },
                 .bool => break :opcode switch (op) {
-                    .eq => .OpIEqual,
-                    .neq => .OpINotEqual,
+                    .eq => .OpLogicalEqual,
+                    .neq => .OpLogicalNotEqual,
                     else => unreachable,
                 },
                 .strange_integer => sign: {
