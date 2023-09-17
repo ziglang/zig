@@ -644,3 +644,36 @@ test "CAST_OR_CALL calling" {
 
     try testing.expectEqual(Helper.identity(@as(c_uint, 100)), Macros.CAST_OR_CALL(Helper.identity, @as(c_uint, 100)));
 }
+
+test "Extended C ABI casting" {
+    if (math.maxInt(c_long) > math.maxInt(c_char)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_char, math.maxInt(c_char) - 1))) == c_long); // c_char
+    }
+    if (math.maxInt(c_long) > math.maxInt(c_short)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_short, math.maxInt(c_short) - 1))) == c_long); // c_short
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_ushort)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_ushort, math.maxInt(c_ushort) - 1))) == c_long); //c_ushort
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_int, math.maxInt(c_int) - 1))) == c_long); // c_int
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_uint)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_uint, math.maxInt(c_uint) - 1))) == c_long); // c_uint
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_uint) + 1)) == c_long); // comptime_int -> c_long
+    }
+
+    if (math.maxInt(c_longlong) > math.maxInt(c_long)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
+    }
+
+    const c = @cImport({
+        @cDefine("LONG(x)", "x##L");
+        @cDefine("X", "LONG(10)");
+    });
+    try testing.expect((@TypeOf(c.X)) == c_long);
+}
