@@ -1502,7 +1502,6 @@ pub const DeclGen = struct {
             try self.spv.addFunction(spv_decl_index, self.func);
 
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
-
             try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
                 .target = decl_id,
                 .name = fqn,
@@ -1578,6 +1577,19 @@ pub const DeclGen = struct {
             try self.spv.addFunction(spv_decl_index, self.func);
 
             try self.spv.initializers.append(self.spv.gpa, initializer_id);
+
+            const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
+            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
+                .target = decl_id,
+                .name = fqn,
+            });
+
+            const init_name = try std.fmt.allocPrint(self.gpa, "initializer of {s}", .{fqn});
+            defer self.gpa.free(init_name);
+            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
+                .target = initializer_id,
+                .name = init_name,
+            });
         }
     }
 
