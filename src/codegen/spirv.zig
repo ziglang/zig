@@ -2403,13 +2403,31 @@ pub const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
+        const result_ty = self.typeOfIndex(inst);
+        const result_ty_id = try self.resolveTypeId(result_ty);
+        const info = try self.arithmeticTypeInfo(result_ty);
+
         const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(Type.bool);
-        try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
-            .id_result_type = result_type_id,
-            .id_result = result_id,
-            .operand = operand_id,
-        });
+        switch (info.class) {
+            .bool => {
+                try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
+                    .id_result_type = result_ty_id,
+                    .id_result = result_id,
+                    .operand = operand_id,
+                });
+            },
+            .float => unreachable,
+            .composite_integer => unreachable, // TODO
+            .strange_integer, .integer => {
+                // Note: strange integer bits will be masked before operations that do not hold under modulo.
+                try self.func.body.emit(self.spv.gpa, .OpNot, .{
+                    .id_result_type = result_ty_id,
+                    .id_result = result_id,
+                    .operand = operand_id,
+                });
+            },
+        }
+
         return result_id;
     }
 
