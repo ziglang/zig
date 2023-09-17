@@ -2753,20 +2753,12 @@ pub const DeclGen = struct {
     }
 
     fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const ptr = try self.resolve(bin_op.lhs);
         const value = try self.resolve(bin_op.rhs);
-        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep(mod) else false;
-        if (val_is_undef) {
-            const undef = try self.spv.constUndef(ptr_ty_ref);
-            try self.store(ptr_ty, ptr, undef);
-        } else {
-            try self.store(ptr_ty, ptr, value);
-        }
+        try self.store(ptr_ty, ptr, value);
     }
 
     fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -2790,6 +2782,7 @@ pub const DeclGen = struct {
         const operand_ty = self.typeOf(operand);
         const mod = self.module;
         if (operand_ty.hasRuntimeBits(mod)) {
+            // TODO: If we return an empty struct, this branch is also hit incorrectly.
             const operand_id = try self.resolve(operand);
             try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
         } else {
