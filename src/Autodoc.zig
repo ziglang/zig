@@ -344,7 +344,6 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
     }
 
     var data = DocData{
-        .params = .{},
         .modules = self.modules,
         .files = self.files,
         .calls = self.calls.items,
@@ -353,28 +352,41 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
         .exprs = self.exprs.items,
         .astNodes = self.ast_nodes.items,
         .comptimeExprs = self.comptime_exprs.items,
-        .guide_sections = self.guide_sections,
+        .guideSections = self.guide_sections,
     };
 
-    {
-        const data_js_f = try output_dir.createFile("data.js", .{});
+    inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
+        const field_name = @tagName(f);
+        const file_name = "data-" ++ field_name ++ ".js";
+        const data_js_f = try output_dir.createFile(file_name, .{});
         defer data_js_f.close();
-        var buffer = std.io.bufferedWriter(data_js_f.writer());
 
+        var buffer = std.io.bufferedWriter(data_js_f.writer());
         const out = buffer.writer();
-        try out.print(
-            \\ /** @type {{DocData}} */
-            \\ var zigAnalysis=
-        , .{});
-        try std.json.stringifyArbitraryDepth(
-            self.arena,
-            data,
-            .{
-                .whitespace = .minified,
-                .emit_null_optional_fields = true,
-            },
-            out,
-        );
+
+        try out.print("var {s} =", .{field_name});
+
+        var jsw = std.json.writeStream(out, .{
+            .whitespace = .minified,
+            .emit_null_optional_fields = true,
+        });
+
+        switch (f) {
+            .files => try writeFileTableToJson(data.files, data.modules, &jsw),
+            .guideSections => try writeGuidesToJson(data.guideSections, &jsw),
+            .modules => try jsw.write(data.modules.values()),
+            else => try jsw.write(@field(data, field_name)),
+        }
+
+        // try std.json.stringifyArbitraryDepth(
+        //     self.arena,
+        //     @field(data, field.name),
+        //     .{
+        //         .whitespace = .minified,
+        //         .emit_null_optional_fields = true,
+        //     },
+        //     out,
+        // );
         try out.print(";", .{});
 
         // last thing (that can fail) that we do is flush
@@ -476,18 +488,12 @@ const Scope = struct {
 
 /// The output of our analysis process.
 const DocData = struct {
+    // NOTE: editing fields of DocData requires also updating:
+    //       - the deployment script for ziglang.org
+    //       - imports in index.html
     typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
     rootMod: u32 = 0,
-    params: struct {
-        zigId: []const u8 = "arst",
-        zigVersion: []const u8 = build_options.version,
-        target: []const u8 = "arst",
-        builds: []const struct { target: []const u8 } = &.{
-            .{ .target = "arst" },
-        },
-    },
     modules: std.AutoArrayHashMapUnmanaged(*Module, DocModule),
-    errors: []struct {} = &.{},
 
     // non-hardcoded stuff
     astNodes: []AstNode,
@@ -498,7 +504,7 @@ const DocData = struct {
     exprs: []Expr,
     comptimeExprs: []ComptimeExpr,
 
-    guide_sections: std.ArrayListUnmanaged(Section),
+    guideSections: std.ArrayListUnmanaged(Section),
 
     const Call = struct {
         func: Expr,
@@ -506,20 +512,6 @@ const DocData = struct {
         ret: Expr,
     };
 
-    pub fn jsonStringify(self: DocData, jsw: anytype) !void {
-        try jsw.beginObject();
-        inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
-            const f_name = @tagName(f);
-            try jsw.objectField(f_name);
-            switch (f) {
-                .files => try writeFileTableToJson(self.files, self.modules, jsw),
-                .guide_sections => try writeGuidesToJson(self.guide_sections, jsw),
-                .modules => try jsw.write(self.modules.values()),
-                else => try jsw.write(@field(self, f_name)),
-            }
-        }
-        try jsw.endObject();
-    }
     /// All the type "families" as described by `std.builtin.TypeId`
     /// plus a couple extra that are unique to our use case.
     ///

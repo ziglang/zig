@@ -1893,6 +1893,9 @@ pub fn execvpeZ(
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
+    if (builtin.os.tag == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.os.getenvW for a Windows-specific API.");
+    }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
@@ -1906,9 +1909,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         }
         return null;
     }
-    if (builtin.os.tag == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
-    } else if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi) {
         @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
