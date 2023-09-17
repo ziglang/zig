@@ -327,30 +327,45 @@ pub fn fetchAndAddDependencies(
             name,
         );
 
-        if (!sub.found_existing) {
-            try sub.mod.fetchAndAddDependencies(
-                deps_pkg,
-                arena,
-                thread_pool,
-                http_client,
-                sub.mod.root_src_directory,
-                global_cache_directory,
-                local_cache_directory,
-                dependencies_source,
-                error_bundle,
-                all_modules,
-                root_prog_node,
-                dep.hash.?,
-            );
-        }
+        if (sub.mod) |mod| {
+            if (!sub.found_existing) {
+                try mod.fetchAndAddDependencies(
+                    deps_pkg,
+                    arena,
+                    thread_pool,
+                    http_client,
+                    mod.root_src_directory,
+                    global_cache_directory,
+                    local_cache_directory,
+                    dependencies_source,
+                    error_bundle,
+                    all_modules,
+                    root_prog_node,
+                    dep.hash.?,
+                );
+            }
 
-        try pkg.add(gpa, name, sub.mod);
-        if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
-            // This should be the same package (and hence module) since it's the same hash
-            // TODO: dedup multiple versions of the same package
-            assert(other_sub == sub.mod);
-        } else {
-            try deps_pkg.add(gpa, dep.hash.?, sub.mod);
+            try pkg.add(gpa, name, mod);
+            if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
+                // This should be the same package (and hence module) since it's the same hash
+                // TODO: dedup multiple versions of the same package
+                assert(other_sub == mod);
+            } else {
+                try deps_pkg.add(gpa, dep.hash.?, mod);
+            }
+        } else if (!sub.found_existing) {
+            const pkg_dir_sub_path = "p" ++ fs.path.sep_str ++ (dep.hash.?)[0..hex_multihash_len];
+            const build_root = try global_cache_directory.join(arena, &.{pkg_dir_sub_path});
+            try dependencies_source.writer().print(
+                \\    pub const {} = struct {{
+                \\        pub const build_root = "{}";
+                \\        pub const deps: []const struct {{ []const u8, []const u8 }} = &.{{}};
+                \\    }};
+                \\
+            , .{
+                std.zig.fmtId(dep.hash.?),
+                std.zig.fmtEscapes(build_root),
+            });
         }
     }
 
@@ -480,7 +495,10 @@ const MultiHashHexDigest = [hex_multihash_len]u8;
 /// This is to avoid creating multiple modules for the same build.zig file.
 /// If the value is `null`, the package is a known dependency, but has not yet
 /// been fetched.
-pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, ?*Package);
+pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, ?union(enum) {
+    zig_pkg: *Package,
+    non_zig_pkg: void,
+});
 
 fn ProgressReader(comptime ReaderType: type) type {
     return struct {
@@ -535,7 +553,7 @@ fn fetchAndUnpack(
     /// This does not have to be any form of canonical or fully-qualified name: it
     /// is only intended to be human-readable for progress reporting.
     name_for_prog: []const u8,
-) !struct { mod: *Package, found_existing: bool } {
+) !struct { mod: ?*Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
 
@@ -556,12 +574,26 @@ fn fetchAndUnpack(
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
             if (gop.value_ptr.*) |mod| {
-                return .{
-                    .mod = mod,
-                    .found_existing = true,
+                return switch (mod) {
+                    .zig_pkg => |pkg| .{
+                        .mod = pkg,
+                        .found_existing = true,
+                    },
+                    .non_zig_pkg => .{
+                        .mod = null,
+                        .found_existing = true,
+                    },
                 };
             }
         }
+
+        pkg_dir.access(build_zig_basename, .{}) catch {
+            gop.value_ptr.* = .non_zig_pkg;
+            return .{
+                .mod = null,
+                .found_existing = false,
+            };
+        };
 
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
@@ -583,7 +615,7 @@ fn fetchAndUnpack(
             .root_src_path = owned_src_path,
         };
 
-        gop.value_ptr.* = ptr;
+        gop.value_ptr.* = .{ .zig_pkg = ptr };
         return .{
             .mod = ptr,
             .found_existing = false,
@@ -722,8 +754,22 @@ fn fetchAndUnpack(
         return error.PackageFetchFailed;
     }
 
+    const build_zig_path = try std.fs.path.join(gpa, &.{ pkg_dir_sub_path, build_zig_basename });
+    defer gpa.free(build_zig_path);
+
+    global_cache_directory.handle.access(build_zig_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            try all_modules.put(gpa, actual_hex, .non_zig_pkg);
+            return .{
+                .mod = null,
+                .found_existing = false,
+            };
+        },
+        else => return err,
+    };
+
     const mod = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
-    try all_modules.put(gpa, actual_hex, mod);
+    try all_modules.put(gpa, actual_hex, .{ .zig_pkg = mod });
     return .{
         .mod = mod,
         .found_existing = false,
