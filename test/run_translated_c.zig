@@ -1905,4 +1905,28 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("struct without global declaration does not conflict with local variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\int main(void) {
+        \\    int struct_foobar = 123;
+        \\    if (struct_foobar != 123) abort();
+        \\    int foobar = 456;
+        \\    if (foobar != 456) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("struct without global declaration does not conflict with global variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\static int struct_foobar = 123;
+        \\static int foobar = 456;
+        \\int main(void) {
+        \\    if (struct_foobar != 123) abort();
+        \\    if (foobar != 456) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
