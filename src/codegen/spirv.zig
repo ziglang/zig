@@ -438,6 +438,8 @@ pub const DeclGen = struct {
 
     /// Construct a struct at runtime.
     /// result_ty_ref must be a struct type.
+    /// Constituents should be in `indirect` representation (as the elements of a struct should be).
+    /// Result is in `direct` representation.
     fn constructStruct(self: *DeclGen, result_ty_ref: CacheRef, constituents: []const IdRef) !IdRef {
         // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
         // operands are not constant.
@@ -474,6 +476,8 @@ pub const DeclGen = struct {
 
     /// Construct a struct at runtime.
     /// result_ty_ref must be an array type.
+    /// Constituents should be in `indirect` representation (as the elements of an array should be).
+    /// Result is in `direct` representation.
     fn constructArray(self: *DeclGen, result_ty_ref: CacheRef, constituents: []const IdRef) !IdRef {
         // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
         // operands are not constant.
@@ -1682,6 +1686,7 @@ pub const DeclGen = struct {
             .not             => try self.airNot(inst),
 
             .array_to_slice => try self.airArrayToSlice(inst),
+            .aggregate_init => try self.airAggregateInit(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
@@ -2430,6 +2435,8 @@ pub const DeclGen = struct {
     }
 
     fn airArrayToSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const array_ptr_ty = self.typeOf(ty_op.operand);
@@ -2451,6 +2458,40 @@ pub const DeclGen = struct {
         // Convert the pointer-to-array to a pointer to the first element.
         const elem_ptr_id = try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
         return try self.constructStruct(slice_ty_ref, &.{ elem_ptr_id, len_id });
+    }
+
+    fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const mod = self.module;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const result_ty = self.typeOfIndex(inst);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+        const len: usize = @intCast(result_ty.arrayLen(mod));
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+
+        switch (result_ty.zigTypeTag(mod)) {
+            .Vector => unreachable, // TODO
+            .Struct => unreachable, // TODO
+            .Array => {
+                const array_info = result_ty.arrayInfo(mod);
+                const n_elems: usize = @intCast(result_ty.arrayLenIncludingSentinel(mod));
+                const elem_ids = try self.gpa.alloc(IdRef, n_elems);
+                defer self.gpa.free(elem_ids);
+
+                for (elements, 0..) |elem_inst, i| {
+                    const id = try self.resolve(elem_inst);
+                    elem_ids[i] = try self.convertToIndirect(array_info.elem_type, id);
+                }
+
+                if (array_info.sentinel) |sentinel_val| {
+                    elem_ids[n_elems - 1] = try self.constant(array_info.elem_type, sentinel_val, .indirect);
+                }
+
+                return try self.constructArray(result_ty_ref, elem_ids);
+            },
+            else => unreachable,
+        }
     }
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
