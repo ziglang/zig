@@ -2391,34 +2391,6 @@ fn walkInstruction(
                 .expr = .{ .@"&" = expr_index },
             };
         },
-        .array_init_anon_ref => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
-            const array_data = try self.arena.alloc(usize, operands.len);
-
-            for (operands, 0..) |op, idx| {
-                const wr = try self.walkRef(
-                    file,
-                    parent_scope,
-                    parent_src,
-                    op,
-                    false,
-                    call_ctx,
-                );
-                const expr_index = self.exprs.items.len;
-                try self.exprs.append(self.arena, wr.expr);
-                array_data[idx] = expr_index;
-            }
-
-            const expr_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .array = array_data });
-
-            return DocData.WalkResult{
-                .typeRef = null,
-                .expr = .{ .@"&" = expr_index },
-            };
-        },
         .float => {
             const float = data[inst_index].float;
             return DocData.WalkResult{
@@ -2709,9 +2681,7 @@ fn walkInstruction(
                 .expr = .{ .declRef = decl_status },
             };
         },
-        .field_val, .field_ptr, .field_type => {
-            // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
-            // same layout as Zir.Inst.Field :^)
+        .field_val, .field_ptr => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
@@ -2730,8 +2700,7 @@ fn walkInstruction(
                     };
 
                     if (tags[lhs] != .field_val and
-                        tags[lhs] != .field_ptr and
-                        tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
+                        tags[lhs] != .field_ptr) break :blk lhs_extra.data.lhs;
 
                     lhs_extra = file.zir.extraData(
                         Zir.Inst.Field,
@@ -2870,7 +2839,7 @@ fn walkInstruction(
 
                 const field_name = blk: {
                     const field_inst_index = init_extra.data.field_type;
-                    if (tags[field_inst_index] != .field_type) unreachable;
+                    if (tags[field_inst_index] != .struct_init_field_type) unreachable;
                     const field_pl_node = data[field_inst_index].pl_node;
                     const field_extra = file.zir.extraData(
                         Zir.Inst.FieldType,

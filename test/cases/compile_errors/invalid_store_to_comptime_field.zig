@@ -71,8 +71,8 @@ pub export fn entry8() void {
 // target=native
 // backend=stage2
 //
-// :6:19: error: value stored in comptime field does not match the default value of the field
-// :14:19: error: value stored in comptime field does not match the default value of the field
+// :6:9: error: value stored in comptime field does not match the default value of the field
+// :14:9: error: value stored in comptime field does not match the default value of the field
 // :19:38: error: value stored in comptime field does not match the default value of the field
 // :31:19: error: value stored in comptime field does not match the default value of the field
 // :25:29: note: default value set here
@@ -80,5 +80,6 @@ pub export fn entry8() void {
 // :35:29: note: default value set here
 // :45:12: error: value stored in comptime field does not match the default value of the field
 // :53:25: error: value stored in comptime field does not match the default value of the field
-// :66:43: error: value stored in comptime field does not match the default value of the field
-// :59:35: error: value stored in comptime field does not match the default value of the field
+// :66:36: error: value stored in comptime field does not match the default value of the field
+// :59:30: error: value stored in comptime field does not match the default value of the field
+// :57:29: note: default value set here

@@ -3182,6 +3182,17 @@ pub const Type = struct {
         };
     }
 
+    /// Traverses optional child types and error union payloads until the type
+    /// is not a pointer. For `E!?u32`, returns `u32`; for `*u8`, returns `*u8`.
+    pub fn optEuBaseType(ty: Type, mod: *Module) Type {
+        var cur = ty;
+        while (true) switch (cur.zigTypeTag(mod)) {
+            .Optional => cur = cur.optionalChild(mod),
+            .ErrorUnion => cur = cur.errorUnionPayload(mod),
+            else => return cur,
+        };
+    }
+
     pub const @"u1": Type = .{ .ip_index = .u1_type };
     pub const @"u8": Type = .{ .ip_index = .u8_type };
     pub const @"u16": Type = .{ .ip_index = .u16_type };

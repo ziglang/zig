@@ -1760,3 +1760,18 @@ test "runtime side-effects in comptime-known struct init" {
     try expectEqual(S{ .a = 1, .b = 2, .c = 4, .d = 8 }, init);
     try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
 }
+
+test "pointer to struct initialized through reference to anonymous initializer provides result types" {
+    const S = struct { a: u8, b: u16, c: *const anyopaque };
+    var my_u16: u16 = 0xABCD;
+    const s: *const S = &.{
+        // intentionally out of order
+        .c = @ptrCast("hello"),
+        .b = my_u16,
+        .a = @truncate(my_u16),
+    };
+    try expect(s.a == 0xCD);
+    try expect(s.b == 0xABCD);
+    const str: *const [5]u8 = @ptrCast(s.c);
+    try std.testing.expectEqualSlices(u8, "hello", str);
+}

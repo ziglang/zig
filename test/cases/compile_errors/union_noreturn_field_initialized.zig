@@ -32,7 +32,7 @@ pub export fn entry3() void {
 // backend=stage2
 // target=native
 //
-// :11:21: error: cannot initialize 'noreturn' field of union
+// :11:14: error: cannot initialize 'noreturn' field of union
 // :4:9: note: field 'b' declared here
 // :2:15: note: union declared here
 // :19:10: error: cannot initialize 'noreturn' field of union

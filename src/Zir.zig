@@ -242,10 +242,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with `Bin` payload.
         /// lhs is length, rhs is element type.
         vector_type,
-        /// Given an indexable type, returns the type of the element at given index.
-        /// Uses the `bin` union field. lhs is the indexable type, rhs is the index.
-        elem_type_index,
-        /// Given a pointer type, returns its element type.
+        /// Given a pointer type, returns its element type. Reaches through any optional or error
+        /// union types wrapping the pointer. Asserts that the underlying type is a pointer type.
+        /// Returns generic poison if the element type is `anyopaque`.
         /// Uses the `un_node` field.
         elem_type,
         /// Given an indexable pointer (slice, many-ptr, single-ptr-to-array), returns its
@@ -353,11 +352,6 @@ pub const Inst = struct {
         /// `!=`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_neq,
-        /// Coerces a result location pointer to a new element type. It is evaluated "backwards"-
-        /// as type coercion from the new element type to the old element type.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        /// LHS is destination element type, RHS is result pointer.
-        coerce_result_ptr,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         /// Uses the `pl_node` union field. AST node is an if, while, for, etc.
         /// Payload is `CondBr`.
@@ -419,13 +413,6 @@ pub const Inst = struct {
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
         elem_ptr,
-        /// Same as `elem_ptr_node` except the index is stored immediately rather than
-        /// as a reference to another ZIR instruction.
-        /// Uses the `pl_node` union field. AST node is an element inside array initialization
-        /// syntax. Payload is `ElemPtrImm`.
-        /// This instruction has a way to set the result type to be a
-        /// single-pointer or a many-pointer.
-        elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
@@ -463,8 +450,6 @@ pub const Inst = struct {
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_ptr,
-        /// Same as `field_ptr` but used for struct init.
-        field_ptr_init,
         /// Given a struct or object that contains virtual fields, returns the named field.
         /// The field name is stored in string_bytes. Used by a.b syntax.
         /// This instruction also accepts a pointer.
@@ -688,84 +673,123 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
         switch_block_ref,
-        /// Given a
-        ///   *A returns *A
-        ///   *E!A returns *A
-        ///   *?A returns *A
-        /// Uses the `un_node` field.
-        array_base_ptr,
-        /// Given a
-        ///   *S returns *S
-        ///   *E!S returns *S
-        ///   *?S returns *S
-        /// Uses the `un_node` field.
-        field_base_ptr,
-        /// Given a type, strips all optional and error union types wrapping it.
-        /// e.g. `E!?u32` becomes `u32`, `[]u8` becomes `[]u8`.
-        /// Uses the `un_node` field.
-        opt_eu_base_ty,
-        /// Checks that the type supports array init syntax.
-        /// Returns the underlying indexable type (since the given type may be e.g. an optional).
-        /// Uses the `un_node` field.
-        validate_array_init_ty,
-        /// Checks that the type supports struct init syntax.
-        /// Returns the underlying struct type (since the given type may be e.g. an optional).
-        /// Uses the `un_node` field.
-        validate_struct_init_ty,
-        /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
-        /// initialization expression, and emits compile errors for duplicate fields
-        /// as well as missing fields, if applicable.
-        /// This instruction asserts that there is at least one field_ptr instruction,
-        /// because it must use one of them to find out the struct type.
-        /// Uses the `pl_node` field. Payload is `Block`.
-        validate_struct_init,
-        /// Given a set of `elem_ptr_imm` instructions, assumes they are all part of an
-        /// array initialization expression, and emits a compile error if the number of
-        /// elements does not match the array type.
-        /// This instruction asserts that there is at least one `elem_ptr_imm` instruction,
-        /// because it must use one of them to find out the array type.
-        /// Uses the `pl_node` field. Payload is `Block`.
-        validate_array_init,
         /// Check that operand type supports the dereference operand (.*).
         /// Uses the `un_node` field.
         validate_deref,
         /// Check that the operand's type is an array or tuple with the given number of elements.
         /// Uses the `pl_node` field. Payload is `ValidateDestructure`.
         validate_destructure,
-        /// A struct literal with a specified type, with no fields.
-        /// Uses the `un_node` field.
-        struct_init_empty,
-        /// Given a struct or union, and a field name as a string index,
-        /// returns the field type. Uses the `pl_node` field. Payload is `FieldType`.
-        field_type,
         /// Given a struct or union, and a field name as a Ref,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldTypeRef`.
         field_type_ref,
-        /// Finalizes a typed struct or union initialization, performs validation, and returns the
-        /// struct or union value.
-        /// Uses the `pl_node` field. Payload is `StructInit`.
-        struct_init,
-        /// Struct initialization syntax, make the result a pointer.
-        /// Uses the `pl_node` field. Payload is `StructInit`.
-        struct_init_ref,
-        /// Struct initialization without a type.
+        /// Given a pointer, initializes all error unions and optionals in the pointee to payloads,
+        /// returning the base payload pointer. For instance, converts *E!?T into a valid *T
+        /// (clobbering any existing error or null value).
+        /// Uses the `un_node` field.
+        opt_eu_base_ptr_init,
+        /// Coerce a given value such that when a reference is taken, the resulting pointer will be
+        /// coercible to the given type. For instance, given a value of type 'u32' and the pointer
+        /// type '*u64', coerces the value to a 'u64'. Asserts that the type is a pointer type.
+        /// Uses the `pl_node` field. Payload is `Bin`.
+        /// LHS is the pointer type, RHS is the value.
+        coerce_ptr_elem_ty,
+        /// Given a type, validate that it is a pointer type suitable for return from the address-of
+        /// operator. Emit a compile error if not.
+        /// Uses the `un_tok` union field. Token is the `&` operator. Operand is the type.
+        validate_ref_ty,
+
+        // The following tags all relate to struct initialization expressions.
+
+        /// A struct literal with a specified explicit type, with no fields.
+        /// Uses the `un_node` field.
+        struct_init_empty,
+        /// An anonymous struct literal with a known result type, with no fields.
+        /// Uses the `un_node` field.
+        struct_init_empty_result,
+        /// An anonymous struct literal with no fields, returned by reference, with a known result
+        /// type for the pointer. Asserts that the type is a pointer.
+        /// Uses the `un_node` field.
+        struct_init_empty_ref_result,
+        /// Struct initialization without a type. Creates a value of an anonymous struct type.
         /// Uses the `pl_node` field. Payload is `StructInitAnon`.
         struct_init_anon,
-        /// Anonymous struct initialization syntax, make the result a pointer.
-        /// Uses the `pl_node` field. Payload is `StructInitAnon`.
-        struct_init_anon_ref,
-        /// Array initialization syntax.
-        /// Uses the `pl_node` field. Payload is `MultiOp`.
-        array_init,
-        /// Anonymous array initialization syntax.
+        /// Finalizes a typed struct or union initialization, performs validation, and returns the
+        /// struct or union value. The given type must be validated prior to this instruction, using
+        /// `validate_struct_init_ty` or `validate_struct_init_result_ty`. If the given type is
+        /// generic poison, this is downgraded to an anonymous initialization.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init,
+        /// Struct initialization syntax, make the result a pointer. Equivalent to `struct_init`
+        /// followed by `ref` - this ZIR tag exists as an optimization for a common pattern.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init_ref,
+        /// Checks that the type supports struct init syntax. Always returns void.
+        /// Uses the `un_node` field.
+        validate_struct_init_ty,
+        /// Like `validate_struct_init_ty`, but additionally accepts types which structs coerce to.
+        /// Used on the known result type of a struct init expression. Always returns void.
+        /// Uses the `un_node` field.
+        validate_struct_init_result_ty,
+        /// Given a set of `struct_init_field_ptr` instructions, assumes they are all part of a
+        /// struct initialization expression, and emits compile errors for duplicate fields as well
+        /// as missing fields, if applicable.
+        /// This instruction asserts that there is at least one struct_init_field_ptr instruction,
+        /// because it must use one of them to find out the struct type.
+        /// Uses the `pl_node` field. Payload is `Block`.
+        validate_ptr_struct_init,
+        /// Given a type being used for a struct initialization expression, returns the type of the
+        /// field with the given name.
+        /// Uses the `pl_node` field. Payload is `FieldType`.
+        struct_init_field_type,
+        /// Given a pointer being used as the result pointer of a struct initialization expression,
+        /// return a pointer to the field of the given name.
+        /// Uses the `pl_node` field. The AST node is the field initializer. Payload is Field.
+        struct_init_field_ptr,
+
+        // The following tags all relate to array initialization expressions.
+
+        /// Array initialization without a type. Creates a value of a tuple type.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon,
-        /// Array initialization syntax, make the result a pointer.
-        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        /// Array initialization syntax with a known type. The given type must be validated prior to
+        /// this instruction, using some `validate_array_init_*_ty` instruction.
+        /// Uses the `pl_node` field. Payload is `MultiOp`, where the first operand is the type.
+        array_init,
+        /// Array initialization syntax, make the result a pointer. Equivalent to `array_init`
+        /// followed by `ref`- this ZIR tag exists as an optimization for a common pattern.
+        /// Uses the `pl_node` field. Payload is `MultiOp`, where the first operand is the type.
         array_init_ref,
-        /// Anonymous array initialization syntax, make the result a pointer.
-        /// Uses the `pl_node` field. Payload is `MultiOp`.
-        array_init_anon_ref,
+        /// Checks that the type supports array init syntax. Always returns void.
+        /// Uses the `pl_node` field. Payload is `ArrayInit`.
+        validate_array_init_ty,
+        /// Like `validate_array_init_ty`, but additionally accepts types which arrays coerce to.
+        /// Used on the known result type of an array init expression. Always returns void.
+        /// Uses the `pl_node` field. Payload is `ArrayInit`.
+        validate_array_init_result_ty,
+        /// Given a pointer or slice type and an element count, return the expected type of an array
+        /// initializer such that a pointer to the initializer has the given pointer type, checking
+        /// that this type supports array init syntax and emitting a compile error if not. Preserves
+        /// error union and optional wrappers on the array type, if any.
+        /// Asserts that the given type is a pointer or slice type.
+        /// Uses the `pl_node` field. Payload is `ArrayInitRefTy`.
+        validate_array_init_ref_ty,
+        /// Given a set of `array_init_elem_ptr` instructions, assumes they are all part of an array
+        /// initialization expression, and emits a compile error if the number of elements does not
+        /// match the array type.
+        /// This instruction asserts that there is at least one `array_init_elem_ptr` instruction,
+        /// because it must use one of them to find out the array type.
+        /// Uses the `pl_node` field. Payload is `Block`.
+        validate_ptr_array_init,
+        /// Given a type being used for an array initialization expression, returns the type of the
+        /// element at the given index.
+        /// Uses the `bin` union field. lhs is the indexable type, rhs is the index.
+        array_init_elem_type,
+        /// Given a pointer being used as the result pointer of an array initialization expression,
+        /// return a pointer to the element at the given index.
+        /// Uses the `pl_node` union field. AST node is an element inside array initialization
+        /// syntax. Payload is `ElemPtrImm`.
+        array_init_elem_ptr,
+
         /// Implements the `@unionInit` builtin.
         /// Uses the `pl_node` field. Payload is `UnionInit`.
         union_init,
@@ -1038,7 +1062,6 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
-                .elem_type_index,
                 .elem_type,
                 .indexable_ptr_elem_type,
                 .vector_elem_type,
@@ -1066,7 +1089,6 @@ pub const Inst = struct {
                 .cmp_gte,
                 .cmp_gt,
                 .cmp_neq,
-                .coerce_result_ptr,
                 .error_set_decl,
                 .error_set_decl_anon,
                 .error_set_decl_func,
@@ -1082,7 +1104,6 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_ptr_imm,
                 .elem_val_node,
                 .elem_val_imm,
                 .ensure_result_used,
@@ -1091,7 +1112,6 @@ pub const Inst = struct {
                 .@"export",
                 .export_value,
                 .field_ptr,
-                .field_ptr_init,
                 .field_val,
                 .field_ptr_named,
                 .field_val_named,
@@ -1154,25 +1174,9 @@ pub const Inst = struct {
                 .set_eval_branch_quota,
                 .switch_block,
                 .switch_block_ref,
-                .array_base_ptr,
-                .field_base_ptr,
-                .validate_array_init_ty,
-                .validate_struct_init_ty,
-                .validate_struct_init,
-                .validate_array_init,
                 .validate_deref,
                 .validate_destructure,
-                .struct_init_empty,
-                .struct_init,
-                .struct_init_ref,
-                .struct_init_anon,
-                .struct_init_anon_ref,
-                .array_init,
-                .array_init_anon,
-                .array_init_ref,
-                .array_init_anon_ref,
                 .union_init,
-                .field_type,
                 .field_type_ref,
                 .enum_from_int,
                 .int_from_enum,
@@ -1254,7 +1258,29 @@ pub const Inst = struct {
                 .save_err_ret_index,
                 .restore_err_ret_index,
                 .for_len,
-                .opt_eu_base_ty,
+                .opt_eu_base_ptr_init,
+                .coerce_ptr_elem_ty,
+                .struct_init_empty,
+                .struct_init_empty_result,
+                .struct_init_empty_ref_result,
+                .struct_init_anon,
+                .struct_init,
+                .struct_init_ref,
+                .validate_struct_init_ty,
+                .validate_struct_init_result_ty,
+                .validate_ptr_struct_init,
+                .struct_init_field_type,
+                .struct_init_field_ptr,
+                .array_init_anon,
+                .array_init,
+                .array_init_ref,
+                .validate_array_init_ty,
+                .validate_array_init_result_ty,
+                .validate_array_init_ref_ty,
+                .validate_ptr_array_init,
+                .array_init_elem_type,
+                .array_init_elem_ptr,
+                .validate_ref_ty,
                 => false,
 
                 .@"break",
@@ -1307,10 +1333,6 @@ pub const Inst = struct {
                 .store_node,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
-                .validate_array_init_ty,
-                .validate_struct_init_ty,
-                .validate_struct_init,
-                .validate_array_init,
                 .validate_deref,
                 .validate_destructure,
                 .@"export",
@@ -1323,6 +1345,13 @@ pub const Inst = struct {
                 .defer_err_code,
                 .restore_err_ret_index,
                 .save_err_ret_index,
+                .validate_struct_init_ty,
+                .validate_struct_init_result_ty,
+                .validate_ptr_struct_init,
+                .validate_array_init_ty,
+                .validate_array_init_result_ty,
+                .validate_ptr_array_init,
+                .validate_ref_ty,
                 => true,
 
                 .param,
@@ -1346,7 +1375,6 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
-                .elem_type_index,
                 .elem_type,
                 .indexable_ptr_elem_type,
                 .vector_elem_type,
@@ -1374,7 +1402,6 @@ pub const Inst = struct {
                 .cmp_gte,
                 .cmp_gt,
                 .cmp_neq,
-                .coerce_result_ptr,
                 .error_set_decl,
                 .error_set_decl_anon,
                 .error_set_decl_func,
@@ -1385,11 +1412,9 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_ptr_imm,
                 .elem_val_node,
                 .elem_val_imm,
                 .field_ptr,
-                .field_ptr_init,
                 .field_val,
                 .field_ptr_named,
                 .field_val_named,
@@ -1447,19 +1472,7 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .switch_block,
                 .switch_block_ref,
-                .array_base_ptr,
-                .field_base_ptr,
-                .struct_init_empty,
-                .struct_init,
-                .struct_init_ref,
-                .struct_init_anon,
-                .struct_init_anon_ref,
-                .array_init,
-                .array_init_anon,
-                .array_init_ref,
-                .array_init_anon_ref,
                 .union_init,
-                .field_type,
                 .field_type_ref,
                 .enum_from_int,
                 .int_from_enum,
@@ -1546,7 +1559,22 @@ pub const Inst = struct {
                 .for_len,
                 .@"try",
                 .try_ptr,
-                .opt_eu_base_ty,
+                .opt_eu_base_ptr_init,
+                .coerce_ptr_elem_ty,
+                .struct_init_empty,
+                .struct_init_empty_result,
+                .struct_init_empty_ref_result,
+                .struct_init_anon,
+                .struct_init,
+                .struct_init_ref,
+                .struct_init_field_type,
+                .struct_init_field_ptr,
+                .array_init_anon,
+                .array_init,
+                .array_init_ref,
+                .validate_array_init_ref_ty,
+                .array_init_elem_type,
+                .array_init_elem_ptr,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1580,7 +1608,6 @@ pub const Inst = struct {
                 .array_type = .pl_node,
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
-                .elem_type_index = .bin,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
                 .vector_elem_type = .un_node,
@@ -1612,7 +1639,6 @@ pub const Inst = struct {
                 .cmp_gte = .pl_node,
                 .cmp_gt = .pl_node,
                 .cmp_neq = .pl_node,
-                .coerce_result_ptr = .pl_node,
                 .condbr = .pl_node,
                 .condbr_inline = .pl_node,
                 .@"try" = .pl_node,
@@ -1631,7 +1657,6 @@ pub const Inst = struct {
                 .div = .pl_node,
                 .elem_ptr = .pl_node,
                 .elem_ptr_node = .pl_node,
-                .elem_ptr_imm = .pl_node,
                 .elem_val = .pl_node,
                 .elem_val_node = .pl_node,
                 .elem_val_imm = .elem_val_imm,
@@ -1643,7 +1668,6 @@ pub const Inst = struct {
                 .@"export" = .pl_node,
                 .export_value = .pl_node,
                 .field_ptr = .pl_node,
-                .field_ptr_init = .pl_node,
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
@@ -1701,30 +1725,16 @@ pub const Inst = struct {
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
                 .switch_block_ref = .pl_node,
-                .array_base_ptr = .un_node,
-                .field_base_ptr = .un_node,
-                .opt_eu_base_ty = .un_node,
-                .validate_array_init_ty = .pl_node,
-                .validate_struct_init_ty = .un_node,
-                .validate_struct_init = .pl_node,
-                .validate_array_init = .pl_node,
                 .validate_deref = .un_node,
                 .validate_destructure = .pl_node,
-                .struct_init_empty = .un_node,
-                .field_type = .pl_node,
                 .field_type_ref = .pl_node,
-                .struct_init = .pl_node,
-                .struct_init_ref = .pl_node,
-                .struct_init_anon = .pl_node,
-                .struct_init_anon_ref = .pl_node,
-                .array_init = .pl_node,
-                .array_init_anon = .pl_node,
-                .array_init_ref = .pl_node,
-                .array_init_anon_ref = .pl_node,
                 .union_init = .pl_node,
                 .type_info = .un_node,
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
+                .opt_eu_base_ptr_init = .un_node,
+                .coerce_ptr_elem_ty = .pl_node,
+                .validate_ref_ty = .un_tok,
 
                 .int_from_ptr = .un_node,
                 .compile_error = .un_node,
@@ -1825,6 +1835,27 @@ pub const Inst = struct {
 
                 .save_err_ret_index = .save_err_ret_index,
                 .restore_err_ret_index = .restore_err_ret_index,
+
+                .struct_init_empty = .un_node,
+                .struct_init_empty_result = .un_node,
+                .struct_init_empty_ref_result = .un_node,
+                .struct_init_anon = .pl_node,
+                .struct_init = .pl_node,
+                .struct_init_ref = .pl_node,
+                .validate_struct_init_ty = .un_node,
+                .validate_struct_init_result_ty = .un_node,
+                .validate_ptr_struct_init = .pl_node,
+                .struct_init_field_type = .pl_node,
+                .struct_init_field_ptr = .pl_node,
+                .array_init_anon = .pl_node,
+                .array_init = .pl_node,
+                .array_init_ref = .pl_node,
+                .validate_array_init_ty = .pl_node,
+                .validate_array_init_result_ty = .pl_node,
+                .validate_array_init_ref_ty = .pl_node,
+                .validate_ptr_array_init = .pl_node,
+                .array_init_elem_type = .bin,
+                .array_init_elem_ptr = .pl_node,
 
                 .extended = .extended,
             });
@@ -2771,6 +2802,11 @@ pub const Inst = struct {
         };
     };
 
+    pub const ArrayInitRefTy = struct {
+        ptr_ty: Ref,
+        elem_count: u32,
+    };
+
     pub const Field = struct {
         lhs: Ref,
         /// Offset into `string_bytes`.
@@ -3064,9 +3100,10 @@ pub const Inst = struct {
         fields_len: u32,
 
         pub const Item = struct {
-            /// The `field_type` ZIR instruction for this field init.
+            /// The `struct_init_field_type` ZIR instruction for this field init.
             field_type: Index,
-            /// The field init expression to be used as the field value.
+            /// The field init expression to be used as the field value. This value will be coerced
+            /// to the field type if not already.
             init: Ref,
         };
     };

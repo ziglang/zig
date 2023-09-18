@@ -669,17 +669,21 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullArrayInit(&buf, node).?;
-            const have_type = if (full.ast.type_expr != 0) have_type: {
+
+            if (full.ast.type_expr != 0) {
+                // Explicitly typed init does not participate in RLS
                 _ = try astrl.expr(full.ast.type_expr, block, ResultInfo.none);
-                break :have_type true;
-            } else ri.have_type;
-            if (have_type) {
-                const elem_ri: ResultInfo = .{
-                    .have_type = true,
-                    .have_ptr = ri.have_ptr,
-                };
                 for (full.ast.elements) |elem_init| {
-                    _ = try astrl.expr(elem_init, block, elem_ri);
+                    _ = try astrl.expr(elem_init, block, ResultInfo.type_only);
+                }
+                return false;
+            }
+
+            if (ri.have_type) {
+                // Always forward type information
+                // If we have a result pointer, we use and forward it
+                for (full.ast.elements) |elem_init| {
+                    _ = try astrl.expr(elem_init, block, ri);
                 }
                 return ri.have_ptr;
             } else {
@@ -702,17 +706,21 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullStructInit(&buf, node).?;
-            const have_type = if (full.ast.type_expr != 0) have_type: {
+
+            if (full.ast.type_expr != 0) {
+                // Explicitly typed init does not participate in RLS
                 _ = try astrl.expr(full.ast.type_expr, block, ResultInfo.none);
-                break :have_type true;
-            } else ri.have_type;
-            if (have_type) {
-                const elem_ri: ResultInfo = .{
-                    .have_type = true,
-                    .have_ptr = ri.have_ptr,
-                };
                 for (full.ast.fields) |field_init| {
-                    _ = try astrl.expr(field_init, block, elem_ri);
+                    _ = try astrl.expr(field_init, block, ResultInfo.type_only);
+                }
+                return false;
+            }
+
+            if (ri.have_type) {
+                // Always forward type information
+                // If we have a result pointer, we use and forward it
+                for (full.ast.fields) |field_init| {
+                    _ = try astrl.expr(field_init, block, ri);
                 }
                 return ri.have_ptr;
             } else {
