@@ -14,7 +14,6 @@ pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 
 /// The return type is `type` to force comptime function call execution.
-/// TODO: https://github.com/ziglang/zig/issues/425
 /// If not linking libc, returns struct{pub const ok = false;}
 /// If linking musl libc, returns struct{pub const ok = true;}
 /// If linking gnu libc (glibc), the `ok` value will be true if the target

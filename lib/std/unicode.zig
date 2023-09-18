@@ -238,17 +238,6 @@ pub const Utf8View = struct {
         return Utf8View{ .bytes = s };
     }
 
-    /// TODO: https://github.com/ziglang/zig/issues/425
-    pub fn initComptime(comptime s: []const u8) Utf8View {
-        if (comptime init(s)) |r| {
-            return r;
-        } else |err| switch (err) {
-            error.InvalidUtf8 => {
-                @compileError("invalid utf8");
-            },
-        }
-    }
-
     pub fn iterator(s: Utf8View) Utf8Iterator {
         return Utf8Iterator{
             .bytes = s.bytes,
@@ -457,7 +446,7 @@ test "utf8 iterator on ascii" {
     try testUtf8IteratorOnAscii();
 }
 fn testUtf8IteratorOnAscii() !void {
-    const s = Utf8View.initComptime("abc");
+    const s = try Utf8View.init("abc");
 
     var it1 = s.iterator();
     try testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
@@ -477,8 +466,7 @@ test "utf8 view bad" {
     try testUtf8ViewBad();
 }
 fn testUtf8ViewBad() !void {
-    // Compile-time error.
-    // const s3 = Utf8View.initComptime("\xfe\xf2");
+    try testing.expectError(error.InvalidUtf8, Utf8View.init("\xfe\xf2"));
     try testing.expectError(error.InvalidUtf8, Utf8View.init("hel\xadlo"));
 }
 
@@ -487,7 +475,7 @@ test "utf8 view ok" {
     try testUtf8ViewOk();
 }
 fn testUtf8ViewOk() !void {
-    const s = Utf8View.initComptime("東京市");
+    const s = try Utf8View.init("東京市");
 
     var it1 = s.iterator();
     try testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
@@ -598,7 +586,7 @@ test "utf8 iterator peeking" {
 }
 
 fn testUtf8Peeking() !void {
-    const s = Utf8View.initComptime("noël");
+    const s = try Utf8View.init("noël");
     var it = s.iterator();
 
     try testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));

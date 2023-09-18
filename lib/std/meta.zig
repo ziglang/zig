@@ -1091,7 +1091,6 @@ test "ArgsTuple forwarding" {
     }
 }
 
-/// TODO: https://github.com/ziglang/zig/issues/425
 pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
     if (!@hasDecl(root, name))
         return null;
