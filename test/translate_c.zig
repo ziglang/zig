@@ -98,8 +98,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ++ " " ++ default_enum_type ++
             \\;
             \\pub const Bar = extern struct {
-            \\    a: c_int,
-            \\    b: c_int,
+            \\    a: c_int = @import("std").mem.zeroes(c_int),
+            \\    b: c_int = @import("std").mem.zeroes(c_int),
             \\};
     });
 
@@ -149,11 +149,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define PTR void *
     , &[_][]const u8{
         \\pub const struct_Bar_1 = extern struct {
-        \\    a: c_int,
+        \\    a: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const struct_Foo = extern struct {
-        \\    a: c_int,
-        \\    b: struct_Bar_1,
+        \\    a: c_int = @import("std").mem.zeroes(c_int),
+        \\    b: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
         \\};
         \\pub export var a: struct_Foo = struct_Foo{
         \\    .a = 0,
@@ -183,9 +183,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    const struct_Foo = extern struct {
-        \\        A: c_int,
-        \\        B: c_int,
-        \\        C: c_int,
+        \\        A: c_int = @import("std").mem.zeroes(c_int),
+        \\        B: c_int = @import("std").mem.zeroes(c_int),
+        \\        C: c_int = @import("std").mem.zeroes(c_int),
         \\    };
         \\    var a: struct_Foo = struct_Foo{
         \\        .A = @as(c_int, 0),
@@ -195,9 +195,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = @TypeOf(a);
         \\    {
         \\        const struct_Foo_1 = extern struct {
-        \\            A: c_int,
-        \\            B: c_int,
-        \\            C: c_int,
+        \\            A: c_int = @import("std").mem.zeroes(c_int),
+        \\            B: c_int = @import("std").mem.zeroes(c_int),
+        \\            C: c_int = @import("std").mem.zeroes(c_int),
         \\        };
         \\        var a_2: struct_Foo_1 = struct_Foo_1{
         \\            .A = @as(c_int, 0),
@@ -286,7 +286,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\source.h:1:9: warning: struct demoted to opaque type - unable to translate type of field foo
         \\pub const Foo = opaque {};
         \\pub const Bar = extern struct {
-        \\    bar: ?*Foo,
+        \\    bar: ?*Foo = @import("std").mem.zeroes(?*Foo),
         \\};
     });
 
@@ -375,10 +375,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define B A(0.f)
     , &[_][]const u8{
         \\pub const struct_Color = extern struct {
-        \\    r: u8,
-        \\    g: u8,
-        \\    b: u8,
-        \\    a: u8,
+        \\    r: u8 = @import("std").mem.zeroes(u8),
+        \\    g: u8 = @import("std").mem.zeroes(u8),
+        \\    b: u8 = @import("std").mem.zeroes(u8),
+        \\    a: u8 = @import("std").mem.zeroes(u8),
         \\};
         \\pub const Color = struct_Color;
         ,
@@ -389,14 +389,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
         ,
         \\pub const struct_boom_t = extern struct {
-        \\    i1: c_int,
+        \\    i1: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const boom_t = struct_boom_t;
         ,
         \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{@as(c_int, 1)});
         ,
         \\pub const MyCStruct = extern struct {
-        \\    x: f32,
+        \\    x: f32 = @import("std").mem.zeroes(f32),
         \\};
         ,
         \\pub inline fn A(_x: anytype) MyCStruct {
@@ -452,7 +452,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_foo = extern struct {
-        \\    bar: c_short align(1),
+        \\    bar: c_short align(1) = @import("std").mem.zeroes(c_short),
         \\};
     });
 
@@ -461,7 +461,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct bar { int x; int y[0]; };
     , &[_][]const u8{
         \\pub const struct_foo = extern struct {
-        \\    x: c_int align(4),
+        \\    x: c_int align(4) = @import("std").mem.zeroes(c_int),
         \\    pub fn y(self: anytype) @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int) {
         \\        const Intermediate = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), u8);
         \\        const ReturnType = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int);
@@ -469,7 +469,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\};
         \\pub const struct_bar = extern struct {
-        \\    x: c_int align(4),
+        \\    x: c_int align(4) = @import("std").mem.zeroes(c_int),
         \\    pub fn y(self: anytype) @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int) {
         \\        const Intermediate = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), u8);
         \\        const ReturnType = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int);
@@ -545,7 +545,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\source.h:4:8: warning: struct demoted to opaque type - unable to translate type of field abufused
         \\pub const struct_arcan_shmif_page = opaque {};
         \\pub const struct_arcan_shmif_cont = extern struct {
-        \\    addr: ?*struct_arcan_shmif_page,
+        \\    addr: ?*struct_arcan_shmif_page = @import("std").mem.zeroes(?*struct_arcan_shmif_page),
         \\};
     });
 
@@ -562,10 +562,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const fnptr_ty = ?*const fn () callconv(.C) void;
         \\pub const fnptr_attr_ty = ?*const fn () callconv(.C) void;
         \\pub const struct_foo = extern struct {
-        \\    foo: ?*const fn () callconv(.C) void,
-        \\    bar: ?*const fn () callconv(.C) void,
-        \\    baz: fnptr_ty,
-        \\    qux: fnptr_attr_ty,
+        \\    foo: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    bar: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    baz: fnptr_ty = @import("std").mem.zeroes(fnptr_ty),
+        \\    qux: fnptr_attr_ty = @import("std").mem.zeroes(fnptr_attr_ty),
         \\};
     });
 
@@ -624,14 +624,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void foo(outer *x) { x->y = x->x; }
     , &[_][]const u8{
         \\const struct_unnamed_2 = extern struct {
-        \\    y: c_int,
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\const union_unnamed_1 = extern union {
         \\    x: u8,
         \\    unnamed_0: struct_unnamed_2,
         \\};
         \\pub const outer = extern struct {
-        \\    unnamed_0: union_unnamed_1,
+        \\    unnamed_0: union_unnamed_1 = @import("std").mem.zeroes(union_unnamed_1),
         \\};
         \\pub export fn foo(arg_x: [*c]outer) void {
         \\    var x = arg_x;
@@ -669,12 +669,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\foo s3 = { 123 };
     , &[_][]const u8{
         \\pub const foo = extern struct {
-        \\    x: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\const struct_unnamed_1 = extern struct {
-        \\    x: f64,
-        \\    y: f64,
-        \\    z: f64,
+        \\    x: f64 = @import("std").mem.zeroes(f64),
+        \\    y: f64 = @import("std").mem.zeroes(f64),
+        \\    z: f64 = @import("std").mem.zeroes(f64),
         \\};
         \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
         \\    .x = 1.2,
@@ -682,12 +682,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .z = 0,
         \\};
         \\const struct_unnamed_2 = extern struct {
-        \\    sec: c_int,
-        \\    min: c_int,
-        \\    hour: c_int,
-        \\    day: c_int,
-        \\    mon: c_int,
-        \\    year: c_int,
+        \\    sec: c_int = @import("std").mem.zeroes(c_int),
+        \\    min: c_int = @import("std").mem.zeroes(c_int),
+        \\    hour: c_int = @import("std").mem.zeroes(c_int),
+        \\    day: c_int = @import("std").mem.zeroes(c_int),
+        \\    mon: c_int = @import("std").mem.zeroes(c_int),
+        \\    year: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s1: struct_unnamed_2 = struct_unnamed_2{
         \\    .sec = @as(c_int, 30),
@@ -698,8 +698,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .year = @as(c_int, 2014),
         \\};
         \\const struct_unnamed_3 = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s2: struct_unnamed_3 = struct_unnamed_3{
         \\    .x = @as(c_int, 1),
@@ -730,9 +730,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct {int x,y,z;} __attribute__((packed)) s0 = {1, 2};
     , &[_][]const u8{
         \\const struct_unnamed_1 = extern struct {
-        \\    x: c_int align(1),
-        \\    y: c_int align(1),
-        \\    z: c_int align(1),
+        \\    x: c_int align(1) = @import("std").mem.zeroes(c_int),
+        \\    y: c_int align(1) = @import("std").mem.zeroes(c_int),
+        \\    z: c_int align(1) = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
         \\    .x = @as(c_int, 1),
@@ -977,8 +977,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const lws_callback_function = fn () callconv(.C) void;
         \\pub const struct_Foo = extern struct {
-        \\    func: ?*const fn () callconv(.C) void,
-        \\    callback_http: ?*const lws_callback_function,
+        \\    func: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    callback_http: ?*const lws_callback_function = @import("std").mem.zeroes(?*const lws_callback_function),
         \\};
     });
 
@@ -993,7 +993,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = opaque {};
         ,
         \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo,
+        \\    foo: ?*struct_Foo = @import("std").mem.zeroes(?*struct_Foo),
         \\};
     });
 
@@ -1025,13 +1025,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    a: [*c]Foo,
+        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
         \\};
         ,
         \\pub const Foo = struct_Foo;
         ,
         \\pub const struct_Bar = extern struct {
-        \\    a: [*c]Foo,
+        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
         \\};
         ,
         \\pub const Bar = struct_Bar;
@@ -1044,8 +1044,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: [*c]u8,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: [*c]u8 = @import("std").mem.zeroes([*c]u8),
         \\};
         ,
         \\pub const Foo = struct_Foo;
@@ -1057,7 +1057,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void,
+        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.C) void),
         \\};
         ,
         \\pub const Foo = struct_Foo;
@@ -1101,11 +1101,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Bar = extern struct {
-        \\    next: [*c]struct_Foo,
+        \\    next: [*c]struct_Foo = @import("std").mem.zeroes([*c]struct_Foo),
         \\};
         ,
         \\pub const struct_Foo = extern struct {
-        \\    next: [*c]struct_Bar,
+        \\    next: [*c]struct_Bar = @import("std").mem.zeroes([*c]struct_Bar),
         \\};
     });
 
@@ -1121,7 +1121,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_comptime = extern struct {
-        \\    @"defer": c_int,
+        \\    @"defer": c_int = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const @"comptime" = struct_comptime;
@@ -1421,8 +1421,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         // even though the parent struct is
         // this is consistent with GCC docs
         \\const struct_unnamed_1 = extern struct {
-        \\    a: u8,
-        \\    b: c_int,
+        \\    a: u8 = @import("std").mem.zeroes(u8),
+        \\    b: c_int = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const union_Foo = extern union {
@@ -1448,8 +1448,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         // have an independent packed declaration on
         // the nested type (see GCC docs for details)
         \\const struct_unnamed_1 = extern struct {
-        \\    a: u8 align(1),
-        \\    b: c_int align(1),
+        \\    a: u8 align(1) = @import("std").mem.zeroes(u8),
+        \\    b: c_int align(1) = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const union_Foo = extern union {
@@ -1905,8 +1905,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ++ " " ++ default_enum_type ++
             \\;
             \\pub const struct_Baz = extern struct {
-            \\    l: enum_unnamed_2,
-            \\    m: d,
+            \\    l: enum_unnamed_2 = @import("std").mem.zeroes(enum_unnamed_2),
+            \\    m: d = @import("std").mem.zeroes(d),
             \\};
             \\pub const n: c_int = 0;
             \\pub const o: c_int = 1;
@@ -2010,7 +2010,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const PFNGLCLEARPROC = ?*const fn (GLbitfield) callconv(.C) void;
         \\pub const OpenGLProc = ?*const fn () callconv(.C) void;
         \\const struct_unnamed_1 = extern struct {
-        \\    Clear: PFNGLCLEARPROC,
+        \\    Clear: PFNGLCLEARPROC = @import("std").mem.zeroes(PFNGLCLEARPROC),
         \\};
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
@@ -2362,10 +2362,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\};
         , &[_][]const u8{
             \\pub const struct_Bar_1 = extern struct {
-            \\    b: c_int,
+            \\    b: c_int = @import("std").mem.zeroes(c_int),
             \\};
             \\pub const struct_Foo = extern struct {
-            \\    c: struct_Bar_1,
+            \\    c: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
             \\};
         });
     }
@@ -2576,8 +2576,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void func(struct Foo *a, enum Bar **b);
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const BarA: c_int = 0;
         \\pub const BarB: c_int = 1;
@@ -2694,7 +2694,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    b: c_int,
+        \\    b: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub extern var a: struct_Foo;
         \\pub export var b: f32 = 2.0;
@@ -3604,12 +3604,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\} ONENAMEWITHSTRUCT;
         , &[_][]const u8{
             \\pub const struct_NAMED = extern struct {
-            \\    name: c_long,
+            \\    name: c_long = @import("std").mem.zeroes(c_long),
             \\};
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
-            \\    unnamed_0: struct_NAMED,
-            \\    b: c_long,
+            \\    unnamed_0: struct_NAMED =  = @import("std").mem.zeroes(struct_NAMED),
+            \\    b: c_long = @import("std").mem.zeroes(c_long),
             \\};
         });
     } else {
@@ -3626,11 +3626,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\} ONENAMEWITHSTRUCT;
         , &[_][]const u8{
             \\pub const struct_NAMED = extern struct {
-            \\    name: c_long,
+            \\    name: c_long = @import("std").mem.zeroes(c_long),
             \\};
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
-            \\    b: c_long,
+            \\    b: c_long = @import("std").mem.zeroes(c_long),
             \\};
         });
     }
@@ -3645,11 +3645,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\const struct_unnamed_1 = extern struct {};
         \\pub const struct_a = extern struct {
-        \\    unnamed_0: struct_unnamed_1,
+        \\    unnamed_0: struct_unnamed_1 = @import("std").mem.zeroes(struct_unnamed_1),
         \\};
         \\const struct_unnamed_2 = extern struct {};
         \\pub const struct_b = extern struct {
-        \\    unnamed_0: struct_unnamed_2,
+        \\    unnamed_0: struct_unnamed_2 = @import("std").mem.zeroes(struct_unnamed_2),
         \\};
     });
 
@@ -3783,8 +3783,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_inner = opaque {};
         ,
         \\pub const struct_outer = extern struct {
-        \\    thing: c_int,
-        \\    sub_struct: struct_inner,
+        \\    thing: c_int = @import("std").mem.zeroes(c_int),
+        \\    sub_struct: struct_inner = @import("std").mem.zeroes(struct_inner),
         \\};
         ,
         \\warning: unable to translate function, demoted to extern
@@ -3812,8 +3812,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub const struct_FOO = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export fn bar() c_int {
         \\    const foo = struct {
@@ -4143,7 +4143,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\const char *struct_foo = "hello world";
     , &[_][]const u8{
         \\pub const struct_foo_1 = extern struct {
-        \\    x: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const foo = struct_foo_1;
