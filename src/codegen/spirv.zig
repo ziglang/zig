@@ -1694,6 +1694,7 @@ pub const DeclGen = struct {
             .slice_elem_val => try self.airSliceElemVal(inst),
             .ptr_elem_ptr   => try self.airPtrElemPtr(inst),
             .ptr_elem_val   => try self.airPtrElemVal(inst),
+            .array_elem_val => try self.airArrayElemVal(inst),
 
             .set_union_tag => return try self.airSetUnionTag(inst),
             .get_union_tag => try self.airGetUnionTag(inst),
@@ -2565,6 +2566,40 @@ pub const DeclGen = struct {
         const ptr_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
         return try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
+    }
+
+    fn airArrayElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const mod = self.module;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const array_ty = self.typeOf(bin_op.lhs);
+        const array_ty_ref = try self.resolveType(array_ty, .direct);
+        const elem_ty = array_ty.childType(mod);
+        const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
+        const array_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
+
+        // SPIR-V doesn't have an array indexing function for some damn reason.
+        // For now, just generate a temporary and use that.
+        // TODO: This backend probably also should use isByRef from llvm...
+
+        const array_ptr_ty_ref = try self.spv.ptrType(array_ty_ref, .Function);
+        const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, .Function);
+
+        const tmp_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(array_ptr_ty_ref),
+            .id_result = tmp_id,
+            .storage_class = .Function,
+        });
+        try self.func.body.emit(self.spv.gpa, .OpStore, .{
+            .pointer = tmp_id,
+            .object = array_id,
+        });
+
+        const elem_ptr_id = try self.accessChainId(elem_ptr_ty_ref, tmp_id, &.{index_id});
+        return try self.load(elem_ty, elem_ptr_id, false);
     }
 
     fn airPtrElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
