@@ -148,16 +148,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} a = {};
         \\#define PTR void *
     , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
+        \\pub const struct_Bar_1 = extern struct {
         \\    a: c_int,
         \\};
         \\pub const struct_Foo = extern struct {
         \\    a: c_int,
-        \\    b: struct_Bar,
+        \\    b: struct_Bar_1,
         \\};
         \\pub export var a: struct_Foo = struct_Foo{
         \\    .a = 0,
-        \\    .b = @import("std").mem.zeroes(struct_Bar),
+        \\    .b = @import("std").mem.zeroes(struct_Bar_1),
         \\};
         ,
         \\pub const PTR = ?*anyopaque;
@@ -2361,11 +2361,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    struct Bar c;
             \\};
         , &[_][]const u8{
-            \\pub const struct_Bar = extern struct {
+            \\pub const struct_Bar_1 = extern struct {
             \\    b: c_int,
             \\};
             \\pub const struct_Foo = extern struct {
-            \\    c: struct_Bar,
+            \\    c: struct_Bar_1,
             \\};
         });
     }
@@ -4134,5 +4134,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) struct x
     , &[_][]const u8{
         \\pub const FOO = @compileError("unable to translate macro: untranslatable usage of arg `x`");
+    });
+
+    cases.add("global struct whose default name conflicts with global is mangled",
+        \\struct foo {
+        \\    int x;
+        \\};
+        \\const char *struct_foo = "hello world";
+    , &[_][]const u8{
+        \\pub const struct_foo_1 = extern struct {
+        \\    x: c_int,
+        \\};
+        ,
+        \\pub const foo = struct_foo_1;
+        ,
+        \\pub export var struct_foo: [*c]const u8 = "hello world";
     });
 }
