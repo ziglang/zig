@@ -1494,7 +1494,6 @@ pub const DeclGen = struct {
                 .id_result = decl_id,
                 .storage_class = actual_storage_class,
             });
-            self.spv.globalPtr(spv_decl_index).?.result_id = decl_id;
 
             // Now emit the instructions that initialize the variable.
             const initializer_id = self.spv.allocId();
@@ -1517,13 +1516,11 @@ pub const DeclGen = struct {
             });
 
             // TODO: We should be able to get rid of this by now...
-            self.spv.endGlobal(spv_decl_index, begin);
+            self.spv.endGlobal(spv_decl_index, begin, decl_id, initializer_id);
 
             try self.func.body.emit(self.spv.gpa, .OpReturn, {});
             try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
             try self.spv.addFunction(spv_decl_index, self.func);
-
-            try self.spv.initializers.append(self.spv.gpa, initializer_id);
 
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
             try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{

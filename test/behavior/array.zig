@@ -48,7 +48,6 @@ fn getArrayLen(a: []const u32) usize {
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -88,7 +87,6 @@ test "array concat with tuple" {
 
 test "array init with concat" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = 'a';
     var i: [4]u8 = [2]u8{ a, 'b' } ++ [2]u8{ 'c', 'd' };
@@ -98,7 +96,6 @@ test "array init with concat" {
 test "array init with mult" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = 'a';
     var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
@@ -241,7 +238,6 @@ fn plusOne(x: u32) u32 {
 test "single-item pointer to array indexing and slicing" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSingleItemPtrArrayIndexSlice();
     try comptime testSingleItemPtrArrayIndexSlice();
@@ -384,7 +380,6 @@ test "runtime initialize array elem and then implicit cast to slice" {
 test "array literal as argument to function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry(two: i32) !void {
@@ -413,7 +408,6 @@ test "double nested array to const slice cast in array literal" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry(two: i32) !void {
@@ -651,7 +645,6 @@ test "tuple to array handles sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const a = .{ 1, 2, 3 };
