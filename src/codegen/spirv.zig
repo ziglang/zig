@@ -1683,6 +1683,7 @@ pub const DeclGen = struct {
             .not             => try self.airNot(inst),
 
             .array_to_slice => try self.airArrayToSlice(inst),
+            .slice          => try self.airSlice(inst),
             .aggregate_init => try self.airAggregateInit(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
@@ -2460,6 +2461,22 @@ pub const DeclGen = struct {
         // Convert the pointer-to-array to a pointer to the first element.
         const elem_ptr_id = try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
         return try self.constructStruct(slice_ty_ref, &.{ elem_ptr_id, len_id });
+    }
+
+    fn airSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const len_id = try self.resolve(bin_op.rhs);
+        const slice_ty = self.typeOfIndex(inst);
+        const slice_ty_ref = try self.resolveType(slice_ty, .direct);
+
+        return try self.constructStruct(slice_ty_ref, &.{
+            ptr_id, // Note: Type should not need to be converted to direct.
+            len_id, // Note: Type should not need to be converted to direct.
+        });
     }
 
     fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
