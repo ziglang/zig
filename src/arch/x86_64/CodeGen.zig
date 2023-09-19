@@ -1934,7 +1934,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
-            .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
+            .unreach  => self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
             .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
@@ -9813,8 +9813,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         .register_overflow,
         .reserved_frame,
         => unreachable,
-        .undef => if (self.wantSafety())
-            try self.genSetReg(dst_reg.to64(), Type.usize, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+        .undef => {},
         .eflags => |cc| try self.asmSetccRegister(dst_reg.to8(), cc),
         .immediate => |imm| {
             if (imm == 0) {
@@ -10098,8 +10097,7 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
     };
     switch (src_mcv) {
         .none, .unreach, .dead, .reserved_frame => unreachable,
-        .undef => if (self.wantSafety())
-            try self.genInlineMemset(dst_ptr_mcv, .{ .immediate = 0xaa }, .{ .immediate = abi_size }),
+        .undef => {},
         .immediate => |imm| switch (abi_size) {
             1, 2, 4 => {
                 const immediate = if (ty.isSignedInt(mod))
@@ -12014,16 +12012,6 @@ fn resolveCallingConventionValues(
 
     result.stack_byte_count = mem.alignForward(u31, result.stack_byte_count, result.stack_align);
     return result;
-}
-
-/// TODO support scope overrides. Also note this logic is duplicated with `Module.wantSafety`.
-fn wantSafety(self: *Self) bool {
-    return switch (self.bin_file.options.optimize_mode) {
-        .Debug => true,
-        .ReleaseSafe => true,
-        .ReleaseFast => false,
-        .ReleaseSmall => false,
-    };
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
