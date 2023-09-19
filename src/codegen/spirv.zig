@@ -1736,6 +1736,8 @@ pub const DeclGen = struct {
 
             .is_null     => try self.airIsNull(inst, .is_null),
             .is_non_null => try self.airIsNull(inst, .is_non_null),
+            .is_err      => try self.airIsErr(inst, .is_err),
+            .is_non_err  => try self.airIsErr(inst, .is_non_err),
 
             .optional_payload => try self.airUnwrapOptional(inst),
             .wrap_optional    => try self.airWrapOptional(inst),
@@ -3274,6 +3276,42 @@ pub const DeclGen = struct {
             },
             .is_non_null => is_non_null_id,
         };
+    }
+
+    fn airIsErr(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_err, is_non_err }) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const mod = self.module;
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand_id = try self.resolve(un_op);
+        const err_union_ty = self.typeOf(un_op);
+
+        if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
+            return try self.constBool(pred == .is_non_err, .direct);
+        }
+
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
+        const eu_layout = self.errorUnionLayout(payload_ty);
+        const bool_ty_ref = try self.resolveType(Type.bool, .direct);
+        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
+
+        const error_id = if (!eu_layout.payload_has_bits)
+            operand_id
+        else
+            try self.extractField(Type.anyerror, operand_id, eu_layout.errorFieldIndex());
+
+        const result_id = self.spv.allocId();
+        const operands = .{
+            .id_result_type = self.typeId(bool_ty_ref),
+            .id_result = result_id,
+            .operand_1 = error_id,
+            .operand_2 = try self.constInt(err_ty_ref, 0),
+        };
+        switch (pred) {
+            .is_err => try self.func.body.emit(self.spv.gpa, .OpINotEqual, operands),
+            .is_non_err => try self.func.body.emit(self.spv.gpa, .OpIEqual, operands),
+        }
+        return result_id;
     }
 
     fn airUnwrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
