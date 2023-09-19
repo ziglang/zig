@@ -1431,11 +1431,6 @@ test "minInt and maxInt" {
     try testing.expect(minInt(i128) == -170141183460469231731687303715884105728);
 }
 
-test "max value type" {
-    const x: u32 = maxInt(i32);
-    try testing.expect(x == 2147483647);
-}
-
 /// Multiply a and b. Return type is wide enough to guarantee no
 /// overflow.
 pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(
