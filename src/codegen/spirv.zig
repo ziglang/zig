@@ -1734,6 +1734,7 @@ pub const DeclGen = struct {
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .unwrap_errunion_payload => try self.airErrUnionPayload(inst),
             .wrap_errunion_err => try self.airWrapErrUnionErr(inst),
+            .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
 
             .is_null     => try self.airIsNull(inst, .is_null),
             .is_non_null => try self.airIsNull(inst, .is_non_null),
@@ -3216,20 +3217,35 @@ pub const DeclGen = struct {
         }
 
         const payload_ty_ref = try self.resolveType(payload_ty, .indirect);
-        var members = std.BoundedArray(IdRef, 2){};
-        const payload_id = try self.spv.constUndef(payload_ty_ref);
-        if (eu_layout.error_first) {
-            members.appendAssumeCapacity(operand_id);
-            members.appendAssumeCapacity(payload_id);
-            // TODO: ABI padding?
-        } else {
-            members.appendAssumeCapacity(payload_id);
-            members.appendAssumeCapacity(operand_id);
-            // TODO: ABI padding?
-        }
+
+        var members: [2]IdRef = undefined;
+        members[eu_layout.errorFieldIndex()] = operand_id;
+        members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(payload_ty_ref);
 
         const err_union_ty_ref = try self.resolveType(err_union_ty, .direct);
-        return try self.constructStruct(err_union_ty_ref, members.slice());
+        return try self.constructStruct(err_union_ty_ref, &members);
+    }
+
+    fn airWrapErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const err_union_ty = self.typeOfIndex(inst);
+        const operand_id = try self.resolve(ty_op.operand);
+        const payload_ty = self.typeOf(ty_op.operand);
+        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
+        const eu_layout = self.errorUnionLayout(payload_ty);
+
+        if (!eu_layout.payload_has_bits) {
+            return try self.constInt(err_ty_ref, 0);
+        }
+
+        var members: [2]IdRef = undefined;
+        members[eu_layout.errorFieldIndex()] = try self.constInt(err_ty_ref, 0);
+        members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
+
+        const err_union_ty_ref = try self.resolveType(err_union_ty, .direct);
+        return try self.constructStruct(err_union_ty_ref, &members);
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_null, is_non_null }) !?IdRef {
