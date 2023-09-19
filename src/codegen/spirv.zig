@@ -1732,6 +1732,7 @@ pub const DeclGen = struct {
             .unreach, .trap => return self.airUnreach(),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
+            .unwrap_errunion_payload => try self.airErrUnionPayload(inst),
             .wrap_errunion_err => try self.airWrapErrUnionErr(inst),
 
             .is_null     => try self.airIsNull(inst, .is_null),
@@ -3183,6 +3184,21 @@ pub const DeclGen = struct {
         }
 
         return try self.extractField(Type.anyerror, operand_id, eu_layout.errorFieldIndex());
+    }
+
+    fn airErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const payload_ty = self.typeOfIndex(inst);
+        const eu_layout = self.errorUnionLayout(payload_ty);
+
+        if (!eu_layout.payload_has_bits) {
+            return null; // No error possible.
+        }
+
+        return try self.extractField(payload_ty, operand_id, eu_layout.payloadFieldIndex());
     }
 
     fn airWrapErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
