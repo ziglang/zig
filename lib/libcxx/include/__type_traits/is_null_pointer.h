@@ -20,21 +20,23 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct __is_nullptr_t_impl       : public false_type {};
-template <>          struct __is_nullptr_t_impl<nullptr_t> : public true_type {};
+template <class _Tp>
+struct __is_nullptr_t_impl : public false_type {};
+template <>
+struct __is_nullptr_t_impl<nullptr_t> : public true_type {};
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS __is_nullptr_t
-    : public __is_nullptr_t_impl<__remove_cv_t<_Tp> > {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS __is_nullptr_t : public __is_nullptr_t_impl<__remove_cv_t<_Tp> > {};
 
-#if _LIBCPP_STD_VER > 11
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_null_pointer
-    : public __is_nullptr_t_impl<__remove_cv_t<_Tp> > {};
+#if _LIBCPP_STD_VER >= 14
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_null_pointer : public __is_nullptr_t_impl<__remove_cv_t<_Tp> > {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_null_pointer_v = is_null_pointer<_Tp>::value;
-#endif
-#endif // _LIBCPP_STD_VER > 11
+#  endif
+#endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
 

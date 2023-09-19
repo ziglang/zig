@@ -417,6 +417,11 @@ test "division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
+
     try testDivision();
     try comptime testDivision();
 }
@@ -590,6 +595,11 @@ fn negateWrap(comptime T: type, x: T) T {
 test "unsigned 64-bit division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
 
     try test_u64_div();
     try comptime test_u64_div();

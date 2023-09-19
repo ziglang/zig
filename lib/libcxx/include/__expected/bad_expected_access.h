@@ -10,13 +10,15 @@
 #define _LIBCPP___EXPECTED_BAD_EXPECTED_ACCESS_H
 
 #include <__config>
+#include <__exception/exception.h>
 #include <__utility/move.h>
-
-#include <exception>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 #if _LIBCPP_STD_VER >= 23
 
@@ -33,14 +35,14 @@ protected:
   _LIBCPP_HIDE_FROM_ABI bad_expected_access(bad_expected_access&&)                 = default;
   _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(const bad_expected_access&) = default;
   _LIBCPP_HIDE_FROM_ABI bad_expected_access& operator=(bad_expected_access&&)      = default;
-  ~bad_expected_access() override                                                  = default;
+  _LIBCPP_HIDE_FROM_ABI_VIRTUAL ~bad_expected_access() override                    = default;
 
 public:
   // The way this has been designed (by using a class template below) means that we'll already
   // have a profusion of these vtables in TUs, and the dynamic linker will already have a bunch
   // of work to do. So it is not worth hiding the <void> specialization in the dylib, given that
   // it adds deployment target restrictions.
-  const char* what() const noexcept override { return "bad access to std::expected"; }
+  _LIBCPP_HIDE_FROM_ABI_VIRTUAL const char* what() const noexcept override { return "bad access to std::expected"; }
 };
 
 template <class _Err>
@@ -60,5 +62,7 @@ private:
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 23
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___EXPECTED_BAD_EXPECTED_ACCESS_H

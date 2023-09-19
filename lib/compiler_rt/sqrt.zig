@@ -20,13 +20,13 @@ comptime {
 
 pub fn __sqrth(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(sqrtf(x)));
+    return @floatCast(sqrtf(x));
 }
 
 pub fn sqrtf(x: f32) callconv(.C) f32 {
     const tiny: f32 = 1.0e-30;
-    const sign: i32 = @as(i32, @bitCast(@as(u32, 0x80000000)));
-    var ix: i32 = @as(i32, @bitCast(x));
+    const sign: i32 = @bitCast(@as(u32, 0x80000000));
+    var ix: i32 = @bitCast(x);
 
     if ((ix & 0x7F800000) == 0x7F800000) {
         return x * x + x; // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = nan
@@ -96,7 +96,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
 
     ix = (q >> 1) + 0x3f000000;
     ix += m << 23;
-    return @as(f32, @bitCast(ix));
+    return @bitCast(ix);
 }
 
 /// NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
@@ -105,10 +105,10 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
 pub fn sqrt(x: f64) callconv(.C) f64 {
     const tiny: f64 = 1.0e-300;
     const sign: u32 = 0x80000000;
-    const u = @as(u64, @bitCast(x));
+    const u: u64 = @bitCast(x);
 
-    var ix0 = @as(u32, @intCast(u >> 32));
-    var ix1 = @as(u32, @intCast(u & 0xFFFFFFFF));
+    var ix0: u32 = @intCast(u >> 32);
+    var ix1: u32 = @intCast(u & 0xFFFFFFFF);
 
     // sqrt(nan) = nan, sqrt(+inf) = +inf, sqrt(-inf) = nan
     if (ix0 & 0x7FF00000 == 0x7FF00000) {
@@ -140,8 +140,8 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
             ix0 <<= 1;
         }
         m -= @as(i32, @intCast(i)) - 1;
-        ix0 |= ix1 >> @as(u5, @intCast(32 - i));
-        ix1 <<= @as(u5, @intCast(i));
+        ix0 |= ix1 >> @intCast(32 - i);
+        ix1 <<= @intCast(i);
     }
 
     // unbias exponent
@@ -225,21 +225,21 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
 
     // NOTE: musl here appears to rely on signed twos-complement wraparound. +% has the same
     // behaviour at least.
-    var iix0 = @as(i32, @intCast(ix0));
+    var iix0: i32 = @intCast(ix0);
     iix0 = iix0 +% (m << 20);
 
     const uz = (@as(u64, @intCast(iix0)) << 32) | ix1;
-    return @as(f64, @bitCast(uz));
+    return @bitCast(uz);
 }
 
 pub fn __sqrtx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(sqrtq(x)));
+    return @floatCast(sqrtq(x));
 }
 
 pub fn sqrtq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return sqrt(@as(f64, @floatCast(x)));
+    return sqrt(@floatCast(x));
 }
 
 pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {

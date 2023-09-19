@@ -10,6 +10,7 @@
 #define _LIBCPP___MEMORY_RESOURCE_POLYMORPHIC_ALLOCATOR_H
 
 #include <__assert>
+#include <__availability>
 #include <__config>
 #include <__memory_resource/memory_resource.h>
 #include <__utility/exception_guard.h>
@@ -26,7 +27,7 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -39,7 +40,7 @@ template <class _ValueType
           = byte
 #  endif
           >
-class _LIBCPP_TEMPLATE_VIS polymorphic_allocator {
+class _LIBCPP_AVAILABILITY_PMR _LIBCPP_TEMPLATE_VIS polymorphic_allocator {
 
 public:
   using value_type = _ValueType;
@@ -50,7 +51,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI polymorphic_allocator(memory_resource* __r) noexcept : __res_(__r) {}
 
-  polymorphic_allocator(const polymorphic_allocator&) = default;
+  _LIBCPP_HIDE_FROM_ABI polymorphic_allocator(const polymorphic_allocator&) = default;
 
   template <class _Tp>
   _LIBCPP_HIDE_FROM_ABI polymorphic_allocator(const polymorphic_allocator<_Tp>& __other) noexcept
@@ -68,35 +69,35 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI void deallocate(_ValueType* __p, size_t __n) {
-    _LIBCPP_ASSERT(__n <= __max_size(), "deallocate called for size which exceeds max_size()");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__n <= __max_size(), "deallocate called for size which exceeds max_size()");
     __res_->deallocate(__p, __n * sizeof(_ValueType), alignof(_ValueType));
   }
 
 #  if _LIBCPP_STD_VER >= 20
 
-  [[nodiscard]] [[using __gnu__: __alloc_size__(2), __alloc_align__(3)]] void*
+  [[nodiscard]] [[using __gnu__: __alloc_size__(2), __alloc_align__(3)]] _LIBCPP_HIDE_FROM_ABI void*
   allocate_bytes(size_t __nbytes, size_t __alignment = alignof(max_align_t)) {
     return __res_->allocate(__nbytes, __alignment);
   }
 
-  void deallocate_bytes(void* __ptr, size_t __nbytes, size_t __alignment = alignof(max_align_t)) {
+  _LIBCPP_HIDE_FROM_ABI void deallocate_bytes(void* __ptr, size_t __nbytes, size_t __alignment = alignof(max_align_t)) {
     __res_->deallocate(__ptr, __nbytes, __alignment);
   }
 
   template <class _Type>
-  [[nodiscard]] _Type* allocate_object(size_t __n = 1) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI _Type* allocate_object(size_t __n = 1) {
     if (numeric_limits<size_t>::max() / sizeof(_Type) < __n)
       std::__throw_bad_array_new_length();
     return static_cast<_Type*>(allocate_bytes(__n * sizeof(_Type), alignof(_Type)));
   }
 
   template <class _Type>
-  void deallocate_object(_Type* __ptr, size_t __n = 1) {
+  _LIBCPP_HIDE_FROM_ABI void deallocate_object(_Type* __ptr, size_t __n = 1) {
     deallocate_bytes(__ptr, __n * sizeof(_Type), alignof(_Type));
   }
 
   template <class _Type, class... _CtorArgs>
-  [[nodiscard]] _Type* new_object(_CtorArgs&&... __ctor_args) {
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI _Type* new_object(_CtorArgs&&... __ctor_args) {
     _Type* __ptr = allocate_object<_Type>();
     auto __guard = std::__make_exception_guard([&] { deallocate_object(__ptr); });
     construct(__ptr, std::forward<_CtorArgs>(__ctor_args)...);
@@ -105,7 +106,7 @@ public:
   }
 
   template <class _Type>
-  void delete_object(_Type* __ptr) {
+  _LIBCPP_HIDE_FROM_ABI void delete_object(_Type* __ptr) {
     destroy(__ptr);
     deallocate_object(__ptr);
   }
@@ -207,17 +208,21 @@ operator==(const polymorphic_allocator<_Tp>& __lhs, const polymorphic_allocator<
   return *__lhs.resource() == *__rhs.resource();
 }
 
+#  if _LIBCPP_STD_VER <= 17
+
 template <class _Tp, class _Up>
 inline _LIBCPP_HIDE_FROM_ABI bool
 operator!=(const polymorphic_allocator<_Tp>& __lhs, const polymorphic_allocator<_Up>& __rhs) noexcept {
   return !(__lhs == __rhs);
 }
 
+#  endif
+
 } // namespace pmr
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 

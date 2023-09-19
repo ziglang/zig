@@ -4318,6 +4318,9 @@ pub fn addCCArgs(
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
         }
 
+        // See the comment in libcxx.zig for more details about this.
+        try argv.append("-D_LIBCPP_PSTL_CPU_BACKEND_SERIAL");
+
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
             @intFromEnum(comp.libcxx_abi_version),
         }));
@@ -4454,9 +4457,18 @@ pub fn addCCArgs(
             if (comp.sanitize_c and !comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
+                // It is very common, and well-defined, for a pointer on one side of a C ABI
+                // to have a different but compatible element type. Examples include:
+                // `char*` vs `uint8_t*` on a system with 8-bit bytes
+                // `const char*` vs `char*`
+                // `char*` vs `unsigned char*`
+                // Without this flag, Clang would invoke UBSAN when such an extern
+                // function was called.
+                try argv.append("-fno-sanitize=function");
             } else if (comp.sanitize_c and comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=undefined,thread");
                 try argv.append("-fsanitize-trap=undefined");
+                try argv.append("-fno-sanitize=function");
             } else if (!comp.sanitize_c and comp.bin_file.options.tsan) {
                 try argv.append("-fsanitize=thread");
             }

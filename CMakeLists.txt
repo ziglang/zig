@@ -131,9 +131,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 16)
-find_package(clang 16)
-find_package(lld 16)
+find_package(llvm 17)
+find_package(clang 17)
+find_package(lld 17)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)

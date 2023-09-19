@@ -43,7 +43,7 @@ struct _OrImpl<false> {
 template <class... _Args>
 using _Or _LIBCPP_NODEBUG = typename _OrImpl<sizeof...(_Args) != 0>::template _Result<false_type, _Args...>;
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 template <class... _Args>
 struct disjunction : _Or<_Args...> {};
@@ -51,7 +51,7 @@ struct disjunction : _Or<_Args...> {};
 template <class... _Args>
 inline constexpr bool disjunction_v = _Or<_Args...>::value;
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -35,7 +35,6 @@
 #include <stdint.h>
 
 #include <arm_bf16.h>
-typedef __bf16 bfloat16_t;
 typedef float float32_t;
 typedef __fp16 float16_t;
 #ifdef __aarch64__
@@ -64938,6 +64937,170 @@ int8x16_t __reint_786 = __rev2_786; \
 })
 #endif
 
+#define vldap1_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x1_t __ret; \
+  poly64x1_t __s1 = __p1; \
+  __ret = (poly64x1_t) __builtin_neon_vldap1_lane_p64(__p0, (int8x8_t)__s1, __p2, 6); \
+  __ret; \
+})
+#ifdef __LITTLE_ENDIAN__
+#define vldap1q_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x2_t __ret; \
+  poly64x2_t __s1 = __p1; \
+  __ret = (poly64x2_t) __builtin_neon_vldap1q_lane_p64(__p0, (int8x16_t)__s1, __p2, 38); \
+  __ret; \
+})
+#else
+#define vldap1q_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x2_t __ret; \
+  poly64x2_t __s1 = __p1; \
+  poly64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __ret = (poly64x2_t) __builtin_neon_vldap1q_lane_p64(__p0, (int8x16_t)__rev1, __p2, 38); \
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0); \
+  __ret; \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vldap1q_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x2_t __ret; \
+  uint64x2_t __s1 = __p1; \
+  __ret = (uint64x2_t) __builtin_neon_vldap1q_lane_u64(__p0, (int8x16_t)__s1, __p2, 51); \
+  __ret; \
+})
+#else
+#define vldap1q_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x2_t __ret; \
+  uint64x2_t __s1 = __p1; \
+  uint64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __ret = (uint64x2_t) __builtin_neon_vldap1q_lane_u64(__p0, (int8x16_t)__rev1, __p2, 51); \
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0); \
+  __ret; \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vldap1q_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x2_t __ret; \
+  float64x2_t __s1 = __p1; \
+  __ret = (float64x2_t) __builtin_neon_vldap1q_lane_f64(__p0, (int8x16_t)__s1, __p2, 42); \
+  __ret; \
+})
+#else
+#define vldap1q_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x2_t __ret; \
+  float64x2_t __s1 = __p1; \
+  float64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __ret = (float64x2_t) __builtin_neon_vldap1q_lane_f64(__p0, (int8x16_t)__rev1, __p2, 42); \
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0); \
+  __ret; \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vldap1q_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x2_t __ret; \
+  int64x2_t __s1 = __p1; \
+  __ret = (int64x2_t) __builtin_neon_vldap1q_lane_s64(__p0, (int8x16_t)__s1, __p2, 35); \
+  __ret; \
+})
+#else
+#define vldap1q_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x2_t __ret; \
+  int64x2_t __s1 = __p1; \
+  int64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __ret = (int64x2_t) __builtin_neon_vldap1q_lane_s64(__p0, (int8x16_t)__rev1, __p2, 35); \
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0); \
+  __ret; \
+})
+#endif
+
+#define vldap1_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x1_t __ret; \
+  uint64x1_t __s1 = __p1; \
+  __ret = (uint64x1_t) __builtin_neon_vldap1_lane_u64(__p0, (int8x8_t)__s1, __p2, 19); \
+  __ret; \
+})
+#define vldap1_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x1_t __ret; \
+  float64x1_t __s1 = __p1; \
+  __ret = (float64x1_t) __builtin_neon_vldap1_lane_f64(__p0, (int8x8_t)__s1, __p2, 10); \
+  __ret; \
+})
+#define vldap1_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x1_t __ret; \
+  int64x1_t __s1 = __p1; \
+  __ret = (int64x1_t) __builtin_neon_vldap1_lane_s64(__p0, (int8x8_t)__s1, __p2, 3); \
+  __ret; \
+})
+#define vstl1_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x1_t __s1 = __p1; \
+  __builtin_neon_vstl1_lane_p64(__p0, (int8x8_t)__s1, __p2, 6); \
+})
+#ifdef __LITTLE_ENDIAN__
+#define vstl1q_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x2_t __s1 = __p1; \
+  __builtin_neon_vstl1q_lane_p64(__p0, (int8x16_t)__s1, __p2, 38); \
+})
+#else
+#define vstl1q_lane_p64(__p0, __p1, __p2) __extension__ ({ \
+  poly64x2_t __s1 = __p1; \
+  poly64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __builtin_neon_vstl1q_lane_p64(__p0, (int8x16_t)__rev1, __p2, 38); \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vstl1q_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x2_t __s1 = __p1; \
+  __builtin_neon_vstl1q_lane_u64(__p0, (int8x16_t)__s1, __p2, 51); \
+})
+#else
+#define vstl1q_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x2_t __s1 = __p1; \
+  uint64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __builtin_neon_vstl1q_lane_u64(__p0, (int8x16_t)__rev1, __p2, 51); \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vstl1q_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x2_t __s1 = __p1; \
+  __builtin_neon_vstl1q_lane_f64(__p0, (int8x16_t)__s1, __p2, 42); \
+})
+#else
+#define vstl1q_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x2_t __s1 = __p1; \
+  float64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __builtin_neon_vstl1q_lane_f64(__p0, (int8x16_t)__rev1, __p2, 42); \
+})
+#endif
+
+#ifdef __LITTLE_ENDIAN__
+#define vstl1q_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x2_t __s1 = __p1; \
+  __builtin_neon_vstl1q_lane_s64(__p0, (int8x16_t)__s1, __p2, 35); \
+})
+#else
+#define vstl1q_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x2_t __s1 = __p1; \
+  int64x2_t __rev1;  __rev1 = __builtin_shufflevector(__s1, __s1, 1, 0); \
+  __builtin_neon_vstl1q_lane_s64(__p0, (int8x16_t)__rev1, __p2, 35); \
+})
+#endif
+
+#define vstl1_lane_u64(__p0, __p1, __p2) __extension__ ({ \
+  uint64x1_t __s1 = __p1; \
+  __builtin_neon_vstl1_lane_u64(__p0, (int8x8_t)__s1, __p2, 19); \
+})
+#define vstl1_lane_f64(__p0, __p1, __p2) __extension__ ({ \
+  float64x1_t __s1 = __p1; \
+  __builtin_neon_vstl1_lane_f64(__p0, (int8x8_t)__s1, __p2, 10); \
+})
+#define vstl1_lane_s64(__p0, __p1, __p2) __extension__ ({ \
+  int64x1_t __s1 = __p1; \
+  __builtin_neon_vstl1_lane_s64(__p0, (int8x8_t)__s1, __p2, 3); \
+})
 #ifdef __LITTLE_ENDIAN__
 __ai __attribute__((target("sha3"))) uint8x16_t vbcaxq_u8(uint8x16_t __p0, uint8x16_t __p1, uint8x16_t __p2) {
   uint8x16_t __ret;

@@ -877,6 +877,11 @@ test "another, possibly redundant, @trunc test" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
+
     try testTruncLegacy(f64, 12.0);
     try comptime testTruncLegacy(f64, 12.0);
     try testTruncLegacy(f32, 12.0);

@@ -12,6 +12,7 @@
 #endif
 
 #include <__assert>
+#include <__verbose_abort>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -103,7 +104,7 @@ handle_strerror_r_return(int strerror_return, char *buffer) {
   if (new_errno == EINVAL)
     return "";
 
-  _LIBCPP_ASSERT(new_errno == ERANGE, "unexpected error from ::strerror_r");
+  _LIBCPP_ASSERT_UNCATEGORIZED(new_errno == ERANGE, "unexpected error from ::strerror_r");
   // FIXME maybe? 'strerror_buff_size' is likely to exceed the
   // maximum error size so ERANGE shouldn't be returned.
   std::abort();
@@ -286,12 +287,10 @@ system_error::~system_error() noexcept
 void
 __throw_system_error(int ev, const char* what_arg)
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     throw system_error(error_code(ev, system_category()), what_arg);
 #else
-    (void)ev;
-    (void)what_arg;
-    _VSTD::abort();
+    _LIBCPP_VERBOSE_ABORT("system_error was thrown in -fno-exceptions mode with error %i and message \"%s\"", ev, what_arg);
 #endif
 }
 

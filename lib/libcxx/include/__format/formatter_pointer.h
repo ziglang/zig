@@ -27,24 +27,27 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS __formatter_pointer {
 public:
-  constexpr __formatter_pointer() { __parser_.__alignment_ = __format_spec::__alignment::__right; }
-
-  _LIBCPP_HIDE_FROM_ABI constexpr auto
-  parse(basic_format_parse_context<_CharT>& __parse_ctx) -> decltype(__parse_ctx.begin()) {
-    auto __result = __parser_.__parse(__parse_ctx, __format_spec::__fields_pointer);
-    __format_spec::__process_display_type_pointer(__parser_.__type_);
+  template <class _ParseContext>
+  _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
+    typename _ParseContext::iterator __result = __parser_.__parse(__ctx, __format_spec::__fields_pointer);
+    __format_spec::__process_display_type_pointer(__parser_.__type_, "a pointer");
     return __result;
   }
 
-  _LIBCPP_HIDE_FROM_ABI auto format(const void* __ptr, auto& __ctx) const -> decltype(__ctx.out()) {
+  template <class _FormatContext>
+  _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator format(const void* __ptr, _FormatContext& __ctx) const {
     __format_spec::__parsed_specifications<_CharT> __specs = __parser_.__get_parsed_std_specifications(__ctx);
     __specs.__std_.__alternate_form_                       = true;
-    __specs.__std_.__type_                                 = __format_spec::__type::__hexadecimal_lower_case;
+    __specs.__std_.__type_ =
+        __specs.__std_.__type_ == __format_spec::__type::__pointer_upper_case
+            ? __format_spec::__type::__hexadecimal_upper_case
+            : __format_spec::__type::__hexadecimal_lower_case;
+
     return __formatter::__format_integer(reinterpret_cast<uintptr_t>(__ptr), __ctx, __specs);
   }
 
@@ -57,16 +60,16 @@ public:
 // - template<> struct formatter<void*, charT>;
 // - template<> struct formatter<const void*, charT>;
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<nullptr_t, _CharT>
+struct _LIBCPP_TEMPLATE_VIS formatter<nullptr_t, _CharT>
     : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<void*, _CharT> : public __formatter_pointer<_CharT> {
+struct _LIBCPP_TEMPLATE_VIS formatter<void*, _CharT> : public __formatter_pointer<_CharT> {
 };
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<const void*, _CharT>
+struct _LIBCPP_TEMPLATE_VIS formatter<const void*, _CharT>
     : public __formatter_pointer<_CharT> {};
 
-#endif //_LIBCPP_STD_VER > 17
+#endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

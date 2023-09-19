@@ -43,20 +43,22 @@ public:
 
     // construct/copy/destroy
     template<class U>
-      reference_wrapper(U&&);
-    reference_wrapper(const reference_wrapper<T>& x) noexcept;
+      constexpr reference_wrapper(U&&);                                   // constexpr since C++20
+    constexpr reference_wrapper(const reference_wrapper<T>& x) noexcept;  // constexpr since C++20
 
     // assignment
-    reference_wrapper& operator=(const reference_wrapper<T>& x) noexcept;
+    constexpr reference_wrapper&
+    operator=(const reference_wrapper<T>& x) noexcept;                    // constexpr since C++20
 
     // access
-    operator T& () const noexcept;
-    T& get() const noexcept;
+    constexpr operator T& () const noexcept;                              // constexpr since C++20
+    constexpr T& get() const noexcept;                                    // constexpr since C++20
 
     // invoke
     template <class... ArgTypes>
-      typename result_of<T&(ArgTypes&&...)>::type
-          operator() (ArgTypes&&...) const;
+      constexpr typename result_of<T&(ArgTypes&&...)>::type               // constexpr since C++20
+          operator() (ArgTypes&&...) const
+              noexcept(is_nothrow_invocable_v<T&, ArgTypes...>);          // noexcept since C++17
 };
 
 template <class T>
@@ -220,10 +222,15 @@ template<class Fn, class... BoundArgs>
 template<class R, class Fn, class... BoundArgs>
   constexpr unspecified bind(Fn&&, BoundArgs&&...);  // constexpr in C++20
 
+// [func.invoke]
 template<class F, class... Args>
  constexpr // constexpr in C++20
  invoke_result_t<F, Args...> invoke(F&& f, Args&&... args) // C++17
     noexcept(is_nothrow_invocable_v<F, Args...>);
+
+template<class R, class F, class... Args>
+  constexpr R invoke_r(F&& f, Args&&... args)              // C++23
+    noexcept(is_nothrow_invocable_r_v<R, F, Args...>);
 
 namespace placeholders {
   // M is the implementation-defined number of placeholders
@@ -250,10 +257,10 @@ public:
 };
 
 template <class Operation, class T>
-binder1st<Operation> bind1st(const Operation& op, const T& x);  // deprecated in C++11, removed in C++17
+binder1st<Operation> bind1st(const Operation& op, const T& x);                  // deprecated in C++11, removed in C++17
 
 template <class Operation>
-class binder2nd     // deprecated in C++11, removed in C++17
+class binder2nd                                                                 // deprecated in C++11, removed in C++17
     : public unary_function<typename Operation::first_argument_type,
                             typename Operation::result_type>
 {
@@ -267,9 +274,9 @@ public:
 };
 
 template <class Operation, class T>
-binder2nd<Operation> bind2nd(const Operation& op, const T& x);  // deprecated in C++11, removed in C++17
+binder2nd<Operation> bind2nd(const Operation& op, const T& x);                  // deprecated in C++11, removed in C++17
 
-template <class Arg, class Result>      // deprecated in C++11, removed in C++17
+template <class Arg, class Result>                                              // deprecated in C++11, removed in C++17
 class pointer_to_unary_function : public unary_function<Arg, Result>
 {
 public:
@@ -278,9 +285,9 @@ public:
 };
 
 template <class Arg, class Result>
-pointer_to_unary_function<Arg,Result> ptr_fun(Result (*f)(Arg));      // deprecated in C++11, removed in C++17
+pointer_to_unary_function<Arg,Result> ptr_fun(Result (*f)(Arg));                // deprecated in C++11, removed in C++17
 
-template <class Arg1, class Arg2, class Result>      // deprecated in C++11, removed in C++17
+template <class Arg1, class Arg2, class Result>                                 // deprecated in C++11, removed in C++17
 class pointer_to_binary_function : public binary_function<Arg1, Arg2, Result>
 {
 public:
@@ -289,9 +296,9 @@ public:
 };
 
 template <class Arg1, class Arg2, class Result>
-pointer_to_binary_function<Arg1,Arg2,Result> ptr_fun(Result (*f)(Arg1,Arg2));      // deprecated in C++11, removed in C++17
+pointer_to_binary_function<Arg1,Arg2,Result> ptr_fun(Result (*f)(Arg1,Arg2));   // deprecated in C++11, removed in C++17
 
-template<class S, class T>      // deprecated in C++11, removed in C++17
+template<class S, class T>                                                      // deprecated in C++11, removed in C++17
 class mem_fun_t : public unary_function<T*, S>
 {
 public:
@@ -300,18 +307,18 @@ public:
 };
 
 template<class S, class T, class A>
-class mem_fun1_t : public binary_function<T*, A, S>      // deprecated in C++11, removed in C++17
+class mem_fun1_t : public binary_function<T*, A, S>                             // deprecated in C++11, removed in C++17
 {
 public:
     explicit mem_fun1_t(S (T::*p)(A));
     S operator()(T* p, A x) const;
 };
 
-template<class S, class T>          mem_fun_t<S,T>    mem_fun(S (T::*f)());      // deprecated in C++11, removed in C++17
-template<class S, class T, class A> mem_fun1_t<S,T,A> mem_fun(S (T::*f)(A));     // deprecated in C++11, removed in C++17
+template<class S, class T>          mem_fun_t<S,T>    mem_fun(S (T::*f)());     // deprecated in C++11, removed in C++17
+template<class S, class T, class A> mem_fun1_t<S,T,A> mem_fun(S (T::*f)(A));    // deprecated in C++11, removed in C++17
 
 template<class S, class T>
-class mem_fun_ref_t : public unary_function<T, S>      // deprecated in C++11, removed in C++17
+class mem_fun_ref_t : public unary_function<T, S>                               // deprecated in C++11, removed in C++17
 {
 public:
     explicit mem_fun_ref_t(S (T::*p)());
@@ -319,18 +326,20 @@ public:
 };
 
 template<class S, class T, class A>
-class mem_fun1_ref_t : public binary_function<T, A, S>      // deprecated in C++11, removed in C++17
+class mem_fun1_ref_t : public binary_function<T, A, S>                          // deprecated in C++11, removed in C++17
 {
 public:
     explicit mem_fun1_ref_t(S (T::*p)(A));
     S operator()(T& p, A x) const;
 };
 
-template<class S, class T>          mem_fun_ref_t<S,T>    mem_fun_ref(S (T::*f)());      // deprecated in C++11, removed in C++17
-template<class S, class T, class A> mem_fun1_ref_t<S,T,A> mem_fun_ref(S (T::*f)(A));     // deprecated in C++11, removed in C++17
+template<class S, class T>
+mem_fun_ref_t<S,T>    mem_fun_ref(S (T::*f)());                                 // deprecated in C++11, removed in C++17
+template<class S, class T, class A>
+mem_fun1_ref_t<S,T,A> mem_fun_ref(S (T::*f)(A));                                // deprecated in C++11, removed in C++17
 
 template <class S, class T>
-class const_mem_fun_t : public unary_function<const T*, S>      // deprecated in C++11, removed in C++17
+class const_mem_fun_t : public unary_function<const T*, S>                      // deprecated in C++11, removed in C++17
 {
 public:
     explicit const_mem_fun_t(S (T::*p)() const);
@@ -338,18 +347,20 @@ public:
 };
 
 template <class S, class T, class A>
-class const_mem_fun1_t : public binary_function<const T*, A, S>      // deprecated in C++11, removed in C++17
+class const_mem_fun1_t : public binary_function<const T*, A, S>                 // deprecated in C++11, removed in C++17
 {
 public:
     explicit const_mem_fun1_t(S (T::*p)(A) const);
     S operator()(const T* p, A x) const;
 };
 
-template <class S, class T>          const_mem_fun_t<S,T>    mem_fun(S (T::*f)() const);      // deprecated in C++11, removed in C++17
-template <class S, class T, class A> const_mem_fun1_t<S,T,A> mem_fun(S (T::*f)(A) const);     // deprecated in C++11, removed in C++17
+template <class S, class T>
+const_mem_fun_t<S,T>    mem_fun(S (T::*f)() const);                             // deprecated in C++11, removed in C++17
+template <class S, class T, class A>
+const_mem_fun1_t<S,T,A> mem_fun(S (T::*f)(A) const);                            // deprecated in C++11, removed in C++17
 
 template <class S, class T>
-class const_mem_fun_ref_t : public unary_function<T, S>      // deprecated in C++11, removed in C++17
+class const_mem_fun_ref_t : public unary_function<T, S>                         // deprecated in C++11, removed in C++17
 {
 public:
     explicit const_mem_fun_ref_t(S (T::*p)() const);
@@ -357,18 +368,19 @@ public:
 };
 
 template <class S, class T, class A>
-class const_mem_fun1_ref_t : public binary_function<T, A, S>      // deprecated in C++11, removed in C++17
+class const_mem_fun1_ref_t : public binary_function<T, A, S>                    // deprecated in C++11, removed in C++17
 {
 public:
     explicit const_mem_fun1_ref_t(S (T::*p)(A) const);
     S operator()(const T& p, A x) const;
 };
 
-template <class S, class T>          const_mem_fun_ref_t<S,T>    mem_fun_ref(S (T::*f)() const);   // deprecated in C++11, removed in C++17
-template <class S, class T, class A> const_mem_fun1_ref_t<S,T,A> mem_fun_ref(S (T::*f)(A) const);  // deprecated in C++11, removed in C++17
+template <class S, class T>
+const_mem_fun_ref_t<S,T>    mem_fun_ref(S (T::*f)() const);                     // deprecated in C++11, removed in C++17
+template <class S, class T, class A>
+const_mem_fun1_ref_t<S,T,A> mem_fun_ref(S (T::*f)(A) const);                    // deprecated in C++11, removed in C++17
 
-template<class R, class T>
-constexpr unspecified mem_fn(R T::*); // constexpr in C++20
+template<class R, class T> constexpr unspecified mem_fn(R T::*);                // constexpr in C++20
 
 class bad_function_call
     : public exception
@@ -444,13 +456,13 @@ template <class R, class ... ArgTypes>
   bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
 
 template <class R, class ... ArgTypes>
-  bool operator==(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
+  bool operator==(nullptr_t, const function<R(ArgTypes...)>&) noexcept; // removed in C++20
 
 template <class R, class ... ArgTypes>
-  bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
+  bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept; // removed in C++20
 
 template <class  R, class ... ArgTypes>
-  bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
+  bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept; // removed in C++20
 
 // specialized algorithms:
 template <class  R, class ... ArgTypes>
@@ -504,8 +516,7 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__compare/compare_three_way.h>
 #include <__config>
-#include <__debug>
-#include <__functional/binary_function.h> // TODO: deprecate
+#include <__functional/binary_function.h>
 #include <__functional/binary_negate.h>
 #include <__functional/bind.h>
 #include <__functional/bind_back.h>
@@ -527,13 +538,11 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #include <__functional/pointer_to_unary_function.h>
 #include <__functional/ranges_operations.h>
 #include <__functional/reference_wrapper.h>
-#include <__functional/unary_function.h> // TODO: deprecate
+#include <__functional/unary_function.h>
 #include <__functional/unary_negate.h>
-#include <__functional/unwrap_ref.h>
+#include <__type_traits/unwrap_ref.h>
 #include <__utility/forward.h>
-#include <exception>
 #include <memory> // TODO: find out why removing this breaks the modules build
-#include <type_traits>
 #include <typeinfo>
 #include <version>
 
@@ -542,8 +551,12 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
 #  include <concepts>
+#  include <cstdlib>
+#  include <exception>
 #  include <tuple>
+#  include <type_traits>
 #  include <utility>
 #endif
 

@@ -16,22 +16,24 @@
 #include <__filesystem/directory_entry.h>
 #include <__filesystem/directory_options.h>
 #include <__filesystem/path.h>
+#include <__iterator/default_sentinel.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/shared_ptr.h>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
+#include <__system_error/error_code.h>
+#include <__utility/move.h>
 #include <cstddef>
-#include <system_error>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
-#ifndef _LIBCPP_CXX03_LANG
+#if !defined(_LIBCPP_CXX03_LANG) && !defined(_LIBCPP_HAS_NO_FILESYSTEM)
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
-_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY_PUSH
 
 class _LIBCPP_HIDDEN __dir_stream;
 class directory_iterator {
@@ -81,7 +83,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   const directory_entry& operator*() const {
-    _LIBCPP_ASSERT(__imp_, "The end iterator cannot be dereferenced");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "The end iterator cannot be dereferenced");
     return __dereference();
   }
 
@@ -101,21 +103,23 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   directory_iterator& increment(error_code& __ec) { return __increment(&__ec); }
 
+#  if _LIBCPP_STD_VER >= 20
+
+  _LIBCPP_HIDE_FROM_ABI bool operator==(default_sentinel_t) const noexcept { return *this == directory_iterator(); }
+
+#  endif
+
 private:
   inline _LIBCPP_HIDE_FROM_ABI friend bool
   operator==(const directory_iterator& __lhs,
              const directory_iterator& __rhs) noexcept;
 
   // construct the dir_stream
-  _LIBCPP_FUNC_VIS
-  directory_iterator(const path&, error_code*,
-                     directory_options = directory_options::none);
+  _LIBCPP_EXPORTED_FROM_ABI directory_iterator(const path&, error_code*, directory_options = directory_options::none);
 
-  _LIBCPP_FUNC_VIS
-  directory_iterator& __increment(error_code* __ec = nullptr);
+  _LIBCPP_EXPORTED_FROM_ABI directory_iterator& __increment(error_code* __ec = nullptr);
 
-  _LIBCPP_FUNC_VIS
-  const directory_entry& __dereference() const;
+  _LIBCPP_EXPORTED_FROM_ABI const directory_entry& __dereference() const;
 
 private:
   shared_ptr<__dir_stream> __imp_;
@@ -144,22 +148,22 @@ end(directory_iterator) noexcept {
   return directory_iterator();
 }
 
-_LIBCPP_AVAILABILITY_FILESYSTEM_POP
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <>
-_LIBCPP_AVAILABILITY_FILESYSTEM
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY
 inline constexpr bool _VSTD::ranges::enable_borrowed_range<_VSTD_FS::directory_iterator> = true;
 
 template <>
-_LIBCPP_AVAILABILITY_FILESYSTEM
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY
 inline constexpr bool _VSTD::ranges::enable_view<_VSTD_FS::directory_iterator> = true;
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
-#endif // _LIBCPP_CXX03_LANG
+#endif // !defined(_LIBCPP_CXX03_LANG) && !defined(_LIBCPP_HAS_NO_FILESYSTEM)
 
 #endif // _LIBCPP___FILESYSTEM_DIRECTORY_ITERATOR_H

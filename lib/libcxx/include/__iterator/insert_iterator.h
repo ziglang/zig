@@ -22,9 +22,12 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <class _Container>
 using __insert_iterator_iter_t = ranges::iterator_t<_Container>;
 #else
@@ -46,7 +49,7 @@ protected:
 public:
     typedef output_iterator_tag iterator_category;
     typedef void value_type;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     typedef ptrdiff_t difference_type;
 #else
     typedef void difference_type;
@@ -77,5 +80,7 @@ inserter(_Container& __x, __insert_iterator_iter_t<_Container> __i)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_INSERT_ITERATOR_H

@@ -28,6 +28,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 #if _LIBCPP_STD_VER >= 23
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -125,7 +128,7 @@ struct __fn : __range_adaptor_closure<__fn> {
 } // namespace __as_rvalue
 
 inline namespace __cpo {
-constexpr auto as_rvalue = __as_rvalue::__fn{};
+inline constexpr auto as_rvalue = __as_rvalue::__fn{};
 } // namespace __cpo
 } // namespace views
 } // namespace ranges
@@ -133,5 +136,7 @@ constexpr auto as_rvalue = __as_rvalue::__fn{};
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 23
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_AS_RVALUE_H

@@ -12,9 +12,12 @@
 
 #include <__memory/allocator_arg_t.h>
 #include <__memory/uses_allocator.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/is_constructible.h>
+#include <__type_traits/is_convertible.h>
+#include <__type_traits/is_same.h>
 #include <experimental/__config>
 #include <experimental/utility> // for erased_type
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -90,7 +93,7 @@ template <class _Tp, class _Allocator, class... _Args>
 inline _LIBCPP_INLINE_VISIBILITY
 void __user_alloc_construct_impl (integral_constant<int, 1>, _Tp *__storage, const _Allocator &__a, _Args &&... __args )
 {
-    new (__storage) _Tp (allocator_arg, __a, _VSTD::forward<_Args>(__args)...);
+    new (__storage) _Tp (allocator_arg_t(), __a, _VSTD::forward<_Args>(__args)...);
 }
 
 // FIXME: This should have a version which takes a non-const alloc.

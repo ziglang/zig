@@ -25,10 +25,6 @@ const pio2_3 = 2.02226624871116645580e-21; // 0x3BA3198A, 0x2E000000
 // pio2_3t:  pi/2 - (pio2_1+pio2_2+pio2_3)
 const pio2_3t = 8.47842766036889956997e-32; // 0x397B839A, 0x252049C1
 
-fn U(x: anytype) usize {
-    return @as(usize, @intCast(x));
-}
-
 fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
     var w: f64 = undefined;
     var t: f64 = undefined;
@@ -41,7 +37,7 @@ fn medium(ix: u32, x: f64, y: *[2]f64) i32 {
 
     // rint(x/(pi/2))
     @"fn" = x * invpio2 + toint - toint;
-    n = @as(i32, @intFromFloat(@"fn"));
+    n = @intFromFloat(@"fn");
     r = x - @"fn" * pio2_1;
     w = @"fn" * pio2_1t; // 1st round, good to 85 bits
     // Matters with directed rounding.
@@ -174,16 +170,16 @@ pub fn rem_pio2(x: f64, y: *[2]f64) i32 {
     ui = @bitCast(x);
     ui &= std.math.maxInt(u64) >> 12;
     ui |= @as(u64, 0x3ff + 23) << 52;
-    z = @as(f64, @bitCast(ui));
+    z = @bitCast(ui);
 
     i = 0;
     while (i < 2) : (i += 1) {
-        tx[U(i)] = @as(f64, @floatFromInt(@as(i32, @intFromFloat(z))));
-        z = (z - tx[U(i)]) * 0x1p24;
+        tx[@intCast(i)] = @floatFromInt(@as(i32, @intFromFloat(z)));
+        z = (z - tx[@intCast(i)]) * 0x1p24;
     }
-    tx[U(i)] = z;
+    tx[@intCast(i)] = z;
     // skip zero terms, first term is non-zero
-    while (tx[U(i)] == 0.0) {
+    while (tx[@intCast(i)] == 0.0) {
         i -= 1;
     }
     n = rem_pio2_large(tx[0..], ty[0..], @as(i32, @intCast((ix >> 20))) - (0x3ff + 23), i + 1, 1);

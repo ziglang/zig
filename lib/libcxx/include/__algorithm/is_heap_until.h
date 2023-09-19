@@ -58,7 +58,7 @@ template<class _RandomAccessIterator>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _RandomAccessIterator
 is_heap_until(_RandomAccessIterator __first, _RandomAccessIterator __last)
 {
-    return _VSTD::__is_heap_until(__first, __last, __less<typename iterator_traits<_RandomAccessIterator>::value_type>());
+    return _VSTD::__is_heap_until(__first, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

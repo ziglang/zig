@@ -11,17 +11,15 @@
 #define _LIBCPP___FORMAT_FORMATTER_BOOL_H
 
 #include <__algorithm/copy.h>
+#include <__assert>
 #include <__availability>
 #include <__config>
-#include <__debug>
 #include <__format/concepts.h>
-#include <__format/format_error.h>
 #include <__format/format_parse_context.h>
 #include <__format/formatter.h>
 #include <__format/formatter_integral.h>
 #include <__format/parser_std_format_spec.h>
 #include <__utility/unreachable.h>
-#include <string_view>
 
 #ifndef _LIBCPP_HAS_NO_LOCALIZATION
 #  include <locale>
@@ -33,19 +31,20 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<bool, _CharT> {
+struct _LIBCPP_TEMPLATE_VIS formatter<bool, _CharT> {
 public:
-  _LIBCPP_HIDE_FROM_ABI constexpr auto
-  parse(basic_format_parse_context<_CharT>& __parse_ctx) -> decltype(__parse_ctx.begin()) {
-    auto __result = __parser_.__parse(__parse_ctx, __format_spec::__fields_integral);
-    __format_spec::__process_parsed_bool(__parser_);
+  template <class _ParseContext>
+  _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
+    typename _ParseContext::iterator __result = __parser_.__parse(__ctx, __format_spec::__fields_integral);
+    __format_spec::__process_parsed_bool(__parser_, "a bool");
     return __result;
   }
 
-  _LIBCPP_HIDE_FROM_ABI auto format(bool __value, auto& __ctx) const -> decltype(__ctx.out()) {
+  template <class _FormatContext>
+  _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator format(bool __value, _FormatContext& __ctx) const {
     switch (__parser_.__type_) {
     case __format_spec::__type::__default:
     case __format_spec::__type::__string:
@@ -63,7 +62,7 @@ public:
           static_cast<unsigned>(__value), __ctx, __parser_.__get_parsed_std_specifications(__ctx));
 
     default:
-      _LIBCPP_ASSERT(false, "The parse function should have validated the type");
+      _LIBCPP_ASSERT_UNCATEGORIZED(false, "The parse function should have validated the type");
       __libcpp_unreachable();
     }
   }
@@ -71,7 +70,7 @@ public:
   __format_spec::__parser<_CharT> __parser_;
 };
 
-#endif //_LIBCPP_STD_VER > 17
+#endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -148,6 +148,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .watchos => "watchos",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
+        .liteos => "liteos",
         .opencl,
         .glsl450,
         .vulkan,
@@ -254,6 +255,7 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .emscripten => .Emscripten,
         .driverkit => .DriverKit,
         .shadermodel => .ShaderModel,
+        .liteos => .LiteOS,
     };
 }
 
@@ -419,8 +421,12 @@ const DataLayoutBuilder = struct {
                 if (idx != size) try writer.print(":{d}", .{idx});
             }
         }
-        if (self.target.cpu.arch.isArmOrThumb())
-            try writer.writeAll("-Fi8"); // for thumb interwork
+        if (self.target.cpu.arch.isArmOrThumb()) try writer.writeAll("-Fi8") // for thumb interwork
+        else if (self.target.cpu.arch == .powerpc64 and
+            self.target.os.tag != .freebsd and self.target.abi != .musl)
+            try writer.writeAll("-Fi64")
+        else if (self.target.cpu.arch.isPPC() or self.target.cpu.arch.isPPC64())
+            try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
                 try self.typeAlignment(.integer, 1, 8, 8, false, writer);
@@ -10507,16 +10513,17 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
             .{ .zig = .constant, .llvm = Builder.AddrSpace.amdgpu.constant, .force_in_data_layout = true },
             .{ .zig = .local, .llvm = Builder.AddrSpace.amdgpu.private, .size = 32, .abi = 32 },
             .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
-            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
         },
         .avr => &.{
             .{ .zig = .generic, .llvm = .default, .abi = 8 },
-            .{ .zig = .flash, .llvm = Builder.AddrSpace.avr.flash, .abi = 8 },
-            .{ .zig = .flash1, .llvm = Builder.AddrSpace.avr.flash1, .abi = 8 },
-            .{ .zig = .flash2, .llvm = Builder.AddrSpace.avr.flash2, .abi = 8 },
-            .{ .zig = .flash3, .llvm = Builder.AddrSpace.avr.flash3, .abi = 8 },
-            .{ .zig = .flash4, .llvm = Builder.AddrSpace.avr.flash4, .abi = 8 },
-            .{ .zig = .flash5, .llvm = Builder.AddrSpace.avr.flash5, .abi = 8 },
+            .{ .zig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
+            .{ .zig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
+            .{ .zig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
+            .{ .zig = .flash3, .llvm = Builder.AddrSpace.avr.program3, .abi = 8 },
+            .{ .zig = .flash4, .llvm = Builder.AddrSpace.avr.program4, .abi = 8 },
+            .{ .zig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
         },
         .wasm32, .wasm64 => &.{
             .{ .zig = .generic, .llvm = .default, .force_in_data_layout = true },
@@ -10667,6 +10674,17 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             return o.builder.structType(.normal, &.{ .i64, .i64 });
                         },
                         .byval => return o.lowerType(return_type),
+                        .fields => {
+                            var types_len: usize = 0;
+                            var types: [8]Builder.Type = undefined;
+                            for (0..return_type.structFieldCount(mod)) |field_index| {
+                                const field_ty = return_type.structFieldType(field_index, mod);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                types[types_len] = try o.lowerType(field_ty);
+                                types_len += 1;
+                            }
+                            return o.builder.structType(.normal, types[0..types_len]);
+                        },
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -10880,14 +10898,24 @@ const ParamTypeIterator = struct {
                     .riscv32, .riscv64 => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
-                        if (ty.toIntern() == .f16_type) {
-                            return .as_u16;
-                        }
+                        if (ty.toIntern() == .f16_type and
+                            !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
                         switch (riscv_c_abi.classifyType(ty, mod)) {
                             .memory => return .byref_mut,
                             .byval => return .byval,
                             .integer => return .abi_sized_int,
                             .double_integer => return Lowering{ .i64_array = 2 },
+                            .fields => {
+                                it.types_len = 0;
+                                for (0..ty.structFieldCount(mod)) |field_index| {
+                                    const field_ty = ty.structFieldType(field_index, mod);
+                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                    it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                                    it.types_len += 1;
+                                }
+                                it.llvm_index += it.types_len - 1;
+                                return .multiple_llvm_types;
+                            },
                         }
                     },
                     // TODO investigate C ABI for other architectures

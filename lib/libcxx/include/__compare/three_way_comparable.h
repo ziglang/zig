@@ -25,7 +25,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template<class _Tp, class _Cat>
 concept __compares_as =
@@ -52,7 +52,7 @@ concept three_way_comparable_with =
     { __u <=> __t } -> __compares_as<_Cat>;
   };
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

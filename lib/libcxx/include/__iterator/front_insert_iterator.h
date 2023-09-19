@@ -21,6 +21,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
@@ -36,7 +39,7 @@ protected:
 public:
     typedef output_iterator_tag iterator_category;
     typedef void value_type;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     typedef ptrdiff_t difference_type;
 #else
     typedef void difference_type;
@@ -67,5 +70,7 @@ front_inserter(_Container& __x)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_FRONT_INSERT_ITERATOR_H

@@ -203,12 +203,7 @@ pub fn __ctzti2(a: i128) callconv(.C) i32 {
 }
 
 inline fn ffsXi2(comptime T: type, a: T) i32 {
-    var x = switch (@bitSizeOf(T)) {
-        32 => @as(u32, @bitCast(a)),
-        64 => @as(u64, @bitCast(a)),
-        128 => @as(u128, @bitCast(a)),
-        else => unreachable,
-    };
+    var x: std.meta.Int(.unsigned, @typeInfo(T).Int.bits) = @bitCast(a);
     var n: T = 1;
     // adapted from Number of trailing zeroes (see ctzXi2)
     var mask: @TypeOf(x) = std.math.maxInt(@TypeOf(x));

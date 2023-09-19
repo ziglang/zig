@@ -213,9 +213,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
                                                     Argv, Diags, Argv0);
 
-  if (Clang->getFrontendOpts().TimeTrace ||
-      !Clang->getFrontendOpts().TimeTracePath.empty()) {
-    Clang->getFrontendOpts().TimeTrace = 1;
+  if (!Clang->getFrontendOpts().TimeTracePath.empty()) {
     llvm::timeTraceProfilerInitialize(
         Clang->getFrontendOpts().TimeTraceGranularity, Argv0);
   }
@@ -257,17 +255,21 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::TimerGroup::clearAll();
 
   if (llvm::timeTraceProfilerEnabled()) {
-    SmallString<128> Path(Clang->getFrontendOpts().OutputFile);
-    llvm::sys::path::replace_extension(Path, "json");
-    if (!Clang->getFrontendOpts().TimeTracePath.empty()) {
-      // replace the suffix to '.json' directly
-      SmallString<128> TracePath(Clang->getFrontendOpts().TimeTracePath);
-      if (llvm::sys::fs::is_directory(TracePath))
-        llvm::sys::path::append(TracePath, llvm::sys::path::filename(Path));
-      Path.assign(TracePath);
-    }
+    // It is possible that the compiler instance doesn't own a file manager here
+    // if we're compiling a module unit. Since the file manager are owned by AST
+    // when we're compiling a module unit. So the file manager may be invalid
+    // here.
+    //
+    // It should be fine to create file manager here since the file system
+    // options are stored in the compiler invocation and we can recreate the VFS
+    // from the compiler invocation.
+    if (!Clang->hasFileManager())
+      Clang->createFileManager(createVFSFromCompilerInvocation(
+          Clang->getInvocation(), Clang->getDiagnostics()));
+
     if (auto profilerOutput = Clang->createOutputFile(
-            Path.str(), /*Binary=*/false, /*RemoveFileOnSignal=*/false,
+            Clang->getFrontendOpts().TimeTracePath, /*Binary=*/false,
+            /*RemoveFileOnSignal=*/false,
             /*useTemporary=*/false)) {
       llvm::timeTraceProfilerWrite(*profilerOutput);
       profilerOutput.reset();

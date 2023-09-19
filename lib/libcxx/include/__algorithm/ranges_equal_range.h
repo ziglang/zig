@@ -30,7 +30,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -38,28 +38,25 @@ namespace ranges {
 namespace __equal_range {
 
 struct __fn {
-  template <
-      forward_iterator _Iter,
-      sentinel_for<_Iter> _Sent,
-      class _Tp,
-      class _Proj                                                           = identity,
-      indirect_strict_weak_order<const _Tp*, projected<_Iter, _Proj>> _Comp = ranges::less>
+  template <forward_iterator _Iter,
+            sentinel_for<_Iter> _Sent,
+            class _Tp,
+            class _Proj                                                           = identity,
+            indirect_strict_weak_order<const _Tp*, projected<_Iter, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
   operator()(_Iter __first, _Sent __last, const _Tp& __value, _Comp __comp = {}, _Proj __proj = {}) const {
-    auto __ret = std::__equal_range<_RangeAlgPolicy>(
-        std::move(__first), std::move(__last), __value, __comp, __proj);
+    auto __ret = std::__equal_range<_RangeAlgPolicy>(std::move(__first), std::move(__last), __value, __comp, __proj);
     return {std::move(__ret.first), std::move(__ret.second)};
   }
 
-  template <
-      forward_range _Range,
-      class _Tp,
-      class _Proj                                                                        = identity,
-      indirect_strict_weak_order<const _Tp*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
+  template <forward_range _Range,
+            class _Tp,
+            class _Proj                                                                        = identity,
+            indirect_strict_weak_order<const _Tp*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range>
   operator()(_Range&& __range, const _Tp& __value, _Comp __comp = {}, _Proj __proj = {}) const {
-    auto __ret = std::__equal_range<_RangeAlgPolicy>(
-        ranges::begin(__range), ranges::end(__range), __value, __comp, __proj);
+    auto __ret =
+        std::__equal_range<_RangeAlgPolicy>(ranges::begin(__range), ranges::end(__range), __value, __comp, __proj);
     return {std::move(__ret.first), std::move(__ret.second)};
   }
 };
@@ -67,12 +64,12 @@ struct __fn {
 } // namespace __equal_range
 
 inline namespace __cpo {
-  inline constexpr auto equal_range = __equal_range::__fn{};
+inline constexpr auto equal_range = __equal_range::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_EQUAL_RANGE_H

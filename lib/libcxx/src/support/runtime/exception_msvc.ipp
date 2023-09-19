@@ -57,15 +57,15 @@ terminate_handler get_terminate() noexcept {
 _LIBCPP_NORETURN
 void terminate() noexcept
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         (*get_terminate())();
         // handler should not return
         fprintf(stderr, "terminate_handler unexpectedly returned\n");
         ::abort();
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
@@ -73,7 +73,7 @@ void terminate() noexcept
         fprintf(stderr, "terminate_handler unexpectedly threw an exception\n");
         ::abort();
     }
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
 }
 
 bool uncaught_exception() noexcept { return uncaught_exceptions() > 0; }

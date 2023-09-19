@@ -18,7 +18,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -29,11 +29,11 @@ class month {
 private:
     unsigned char __m_;
 public:
-    _LIBCPP_HIDE_FROM_ABI month() = default;
+    month() = default;
     _LIBCPP_HIDE_FROM_ABI explicit inline constexpr month(unsigned __val) noexcept : __m_(static_cast<unsigned char>(__val)) {}
-    _LIBCPP_HIDE_FROM_ABI inline constexpr month& operator++()    noexcept { ++__m_; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr month& operator++()    noexcept { *this += months{1}; return *this; }
     _LIBCPP_HIDE_FROM_ABI inline constexpr month  operator++(int) noexcept { month __tmp = *this; ++(*this); return __tmp; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr month& operator--()    noexcept { --__m_; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr month& operator--()    noexcept { *this -= months{1}; return *this; }
     _LIBCPP_HIDE_FROM_ABI inline constexpr month  operator--(int) noexcept { month __tmp = *this; --(*this); return __tmp; }
     _LIBCPP_HIDE_FROM_ABI        constexpr month& operator+=(const months& __m1) noexcept;
     _LIBCPP_HIDE_FROM_ABI        constexpr month& operator-=(const months& __m1) noexcept;
@@ -98,6 +98,6 @@ inline constexpr month December{12};
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_MONTH_H

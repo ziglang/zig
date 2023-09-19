@@ -24,7 +24,7 @@ template <class _Compare, class _ForwardIterator>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 __max_element(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp)
 {
-    static_assert(__is_cpp17_forward_iterator<_ForwardIterator>::value,
+    static_assert(__has_forward_iterator_category<_ForwardIterator>::value,
         "std::max_element requires a ForwardIterator");
     if (__first != __last)
     {
@@ -48,8 +48,7 @@ template <class _ForwardIterator>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _ForwardIterator
 max_element(_ForwardIterator __first, _ForwardIterator __last)
 {
-    return _VSTD::max_element(__first, __last,
-              __less<typename iterator_traits<_ForwardIterator>::value_type>());
+    return _VSTD::max_element(__first, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

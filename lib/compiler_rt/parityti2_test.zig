@@ -9,7 +9,7 @@ fn parityti2Naive(a: i128) i32 {
         has_parity = !has_parity;
         x = x & (x - 1);
     }
-    return @as(i32, @intCast(@intFromBool(has_parity)));
+    return @intCast(@intFromBool(has_parity));
 }
 
 fn test__parityti2(a: i128) !void {
@@ -22,9 +22,9 @@ test "parityti2" {
     try test__parityti2(0);
     try test__parityti2(1);
     try test__parityti2(2);
-    try test__parityti2(@as(i128, @bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_fffffffd))));
-    try test__parityti2(@as(i128, @bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_fffffffe))));
-    try test__parityti2(@as(i128, @bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_ffffffff))));
+    try test__parityti2(@bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_fffffffd)));
+    try test__parityti2(@bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_fffffffe)));
+    try test__parityti2(@bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_ffffffff)));
 
     const RndGen = std.rand.DefaultPrng;
     var rnd = RndGen.init(42);

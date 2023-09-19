@@ -37,7 +37,7 @@ static bool is_aligned_to(void* ptr, size_t align) {
 }
 #endif
 
-class _LIBCPP_TYPE_VIS __new_delete_memory_resource_imp : public memory_resource {
+class _LIBCPP_EXPORTED_FROM_ABI __new_delete_memory_resource_imp : public memory_resource {
   void* do_allocate(size_t bytes, size_t align) override {
 #ifndef _LIBCPP_HAS_NO_ALIGNED_ALLOCATION
     return std::__libcpp_allocate(bytes, align);
@@ -60,7 +60,7 @@ class _LIBCPP_TYPE_VIS __new_delete_memory_resource_imp : public memory_resource
 
 // null_memory_resource()
 
-class _LIBCPP_TYPE_VIS __null_memory_resource_imp : public memory_resource {
+class _LIBCPP_EXPORTED_FROM_ABI __null_memory_resource_imp : public memory_resource {
   void* do_allocate(size_t, size_t) override { __throw_bad_alloc(); }
   void do_deallocate(void*, size_t, size_t) override {}
   bool do_is_equal(const memory_resource& other) const noexcept override { return &other == this; }
@@ -107,7 +107,7 @@ static memory_resource* __default_memory_resource(bool set = false, memory_resou
     new_res = new_res ? new_res : new_delete_resource();
     lock_guard<mutex> guard(res_lock);
     memory_resource* old_res = res;
-    res = new_res;
+    res                      = new_res;
     return old_res;
   } else {
     lock_guard<mutex> guard(res_lock);
@@ -175,7 +175,7 @@ void* unsynchronized_pool_resource::__adhoc_pool::__do_allocate(memory_resource*
 
 void unsynchronized_pool_resource::__adhoc_pool::__do_deallocate(
     memory_resource* upstream, void* p, size_t bytes, size_t align) {
-  _LIBCPP_ASSERT(__first_ != nullptr, "deallocating a block that was not allocated with this allocator");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__first_ != nullptr, "deallocating a block that was not allocated with this allocator");
   if (__first_->__start_ == p) {
     __chunk_footer* next = __first_->__next_;
     upstream->deallocate(p, __first_->__allocation_size(), __first_->__align_);
@@ -189,7 +189,7 @@ void unsynchronized_pool_resource::__adhoc_pool::__do_deallocate(
         return;
       }
     }
-    _LIBCPP_ASSERT(false, "deallocating a block that was not allocated with this allocator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(false, "deallocating a block that was not allocated with this allocator");
   }
 }
 
@@ -230,7 +230,7 @@ public:
   }
 
   void* __allocate_in_new_chunk(memory_resource* upstream, size_t block_size, size_t chunk_size) {
-    _LIBCPP_ASSERT(chunk_size % block_size == 0, "");
+    _LIBCPP_ASSERT_UNCATEGORIZED(chunk_size % block_size == 0, "");
     static_assert(__default_alignment >= alignof(std::max_align_t), "");
     static_assert(__default_alignment >= alignof(__chunk_footer), "");
     static_assert(__default_alignment >= alignof(__vacancy_header), "");
@@ -401,7 +401,8 @@ void unsynchronized_pool_resource::do_deallocate(void* p, size_t bytes, size_t a
   if (i == __num_fixed_pools_)
     return __adhoc_pool_.__do_deallocate(__res_, p, bytes, align);
   else {
-    _LIBCPP_ASSERT(__fixed_pools_ != nullptr, "deallocating a block that was not allocated with this allocator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(
+        __fixed_pools_ != nullptr, "deallocating a block that was not allocated with this allocator");
     __fixed_pools_[i].__evacuate(p);
   }
 }

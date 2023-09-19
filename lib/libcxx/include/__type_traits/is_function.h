@@ -33,7 +33,7 @@ struct _LIBCPP_TEMPLATE_VIS is_function
 
 #endif // __has_builtin(__is_function)
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_function_v = is_function<_Tp>::value;
 #endif
