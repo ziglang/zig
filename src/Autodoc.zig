@@ -45,6 +45,14 @@ ref_paths_pending_on_types: std.AutoHashMapUnmanaged(
     std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
 
+/// A set of ZIR instruction refs which have a meaning other than the
+/// instruction they refer to. For instance, during analysis of the arguments to
+/// a `call`, the index of the `call` itself is repurposed to refer to the
+/// parameter type.
+/// TODO: there should be some kind of proper handling for these instructions;
+/// currently we just ignore them!
+repurposed_insts: std.AutoHashMapUnmanaged(Zir.Inst.Index, void) = .{},
+
 const RefPathResumeInfo = struct {
     file: *File,
     ref_path: []DocData.Expr,
@@ -953,6 +961,11 @@ fn walkInstruction(
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
+
+    if (self.repurposed_insts.contains(@intCast(inst_index))) {
+        // TODO: better handling here
+        return .{ .expr = .{ .comptimeExpr = 0 } };
+    }
 
     // We assume that the topmost ast_node entry corresponds to our decl
     const self_ast_node_index = self.ast_nodes.items.len - 1;
@@ -3021,6 +3034,9 @@ fn walkInstruction(
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
             const body = file.zir.extra[extra.end..];
+
+            try self.repurposed_insts.put(self.arena, @intCast(inst_index), {});
+            defer _ = self.repurposed_insts.remove(@intCast(inst_index));
 
             var i: usize = 0;
             while (i < args_len) : (i += 1) {
