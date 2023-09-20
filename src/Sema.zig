@@ -16515,9 +16515,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .val = if (is_generic) .none else param_ty,
                 } });
 
-                const is_noalias = func_ty_info.paramIsNoalias(@intCast(i));
+                const is_noalias = if (std.math.cast(u5, i)) |ii| func_ty_info.paramIsNoalias(ii) else false;
 
-                const is_comptime = func_ty_info.paramIsComptime(@intCast(i));
+                const is_comptime = if (std.math.cast(u5, i)) |ii| func_ty_info.paramIsComptime(ii) else false;
 
                 const param_fields = .{
                     // is_generic: bool,
