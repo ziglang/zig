@@ -2493,7 +2493,6 @@ pub const Object = struct {
 
                 const struct_type = mod.typeToStruct(ty).?;
                 const field_types = struct_type.field_types.get(ip);
-                const field_names = struct_type.field_names.get(ip);
 
                 var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                 defer di_fields.deinit(gpa);
@@ -2514,18 +2513,21 @@ pub const Object = struct {
                     const field_offset = field_align.forward(offset);
                     offset = field_offset + field_size;
 
-                    const field_name = ip.stringToSlice(field_names[field_index]);
+                    const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
+                        try ip.getOrPutStringFmt(gpa, "{d}", .{field_index});
+
+                    const field_di_ty = try o.lowerDebugType(field_ty, .full);
 
                     try di_fields.append(gpa, dib.createMemberType(
                         fwd_decl.toScope(),
-                        field_name,
+                        ip.stringToSlice(field_name),
                         null, // file
                         0, // line
                         field_size * 8, // size in bits
                         field_align.toByteUnits(0) * 8, // align in bits
                         field_offset * 8, // offset in bits
                         0, // flags
-                        try o.lowerDebugType(field_ty, .full),
+                        field_di_ty,
                     ));
                 }
 
@@ -3301,13 +3303,11 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: InternPool.Alignment = .@"1";
                     var struct_kind: Builder.Type.Structure.Kind = .normal;
-
-                    for (struct_type.runtime_order.get(ip)) |runtime_index| {
-                        const field_index = runtime_index.toInt() orelse break;
+                    var it = struct_type.iterateRuntimeOrder(ip);
+                    while (it.next()) |field_index| {
                         const field_ty = struct_type.field_types.get(ip)[field_index].toType();
-                        const field_aligns = struct_type.field_aligns.get(ip);
                         const field_align = mod.structFieldAlignment(
-                            if (field_aligns.len == 0) .none else field_aligns[field_index],
+                            struct_type.fieldAlign(ip, field_index),
                             field_ty,
                             struct_type.layout,
                         );
@@ -4012,7 +4012,7 @@ pub const Object = struct {
                     comptime assert(struct_layout_version == 2);
                     var llvm_index: usize = 0;
                     var offset: u64 = 0;
-                    var big_align: InternPool.Alignment = .none;
+                    var big_align: InternPool.Alignment = .@"1";
                     var need_unnamed = false;
                     var field_it = struct_type.iterateRuntimeOrder(ip);
                     while (field_it.next()) |field_index| {

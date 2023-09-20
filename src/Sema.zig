@@ -17646,12 +17646,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 struct_field_vals = try gpa.alloc(InternPool.Index, struct_type.field_types.len);
 
                 for (struct_field_vals, 0..) |*field_val, i| {
-                    const name_nts = struct_type.fieldName(ip, i).unwrap().?;
+                    // TODO: write something like getCoercedInts to avoid needing to dupe
+                    const name = if (struct_type.fieldName(ip, i).unwrap()) |name_nts|
+                        try sema.arena.dupe(u8, ip.stringToSlice(name_nts))
+                    else
+                        try std.fmt.allocPrintZ(gpa, "{d}", .{i});
                     const field_ty = struct_type.field_types.get(ip)[i].toType();
                     const field_init = struct_type.fieldInit(ip, i);
                     const field_is_comptime = struct_type.fieldIsComptime(ip, i);
-                    // TODO: write something like getCoercedInts to avoid needing to dupe
-                    const name = try sema.arena.dupe(u8, ip.stringToSlice(name_nts));
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
@@ -17676,11 +17678,14 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                     const opt_default_val = if (field_init == .none) null else field_init.toValue();
                     const default_val_ptr = try sema.optRefValue(block, field_ty, opt_default_val);
-                    const alignment = mod.structFieldAlignment(
-                        struct_type.field_aligns.get(ip)[i],
-                        field_ty,
-                        struct_type.layout,
-                    );
+                    const alignment = switch (struct_type.layout) {
+                        .Packed => .none,
+                        else => try sema.structFieldAlignment(
+                            struct_type.fieldAlign(ip, i),
+                            field_ty,
+                            struct_type.layout,
+                        ),
+                    };
 
                     const struct_field_fields = .{
                         // name: []const u8,
@@ -19291,7 +19296,7 @@ fn finishStructInit(
             for (0..struct_type.field_types.len) |i| {
                 if (field_inits[i] != .none) continue;
 
-                const field_init = struct_type.field_inits.get(ip)[i];
+                const field_init = struct_type.fieldInit(ip, i);
                 if (field_init == .none) {
                     const field_name = struct_type.field_names.get(ip)[i];
                     const template = "missing struct field: {}";
@@ -20995,9 +21000,10 @@ fn reifyStruct(
         .fields_len = fields_len,
         .requires_comptime = .unknown,
         .is_tuple = is_tuple,
-        // So that we don't have to scan ahead, we allocate space in the struct for
-        // alignments, comptime fields, and default inits. This might result in wasted
-        // space, however, this is a permitted encoding of struct types.
+        // So that we don't have to scan ahead, we allocate space in the struct
+        // type for alignments, comptime fields, and default inits. This might
+        // result in wasted space, however, this is a permitted encoding of
+        // struct types.
         .any_comptime_fields = true,
         .any_default_inits = true,
         .any_aligned_fields = true,
@@ -21042,6 +21048,8 @@ fn reifyStruct(
         if (layout == .Packed) {
             if (abi_align != 0) return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
             if (is_comptime_val.toBool()) return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{});
+        } else {
+            struct_type.field_aligns.get(ip)[i] = Alignment.fromByteUnits(abi_align);
         }
         if (layout == .Extern and is_comptime_val.toBool()) {
             return sema.fail(block, src, "extern struct fields cannot be marked comptime", .{});
@@ -21065,8 +21073,7 @@ fn reifyStruct(
                     .{field_index},
                 );
             }
-        }
-        if (struct_type.addFieldName(ip, field_name)) |prev_index| {
+        } else if (struct_type.addFieldName(ip, field_name)) |prev_index| {
             _ = prev_index; // TODO: better source location
             return sema.fail(block, src, "duplicate struct field {}", .{field_name.fmt(ip)});
         }
@@ -21084,7 +21091,6 @@ fn reifyStruct(
         }
 
         struct_type.field_types.get(ip)[i] = field_ty.toIntern();
-        struct_type.field_aligns.get(ip)[i] = Alignment.fromByteUnits(abi_align);
         struct_type.field_inits.get(ip)[i] = default_val;
         if (is_comptime_val.toBool())
             struct_type.setFieldComptime(ip, i);
@@ -23772,7 +23778,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     } else {
         ptr_ty_data.flags.alignment = blk: {
             if (mod.typeToStruct(parent_ty)) |struct_type| {
-                break :blk struct_type.field_aligns.get(ip)[field_index];
+                break :blk struct_type.fieldAlign(ip, field_index);
             } else if (mod.typeToUnion(parent_ty)) |union_obj| {
                 break :blk union_obj.fieldAlign(ip, field_index);
             } else {
@@ -26670,7 +26676,7 @@ fn structFieldPtrByIndex(
         if (parent_align != .none and ptr_ty_data.packed_offset.bit_offset % 8 == 0 and
             target.cpu.arch.endian() == .Little)
         {
-            const elem_size_bytes = ptr_ty_data.child.toType().abiSize(mod);
+            const elem_size_bytes = try sema.typeAbiSize(ptr_ty_data.child.toType());
             const elem_size_bits = ptr_ty_data.child.toType().bitSize(mod);
             if (elem_size_bytes * 8 == elem_size_bits) {
                 const byte_offset = ptr_ty_data.packed_offset.bit_offset / 8;
@@ -26691,7 +26697,7 @@ fn structFieldPtrByIndex(
     } else {
         // Our alignment is capped at the field alignment
         const field_align = try sema.structFieldAlignment(
-            struct_type.field_aligns.get(ip)[field_index],
+            struct_type.fieldAlign(ip, field_index),
             field_ty.toType(),
             struct_type.layout,
         );
@@ -26700,7 +26706,7 @@ fn structFieldPtrByIndex(
 
     const ptr_field_ty = try mod.ptrType(ptr_ty_data);
 
-    if (struct_type.comptime_bits.getBit(ip, field_index)) {
+    if (struct_type.fieldIsComptime(ip, field_index)) {
         const val = try mod.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
             .addr = .{ .comptime_field = struct_type.field_inits.get(ip)[field_index] },
@@ -26744,7 +26750,7 @@ fn structFieldVal(
 
             const field_index = struct_type.nameIndex(ip, field_name) orelse
                 return sema.failWithBadStructFieldAccess(block, struct_type, field_name_src, field_name);
-            if (struct_type.comptime_bits.getBit(ip, field_index)) {
+            if (struct_type.fieldIsComptime(ip, field_index)) {
                 return Air.internedToRef(struct_type.field_inits.get(ip)[field_index]);
             }
 
@@ -29199,12 +29205,12 @@ fn coerceInMemoryAllowedPtrs(
         const src_align = if (src_info.flags.alignment != .none)
             src_info.flags.alignment
         else
-            src_info.child.toType().abiAlignment(mod);
+            try sema.typeAbiAlignment(src_info.child.toType());
 
         const dest_align = if (dest_info.flags.alignment != .none)
             dest_info.flags.alignment
         else
-            dest_info.child.toType().abiAlignment(mod);
+            try sema.typeAbiAlignment(dest_info.child.toType());
 
         if (dest_align.compare(.gt, src_align)) {
             return InMemoryCoercionResult{ .ptr_alignment = .{
@@ -30969,7 +30975,7 @@ fn coerceTupleToStruct(
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, field_i);
         const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
-        if (struct_type.comptime_bits.getBit(ip, field_index)) {
+        if (struct_type.fieldIsComptime(ip, field_index)) {
             const init_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
                 return sema.failWithNeededComptime(block, field_src, .{
                     .needed_comptime_reason = "value stored in comptime field must be comptime-known",
@@ -30998,7 +31004,7 @@ fn coerceTupleToStruct(
         if (field_ref.* != .none) continue;
 
         const field_name = struct_type.field_names.get(ip)[i];
-        const field_default_val = struct_type.field_inits.get(ip)[i];
+        const field_default_val = struct_type.fieldInit(ip, i);
         const field_src = inst_src; // TODO better source location
         if (field_default_val == .none) {
             const template = "missing struct field: {}";
@@ -31088,7 +31094,7 @@ fn coerceTupleToTuple(
         };
         const default_val = switch (ip.indexToKey(tuple_ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| anon_struct_type.values.get(ip)[field_index_usize],
-            .struct_type => |struct_type| struct_type.field_inits.get(ip)[field_index_usize],
+            .struct_type => |struct_type| struct_type.fieldInit(ip, field_index_usize),
             else => unreachable,
         };
 
@@ -31126,7 +31132,7 @@ fn coerceTupleToTuple(
 
         const default_val = switch (ip.indexToKey(tuple_ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| anon_struct_type.values.get(ip)[i],
-            .struct_type => |struct_type| struct_type.field_inits.get(ip)[i],
+            .struct_type => |struct_type| struct_type.fieldInit(ip, i),
             else => unreachable,
         };
 
@@ -33332,12 +33338,12 @@ fn resolvePeerTypesInner(
                     if (ptr_info.flags.alignment != .none)
                         ptr_info.flags.alignment
                     else
-                        ptr_info.child.toType().abiAlignment(mod),
+                        try sema.typeAbiAlignment(ptr_info.child.toType()),
 
                     if (peer_info.flags.alignment != .none)
                         peer_info.flags.alignment
                     else
-                        peer_info.child.toType().abiAlignment(mod),
+                        try sema.typeAbiAlignment(peer_info.child.toType()),
                 );
 
                 if (ptr_info.flags.address_space != peer_info.flags.address_space) {
@@ -34288,14 +34294,16 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         return sema.failWithOwnedErrorMsg(null, msg);
     }
 
-    if (try sema.typeRequiresComptime(ty))
-        return;
-
     const aligns = try sema.arena.alloc(Alignment, struct_type.field_types.len);
     const sizes = try sema.arena.alloc(u64, struct_type.field_types.len);
 
     for (aligns, sizes, 0..) |*field_align, *field_size, i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
+        if (struct_type.fieldIsComptime(ip, i) or !(try sema.typeHasRuntimeBits(field_ty))) {
+            field_size.* = 0;
+            field_align.* = .none;
+            continue;
+        }
         field_size.* = sema.typeAbiSize(field_ty) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
@@ -34322,7 +34330,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     }
 
     if (struct_type.hasReorderedFields()) {
-        for (sizes, struct_type.runtime_order.get(ip), 0..) |size, *ro, i| {
+        const runtime_order = struct_type.runtime_order.get(ip);
+
+        for (sizes, runtime_order, 0..) |size, *ro, i| {
             ro.* = if (size != 0) @enumFromInt(i) else .omitted;
         }
 
@@ -34339,7 +34349,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
                 return a_align.compare(.gt, b_align);
             }
         };
-        mem.sortUnstable(RuntimeOrder, struct_type.runtime_order.get(ip), AlignSortContext{
+        mem.sortUnstable(RuntimeOrder, runtime_order, AlignSortContext{
             .aligns = aligns,
         }, AlignSortContext.lessThan);
     }
@@ -34348,7 +34358,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const offsets = struct_type.offsets.get(ip);
     var it = struct_type.iterateRuntimeOrder(ip);
     var offset: u64 = 0;
-    var big_align: Alignment = .none;
+    var big_align: Alignment = .@"1";
     while (it.next()) |i| {
         big_align = big_align.max(aligns[i]);
         offsets[i] = @intCast(aligns[i].forward(offset));
@@ -34358,22 +34368,61 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const flags = struct_type.flagsPtr(ip);
     flags.alignment = big_align;
     flags.layout_resolved = true;
+    _ = try sema.typeRequiresComptime(ty);
 }
 
 fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) CompileError!void {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
 
-    var fields_bit_sum: u64 = 0;
-    for (0..struct_type.field_types.len) |i| {
-        const field_ty = struct_type.field_types.get(ip)[i].toType();
-        fields_bit_sum += field_ty.bitSize(mod);
-    }
-
     const decl_index = struct_type.decl.unwrap().?;
     const decl = mod.declPtr(decl_index);
 
     const zir = mod.namespacePtr(struct_type.namespace.unwrap().?).file_scope.zir;
+
+    var analysis_arena = std.heap.ArenaAllocator.init(gpa);
+    defer analysis_arena.deinit();
+
+    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    defer comptime_mutable_decls.deinit();
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = analysis_arena.allocator(),
+        .code = zir,
+        .owner_decl = decl,
+        .owner_decl_index = decl_index,
+        .func_index = .none,
+        .func_is_naked = false,
+        .fn_ret_ty = Type.void,
+        .fn_ret_ty_ies = null,
+        .owner_func_index = .none,
+        .comptime_mutable_decls = &comptime_mutable_decls,
+    };
+    defer sema.deinit();
+
+    var block: Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = decl_index,
+        .namespace = struct_type.namespace.unwrap() orelse decl.src_namespace,
+        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer assert(block.instructions.items.len == 0);
+
+    const fields_bit_sum = blk: {
+        var accumulator: u64 = 0;
+        for (0..struct_type.field_types.len) |i| {
+            const field_ty = struct_type.field_types.get(ip)[i].toType();
+            accumulator += try field_ty.bitSizeAdvanced(mod, &sema);
+        }
+        break :blk accumulator;
+    };
+
     const extended = zir.instructions.items(.data)[struct_type.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
@@ -34386,40 +34435,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
 
         const backing_int_body_len = zir.extra[extra_index];
         extra_index += 1;
-
-        var analysis_arena = std.heap.ArenaAllocator.init(gpa);
-        defer analysis_arena.deinit();
-
-        var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-        defer comptime_mutable_decls.deinit();
-
-        var sema: Sema = .{
-            .mod = mod,
-            .gpa = gpa,
-            .arena = analysis_arena.allocator(),
-            .code = zir,
-            .owner_decl = decl,
-            .owner_decl_index = decl_index,
-            .func_index = .none,
-            .func_is_naked = false,
-            .fn_ret_ty = Type.void,
-            .fn_ret_ty_ies = null,
-            .owner_func_index = .none,
-            .comptime_mutable_decls = &comptime_mutable_decls,
-        };
-        defer sema.deinit();
-
-        var block: Block = .{
-            .parent = null,
-            .sema = &sema,
-            .src_decl = decl_index,
-            .namespace = struct_type.namespace.unwrap() orelse decl.src_namespace,
-            .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-        };
-        defer assert(block.instructions.items.len == 0);
 
         const backing_int_src: LazySrcLoc = .{ .node_offset_container_tag = 0 };
         const backing_int_ty = blk: {
@@ -34435,43 +34450,17 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
 
         try sema.checkBackingIntType(&block, backing_int_src, backing_int_ty, fields_bit_sum);
         struct_type.backingIntType(ip).* = backing_int_ty.toIntern();
-        for (comptime_mutable_decls.items) |ct_decl_index| {
-            const ct_decl = mod.declPtr(ct_decl_index);
-            _ = try ct_decl.internValue(mod);
-        }
     } else {
         if (fields_bit_sum > std.math.maxInt(u16)) {
-            var sema: Sema = .{
-                .mod = mod,
-                .gpa = gpa,
-                .arena = undefined,
-                .code = zir,
-                .owner_decl = decl,
-                .owner_decl_index = decl_index,
-                .func_index = .none,
-                .func_is_naked = false,
-                .fn_ret_ty = Type.void,
-                .fn_ret_ty_ies = null,
-                .owner_func_index = .none,
-                .comptime_mutable_decls = undefined,
-            };
-            defer sema.deinit();
-
-            var block: Block = .{
-                .parent = null,
-                .sema = &sema,
-                .src_decl = decl_index,
-                .namespace = struct_type.namespace.unwrap() orelse
-                    mod.declPtr(struct_type.decl.unwrap().?).src_namespace,
-                .wip_capture_scope = undefined,
-                .instructions = .{},
-                .inlining = null,
-                .is_comptime = true,
-            };
             return sema.fail(&block, LazySrcLoc.nodeOffset(0), "size of packed struct '{d}' exceeds maximum bit width of 65535", .{fields_bit_sum});
         }
         const backing_int_ty = try mod.intType(.unsigned, @intCast(fields_bit_sum));
         struct_type.backingIntType(ip).* = backing_int_ty.toIntern();
+    }
+
+    for (comptime_mutable_decls.items) |ct_decl_index| {
+        const ct_decl = mod.declPtr(ct_decl_index);
+        _ = try ct_decl.internValue(mod);
     }
 }
 
@@ -34813,10 +34802,9 @@ fn resolveTypeFieldsStruct(
         else => {},
     }
 
-    if (struct_type.haveFieldTypes(ip))
-        return;
+    if (struct_type.haveFieldTypes(ip)) return;
 
-    if (struct_type.flagsPtr(ip).field_types_wip) {
+    if (struct_type.setTypesWip(ip)) {
         const msg = try Module.ErrorMsg.create(
             sema.gpa,
             mod.declPtr(owner_decl).srcLoc(mod),
@@ -34825,9 +34813,7 @@ fn resolveTypeFieldsStruct(
         );
         return sema.failWithOwnedErrorMsg(null, msg);
     }
-
-    struct_type.flagsPtr(ip).field_types_wip = true;
-    errdefer struct_type.flagsPtr(ip).field_types_wip = false;
+    errdefer struct_type.clearTypesWip(ip);
 
     try semaStructFields(mod, sema.arena, struct_type);
 }
@@ -36175,7 +36161,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                         struct_type.field_types.len,
                     );
                     for (field_vals, 0..) |*field_val, i| {
-                        if (struct_type.comptime_bits.getBit(ip, i)) {
+                        if (struct_type.fieldIsComptime(ip, i)) {
                             field_val.* = struct_type.field_inits.get(ip)[i];
                             continue;
                         }
@@ -36679,7 +36665,11 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                             if (struct_type.fieldIsComptime(ip, i)) continue;
                             const field_ty = struct_type.field_types.get(ip)[i];
                             if (try sema.typeRequiresComptime(field_ty.toType())) {
-                                struct_type.setRequiresComptime(ip);
+                                // Note that this does not cause the layout to
+                                // be considered resolved. Comptime-only types
+                                // still maintain a layout of their
+                                // runtime-known fields.
+                                struct_type.flagsPtr(ip).requires_comptime = .yes;
                                 return true;
                             }
                         }

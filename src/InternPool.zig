@@ -382,6 +382,7 @@ pub const Key = union(enum) {
 
         pub const ComptimeBits = struct {
             start: u32,
+            /// This is the number of u32 elements, not the number of struct fields.
             len: u32,
 
             pub fn get(this: @This(), ip: *const InternPool) []u32 {
@@ -505,12 +506,23 @@ pub const Key = union(enum) {
             return false;
         }
 
+        pub fn setTypesWip(s: @This(), ip: *InternPool) bool {
+            if (s.layout == .Packed) return false;
+            const flags_ptr = s.flagsPtr(ip);
+            if (flags_ptr.field_types_wip) return true;
+            flags_ptr.field_types_wip = true;
+            return false;
+        }
+
+        pub fn clearTypesWip(s: @This(), ip: *InternPool) void {
+            if (s.layout == .Packed) return;
+            s.flagsPtr(ip).field_types_wip = false;
+        }
+
         pub fn setLayoutWip(s: @This(), ip: *InternPool) bool {
             if (s.layout == .Packed) return false;
             const flags_ptr = s.flagsPtr(ip);
-            if (flags_ptr.field_types_wip or flags_ptr.layout_wip) {
-                return true;
-            }
+            if (flags_ptr.layout_wip) return true;
             flags_ptr.layout_wip = true;
             return false;
         }
@@ -525,14 +537,6 @@ pub const Key = union(enum) {
 
         pub fn clearFullyResolved(s: @This(), ip: *InternPool) void {
             s.flagsPtr(ip).fully_resolved = false;
-        }
-
-        pub fn setRequiresComptime(s: @This(), ip: *InternPool) void {
-            assert(s.layout != .Packed);
-            const flags_ptr = s.flagsPtr(ip);
-            // Layout is resolved (and non-existent) in the case of a comptime-known struct.
-            flags_ptr.layout_resolved = true;
-            flags_ptr.requires_comptime = .yes;
         }
 
         /// The returned pointer expires with any addition to the `InternPool`.
@@ -567,7 +571,7 @@ pub const Key = union(enum) {
 
         pub fn haveLayout(s: @This(), ip: *InternPool) bool {
             return switch (s.layout) {
-                .Packed => s.haveFieldTypes(ip),
+                .Packed => s.backingIntType(ip).* != .none,
                 .Auto, .Extern => s.flagsPtr(ip).layout_resolved,
             };
         }
@@ -3149,7 +3153,15 @@ pub const Alignment = enum(u6) {
         return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
 
+    /// Relaxed comparison. We have this as default because a lot of callsites
+    /// were upgraded from directly using comparison operators on byte units,
+    /// with the `none` value represented by zero.
+    /// Prefer `compareStrict` if possible.
     pub fn compare(lhs: Alignment, op: std.math.CompareOperator, rhs: Alignment) bool {
+        return std.math.compare(lhs.toRelaxedCompareUnits(), op, rhs.toRelaxedCompareUnits());
+    }
+
+    pub fn compareStrict(lhs: Alignment, op: std.math.CompareOperator, rhs: Alignment) bool {
         assert(lhs != .none);
         assert(rhs != .none);
         return std.math.compare(@intFromEnum(lhs), op, @intFromEnum(rhs));
@@ -3194,6 +3206,7 @@ pub const Alignment = enum(u6) {
     /// not invalidated when items are added to the `InternPool`.
     pub const Slice = struct {
         start: u32,
+        /// This is the number of alignment values, not the number of u32 elements.
         len: u32,
 
         pub fn get(slice: Slice, ip: *const InternPool) []Alignment {
@@ -3203,6 +3216,13 @@ pub const Alignment = enum(u6) {
             return @ptrCast(bytes[0..slice.len]);
         }
     };
+
+    pub fn toRelaxedCompareUnits(a: Alignment) u8 {
+        const n: u8 = @intFromEnum(a);
+        assert(n <= @intFromEnum(Alignment.none));
+        if (n == @intFromEnum(Alignment.none)) return 0;
+        return n + 1;
+    }
 
     const LlvmBuilderAlignment = @import("codegen/llvm/Builder.zig").Alignment;
 
@@ -4067,16 +4087,14 @@ fn extraStructType(ip: *const InternPool, extra_index: u32) Key.StructType {
     };
     const field_aligns: Alignment.Slice = t: {
         if (!s.data.flags.any_aligned_fields) break :t .{ .start = 0, .len = 0 };
-        const len = (fields_len + 3) / 4;
-        const aligns: Alignment.Slice = .{ .start = index, .len = len };
-        index += len;
+        const aligns: Alignment.Slice = .{ .start = index, .len = fields_len };
+        index += (fields_len + 3) / 4;
         break :t aligns;
     };
     const comptime_bits: Key.StructType.ComptimeBits = t: {
         if (!s.data.flags.any_comptime_fields) break :t .{ .start = 0, .len = 0 };
-        const len = (fields_len + 31) / 32;
-        const comptime_bits: Key.StructType.ComptimeBits = .{ .start = index, .len = len };
-        index += len;
+        const comptime_bits: Key.StructType.ComptimeBits = .{ .start = index, .len = fields_len };
+        index += (fields_len + 31) / 32;
         break :t comptime_bits;
     };
     const runtime_order: Key.StructType.RuntimeOrder.Slice = t: {

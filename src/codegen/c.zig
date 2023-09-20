@@ -1310,21 +1310,21 @@ pub const DeclGen = struct {
 
                         try writer.writeByte('{');
                         var empty = true;
-                        const field_types = struct_type.field_types.get(ip);
-                        for (struct_type.runtime_order.get(ip)) |runtime_order| {
-                            const field_i = runtime_order.toInt() orelse break;
-                            const field_ty = field_types[field_i];
+                        for (0..struct_type.field_types.len) |field_i| {
+                            const field_ty = struct_type.field_types.get(ip)[field_i].toType();
+                            if (struct_type.fieldIsComptime(ip, field_i)) continue;
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                             if (!empty) try writer.writeByte(',');
                             const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                                 .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                    .ty = field_ty,
+                                    .ty = field_ty.toIntern(),
                                     .storage = .{ .u64 = bytes[field_i] },
                                 } }),
                                 .elems => |elems| elems[field_i],
                                 .repeated_elem => |elem| elem,
                             };
-                            try dg.renderValue(writer, field_ty.toType(), field_val.toValue(), initializer_type);
+                            try dg.renderValue(writer, field_ty, field_val.toValue(), initializer_type);
 
                             empty = false;
                         }

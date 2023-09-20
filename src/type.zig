@@ -843,7 +843,7 @@ pub const Type = struct {
     pub fn lazyAbiAlignment(ty: Type, mod: *Module) !Value {
         switch (try ty.abiAlignmentAdvanced(mod, .lazy)) {
             .val => |val| return val,
-            .scalar => |x| return mod.intValue(Type.comptime_int, x.toByteUnitsOptional().?),
+            .scalar => |x| return mod.intValue(Type.comptime_int, x.toByteUnits(0)),
         }
     }
 
@@ -997,8 +997,7 @@ pub const Type = struct {
                     }
 
                     const flags = struct_type.flagsPtr(ip).*;
-                    if (flags.layout_resolved)
-                        return .{ .scalar = flags.alignment };
+                    if (flags.layout_resolved) return .{ .scalar = flags.alignment };
 
                     switch (strat) {
                         .eager => unreachable, // struct layout not resolved
@@ -1423,20 +1422,12 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    switch (struct_type.layout) {
-                        .Packed => {
-                            return .{
-                                .scalar = struct_type.backingIntType(ip).toType().abiSize(mod),
-                            };
+                    return switch (struct_type.layout) {
+                        .Packed => .{
+                            .scalar = struct_type.backingIntType(ip).toType().abiSize(mod),
                         },
-                        .Auto, .Extern => {
-                            const field_count = ty.structFieldCount(mod);
-                            if (field_count == 0) {
-                                return .{ .scalar = 0 };
-                            }
-                            return .{ .scalar = ty.structFieldOffset(field_count, mod) };
-                        },
-                    }
+                        .Auto, .Extern => .{ .scalar = struct_type.size(ip).* },
+                    };
                 },
                 .anon_struct_type => |tuple| {
                     switch (strat) {
@@ -1655,19 +1646,19 @@ pub const Type = struct {
             },
             .struct_type => |struct_type| {
                 if (struct_type.layout == .Packed) {
-                    if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
+                    if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
                     return try struct_type.backingIntType(ip).*.toType().bitSizeAdvanced(mod, opt_sema);
                 }
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
             },
 
             .anon_struct_type => {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                if (opt_sema) |sema| try sema.resolveTypeFields(ty);
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
             },
 
             .union_type => |union_type| {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                if (opt_sema) |sema| try sema.resolveTypeFields(ty);
                 if (ty.containerLayout(mod) != .Packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
                 }
@@ -2091,6 +2082,7 @@ pub const Type = struct {
         return switch (ip.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
             .array_type => |array_type| array_type.len,
+            .struct_type => |struct_type| struct_type.field_types.len,
             .anon_struct_type => |tuple| tuple.types.len,
 
             else => unreachable,
@@ -2964,7 +2956,7 @@ pub const Type = struct {
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 assert(struct_type.layout != .Packed);
-                const explicit_align = struct_type.field_aligns.get(ip)[index];
+                const explicit_align = struct_type.fieldAlign(ip, index);
                 const field_ty = struct_type.field_types.get(ip)[index].toType();
                 return mod.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
             },
@@ -2983,7 +2975,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const val = struct_type.field_inits.get(ip)[index];
+                const val = struct_type.fieldInit(ip, index);
                 // TODO: avoid using `unreachable` to indicate this.
                 if (val == .none) return Value.@"unreachable";
                 return val.toValue();
@@ -3002,7 +2994,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                if (struct_type.comptime_bits.getBit(ip, index)) {
+                if (struct_type.fieldIsComptime(ip, index)) {
                     return struct_type.field_inits.get(ip)[index].toValue();
                 } else {
                     return struct_type.field_types.get(ip)[index].toType().onePossibleValue(mod);
