@@ -453,7 +453,7 @@ fn isQuerySeparator(c: u8) bool {
     };
 }
 
-test "basic" {
+test parse {
     const parsed = try parse("https://ziglang.org/download");
     try testing.expectEqualStrings("https", parsed.scheme);
     try testing.expectEqualStrings("ziglang.org", parsed.host orelse return error.UnexpectedNull);

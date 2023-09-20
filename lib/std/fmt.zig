@@ -1545,7 +1545,7 @@ pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
     return .{ .data = data };
 }
 
-test "fmtDuration" {
+test fmtDuration {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1609,7 +1609,7 @@ pub fn fmtDurationSigned(ns: i64) Formatter(formatDurationSigned) {
     return .{ .data = ns };
 }
 
-test "fmtDurationSigned" {
+test fmtDurationSigned {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1739,7 +1739,7 @@ pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
     return parseWithSign(T, buf, base, .pos);
 }
 
-test "parseInt" {
+test parseInt {
     try std.testing.expect((try parseInt(i32, "-10", 10)) == -10);
     try std.testing.expect((try parseInt(i32, "+10", 10)) == 10);
     try std.testing.expect((try parseInt(u32, "+10", 10)) == 10);
@@ -1870,7 +1870,7 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!
     return parseWithSign(T, buf, base, .pos);
 }
 
-test "parseUnsigned" {
+test parseUnsigned {
     try std.testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
     try std.testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
     try std.testing.expect((try parseUnsigned(u16, "65_535", 10)) == 65535);
@@ -1944,7 +1944,7 @@ pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
     return math.mul(usize, number, multiplier);
 }
 
-test "parseIntSizeSuffix" {
+test parseIntSizeSuffix {
     try std.testing.expect(try parseIntSizeSuffix("2", 10) == 2);
     try std.testing.expect(try parseIntSizeSuffix("2B", 10) == 2);
     try std.testing.expect(try parseIntSizeSuffix("2kB", 10) == 2000);

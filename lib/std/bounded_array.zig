@@ -8,13 +8,6 @@ const testing = std.testing;
 /// Useful to pass around small arrays whose exact size is only known at
 /// runtime, but whose maximum size is known at comptime, without requiring
 /// an `Allocator`.
-///
-/// ```zig
-/// var actual_size = 32;
-/// var a = try BoundedArray(u8, 64).init(actual_size);
-/// var slice = a.slice(); // a slice of the 64-byte array
-/// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
-/// ```
 pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
     return BoundedArrayAligned(T, @alignOf(T), buffer_capacity);
 }
@@ -25,13 +18,6 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// Useful to pass around small explicitly-aligned arrays whose exact size is
 /// only known at runtime, but whose maximum size is known at comptime, without
 /// requiring an `Allocator`.
-/// ```zig
-//  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
-//  try a.append(255);
-//  try a.append(255);
-//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
-//  try testing.expectEqual(@as(u16, 65535), b[0]);
-/// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
     comptime alignment: u29,
@@ -287,6 +273,15 @@ pub fn BoundedArrayAligned(
     };
 }
 
+test BoundedArray {
+    const actual_size: usize = 32;
+    var a = try BoundedArray(u8, 64).init(actual_size);
+    var slice = a.slice();
+    _ = slice; // a slice of the 64-byte array
+    var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
+    _ = a_clone;
+}
+
 test "BoundedArray" {
     var a = try BoundedArray(u8, 64).init(32);
 
@@ -399,6 +394,14 @@ test "BoundedArray sizeOf" {
     // `len` is the minimum required size to hold the maximum capacity
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 15), undefined).len), u4);
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).len), u5);
+}
+
+test BoundedArrayAligned {
+    var a = try BoundedArrayAligned(u8, 16, 2).init(0);
+    try a.append(255);
+    try a.append(255);
+    const b: *const [1]u16 = @ptrCast(a.constSlice().ptr);
+    try testing.expectEqual(@as(u16, 65535), b[0]);
 }
 
 test "BoundedArrayAligned" {

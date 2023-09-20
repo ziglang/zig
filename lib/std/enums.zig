@@ -120,7 +120,7 @@ pub fn directEnumArray(
     return directEnumArrayDefault(E, Data, null, max_unused_slots, init_values);
 }
 
-test "std.enums.directEnumArray" {
+test directEnumArray {
     const E = enum(i4) { a = 4, b = 6, c = 2 };
     var runtime_false: bool = false;
     const array = directEnumArray(E, bool, 4, .{
@@ -162,7 +162,7 @@ pub fn directEnumArrayDefault(
     return result;
 }
 
-test "std.enums.directEnumArrayDefault" {
+test directEnumArrayDefault {
     const E = enum(i4) { a = 4, b = 6, c = 2 };
     var runtime_false: bool = false;
     const array = directEnumArrayDefault(E, bool, false, 4, .{
@@ -512,7 +512,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
     };
 }
 
-test "EnumMultiset" {
+test EnumMultiset {
     const Ball = enum { red, green, blue };
 
     const empty = EnumMultiset(Ball).initEmpty();

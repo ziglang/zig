@@ -395,7 +395,8 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
     }
 }
 
-test "basic functionality" {
+test Progress {
+    // basic functionality
     var disable = true;
     if (disable) {
         // This test is disabled because it uses time.sleep() and is therefore slow. It also

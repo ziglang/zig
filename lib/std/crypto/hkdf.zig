@@ -25,16 +25,17 @@ pub fn Hkdf(comptime Hmac: type) type {
 
         /// Initialize the creation of a master key from a salt
         /// and keying material that can be added later, possibly in chunks.
-        /// Example:
-        /// ```
-        /// var prk: [hkdf.prk_length]u8 = undefined;
-        /// var hkdf = HkdfSha256.extractInit(salt);
-        /// hkdf.update(ikm1);
-        /// hkdf.update(ikm2);
-        /// hkdf.final(&prk);
-        /// ```
         pub fn extractInit(salt: []const u8) Hmac {
             return Hmac.init(salt);
+        }
+
+        test extractInit {
+            const salt = "application uuid";
+            var hkdf = HkdfSha256.extractInit(salt);
+            var prk: [HkdfSha256.prk_length]u8 = undefined;
+            hkdf.update("some random bits");
+            hkdf.update("some other random bits");
+            hkdf.final(&prk);
         }
 
         /// Derive a subkey from a master key `prk` and a subkey description `ctx`.

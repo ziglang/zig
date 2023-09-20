@@ -279,7 +279,7 @@ pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
     return angle_in_radians * 180.0 / pi;
 }
 
-test "radiansToDegrees" {
+test radiansToDegrees {
     try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(f32, 0), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(f32, pi / 2.0), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(f32, -pi / 4.0), 1e-6);
@@ -294,7 +294,7 @@ pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
     return angle_in_degrees * pi / 180.0;
 }
 
-test "degreesToRadians" {
+test degreesToRadians {
     try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(f32, 90), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(f32, -270), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(f32, 360), 1e-6);
@@ -409,7 +409,7 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
     assert(lower <= upper);
     return @max(lower, @min(val, upper));
 }
-test "clamp" {
+test clamp {
     // Within range
     try testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
     // Below
@@ -681,7 +681,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     return std.meta.Int(signedness, magnitude_bits);
 }
 
-test "IntFittingRange" {
+test IntFittingRange {
     try testing.expect(IntFittingRange(0, 0) == u0);
     try testing.expect(IntFittingRange(0, 1) == u1);
     try testing.expect(IntFittingRange(0, 2) == u2);
@@ -1109,7 +1109,7 @@ pub fn ByteAlignedInt(comptime T: type) type {
     return extended_type;
 }
 
-test "ByteAlignedInt" {
+test ByteAlignedInt {
     try testing.expect(ByteAlignedInt(u0) == u0);
     try testing.expect(ByteAlignedInt(i0) == i0);
     try testing.expect(ByteAlignedInt(u3) == u8);
@@ -1345,7 +1345,7 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
     return @mulAdd(Type, b - a, t, a);
 }
 
-test "lerp" {
+test lerp {
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
@@ -1395,7 +1395,7 @@ pub fn minInt(comptime T: type) comptime_int {
     return -(1 << (bit_count - 1));
 }
 
-test "minInt and maxInt" {
+test maxInt {
     try testing.expect(maxInt(u0) == 0);
     try testing.expect(maxInt(u1) == 1);
     try testing.expect(maxInt(u8) == 255);
@@ -1412,7 +1412,8 @@ test "minInt and maxInt" {
     try testing.expect(maxInt(i63) == 4611686018427387903);
     try testing.expect(maxInt(i64) == 9223372036854775807);
     try testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
-
+}
+test minInt {
     try testing.expect(minInt(u0) == 0);
     try testing.expect(minInt(u1) == 0);
     try testing.expect(minInt(u8) == 0);
@@ -1581,7 +1582,7 @@ test "compare between signed and unsigned" {
     try testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
 
-test "order" {
+test order {
     try testing.expect(order(0, 0) == .eq);
     try testing.expect(order(1, 0) == .gt);
     try testing.expect(order(-1, 0) == .lt);

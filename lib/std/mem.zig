@@ -633,7 +633,7 @@ pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
     return order(T, lhs, rhs) == .lt;
 }
 
-test "lessThan" {
+test lessThan {
     try testing.expect(lessThan(u8, "abcd", "bee"));
     try testing.expect(!lessThan(u8, "abc", "abc"));
     try testing.expect(lessThan(u8, "abc", "abc0"));
@@ -662,7 +662,7 @@ pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
     return if (a.len == b.len) null else shortest;
 }
 
-test "indexOfDiff" {
+test indexOfDiff {
     try testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
     try testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
     try testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
@@ -998,7 +998,7 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
     return slice[begin..end];
 }
 
-test "trim" {
+test trim {
     try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
@@ -1209,7 +1209,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     return null;
 }
 
-test "indexOf" {
+test indexOf {
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
@@ -1282,7 +1282,7 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     return found;
 }
 
-test "count" {
+test count {
     try testing.expect(count(u8, "", "h") == 0);
     try testing.expect(count(u8, "h", "h") == 1);
     try testing.expect(count(u8, "hh", "h") == 2);
@@ -1314,7 +1314,7 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
     return false;
 }
 
-test "containsAtLeast" {
+test containsAtLeast {
     try testing.expect(containsAtLeast(u8, "aa", 0, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 1, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 2, "a"));
@@ -2742,7 +2742,7 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
 
-test "startsWith" {
+test startsWith {
     try testing.expect(startsWith(u8, "Bob", "Bo"));
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
@@ -2751,7 +2751,7 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
 
-test "endsWith" {
+test endsWith {
     try testing.expect(endsWith(u8, "Needle in haystack", "haystack"));
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
@@ -2987,7 +2987,7 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     return buf;
 }
 
-test "join" {
+test join {
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -3010,7 +3010,7 @@ test "join" {
     }
 }
 
-test "joinZ" {
+test joinZ {
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -3328,7 +3328,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "min" {
+test min {
     try testing.expectEqual(min(u8, "abcdefg"), 'a');
     try testing.expectEqual(min(u8, "bcdefga"), 'a');
     try testing.expectEqual(min(u8, "a"), 'a');
@@ -3345,7 +3345,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "max" {
+test max {
     try testing.expectEqual(max(u8, "abcdefg"), 'g');
     try testing.expectEqual(max(u8, "gabcdef"), 'g');
     try testing.expectEqual(max(u8, "g"), 'g');
@@ -3365,7 +3365,7 @@ pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
     return .{ .min = minVal, .max = maxVal };
 }
 
-test "minMax" {
+test minMax {
     try testing.expectEqual(minMax(u8, "abcdefg"), .{ .min = 'a', .max = 'g' });
     try testing.expectEqual(minMax(u8, "bcdefga"), .{ .min = 'a', .max = 'g' });
     try testing.expectEqual(minMax(u8, "a"), .{ .min = 'a', .max = 'a' });
@@ -3386,7 +3386,7 @@ pub fn indexOfMin(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "indexOfMin" {
+test indexOfMin {
     try testing.expectEqual(indexOfMin(u8, "abcdefg"), 0);
     try testing.expectEqual(indexOfMin(u8, "bcdefga"), 6);
     try testing.expectEqual(indexOfMin(u8, "a"), 0);
@@ -3407,7 +3407,7 @@ pub fn indexOfMax(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "indexOfMax" {
+test indexOfMax {
     try testing.expectEqual(indexOfMax(u8, "abcdefg"), 6);
     try testing.expectEqual(indexOfMax(u8, "gabcdef"), 0);
     try testing.expectEqual(indexOfMax(u8, "a"), 0);
@@ -3435,7 +3435,7 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     return .{ .index_min = minIdx, .index_max = maxIdx };
 }
 
-test "indexOfMinMax" {
+test indexOfMinMax {
     try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), .{ .index_min = 0, .index_max = 6 });
     try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), .{ .index_min = 1, .index_max = 0 });
     try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
@@ -3456,7 +3456,7 @@ pub fn reverse(comptime T: type, items: []T) void {
     }
 }
 
-test "reverse" {
+test reverse {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     reverse(i32, arr[0..]);
 
@@ -3575,7 +3575,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
     reverse(T, items);
 }
 
-test "rotate" {
+test rotate {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     rotate(i32, arr[0..], 2);
 
@@ -3707,7 +3707,7 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
     return size;
 }
 
-test "replacementSize" {
+test replacementSize {
     try testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
     try testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
     try testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
