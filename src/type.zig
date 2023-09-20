@@ -201,7 +201,7 @@ pub const Type = struct {
                         info.flags.alignment
                     else
                         info.child.toType().abiAlignment(mod);
-                    try writer.print("align({d}", .{alignment});
+                    try writer.print("align({d}", .{alignment.toByteUnits(0)});
 
                     if (info.packed_offset.bit_offset != 0 or info.packed_offset.host_size != 0) {
                         try writer.print(":{d}:{d}", .{
@@ -992,30 +992,22 @@ pub const Type = struct {
                             },
                             .eager => {},
                         }
-                        assert(struct_type.backingIntType(ip).* != .none);
                         return .{ .scalar = struct_type.backingIntType(ip).toType().abiAlignment(mod) };
                     }
 
                     const flags = struct_type.flagsPtr(ip).*;
-                    if (flags.layout_resolved) return .{ .scalar = flags.alignment };
+                    if (flags.alignment != .none) return .{ .scalar = flags.alignment };
 
-                    switch (strat) {
-                        .eager => unreachable, // struct layout not resolved
-                        .sema => |sema| {
-                            if (flags.field_types_wip) {
-                                // We'll guess "pointer-aligned", if the struct has an
-                                // underaligned pointer field then some allocations
-                                // might require explicit alignment.
-                                return .{ .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)) };
-                            }
-                            try sema.resolveTypeLayout(ty);
-                            return .{ .scalar = struct_type.flagsPtr(ip).alignment };
+                    return switch (strat) {
+                        .eager => unreachable, // struct alignment not resolved
+                        .sema => |sema| .{
+                            .scalar = try sema.resolveStructAlignment(ty.toIntern(), struct_type),
                         },
-                        .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                        .lazy => .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
-                    }
+                    };
                 },
                 .anon_struct_type => |tuple| {
                     var big_align: Alignment = .none;

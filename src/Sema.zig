@@ -34280,15 +34280,62 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
     }
 }
 
-fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
-    try sema.resolveTypeFields(ty);
+/// Resolve a struct's alignment only without triggering resolution of its layout.
+/// Asserts that the alignment is not yet resolved and the layout is non-packed.
+pub fn resolveStructAlignment(
+    sema: *Sema,
+    ty: InternPool.Index,
+    struct_type: InternPool.Key.StructType,
+) CompileError!Alignment {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const target = mod.getTarget();
 
+    assert(struct_type.flagsPtr(ip).alignment == .none);
+    assert(struct_type.layout != .Packed);
+
+    if (struct_type.flagsPtr(ip).field_types_wip) {
+        // We'll guess "pointer-aligned", if the struct has an
+        // underaligned pointer field then some allocations
+        // might require explicit alignment.
+        //TODO write this bit and emit an error later if incorrect
+        //struct_type.flagsPtr(ip).assumed_pointer_aligned = true;
+        const result = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+        struct_type.flagsPtr(ip).alignment = result;
+        return result;
+    }
+
+    try sema.resolveTypeFieldsStruct(ty, struct_type);
+
+    var result: Alignment = .@"1";
+
+    for (0..struct_type.field_types.len) |i| {
+        if (struct_type.fieldIsComptime(ip, i)) continue;
+        const field_ty = struct_type.field_types.get(ip)[i].toType();
+        if (try sema.typeRequiresComptime(field_ty)) continue;
+        if (try sema.typeHasRuntimeBits(field_ty)) {
+            const field_align = try sema.structFieldAlignment(
+                struct_type.fieldAlign(ip, i),
+                field_ty,
+                struct_type.layout,
+            );
+            result = result.max(field_align);
+        }
+    }
+
+    struct_type.flagsPtr(ip).alignment = result;
+    return result;
+}
+
+fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const struct_type = mod.typeToStruct(ty) orelse return;
 
     if (struct_type.haveLayout(ip))
         return;
+
+    try sema.resolveTypeFields(ty);
 
     if (struct_type.layout == .Packed) {
         try semaBackingIntType(mod, struct_type);
