@@ -103,17 +103,16 @@ pub fn block(
     context: anytype,
     comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
-    // const is_ctx_comptime = @typeInfo(@TypeOf(lessThanFn)).Fn.Params[0].is_comptime;
+    const is_ctx_comptime = @typeInfo(@TypeOf(lessThanFn)).Fn.params[0].is_comptime;
     const lessThan = if (builtin.mode == .Debug)
-        // if (is_ctx_comptime) struct {
-        //     fn lessThan(comptime ctx: @TypeOf(context), lhs: T, rhs: T) bool {
-        //         const lt = lessThanFn(ctx, lhs, rhs);
-        //         const gt = lessThanFn(ctx, rhs, lhs);
-        //         std.debug.assert(!(lt and gt));
-        //         return lt;
-        //     }
-        // }.lessThan else
-        struct {
+        if (is_ctx_comptime) struct {
+            fn lessThan(comptime ctx: @TypeOf(context), lhs: T, rhs: T) bool {
+                const lt = lessThanFn(ctx, lhs, rhs);
+                const gt = lessThanFn(ctx, rhs, lhs);
+                std.debug.assert(!(lt and gt));
+                return lt;
+            }
+        }.lessThan else struct {
             fn lessThan(ctx: @TypeOf(context), lhs: T, rhs: T) bool {
                 const lt = lessThanFn(ctx, lhs, rhs);
                 const gt = lessThanFn(ctx, rhs, lhs);
