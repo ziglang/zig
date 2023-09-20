@@ -439,7 +439,11 @@ pub const Key = union(enum) {
 
         /// Look up field index based on field name.
         pub fn nameIndex(self: StructType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-            const names_map = self.names_map.unwrap() orelse return null;
+            const names_map = self.names_map.unwrap() orelse {
+                const i = name.toUnsigned(ip) orelse return null;
+                if (i >= self.field_types.len) return null;
+                return i;
+            };
             const map = &ip.maps.items[@intFromEnum(names_map)];
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.field_names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
