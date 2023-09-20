@@ -34349,9 +34349,28 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
                 return a_align.compare(.gt, b_align);
             }
         };
-        mem.sortUnstable(RuntimeOrder, runtime_order, AlignSortContext{
-            .aligns = aligns,
-        }, AlignSortContext.lessThan);
+        if (struct_type.isTuple(ip) or !mod.backendSupportsFeature(.field_reordering)) {
+            // TODO: don't handle tuples differently. This logic exists only because it
+            // uncovers latent bugs if removed. Fix the latent bugs and remove this logic!
+            // Likewise, implement field reordering support in all the backends!
+            // This logic does not reorder fields; it only moves the omitted ones to the end
+            // so that logic elsewhere does not need to special-case tuples.
+            var i: usize = 0;
+            var off: usize = 0;
+            while (i + off < runtime_order.len) {
+                if (runtime_order[i + off] == .omitted) {
+                    off += 1;
+                    continue;
+                }
+                runtime_order[i] = runtime_order[i + off];
+                i += 1;
+            }
+            @memset(runtime_order[i..], .omitted);
+        } else {
+            mem.sortUnstable(RuntimeOrder, runtime_order, AlignSortContext{
+                .aligns = aligns,
+            }, AlignSortContext.lessThan);
+        }
     }
 
     // Calculate size, alignment, and field offsets.
