@@ -34293,6 +34293,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         );
         return sema.failWithOwnedErrorMsg(null, msg);
     }
+    defer struct_type.clearLayoutWip(ip);
 
     const aligns = try sema.arena.alloc(Alignment, struct_type.field_types.len);
     const sizes = try sema.arena.alloc(u64, struct_type.field_types.len);
@@ -34300,6 +34301,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     for (aligns, sizes, 0..) |*field_align, *field_size, i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
         if (struct_type.fieldIsComptime(ip, i) or !(try sema.typeHasRuntimeBits(field_ty))) {
+            struct_type.offsets.get(ip)[i] = 0;
             field_size.* = 0;
             field_align.* = .none;
             continue;
@@ -34379,6 +34381,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     var offset: u64 = 0;
     var big_align: Alignment = .@"1";
     while (it.next()) |i| {
+        const field_ty = struct_type.field_types.get(ip)[i].toType();
+        // Type query definitely valid as we performed it earlier
+        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
         big_align = big_align.max(aligns[i]);
         offsets[i] = @intCast(aligns[i].forward(offset));
         offset = offsets[i] + sizes[i];
@@ -34832,7 +34837,7 @@ fn resolveTypeFieldsStruct(
         );
         return sema.failWithOwnedErrorMsg(null, msg);
     }
-    errdefer struct_type.clearTypesWip(ip);
+    defer struct_type.clearTypesWip(ip);
 
     try semaStructFields(mod, sema.arena, struct_type);
 }

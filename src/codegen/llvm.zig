@@ -2504,6 +2504,7 @@ pub const Object = struct {
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
                     const field_ty = field_types[field_index].toType();
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                     const field_size = field_ty.abiSize(mod);
                     const field_align = mod.structFieldAlignment(
                         struct_type.fieldAlign(ip, field_index),
@@ -3306,6 +3307,7 @@ pub const Object = struct {
                     var it = struct_type.iterateRuntimeOrder(ip);
                     while (it.next()) |field_index| {
                         const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         const field_align = mod.structFieldAlignment(
                             struct_type.fieldAlign(ip, field_index),
                             field_ty,
@@ -4016,10 +4018,11 @@ pub const Object = struct {
                     var need_unnamed = false;
                     var field_it = struct_type.iterateRuntimeOrder(ip);
                     while (field_it.next()) |field_index| {
-                        const field_ty = struct_type.field_types.get(ip)[field_index];
+                        const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         const field_align = mod.structFieldAlignment(
                             struct_type.fieldAlign(ip, field_index),
-                            field_ty.toType(),
+                            field_ty,
                             struct_type.layout,
                         );
                         big_align = big_align.max(field_align);
@@ -4045,7 +4048,7 @@ pub const Object = struct {
                             need_unnamed = true;
                         llvm_index += 1;
 
-                        offset += field_ty.toType().abiSize(mod);
+                        offset += field_ty.abiSize(mod);
                     }
                     {
                         const prev_offset = offset;

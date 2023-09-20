@@ -527,6 +527,11 @@ pub const Key = union(enum) {
             return false;
         }
 
+        pub fn clearLayoutWip(s: @This(), ip: *InternPool) void {
+            if (s.layout == .Packed) return;
+            s.flagsPtr(ip).layout_wip = false;
+        }
+
         pub fn setFullyResolved(s: @This(), ip: *InternPool) bool {
             if (s.layout == .Packed) return true;
             const flags_ptr = s.flagsPtr(ip);
@@ -612,6 +617,7 @@ pub const Key = union(enum) {
         };
 
         /// Iterates over non-comptime fields in the order they are laid out in memory at runtime.
+        /// May or may not include zero-bit fields.
         /// Asserts the struct is not packed.
         pub fn iterateRuntimeOrder(s: @This(), ip: *InternPool) RuntimeOrderIterator {
             assert(s.layout != .Packed);

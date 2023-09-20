@@ -351,25 +351,41 @@ pub const DeclState = struct {
                             break :blk;
                         }
 
-                        for (
-                            struct_type.field_names.get(ip),
-                            struct_type.field_types.get(ip),
-                            struct_type.offsets.get(ip),
-                        ) |field_name_ip, field_ty, field_off| {
-                            if (!field_ty.toType().hasRuntimeBits(mod)) continue;
-                            const field_name = ip.stringToSlice(field_name_ip);
-                            // DW.AT.member
-                            try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
-                            dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
-                            // DW.AT.name, DW.FORM.string
-                            dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                            dbg_info_buffer.appendAssumeCapacity(0);
-                            // DW.AT.type, DW.FORM.ref4
-                            var index = dbg_info_buffer.items.len;
-                            try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
-                            // DW.AT.data_member_location, DW.FORM.udata
-                            try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                        if (struct_type.isTuple(ip)) {
+                            for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
+                                if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                // DW.AT.member
+                                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                                // DW.AT.name, DW.FORM.string
+                                try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
+                                // DW.AT.type, DW.FORM.ref4
+                                var index = dbg_info_buffer.items.len;
+                                try dbg_info_buffer.resize(index + 4);
+                                try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @as(u32, @intCast(index)));
+                                // DW.AT.data_member_location, DW.FORM.udata
+                                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                            }
+                        } else {
+                            for (
+                                struct_type.field_names.get(ip),
+                                struct_type.field_types.get(ip),
+                                struct_type.offsets.get(ip),
+                            ) |field_name_ip, field_ty, field_off| {
+                                if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                const field_name = ip.stringToSlice(field_name_ip);
+                                // DW.AT.member
+                                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                                // DW.AT.name, DW.FORM.string
+                                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                                dbg_info_buffer.appendAssumeCapacity(0);
+                                // DW.AT.type, DW.FORM.ref4
+                                var index = dbg_info_buffer.items.len;
+                                try dbg_info_buffer.resize(index + 4);
+                                try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                // DW.AT.data_member_location, DW.FORM.udata
+                                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                            }
                         }
                     },
                     else => unreachable,
