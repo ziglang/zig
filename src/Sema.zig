@@ -2513,7 +2513,18 @@ fn validateAlign(
     src: LazySrcLoc,
     alignment: u64,
 ) !Alignment {
-    if (alignment == 0) return sema.fail(block, src, "alignment must be >= 1", .{});
+    const result = try validateAlignAllowZero(sema, block, src, alignment);
+    if (result == .none) return sema.fail(block, src, "alignment must be >= 1", .{});
+    return result;
+}
+
+fn validateAlignAllowZero(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    alignment: u64,
+) !Alignment {
+    if (alignment == 0) return .none;
     if (!std.math.isPowerOfTwo(alignment)) {
         return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{
             alignment,
@@ -18928,7 +18939,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             else => {},
         }
         const align_bytes = (try val.getUnsignedIntAdvanced(mod, sema)).?;
-        break :blk try sema.validateAlign(block, align_src, align_bytes);
+        break :blk try sema.validateAlignAllowZero(block, align_src, align_bytes);
     } else .none;
 
     const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
@@ -20890,7 +20901,7 @@ fn zirReify(
             }
 
             const alignment = alignment: {
-                const alignment = try sema.validateAlign(block, src, alignment_val.toUnsignedInt(mod));
+                const alignment = try sema.validateAlignAllowZero(block, src, alignment_val.toUnsignedInt(mod));
                 const default = target_util.defaultFunctionAlignment(target);
                 break :alignment if (alignment == default) .none else alignment;
             };
@@ -24588,7 +24599,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk null;
         }
-        const alignment = try sema.validateAlign(block, align_src, val.toUnsignedInt(mod));
+        const alignment = try sema.validateAlignAllowZero(block, align_src, val.toUnsignedInt(mod));
         const default = target_util.defaultFunctionAlignment(target);
         break :blk if (alignment == default) .none else alignment;
     } else if (extra.data.bits.has_align_ref) blk: {
@@ -24602,7 +24613,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             },
             else => |e| return e,
         };
-        const alignment = try sema.validateAlign(block, align_src, align_tv.val.toUnsignedInt(mod));
+        const alignment = try sema.validateAlignAllowZero(block, align_src, align_tv.val.toUnsignedInt(mod));
         const default = target_util.defaultFunctionAlignment(target);
         break :blk if (alignment == default) .none else alignment;
     } else .none;
