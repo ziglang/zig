@@ -37,6 +37,7 @@ pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
+pub const emscripten = @import("os/emscripten.zig");
 pub const windows = @import("os/windows.zig");
 
 comptime {
@@ -507,6 +508,13 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             }
         }
         return;
+    }
+    if (builtin.os.tag == .emscripten) {
+        const err = std.c.getErrno(std.c.getentropy(buffer.ptr, buffer.len));
+        switch (err) {
+            .SUCCESS => return,
+            else => return unexpectedErrno(err),
+        }
     }
     switch (builtin.os.tag) {
         .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
