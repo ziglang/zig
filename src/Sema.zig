@@ -16515,10 +16515,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .val = if (is_generic) .none else param_ty,
                 } });
 
-                const is_noalias = blk: {
-                    const index = std.math.cast(u5, i) orelse break :blk false;
-                    break :blk @as(u1, @truncate(func_ty_info.noalias_bits >> index)) != 0;
-                };
+                const is_noalias = func_ty_info.paramIsNoalias(@intCast(i));
+
+                const is_comptime = func_ty_info.paramIsComptime(@intCast(i));
 
                 const param_fields = .{
                     // is_generic: bool,
@@ -16527,6 +16526,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     Value.makeBool(is_noalias).toIntern(),
                     // type: ?type,
                     param_ty_val,
+                    // is_comptime: bool,
+                    Value.makeBool(is_comptime).toIntern(),
                 };
                 param_val.* = try mod.intern(.{ .aggregate = .{
                     .ty = param_info_ty.toIntern(),
