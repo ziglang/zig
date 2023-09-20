@@ -2529,7 +2529,7 @@ test "multidimensional arrays" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated sentinel array" {
+test "0-terminated sentinel array" {
     const array = [_:0]u8 {1, 2, 3, 4};
 
     try expect(@TypeOf(array) == [4:0]u8);
@@ -2537,8 +2537,8 @@ test "null terminated sentinel array" {
     try expect(array[4] == 0);
 }
 
-test "internal sentinels in sentinel array" {
-    // internal sentinels are not part of compile-time type, see Slices for variable-length sentinel-terminated arrays
+&#14;test "extra 0s in 0-terminated sentinel array" {
+    // The sentinel value may appear earlier, but does not influence the compile-time 'len'.
     const array = [_:0]u8 {1, 0, 0, 4};
 
     try expect(@TypeOf(array) == [4:0]u8);
@@ -3095,7 +3095,7 @@ test "slice pointer" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slice" {
+test "0-terminated slice" {
     const slice: [:0]const u8 = "hello";
 
     try expect(slice.len == 5);
@@ -3111,7 +3111,7 @@ test "null terminated slice" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slicing" {
+test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
     var runtime_length: usize = 3;
     const slice = array[0..runtime_length :0];
@@ -3788,7 +3788,7 @@ export fn entry(foo: Foo) void { _ = foo; }
 
       {#header_open|Enum Literals#}
       <p>
-      Enum literals can reference the name of an enum field without specifying the enum type:
+      Enum literals allow specifying the name of an enum field without specifying the enum type:
       </p>
       {#code_begin|test|test_enum_literals#}
 const std = @import("std");
@@ -7831,7 +7831,7 @@ comptime {
       {#header_open|@atomicLoad#}
       <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically returns the value.
+      This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -11026,7 +11026,7 @@ pub fn main() void {
         Zig functions. Since C macros operate at the level of lexical tokens, not all C macros
         can be translated to Zig. Macros that cannot be translated will be demoted to
         {#syntax#}@compileError{#endsyntax#}. Note that C code which <em>uses</em> macros will be
-        translated without any additional issues (since Zig operates on the processed source
+        translated without any additional issues (since Zig operates on the pre-processed source
         with macros expanded). It is merely the macros themselves which may not be translatable to
         Zig.
       </p>
@@ -11261,7 +11261,7 @@ all your base are belong to us{#end_shell_samp#}
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
-      <p>Zig natively supports building for WebAssembly.</p>
+      <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
       <p>For host environments like the web browser and nodejs, build as a dynamic library using the freestanding
       OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
