@@ -378,7 +378,7 @@ pub const Key = union(enum) {
         runtime_order: RuntimeOrder.Slice,
         comptime_bits: ComptimeBits,
         offsets: Offsets,
-        names_map: MapIndex,
+        names_map: OptionalMapIndex,
 
         pub const ComptimeBits = struct {
             start: u32,
@@ -438,8 +438,8 @@ pub const Key = union(enum) {
 
         /// Look up field index based on field name.
         pub fn nameIndex(self: StructType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-            if (self.decl == .none) return null; // empty_struct_type
-            const map = &ip.maps.items[@intFromEnum(self.names_map)];
+            const names_map = self.names_map.unwrap() orelse return null;
+            const map = &ip.maps.items[@intFromEnum(names_map)];
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.field_names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
             return @intCast(field_index);
@@ -451,7 +451,7 @@ pub const Key = union(enum) {
             ip: *InternPool,
             name: NullTerminatedString,
         ) ?u32 {
-            return ip.addFieldName(self.names_map, self.field_names.start, name);
+            return ip.addFieldName(self.names_map.unwrap().?, self.field_names.start, name);
         }
 
         pub fn fieldAlign(s: @This(), ip: *const InternPool, i: usize) Alignment {
@@ -4027,9 +4027,76 @@ fn extraTypeTupleAnon(ip: *const InternPool, extra_index: u32) Key.AnonStructTyp
 }
 
 fn extraStructType(ip: *const InternPool, extra_index: u32) Key.StructType {
-    _ = ip;
-    _ = extra_index;
-    @panic("TODO");
+    const s = ip.extraDataTrail(Tag.TypeStruct, extra_index);
+    const fields_len = s.data.fields_len;
+
+    var index = s.end;
+
+    const field_types = t: {
+        const types: Index.Slice = .{ .start = index, .len = fields_len };
+        index += fields_len;
+        break :t types;
+    };
+    const names_map, const field_names: NullTerminatedString.Slice = t: {
+        if (s.data.flags.is_tuple) break :t .{ .none, .{ .start = 0, .len = 0 } };
+        const names_map: MapIndex = @enumFromInt(ip.extra.items[index]);
+        index += 1;
+        const names: NullTerminatedString.Slice = .{ .start = index, .len = fields_len };
+        index += fields_len;
+        break :t .{ names_map.toOptional(), names };
+    };
+    const field_inits: Index.Slice = t: {
+        if (!s.data.flags.any_default_inits) break :t .{ .start = 0, .len = 0 };
+        const inits: Index.Slice = .{ .start = index, .len = fields_len };
+        index += fields_len;
+        break :t inits;
+    };
+    const namespace = t: {
+        if (!s.data.flags.has_namespace) break :t .none;
+        const namespace: Module.Namespace.Index = @enumFromInt(ip.extra.items[index]);
+        index += 1;
+        break :t namespace.toOptional();
+    };
+    const field_aligns: Alignment.Slice = t: {
+        if (!s.data.flags.any_aligned_fields) break :t .{ .start = 0, .len = 0 };
+        const len = (fields_len + 3) / 4;
+        const aligns: Alignment.Slice = .{ .start = index, .len = len };
+        index += len;
+        break :t aligns;
+    };
+    const comptime_bits: Key.StructType.ComptimeBits = t: {
+        if (!s.data.flags.any_comptime_fields) break :t .{ .start = 0, .len = 0 };
+        const len = (fields_len + 31) / 32;
+        const comptime_bits: Key.StructType.ComptimeBits = .{ .start = index, .len = len };
+        index += len;
+        break :t comptime_bits;
+    };
+    const runtime_order: Key.StructType.RuntimeOrder.Slice = t: {
+        if (s.data.flags.is_extern) break :t .{ .start = 0, .len = 0 };
+        const ro: Key.StructType.RuntimeOrder.Slice = .{ .start = index, .len = fields_len };
+        index += fields_len;
+        break :t ro;
+    };
+    const offsets = t: {
+        const offsets: Key.StructType.Offsets = .{ .start = index, .len = fields_len };
+        index += fields_len;
+        break :t offsets;
+    };
+    return .{
+        .extra_index = extra_index,
+        .decl = s.data.decl.toOptional(),
+        .zir_index = s.data.zir_index,
+        .layout = if (s.data.flags.is_extern) .Extern else .Auto,
+        .field_types = field_types,
+        .names_map = names_map,
+        .field_names = field_names,
+        .field_inits = field_inits,
+        .namespace = namespace,
+        .field_aligns = field_aligns,
+        .comptime_bits = comptime_bits,
+        .runtime_order = runtime_order,
+        .offsets = offsets,
+    };
 }
 
 fn extraPackedStructType(ip: *const InternPool, extra_index: u32, inits: bool) Key.StructType {
@@ -4060,7 +4127,7 @@ fn extraPackedStructType(ip: *const InternPool, extra_index: u32, inits: bool) K
         .runtime_order = .{ .start = 0, .len = 0 },
         .comptime_bits = .{ .start = 0, .len = 0 },
         .offsets = .{ .start = 0, .len = 0 },
-        .names_map = type_struct_packed.data.names_map,
+        .names_map = type_struct_packed.data.names_map.toOptional(),
     };
 }
 
