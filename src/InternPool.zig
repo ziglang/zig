@@ -576,8 +576,8 @@ pub const Key = union(enum) {
             return s.layout != .Packed and s.flagsPtr(ip).is_tuple;
         }
 
-        pub fn hasReorderedFields(s: @This(), ip: *InternPool) bool {
-            return s.layout == .Auto and s.flagsPtr(ip).has_reordered_fields;
+        pub fn hasReorderedFields(s: @This()) bool {
+            return s.layout == .Auto;
         }
 
         pub const RuntimeOrderIterator = struct {
@@ -591,7 +591,7 @@ pub const Key = union(enum) {
                 if (i >= it.struct_type.field_types.len)
                     return null;
 
-                if (it.struct_type.hasReorderedFields(it.ip)) {
+                if (it.struct_type.hasReorderedFields()) {
                     it.field_index += 1;
                     return it.struct_type.runtime_order.get(it.ip)[i].toInt();
                 }
@@ -2935,7 +2935,7 @@ pub const Tag = enum(u8) {
     ///    align: Alignment // for each field in declared order
     /// 5. if any_comptime_fields:
     ///    field_is_comptime_bits: u32 // minimal number of u32s needed, LSB is field 0
-    /// 6. if has_reordered_fields:
+    /// 6. if not is_extern:
     ///    field_index: RuntimeOrder // for each field in runtime order
     /// 7. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
@@ -2946,14 +2946,12 @@ pub const Tag = enum(u8) {
         size: u32,
 
         pub const Flags = packed struct(u32) {
-            has_runtime_order: bool,
             is_extern: bool,
             known_non_opv: bool,
             requires_comptime: RequiresComptime,
             is_tuple: bool,
             assumed_runtime_bits: bool,
             has_namespace: bool,
-            has_reordered_fields: bool,
             any_comptime_fields: bool,
             any_default_inits: bool,
             any_aligned_fields: bool,
@@ -2970,7 +2968,7 @@ pub const Tag = enum(u8) {
             // which `layout_resolved` does not ensure.
             fully_resolved: bool,
 
-            _: u10 = 0,
+            _: u12 = 0,
         };
     };
 };
@@ -5092,6 +5090,9 @@ pub const StructTypeInit = struct {
     known_non_opv: bool,
     requires_comptime: RequiresComptime,
     is_tuple: bool,
+    any_comptime_fields: bool,
+    any_default_inits: bool,
+    any_aligned_fields: bool,
 };
 
 pub fn getStructType(
@@ -5099,10 +5100,116 @@ pub fn getStructType(
     gpa: Allocator,
     ini: StructTypeInit,
 ) Allocator.Error!Index {
-    _ = ip;
-    _ = gpa;
-    _ = ini;
-    @panic("TODO");
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const key: Key = .{
+        .struct_type = .{
+            // Only the decl matters for hashing and equality purposes.
+            .decl = ini.decl.toOptional(),
+
+            .extra_index = undefined,
+            .namespace = undefined,
+            .zir_index = undefined,
+            .layout = undefined,
+            .field_names = undefined,
+            .field_types = undefined,
+            .field_inits = undefined,
+            .field_aligns = undefined,
+            .runtime_order = undefined,
+            .comptime_bits = undefined,
+            .offsets = undefined,
+            .names_map = undefined,
+        },
+    };
+    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
+    if (gop.found_existing) return @enumFromInt(gop.index);
+    errdefer _ = ip.map.pop();
+
+    const names_map = try ip.addMap(gpa, ini.fields_len);
+    errdefer _ = ip.maps.pop();
+
+    const is_extern = switch (ini.layout) {
+        .Auto => false,
+        .Extern => true,
+        .Packed => {
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeStructPacked).Struct.fields.len +
+                ini.fields_len + // types
+                ini.fields_len + // names
+                ini.fields_len); // inits
+            try ip.items.append(gpa, .{
+                .tag = if (ini.any_default_inits) .type_struct_packed_inits else .type_struct_packed,
+                .data = ip.addExtraAssumeCapacity(Tag.TypeStructPacked{
+                    .decl = ini.decl,
+                    .zir_index = ini.zir_index,
+                    .fields_len = ini.fields_len,
+                    .namespace = ini.namespace,
+                    .backing_int_ty = .none,
+                    .names_map = names_map,
+                }),
+            });
+            ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
+            ip.extra.appendNTimesAssumeCapacity(@intFromEnum(OptionalNullTerminatedString.none), ini.fields_len);
+            if (ini.any_default_inits) {
+                ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
+            }
+            return @enumFromInt(ip.items.len - 1);
+        },
+    };
+
+    const align_elements_len = if (ini.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
+    const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
+    const comptime_elements_len = if (ini.any_comptime_fields) (ini.fields_len + 31) / 32 else 0;
+
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeStruct).Struct.fields.len +
+        (ini.fields_len * 5) + // types, names, inits, runtime order, offsets
+        align_elements_len + comptime_elements_len +
+        2); // names_map + namespace
+    try ip.items.append(gpa, .{
+        .tag = .type_struct,
+        .data = ip.addExtraAssumeCapacity(Tag.TypeStruct{
+            .decl = ini.decl,
+            .zir_index = ini.zir_index,
+            .fields_len = ini.fields_len,
+            .size = std.math.maxInt(u32),
+            .flags = .{
+                .is_extern = is_extern,
+                .known_non_opv = ini.known_non_opv,
+                .requires_comptime = ini.requires_comptime,
+                .is_tuple = ini.is_tuple,
+                .assumed_runtime_bits = false,
+                .has_namespace = ini.namespace != .none,
+                .any_comptime_fields = ini.any_comptime_fields,
+                .any_default_inits = ini.any_default_inits,
+                .any_aligned_fields = ini.any_aligned_fields,
+                .alignment = .none,
+                .field_types_wip = false,
+                .layout_wip = false,
+                .layout_resolved = false,
+                .fully_resolved = false,
+            },
+        }),
+    });
+    ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
+    if (!ini.is_tuple) {
+        ip.extra.appendAssumeCapacity(@intFromEnum(names_map));
+        ip.extra.appendNTimesAssumeCapacity(@intFromEnum(OptionalNullTerminatedString.none), ini.fields_len);
+    }
+    if (ini.any_default_inits) {
+        ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
+    }
+    if (ini.namespace.unwrap()) |namespace| {
+        ip.extra.appendAssumeCapacity(@intFromEnum(namespace));
+    }
+    if (ini.any_aligned_fields) {
+        ip.extra.appendNTimesAssumeCapacity(align_element, align_elements_len);
+    }
+    if (ini.any_comptime_fields) {
+        ip.extra.appendNTimesAssumeCapacity(0, comptime_elements_len);
+    }
+    if (ini.layout == .Auto) {
+        ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Key.StructType.RuntimeOrder.unresolved), ini.fields_len);
+    }
+    ip.extra.appendNTimesAssumeCapacity(std.math.maxInt(u32), ini.fields_len);
+    return @enumFromInt(ip.items.len - 1);
 }
 
 pub const AnonStructTypeInit = struct {
@@ -5468,6 +5575,7 @@ pub fn getErrorSetType(
     errdefer ip.items.len -= 1;
 
     const names_map = try ip.addMap(gpa, names.len);
+    assert(names_map == predicted_names_map);
     errdefer _ = ip.maps.pop();
 
     addStringsToMap(ip, names_map, names);
@@ -6846,7 +6954,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                     ints += (info.fields_len + 3) / 4; // aligns
                 if (info.flags.any_comptime_fields)
                     ints += (info.fields_len + 31) / 32; // comptime bits
-                if (info.flags.has_reordered_fields)
+                if (!info.flags.is_extern)
                     ints += info.fields_len; // runtime order
                 ints += info.fields_len; // offsets
                 break :b @sizeOf(u32) * ints;

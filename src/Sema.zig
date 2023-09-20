@@ -2847,6 +2847,9 @@ pub fn getStructType(
         .is_tuple = small.is_tuple,
         .fields_len = fields_len,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
+        .any_default_inits = small.any_default_inits,
+        .any_comptime_fields = small.any_comptime_fields,
+        .any_aligned_fields = small.any_aligned_fields,
     });
 
     return ty;
@@ -20992,6 +20995,12 @@ fn reifyStruct(
         .fields_len = fields_len,
         .requires_comptime = .unknown,
         .is_tuple = is_tuple,
+        // So that we don't have to scan ahead, we allocate space in the struct for
+        // alignments, comptime fields, and default inits. This might result in wasted
+        // space, however, this is a permitted encoding of struct types.
+        .any_comptime_fields = true,
+        .any_default_inits = true,
+        .any_aligned_fields = true,
     });
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer ip.remove(ty);
@@ -34312,7 +34321,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         return sema.failWithOwnedErrorMsg(null, msg);
     }
 
-    if (struct_type.hasReorderedFields(ip)) {
+    if (struct_type.hasReorderedFields()) {
         for (sizes, struct_type.runtime_order.get(ip), 0..) |size, *ro, i| {
             ro.* = if (size != 0) @enumFromInt(i) else .omitted;
         }
