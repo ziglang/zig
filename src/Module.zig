@@ -3809,18 +3809,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     };
     defer sema.deinit();
 
-    if (mod.declIsRoot(decl_index)) {
-        const main_struct_inst = Zir.main_struct_inst;
-        const struct_type = decl.getOwnedStruct(mod).?;
-        assert(struct_type.zir_index == main_struct_inst);
-        if (true) @panic("TODO");
-        // why did the code used to have this? I don't see how struct_type could have
-        // been created already without the analyzeStructDecl logic already called on it.
-        //try sema.analyzeStructDecl(decl, main_struct_inst, struct_type);
-        decl.analysis = .complete;
-        decl.generation = mod.generation;
-        return false;
-    }
+    assert(!mod.declIsRoot(decl_index));
 
     var block_scope: Sema.Block = .{
         .parent = null,
