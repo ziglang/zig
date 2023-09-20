@@ -121,7 +121,6 @@ test "slice of type" {
 
 test "generic malloc free" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
@@ -302,7 +301,6 @@ test "slice type with custom alignment" {
 
 test "obtaining a null terminated slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // here we have a normal array
     var buf: [50]u8 = undefined;
@@ -623,7 +621,6 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const U = union {

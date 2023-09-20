@@ -694,24 +694,7 @@ pub const DeclGen = struct {
                     .none => ty,
                     else => ty.slicePtrFieldType(mod),
                 };
-                const ptr_id = switch (ptr.addr) {
-                    .decl => |decl| try self.constructDeclRef(ptr_ty, decl),
-                    .mut_decl => |mut_decl| try self.constructDeclRef(ptr_ty, mut_decl.decl), // TODO
-                    .int => |int| blk: {
-                        const ptr_id = self.spv.allocId();
-                        // TODO: This can probably be an OpSpecConstantOp Bitcast, but
-                        // that is not implemented by Mesa yet. Therefore, just generate it
-                        // as a runtime operation.
-                        try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
-                            .id_result_type = try self.resolveTypeId(ptr_ty),
-                            .id_result = ptr_id,
-                            .integer_value = try self.constant(Type.usize, int.toValue(), .direct),
-                        });
-                        break :blk ptr_id;
-                    },
-                    .comptime_field => unreachable,
-                    else => |tag| return self.todo("pointer value of type {s}", .{@tagName(tag)}),
-                };
+                const ptr_id = try self.constantPtr(ptr_ty, val);
                 if (ptr.len == .none) {
                     return ptr_id;
                 }
@@ -815,6 +798,38 @@ pub const DeclGen = struct {
                 return try self.unionInit(ty, active_field, payload);
             },
             .memoized_call => unreachable,
+        }
+    }
+
+    fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) !IdRef {
+        const result_ty_ref = try self.resolveType(ptr_ty, .direct);
+        const mod = self.module;
+        switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
+            .decl => |decl| return try self.constructDeclRef(ptr_ty, decl),
+            .mut_decl => |decl_mut| return try self.constructDeclRef(ptr_ty, decl_mut.decl),
+            .int => |int| {
+                const ptr_id = self.spv.allocId();
+                // TODO: This can probably be an OpSpecConstantOp Bitcast, but
+                // that is not implemented by Mesa yet. Therefore, just generate it
+                // as a runtime operation.
+                try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                    .id_result_type = self.typeId(result_ty_ref),
+                    .id_result = ptr_id,
+                    .integer_value = try self.constant(Type.usize, int.toValue(), .direct),
+                });
+                return ptr_id;
+            },
+            .eu_payload => unreachable, // TODO
+            .opt_payload => unreachable, // TODO
+            .comptime_field => unreachable,
+            .elem => |elem_ptr| {
+                const elem_ptr_ty = mod.intern_pool.typeOf(elem_ptr.base).toType();
+                const parent_ptr_id = try self.constantPtr(elem_ptr_ty, elem_ptr.base.toValue());
+                const size_ty_ref = try self.sizeType();
+                const index_id = try self.constInt(size_ty_ref, elem_ptr.index);
+                return self.ptrAccessChain(result_ty_ref, parent_ptr_id, index_id, &.{});
+            },
+            .field => unreachable, // TODO
         }
     }
 
