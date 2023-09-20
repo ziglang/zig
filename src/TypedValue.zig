@@ -135,9 +135,10 @@ pub fn print(
 
                     var i: u32 = 0;
                     while (i < max_len) : (i += 1) {
-                        const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                        const maybe_elem_val = payload.ptr.maybeElemValue(mod, i) catch |err| switch (err) {
                             error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
                         };
+                        const elem_val = maybe_elem_val orelse return writer.writeAll(".{ (reinterpreted data) }");
                         if (elem_val.isUndef(mod)) break :str;
                         buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
                     }
@@ -153,9 +154,10 @@ pub fn print(
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
-                    const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                    const maybe_elem_val = payload.ptr.maybeElemValue(mod, i) catch |err| switch (err) {
                         error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
                     };
+                    const elem_val = maybe_elem_val orelse return writer.writeAll("(reinterpreted data) }");
                     try print(.{
                         .ty = elem_ty,
                         .val = elem_val,
@@ -272,7 +274,8 @@ pub fn print(
                         const max_len = @min(len, max_string_len);
                         var buf: [max_string_len]u8 = undefined;
                         for (buf[0..max_len], 0..) |*c, i| {
-                            const elem = try val.elemValue(mod, i);
+                            const maybe_elem = try val.maybeElemValue(mod, i);
+                            const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
                             if (elem.isUndef(mod)) break :str;
                             c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
                         }
@@ -283,9 +286,11 @@ pub fn print(
                     const max_len = @min(len, max_aggregate_items);
                     for (0..max_len) |i| {
                         if (i != 0) try writer.writeAll(", ");
+                        const maybe_elem = try val.maybeElemValue(mod, i);
+                        const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
                         try print(.{
                             .ty = elem_ty,
-                            .val = try val.elemValue(mod, i),
+                            .val = elem,
                         }, writer, level - 1, mod);
                     }
                     if (len > max_aggregate_items) {

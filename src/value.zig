@@ -1520,33 +1520,38 @@ pub const Value = struct {
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
+        return (try val.maybeElemValue(mod, index)).?;
+    }
+
+    /// Like `elemValue`, but returns `null` instead of asserting on failure.
+    pub fn maybeElemValue(val: Value, mod: *Module, index: usize) Allocator.Error!?Value {
         return switch (val.ip_index) {
             .none => switch (val.tag()) {
                 .bytes => try mod.intValue(Type.u8, val.castTag(.bytes).?.data[index]),
                 .repeated => val.castTag(.repeated).?.data,
                 .aggregate => val.castTag(.aggregate).?.data[index],
-                .slice => val.castTag(.slice).?.data.ptr.elemValue(mod, index),
-                else => unreachable,
+                .slice => val.castTag(.slice).?.data.ptr.maybeElemValue(mod, index),
+                else => null,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .undef => |ty| (try mod.intern(.{
                     .undef = ty.toType().elemType2(mod).toIntern(),
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
+                    .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
-                        .toValue().elemValue(mod, index),
-                    .int, .eu_payload => unreachable,
-                    .opt_payload => |base| base.toValue().elemValue(mod, index),
-                    .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
-                    .elem => |elem| elem.base.toValue().elemValue(mod, index + @as(usize, @intCast(elem.index))),
+                        .toValue().maybeElemValue(mod, index),
+                    .int, .eu_payload => null,
+                    .opt_payload => |base| base.toValue().maybeElemValue(mod, index),
+                    .comptime_field => |field_val| field_val.toValue().maybeElemValue(mod, index),
+                    .elem => |elem| elem.base.toValue().maybeElemValue(mod, index + @as(usize, @intCast(elem.index))),
                     .field => |field| if (field.base.toValue().pointerDecl(mod)) |decl_index| {
                         const base_decl = mod.declPtr(decl_index);
                         const field_val = try base_decl.val.fieldValue(mod, @as(usize, @intCast(field.index)));
-                        return field_val.elemValue(mod, index);
-                    } else unreachable,
+                        return field_val.maybeElemValue(mod, index);
+                    } else null,
                 },
-                .opt => |opt| opt.val.toValue().elemValue(mod, index),
+                .opt => |opt| opt.val.toValue().maybeElemValue(mod, index),
                 .aggregate => |aggregate| {
                     const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
                     if (index < len) return switch (aggregate.storage) {
@@ -1560,7 +1565,7 @@ pub const Value = struct {
                     assert(index == len);
                     return mod.intern_pool.indexToKey(aggregate.ty).array_type.sentinel.toValue();
                 },
-                else => unreachable,
+                else => null,
             },
         };
     }
