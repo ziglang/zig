@@ -3859,7 +3859,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .func_decl => .{ .func = ip.extraFuncDecl(data) },
         .func_coerced => .{ .func = ip.extraFuncCoerced(data) },
         .only_possible_value => {
-            const ty = @as(Index, @enumFromInt(data));
+            const ty: Index = @enumFromInt(data);
             const ty_item = ip.items.get(@intFromEnum(ty));
             return switch (ty_item.tag) {
                 .type_array_big => {
@@ -3872,19 +3872,32 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                         .storage = .{ .elems = sentinel[0..@intFromBool(sentinel[0] != .none)] },
                     } };
                 },
-                .type_array_small, .type_vector => .{ .aggregate = .{
+                .type_array_small,
+                .type_vector,
+                .type_struct_ns,
+                .type_struct_packed,
+                => .{ .aggregate = .{
                     .ty = ty,
                     .storage = .{ .elems = &.{} },
                 } },
-                // TODO: migrate structs to properly use the InternPool rather
-                // than using the SegmentedList trick, then the struct type will
-                // have a slice of comptime values that can be used here for when
-                // the struct has one possible value due to all fields comptime (same
-                // as the tuple case below).
-                .type_struct, .type_struct_ns => .{ .aggregate = .{
-                    .ty = ty,
-                    .storage = .{ .elems = &.{} },
-                } },
+
+                // There is only one possible value precisely due to the
+                // fact that this values slice is fully populated!
+                .type_struct => {
+                    const info = extraStructType(ip, ty_item.data);
+                    return .{ .aggregate = .{
+                        .ty = ty,
+                        .storage = .{ .elems = @ptrCast(info.field_inits.get(ip)) },
+                    } };
+                },
+
+                .type_struct_packed_inits => {
+                    const info = extraPackedStructType(ip, ty_item.data, true);
+                    return .{ .aggregate = .{
+                        .ty = ty,
+                        .storage = .{ .elems = @ptrCast(info.field_inits.get(ip)) },
+                    } };
+                },
 
                 // There is only one possible value precisely due to the
                 // fact that this values slice is fully populated!
@@ -3896,11 +3909,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                         .ty = ty,
                         .storage = .{ .elems = @ptrCast(values) },
                     } };
-                },
-
-                .type_struct_packed, .type_struct_packed_inits => {
-                    // a packed struct has a 0-bit backing type
-                    @panic("TODO");
                 },
 
                 .type_enum_auto,
