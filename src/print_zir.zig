@@ -130,6 +130,63 @@ const Writer = struct {
     recurse_decls: bool,
     recurse_blocks: bool,
 
+    /// Using `std.zig.findLineColumn` whenever we need to resolve a source location makes ZIR
+    /// printing O(N^2), which can have drastic effects - taking a ZIR dump from a few seconds to
+    /// many minutes. Since we're usually resolving source locations close to one another,
+    /// preserving state across source location resolutions speeds things up a lot.
+    line_col_cursor: struct {
+        line: usize = 0,
+        column: usize = 0,
+        line_start: usize = 0,
+        off: usize = 0,
+
+        fn find(cur: *@This(), source: []const u8, want_offset: usize) std.zig.Loc {
+            if (want_offset < cur.off) {
+                // Go back to the start of this line
+                cur.off = cur.line_start;
+                cur.column = 0;
+
+                while (want_offset < cur.off) {
+                    // Go back to the newline
+                    cur.off -= 1;
+
+                    // Seek to the start of the previous line
+                    while (cur.off > 0 and source[cur.off - 1] != '\n') {
+                        cur.off -= 1;
+                    }
+                    cur.line_start = cur.off;
+                    cur.line -= 1;
+                }
+            }
+
+            // The cursor is now positioned before `want_offset`.
+            // Seek forward as in `std.zig.findLineColumn`.
+
+            while (cur.off < want_offset) : (cur.off += 1) {
+                switch (source[cur.off]) {
+                    '\n' => {
+                        cur.line += 1;
+                        cur.column = 0;
+                        cur.line_start = cur.off + 1;
+                    },
+                    else => {
+                        cur.column += 1;
+                    },
+                }
+            }
+
+            while (cur.off < source.len and source[cur.off] != '\n') {
+                cur.off += 1;
+            }
+
+            return .{
+                .line = cur.line,
+                .column = cur.column,
+                .source_line = source[cur.line_start..cur.off],
+            };
+        }
+    } = .{},
+
     fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
         return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node))));
     }
@@ -2590,8 +2647,8 @@ const Writer = struct {
                 .lazy = src,
             };
             const src_span = src_loc.span(self.gpa) catch unreachable;
-            const start = std.zig.findLineColumn(tree.source, src_span.start);
-            const end = std.zig.findLineColumn(tree.source, src_span.end);
+            const start = self.line_col_cursor.find(tree.source, src_span.start);
+            const end = self.line_col_cursor.find(tree.source, src_span.end);
             try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
                 @tagName(src), start.line + 1, start.column + 1,
                 end.line + 1,  end.column + 1,
