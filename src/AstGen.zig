@@ -8294,6 +8294,10 @@ fn builtinCall(
                         },
                         .top => break,
                     };
+                    if (found_already == null) {
+                        const ident_name = try astgen.identifierTokenString(ident_token);
+                        return astgen.failNode(params[0], "use of undeclared identifier '{s}'", .{ident_name});
+                    }
                 },
                 .field_access => {
                     const namespace_node = node_datas[params[0]].lhs;
