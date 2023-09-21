@@ -3178,16 +3178,32 @@ pub const Alignment = enum(u6) {
     }
 
     /// Treats `none` as zero.
+    /// This matches previous behavior of using `@max` directly on byte units.
+    /// Prefer `maxStrict` if possible.
     pub fn max(lhs: Alignment, rhs: Alignment) Alignment {
         if (lhs == .none) return rhs;
         if (rhs == .none) return lhs;
+        return maxStrict(lhs, rhs);
+    }
+
+    pub fn maxStrict(lhs: Alignment, rhs: Alignment) Alignment {
+        assert(lhs != .none);
+        assert(rhs != .none);
         return @enumFromInt(@max(@intFromEnum(lhs), @intFromEnum(rhs)));
     }
 
-    /// Treats `none` as maximum value.
+    /// Treats `none` as zero.
+    /// This matches previous behavior of using `@min` directly on byte units.
+    /// Prefer `minStrict` if possible.
     pub fn min(lhs: Alignment, rhs: Alignment) Alignment {
-        if (lhs == .none) return rhs;
-        if (rhs == .none) return lhs;
+        if (lhs == .none) return lhs;
+        if (rhs == .none) return rhs;
+        return minStrict(lhs, rhs);
+    }
+
+    pub fn minStrict(lhs: Alignment, rhs: Alignment) Alignment {
+        assert(lhs != .none);
+        assert(rhs != .none);
         return @enumFromInt(@min(@intFromEnum(lhs), @intFromEnum(rhs)));
     }
 
