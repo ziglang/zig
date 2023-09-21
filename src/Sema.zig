@@ -6401,7 +6401,7 @@ fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPoo
         }
         namespace = mod.namespacePtr(namespace).parent.unwrap() orelse break;
     }
-    unreachable; // AstGen detects use of undeclared identifier errors.
+    unreachable; // AstGen detects use of undeclared identifiers.
 }
 
 /// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
