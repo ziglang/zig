@@ -107,6 +107,10 @@ pub const DeclGen = struct {
     /// The code (prologue and body) for the function we are currently generating code for.
     func: SpvModule.Fn = .{},
 
+    /// Stack of the base offsets of the current decl, which is what `dbg_stmt` is relative to.
+    /// This is a stack to keep track of inline functions.
+    base_line_stack: std.ArrayListUnmanaged(u32) = .{},
+
     /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
     error_msg: ?*Module.ErrorMsg,
@@ -205,6 +209,7 @@ pub const DeclGen = struct {
         self.blocks.clearRetainingCapacity();
         self.current_block_label_id = undefined;
         self.func.reset();
+        self.base_line_stack.items.len = 0;
         self.error_msg = null;
 
         self.genDecl() catch |err| switch (err) {
@@ -229,6 +234,7 @@ pub const DeclGen = struct {
         self.type_map.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
         self.func.deinit(self.gpa);
+        self.base_line_stack.deinit(self.gpa);
     }
 
     /// Return the target which we are currently compiling for.
@@ -1422,6 +1428,8 @@ pub const DeclGen = struct {
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
 
+        try self.base_line_stack.append(self.gpa, decl.src_line);
+
         if (decl.val.getFunction(mod)) |_| {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
             const prototype_id = try self.resolveTypeId(decl.ty);
@@ -1739,13 +1747,20 @@ pub const DeclGen = struct {
             .br             => return self.airBr(inst),
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
-            .dbg_stmt       => return self.airDbgStmt(inst),
             .loop           => return self.airLoop(inst),
             .ret            => return self.airRet(inst),
             .ret_load       => return self.airRetLoad(inst),
             .@"try"         => try self.airTry(inst),
             .switch_br      => return self.airSwitchBr(inst),
             .unreach, .trap => return self.airUnreach(),
+
+            .dbg_stmt         => return self.airDbgStmt(inst),
+            .dbg_inline_begin => return self.airDbgInlineBegin(inst),
+            .dbg_inline_end   => return self.airDbgInlineEnd(inst),
+            .dbg_var_ptr      => return,
+            .dbg_var_val      => return,
+            .dbg_block_begin  => return,
+            .dbg_block_end    => return,
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .unwrap_errunion_payload => try self.airErrUnionPayload(inst),
@@ -1766,13 +1781,6 @@ pub const DeclGen = struct {
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
-
-            .dbg_inline_begin => return,
-            .dbg_inline_end   => return,
-            .dbg_var_ptr      => return,
-            .dbg_var_val      => return,
-            .dbg_block_begin  => return,
-            .dbg_block_end    => return,
             // zig fmt: on
 
             else => |tag| return self.todo("implement AIR tag {s}", .{@tagName(tag)}),
@@ -3053,19 +3061,6 @@ pub const DeclGen = struct {
         try self.genBody(else_body);
     }
 
-    fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        const src_fname_id = try self.spv.resolveSourceFileName(
-            self.module,
-            self.module.declPtr(self.decl_index),
-        );
-        try self.func.body.emit(self.spv.gpa, .OpLine, .{
-            .file = src_fname_id,
-            .line = dbg_stmt.line,
-            .column = dbg_stmt.column,
-        });
-    }
-
     fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -3533,6 +3528,33 @@ pub const DeclGen = struct {
 
     fn airUnreach(self: *DeclGen) !void {
         try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+    }
+
+    fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
+        const src_fname_id = try self.spv.resolveSourceFileName(
+            self.module,
+            self.module.declPtr(self.decl_index),
+        );
+        const base_line = self.base_line_stack.getLast();
+        try self.func.body.emit(self.spv.gpa, .OpLine, .{
+            .file = src_fname_id,
+            .line = base_line + dbg_stmt.line + 1,
+            .column = dbg_stmt.column + 1,
+        });
+    }
+
+    fn airDbgInlineBegin(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const mod = self.module;
+        const fn_ty = self.air.instructions.items(.data)[inst].ty_fn;
+        const decl_index = mod.funcInfo(fn_ty.func).owner_decl;
+        const decl = mod.declPtr(decl_index);
+        try self.base_line_stack.append(self.gpa, decl.src_line);
+    }
+
+    fn airDbgInlineEnd(self: *DeclGen, inst: Air.Inst.Index) !void {
+        _ = inst;
+        _ = self.base_line_stack.pop();
     }
 
     fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
