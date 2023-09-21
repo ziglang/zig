@@ -705,7 +705,7 @@ fn lowerParentPtr(
                         .Packed => if (mod.typeToStruct(base_type.toType())) |struct_type|
                             math.divExact(u16, mod.structPackedFieldBitOffset(
                                 struct_type,
-                                field.index,
+                                @intCast(field.index),
                             ), 8) catch |err| switch (err) {
                                 error.UnexpectedRemainder => 0,
                                 error.DivisionByZero => unreachable,

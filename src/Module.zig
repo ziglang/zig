@@ -6657,7 +6657,7 @@ pub fn structFieldAlignmentExtern(mod: *Module, field_ty: Type) Alignment {
 pub fn structPackedFieldBitOffset(
     mod: *Module,
     struct_type: InternPool.Key.StructType,
-    field_index: usize,
+    field_index: u32,
 ) u16 {
     const ip = &mod.intern_pool;
     assert(struct_type.layout == .Packed);

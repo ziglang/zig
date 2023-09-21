@@ -11426,7 +11426,8 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .immediate = 0 },
                         .{ .immediate = result_ty.abiSize(mod) },
                     );
-                    for (elements, 0..) |elem, elem_i| {
+                    for (elements, 0..) |elem, elem_i_usize| {
+                        const elem_i: u32 = @intCast(elem_i_usize);
                         if ((try result_ty.structFieldValueComptime(mod, elem_i)) != null) continue;
 
                         const elem_ty = result_ty.structFieldType(elem_i, mod);
