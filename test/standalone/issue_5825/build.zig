@@ -1,8 +1,12 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
+
+    // Building for the msvc abi requires a native MSVC installation
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return;
 
     const target = .{
         .cpu_arch = .x86_64,
