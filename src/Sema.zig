@@ -5800,9 +5800,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     try mod.semaFile(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
-    const file_root_decl = mod.declPtr(file_root_decl_index);
-    try mod.declareDeclDependency(sema.owner_decl_index, file_root_decl_index);
-    return Air.internedToRef(file_root_decl.val.toIntern());
+    return sema.analyzeDeclVal(parent_block, src, file_root_decl_index);
 }
 
 fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13036,9 +13034,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     };
     try mod.semaFile(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
-    const file_root_decl = mod.declPtr(file_root_decl_index);
-    try mod.declareDeclDependency(sema.owner_decl_index, file_root_decl_index);
-    return Air.internedToRef(file_root_decl.val.toIntern());
+    return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
