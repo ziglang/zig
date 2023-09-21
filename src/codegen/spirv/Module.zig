@@ -645,18 +645,20 @@ pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8
     });
 }
 
-pub fn debugName(self: *Module, target: IdResult, comptime fmt: []const u8, args: anytype) !void {
-    const name = try std.fmt.allocPrint(self.gpa, fmt, args);
-    defer self.gpa.free(name);
+pub fn debugName(self: *Module, target: IdResult, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpName, .{
         .target = target,
         .name = name,
     });
 }
 
-pub fn memberDebugName(self: *Module, target: IdResult, member: u32, comptime fmt: []const u8, args: anytype) !void {
+pub fn debugNameFmt(self: *Module, target: IdResult, comptime fmt: []const u8, args: anytype) !void {
     const name = try std.fmt.allocPrint(self.gpa, fmt, args);
     defer self.gpa.free(name);
+    try self.debugName(target, name);
+}
+
+pub fn memberDebugName(self: *Module, target: IdResult, member: u32, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpMemberName, .{
         .type = target,
         .member = member,

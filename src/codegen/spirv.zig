@@ -1474,10 +1474,7 @@ pub const DeclGen = struct {
             try self.spv.addFunction(spv_decl_index, self.func);
 
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
-            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
-                .target = decl_id,
-                .name = fqn,
-            });
+            try self.spv.debugName(decl_id, fqn);
 
             // Temporarily generate a test kernel declaration if this is a test function.
             if (self.module.test_functions.contains(self.decl_index)) {
@@ -1548,17 +1545,8 @@ pub const DeclGen = struct {
             try self.spv.addFunction(spv_decl_index, self.func);
 
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
-            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
-                .target = decl_id,
-                .name = fqn,
-            });
-
-            const init_name = try std.fmt.allocPrint(self.gpa, "initializer of {s}", .{fqn});
-            defer self.gpa.free(init_name);
-            try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
-                .target = initializer_id,
-                .name = init_name,
-            });
+            try self.spv.debugName(decl_id, fqn);
+            try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
         }
     }
 
@@ -1756,11 +1744,10 @@ pub const DeclGen = struct {
             .switch_br      => return self.airSwitchBr(inst),
             .unreach, .trap => return self.airUnreach(),
 
-            .dbg_stmt         => return self.airDbgStmt(inst),
-            .dbg_inline_begin => return self.airDbgInlineBegin(inst),
-            .dbg_inline_end   => return self.airDbgInlineEnd(inst),
-            .dbg_var_ptr      => return,
-            .dbg_var_val      => return,
+            .dbg_stmt                  => return self.airDbgStmt(inst),
+            .dbg_inline_begin          => return self.airDbgInlineBegin(inst),
+            .dbg_inline_end            => return self.airDbgInlineEnd(inst),
+            .dbg_var_ptr, .dbg_var_val => return self.airDbgVar(inst),
             .dbg_block_begin  => return,
             .dbg_block_end    => return,
 
@@ -3564,6 +3551,13 @@ pub const DeclGen = struct {
     fn airDbgInlineEnd(self: *DeclGen, inst: Air.Inst.Index) !void {
         _ = inst;
         _ = self.base_line_stack.pop();
+    }
+
+    fn airDbgVar(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const target_id = try self.resolve(pl_op.operand);
+        const name = self.air.nullTerminatedString(pl_op.payload);
+        try self.spv.debugName(target_id, name);
     }
 
     fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
