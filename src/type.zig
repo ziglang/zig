@@ -1051,9 +1051,7 @@ pub const Type = struct {
                         if (union_obj.hasTag(ip)) {
                             return abiAlignmentAdvanced(union_obj.enum_tag_ty.toType(), mod, strat);
                         } else {
-                            return .{
-                                .scalar = Alignment.fromByteUnits(@intFromBool(union_obj.flagsPtr(ip).layout == .Extern)),
-                            };
+                            return .{ .scalar = .@"1" };
                         }
                     }
 
