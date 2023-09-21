@@ -125,7 +125,6 @@ fn testDerefPtrOneVal() !void {
 }
 
 test "peer type resolution with C pointers" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     var ptr_one: *u8 = undefined;
     var ptr_many: [*]u8 = undefined;
     var ptr_c: [*c]u8 = undefined;

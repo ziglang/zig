@@ -45,10 +45,12 @@ const IncomingBlock = struct {
     break_value_id: IdRef,
 };
 
-const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
-    label_id: IdRef,
-    incoming_blocks: *std.ArrayListUnmanaged(IncomingBlock),
-});
+const Block = struct {
+    label_id: ?IdRef,
+    incoming_blocks: std.ArrayListUnmanaged(IncomingBlock),
+};
+
+const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, *Block);
 
 /// Maps Zig decl indices to linking SPIR-V linking information.
 pub const DeclLinkMap = std.AutoHashMap(Module.Decl.Index, SpvModule.Decl.Index);
@@ -2970,50 +2972,50 @@ pub const DeclGen = struct {
     }
 
     fn airBlock(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        // In AIR, a block doesn't really define an entry point like a block, but more like a scope that breaks can jump out of and
-        // "return" a value from. This cannot be directly modelled in SPIR-V, so in a block instruction, we're going to split up
-        // the current block by first generating the code of the block, then a label, and then generate the rest of the current
+        // In AIR, a block doesn't really define an entry point like a block, but
+        // more like a scope that breaks can jump out of and "return" a value from.
+        // This cannot be directly modelled in SPIR-V, so in a block instruction,
+        // we're going to split up the current block by first generating the code
+        // of the block, then a label, and then generate the rest of the current
         // ir.Block in a different SPIR-V block.
 
         const mod = self.module;
-        const label_id = self.spv.allocId();
-
-        // 4 chosen as arbitrary initial capacity.
-        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.gpa, 4);
-
-        try self.blocks.putNoClobber(self.gpa, inst, .{
-            .label_id = label_id,
-            .incoming_blocks = &incoming_blocks,
-        });
-        defer {
-            assert(self.blocks.remove(inst));
-            incoming_blocks.deinit(self.gpa);
-        }
-
         const ty = self.typeOfIndex(inst);
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
+        const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(mod);
+
+        // 4 chosen as arbitrary initial capacity.
+        var block = Block{
+            // Label id is lazily allocated if needed.
+            .label_id = null,
+            .incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.gpa, 4),
+        };
+        defer block.incoming_blocks.deinit(self.gpa);
+
+        try self.blocks.putNoClobber(self.gpa, inst, &block);
+        defer assert(self.blocks.remove(inst));
 
         try self.genBody(body);
-        try self.beginSpvBlock(label_id);
 
-        // If this block didn't produce a value, simply return here.
-        if (!ty.hasRuntimeBitsIgnoreComptime(mod))
+        // Only begin a new block if there were actually any breaks towards it.
+        if (block.label_id) |label_id| {
+            try self.beginSpvBlock(label_id);
+        }
+
+        if (!have_block_result)
             return null;
 
-        // Combine the result from the blocks using the Phi instruction.
+        assert(block.label_id != null);
         const result_id = self.spv.allocId();
-
-        // TODO: OpPhi is limited in the types that it may produce, such as pointers. Figure out which other types
-        // are not allowed to be created from a phi node, and throw an error for those.
         const result_type_id = try self.resolveTypeId(ty);
 
-        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @as(u16, @intCast(incoming_blocks.items.len * 2))); // result type + result + variable/parent...
+        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @as(u16, @intCast(block.incoming_blocks.items.len * 2))); // result type + result + variable/parent...
         self.func.body.writeOperand(spec.IdResultType, result_type_id);
         self.func.body.writeOperand(spec.IdRef, result_id);
 
-        for (incoming_blocks.items) |incoming| {
+        for (block.incoming_blocks.items) |incoming| {
             self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
         }
 
@@ -3022,17 +3024,24 @@ pub const DeclGen = struct {
 
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const br = self.air.instructions.items(.data)[inst].br;
-        const block = self.blocks.get(br.block_inst).?;
         const operand_ty = self.typeOf(br.operand);
+        const block = self.blocks.get(br.block_inst).?;
 
         const mod = self.module;
-        if (operand_ty.hasRuntimeBits(mod)) {
+        if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             const operand_id = try self.resolve(br.operand);
             // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
-            try block.incoming_blocks.append(self.gpa, .{ .src_label_id = self.current_block_label_id, .break_value_id = operand_id });
+            try block.incoming_blocks.append(self.gpa, .{
+                .src_label_id = self.current_block_label_id,
+                .break_value_id = operand_id,
+            });
         }
 
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = block.label_id });
+        if (block.label_id == null) {
+            block.label_id = self.spv.allocId();
+        }
+
+        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = block.label_id.? });
     }
 
     fn airCondBr(self: *DeclGen, inst: Air.Inst.Index) !void {
