@@ -26780,6 +26780,7 @@ fn structFieldVal(
             }
 
             try sema.requireRuntimeBlock(block, src, null);
+            try sema.queueFullTypeResolution(field_ty);
             return block.addStructFieldVal(struct_byval, field_index, field_ty);
         },
         .anon_struct_type => |anon_struct| {
@@ -26868,6 +26869,7 @@ fn tupleFieldValByIndex(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
+    try sema.queueFullTypeResolution(field_ty);
     return block.addStructFieldVal(tuple_byval, field_index, field_ty);
 }
 
@@ -27049,6 +27051,7 @@ fn unionFieldVal(
         _ = try block.addNoOp(.unreach);
         return .unreachable_value;
     }
+    try sema.queueFullTypeResolution(field_ty);
     return block.addStructFieldVal(union_byval, field_index, field_ty);
 }
 
@@ -27344,6 +27347,7 @@ fn tupleField(
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
 
     try sema.requireRuntimeBlock(block, tuple_src, null);
+    try sema.queueFullTypeResolution(field_ty);
     return block.addStructFieldVal(tuple, field_index, field_ty);
 }
 
