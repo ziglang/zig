@@ -2523,14 +2523,23 @@ test "multidimensional arrays" {
       {#header_open|Sentinel-Terminated Arrays#}
       <p>
       The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
-      index corresponding to {#syntax#}len{#endsyntax#}.
+      index corresponding to the length {#syntax#}N{#endsyntax#}.
       </p>
       {#code_begin|test|test_null_terminated_array#}
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated array" {
+test "0-terminated sentinel array" {
     const array = [_:0]u8 {1, 2, 3, 4};
+
+    try expect(@TypeOf(array) == [4:0]u8);
+    try expect(array.len == 4);
+    try expect(array[4] == 0);
+}
+
+test "extra 0s in 0-terminated sentinel array" {
+    // The sentinel value may appear earlier, but does not influence the compile-time 'len'.
+    const array = [_:0]u8 {1, 0, 0, 4};
 
     try expect(@TypeOf(array) == [4:0]u8);
     try expect(array.len == 4);
@@ -3052,8 +3061,6 @@ test "using slices for strings" {
 }
 
 test "slice pointer" {
-    var a: []u8 = undefined;
-    try expect(@TypeOf(a) == []u8);
     var array: [10]u8 = undefined;
     const ptr = &array;
     try expect(@TypeOf(ptr) == *[10]u8);
@@ -3062,10 +3069,10 @@ test "slice pointer" {
     var start: usize = 0;
     var end: usize = 5;
     const slice = ptr[start..end];
-    slice[2] = 3;
-    try expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
+    slice[2] = 3;
+    try expect(array[2] == 3);
 
     // Again, slicing with comptime-known indexes will produce another pointer
     // to an array:
@@ -3088,7 +3095,7 @@ test "slice pointer" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slice" {
+test "0-terminated slice" {
     const slice: [:0]const u8 = "hello";
 
     try expect(slice.len == 5);
@@ -3104,7 +3111,7 @@ test "null terminated slice" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slicing" {
+test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
     var runtime_length: usize = 3;
     const slice = array[0..runtime_length :0];
@@ -3590,7 +3597,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "fully anonymous struct" {
-    try dump(.{
+    try check(.{
         .int = @as(u32, 1234),
         .float = @as(f64, 12.34),
         .b = true,
@@ -3598,7 +3605,7 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: anytype) !void {
+fn check(args: anytype) !void {
     try expect(args.int == 1234);
     try expect(args.float == 12.34);
     try expect(args.b);
@@ -3813,8 +3820,8 @@ test "switch using enum literals" {
 
       {#header_open|Non-exhaustive enum#}
       <p>
-      A Non-exhaustive enum can be created by adding a trailing '_' field.
-      It  must specify a tag type and cannot consume every enumeration value.
+      A non-exhaustive enum can be created by adding a trailing {#syntax#}_{#endsyntax#} field.
+      The enum must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
       {#link|@enumFromInt#} on a non-exhaustive enum involves the safety semantics
@@ -3822,8 +3829,8 @@ test "switch using enum literals" {
       a well-defined enum value.
       </p>
       <p>
-      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
-      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      A switch on a non-exhaustive enum can include a {#syntax#}_{#endsyntax#} prong as an alternative to an {#syntax#}else{#endsyntax#} prong.
+      With a {#syntax#}_{#endsyntax#} prong the compiler errors if all the known tag names are not handled by the switch.
       </p>
       {#code_begin|test|test_switch_non-exhaustive#}
 const std = @import("std");
@@ -5268,14 +5275,14 @@ fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
 pub fn sub2(a: i8, b: i8) i8 { return a - b; }
 
 // Function pointers are prefixed with `*const `.
-const call2_op = *const fn (a: i8, b: i8) i8;
-fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
-    return fn_call(op1, op2);
+const Call2Op = *const fn (a: i8, b: i8) i8;
+fn doOp(fnCall: Call2Op, op1: i8, op2: i8) i8 {
+    return fnCall(op1, op2);
 }
 
 test "function" {
-    try expect(do_op(add, 5, 6) == 11);
-    try expect(do_op(sub2, 5, 6) == -1);
+    try expect(doOp(add, 5, 6) == 11);
+    try expect(doOp(sub2, 5, 6) == -1);
 }
       {#code_end#}
       <p>There is a difference between a function <em>body</em> and a function <em>pointer</em>.
@@ -6515,7 +6522,7 @@ test "coerce to optionals" {
     try expect(y == null);
 }
       {#code_end#}
-      <p>It works nested inside the {#link|Error Union Type#}, too:</p>
+      <p>Optionals work nested inside the {#link|Error Union Type#}, too:</p>
       {#code_begin|test|test_coerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
@@ -6841,7 +6848,8 @@ test "turn HashMap into a set with void" {
       {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}anyopaque{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
-      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
+      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example, ignoring
+      a non-{#syntax#}void{#endsyntax#} expression is a compile error:
       </p>
       {#code_begin|test_err|test_expression_ignored|ignored#}
 test "ignoring expression value" {
@@ -6852,7 +6860,7 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Expression results can be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
       {#code_begin|test|test_void_ignored#}
 test "void is ignored" {
     returnsVoid();
@@ -7110,12 +7118,10 @@ fn performFn(start_value: i32) i32 {
 }
       {#end_syntax_block#}
       <p>
-      Note that this happens even in a debug build; in a release build these generated functions still
-      pass through rigorous LLVM optimizations. The important thing to note, however, is not that this
-      is a way to write more optimized code, but that it is a way to make sure that what <em>should</em> happen
-      at compile-time, <em>does</em> happen at compile-time. This catches more errors and as demonstrated
-      later in this article, allows expressiveness that in other languages requires using macros,
-      generated code, or a preprocessor to accomplish.
+      Note that this happens even in a debug build.
+      This is not a way to write more optimized code, but it is a way to make sure that what <em>should</em> happen
+      at compile-time, <em>does</em> happen at compile-time. This catches more errors and allows expressiveness
+      that in other languages requires using macros, generated code, or a preprocessor to accomplish.
       </p>
       {#header_close#}
       {#header_open|Compile-Time Expressions#}
@@ -7297,9 +7303,8 @@ test "variable values" {
       {#header_close#}
       {#header_open|Generic Data Structures#}
       <p>
-      Zig uses these capabilities to implement generic data structures without introducing any
-      special-case syntax. If you followed along so far, you may already know how to create a
-      generic data structure.
+      Zig uses comptime capabilities to implement generic data structures without introducing any
+      special-case syntax.
       </p>
       <p>
 			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
@@ -7321,7 +7326,6 @@ var list = List(i32){
       {#code_end#}
       <p>
       That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
-      To keep the language small and uniform, all aggregate types in Zig are anonymous.
       For the purposes of error messages and debugging, Zig infers the name
       {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
       the anonymous struct.
@@ -7754,6 +7758,9 @@ test "global assembly" {
       <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
+
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+
       {#header_close#}
 
       {#header_open|Async Functions#}
@@ -7824,7 +7831,7 @@ comptime {
       {#header_open|@atomicLoad#}
       <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically dereferences a pointer and returns the value.
+      This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -7836,14 +7843,15 @@ comptime {
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically modifies memory and then returns the previous value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
+      modifies the value and returns the previous value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>
-      Supported operations:
+      Supported values for the {#syntax#}op{#endsyntax#} parameter:
       </p>
       <ul>
         <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
@@ -7864,7 +7872,7 @@ comptime {
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
       <p>
-      This builtin function atomically stores a value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -8122,7 +8130,8 @@ pub const CallModifier = enum {
       {#header_open|@cmpxchgStrong#}
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax|not_atomic_cmpxchgStrong#}
@@ -8137,7 +8146,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
 }
       {#code_end#}
       <p>
-      If you are using cmpxchg in a loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
+      If you are using cmpxchg in a retry loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
       more efficiently in machine instructions.
       </p>
       <p>
@@ -8151,7 +8160,8 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
@@ -8166,7 +8176,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 }
       {#end_syntax_block#}
       <p>
-      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
+      If you are using cmpxchg in a retry loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
       is the better choice, because it can be implemented more efficiently in machine instructions.
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
@@ -8219,24 +8229,6 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    print("Runtime in main, num1 = {}.\n", .{num1});
-}
-      {#code_end#}
-      <p>
-      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
-      not encountered by analysis, the
-      program compiles successfully and the generated executable prints:
-      </p>
-      {#code_begin|test|test_without_compileLog_builtin#}
-const print = @import("std").debug.print;
-
-const num1 = blk: {
-    var val1: i32 = 99;
-    val1 = val1 + 1;
-    break :blk val1;
-};
-
-test "main" {
     print("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
@@ -9020,14 +9012,16 @@ pub const PrefetchOptions = struct {
       {#header_open|@setCold#}
       <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
-      Tells the optimizer that a function is rarely called.
+      Tells the optimizer that the current function is (or is not) rarely called.
+
+      This function is only valid within function scope.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
       <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
-      Changes the maximum number of backwards branches that compile-time code
+      Increase the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
       </p>
       <p>
@@ -9232,7 +9226,7 @@ test "vector @shuffle" {
       The result is a target-specific compile time constant.
       </p>
       <p>
-      This size may contain padding bytes. If there were two consecutive T in memory, this would be the offset
+      This size may contain padding bytes. If there were two consecutive T in memory, the padding would be the offset
       in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
       {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
@@ -9247,7 +9241,7 @@ test "vector @shuffle" {
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}.
       The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
