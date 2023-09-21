@@ -5937,7 +5937,6 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
     var canon_info = info;
-    const have_elem_layout = info.child.toType().layoutIsResolved(mod);
 
     if (info.flags.size == .C) canon_info.flags.is_allowzero = true;
 
@@ -5945,7 +5944,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
     // type, we change it to 0 here. If this causes an assertion trip because the
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
-    if (info.flags.alignment != .none and have_elem_layout and
+    if (info.flags.alignment != .none and
         info.flags.alignment == info.child.toType().abiAlignment(mod))
     {
         canon_info.flags.alignment = .none;
@@ -5955,7 +5954,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         // Canonicalize host_size. If it matches the bit size of the pointee type,
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
-        .none => if (have_elem_layout and info.packed_offset.host_size != 0) {
+        .none => if (info.packed_offset.host_size != 0) {
             const elem_bit_size = info.child.toType().bitSize(mod);
             assert(info.packed_offset.bit_offset + elem_bit_size <= info.packed_offset.host_size * 8);
             if (info.packed_offset.host_size * 8 == elem_bit_size) {

@@ -2629,7 +2629,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 defer trash_block.instructions.deinit(sema.gpa);
                 const operand = try trash_block.addBitCast(pointee_ty, .void_value);
 
-                const ptr_ty = try mod.ptrType(.{
+                const ptr_ty = try sema.ptrType(.{
                     .child = pointee_ty.toIntern(),
                     .flags = .{
                         .alignment = ia1.alignment,
@@ -2660,7 +2660,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 if (alignment != .none) {
                     try sema.resolveTypeLayout(pointee_ty);
                 }
-                const ptr_ty = try mod.ptrType(.{
+                const ptr_ty = try sema.ptrType(.{
                     .child = pointee_ty.toIntern(),
                     .flags = .{
                         .alignment = alignment,
@@ -2730,7 +2730,7 @@ fn coerceResultPtr(
         }
     }
 
-    const ptr_ty = try mod.ptrType(.{
+    const ptr_ty = try sema.ptrType(.{
         .child = pointee_ty.toIntern(),
         .flags = .{ .address_space = addr_space },
     });
@@ -2759,7 +2759,7 @@ fn coerceResultPtr(
             // Array coerced to Vector where element size is not equal but coercible.
             .aggregate_init => {
                 const ty_pl = air_datas[trash_inst].ty_pl;
-                const ptr_operand_ty = try mod.ptrType(.{
+                const ptr_operand_ty = try sema.ptrType(.{
                     .child = (try sema.analyzeAsType(block, src, ty_pl.ty)).toIntern(),
                     .flags = .{ .address_space = addr_space },
                 });
@@ -2773,7 +2773,7 @@ fn coerceResultPtr(
             .bitcast => {
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.typeOf(ty_op.operand);
-                const ptr_operand_ty = try mod.ptrType(.{
+                const ptr_operand_ty = try sema.ptrType(.{
                     .child = operand_ty.toIntern(),
                     .flags = .{ .address_space = addr_space },
                 });
@@ -3508,7 +3508,7 @@ fn zirRetPtr(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
     }
 
     const target = sema.mod.getTarget();
-    const ptr_type = try sema.mod.ptrType(.{
+    const ptr_type = try sema.ptrType(.{
         .child = sema.fn_ret_ty.toIntern(),
         .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
     });
@@ -3711,7 +3711,7 @@ fn zirAllocExtended(
         }
         const target = sema.mod.getTarget();
         try sema.resolveTypeLayout(var_ty);
-        const ptr_type = try sema.mod.ptrType(.{
+        const ptr_type = try sema.ptrType(.{
             .child = var_ty.toIntern(),
             .flags = .{
                 .alignment = alignment,
@@ -3820,7 +3820,7 @@ fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Ai
 
     var ptr_info = alloc_ty.ptrInfo(mod);
     ptr_info.flags.is_const = true;
-    const const_ptr_ty = try mod.ptrType(ptr_info);
+    const const_ptr_ty = try sema.ptrType(ptr_info);
 
     // Detect if a comptime value simply needs to have its type changed.
     if (try sema.resolveMaybeUndefVal(alloc)) |val| {
@@ -3862,7 +3862,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         return sema.analyzeComptimeAlloc(block, var_ty, .none);
     }
     const target = sema.mod.getTarget();
-    const ptr_type = try sema.mod.ptrType(.{
+    const ptr_type = try sema.ptrType(.{
         .child = var_ty.toIntern(),
         .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
     });
@@ -3882,7 +3882,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
     try sema.validateVarType(block, ty_src, var_ty, false);
     const target = sema.mod.getTarget();
-    const ptr_type = try sema.mod.ptrType(.{
+    const ptr_type = try sema.ptrType(.{
         .child = var_ty.toIntern(),
         .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
     });
@@ -3948,7 +3948,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const decl = mod.declPtr(decl_index);
             if (iac.is_const) _ = try decl.internValue(mod);
             const final_elem_ty = decl.ty;
-            const final_ptr_ty = try mod.ptrType(.{
+            const final_ptr_ty = try sema.ptrType(.{
                 .child = final_elem_ty.toIntern(),
                 .flags = .{
                     .is_const = false,
@@ -3981,7 +3981,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const peer_inst_list = ia2.prongs.items(.stored_inst);
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
 
-            const final_ptr_ty = try mod.ptrType(.{
+            const final_ptr_ty = try sema.ptrType(.{
                 .child = final_elem_ty.toIntern(),
                 .flags = .{
                     .alignment = ia1.alignment,
@@ -4103,7 +4103,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             trash_block.is_comptime = false;
             defer trash_block.instructions.deinit(gpa);
 
-            const mut_final_ptr_ty = try mod.ptrType(.{
+            const mut_final_ptr_ty = try sema.ptrType(.{
                 .child = final_elem_ty.toIntern(),
                 .flags = .{
                     .alignment = ia1.alignment,
@@ -8650,7 +8650,7 @@ fn analyzeOptionalPayloadPtr(
     }
 
     const child_type = opt_type.optionalChild(mod);
-    const child_pointer = try mod.ptrType(.{
+    const child_pointer = try sema.ptrType(.{
         .child = child_type.toIntern(),
         .flags = .{
             .is_const = optional_ptr_ty.isConstPtr(mod),
@@ -8719,7 +8719,7 @@ fn zirOptionalPayload(
             // TODO https://github.com/ziglang/zig/issues/6597
             if (true) break :t operand_ty;
             const ptr_info = operand_ty.ptrInfo(mod);
-            break :t try mod.ptrType(.{
+            break :t try sema.ptrType(.{
                 .child = ptr_info.child,
                 .flags = .{
                     .alignment = ptr_info.flags.alignment,
@@ -8837,7 +8837,7 @@ fn analyzeErrUnionPayloadPtr(
 
     const err_union_ty = operand_ty.childType(mod);
     const payload_ty = err_union_ty.errorUnionPayload(mod);
-    const operand_pointer_ty = try mod.ptrType(.{
+    const operand_pointer_ty = try sema.ptrType(.{
         .child = payload_ty.toIntern(),
         .flags = .{
             .is_const = operand_ty.isConstPtr(mod),
@@ -10692,7 +10692,7 @@ const SwitchProngAnalysis = struct {
                 const union_obj = mod.typeToUnion(operand_ty).?;
                 const field_ty = union_obj.field_types.get(ip)[field_index].toType();
                 if (capture_byref) {
-                    const ptr_field_ty = try mod.ptrType(.{
+                    const ptr_field_ty = try sema.ptrType(.{
                         .child = field_ty.toIntern(),
                         .flags = .{
                             .is_const = !operand_ptr_ty.ptrIsMutable(mod),
@@ -10798,7 +10798,7 @@ const SwitchProngAnalysis = struct {
                 // By-reference captures have some further restrictions which make them easier to emit
                 if (capture_byref) {
                     const operand_ptr_info = operand_ptr_ty.ptrInfo(mod);
-                    const capture_ptr_ty = try mod.ptrType(.{
+                    const capture_ptr_ty = try sema.ptrType(.{
                         .child = capture_ty.toIntern(),
                         .flags = .{
                             // TODO: alignment!
@@ -10812,7 +10812,7 @@ const SwitchProngAnalysis = struct {
                     // pointer type is in-memory coercible to the capture pointer type.
                     if (!same_types) {
                         for (field_tys, 0..) |field_ty, i| {
-                            const field_ptr_ty = try mod.ptrType(.{
+                            const field_ptr_ty = try sema.ptrType(.{
                                 .child = field_ty.toIntern(),
                                 .flags = .{
                                     // TODO: alignment!
@@ -13776,12 +13776,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (ptr_addrspace) |ptr_as| {
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = result_ty.toIntern(),
             .flags = .{ .address_space = ptr_as },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
-        const elem_ptr_ty = try mod.ptrType(.{
+        const elem_ptr_ty = try sema.ptrType(.{
             .child = resolved_elem_ty.toIntern(),
             .flags = .{ .address_space = ptr_as },
         });
@@ -14041,12 +14041,12 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     try sema.requireRuntimeBlock(block, src, lhs_src);
 
     if (ptr_addrspace) |ptr_as| {
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = result_ty.toIntern(),
             .flags = .{ .address_space = ptr_as },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
-        const elem_ptr_ty = try mod.ptrType(.{
+        const elem_ptr_ty = try sema.ptrType(.{
             .child = lhs_info.elem_type.toIntern(),
             .flags = .{ .address_space = ptr_as },
         });
@@ -15988,7 +15988,7 @@ fn analyzePtrArithmetic(
         ));
         assert(new_align != .none);
 
-        break :t try mod.ptrType(.{
+        break :t try sema.ptrType(.{
             .child = ptr_info.child,
             .sentinel = ptr_info.sentinel,
             .flags = .{
@@ -16891,7 +16891,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .none, // default alignment
                 );
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try mod.ptrType(.{
+                    .ty = (try sema.ptrType(.{
                         .child = param_info_ty.toIntern(),
                         .flags = .{
                             .size = .Slice,
@@ -17210,7 +17210,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
 
             // Build our ?[]const Error value
-            const slice_errors_ty = try mod.ptrType(.{
+            const slice_errors_ty = try sema.ptrType(.{
                 .child = error_field_ty.toIntern(),
                 .flags = .{
                     .size = .Slice,
@@ -17359,7 +17359,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .none, // default alignment
                 );
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try mod.ptrType(.{
+                    .ty = (try sema.ptrType(.{
                         .child = enum_field_ty.toIntern(),
                         .flags = .{
                             .size = .Slice,
@@ -17503,7 +17503,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .none, // default alignment
                 );
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try mod.ptrType(.{
+                    .ty = (try sema.ptrType(.{
                         .child = union_field_ty.toIntern(),
                         .flags = .{
                             .size = .Slice,
@@ -17731,7 +17731,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .none, // default alignment
                 );
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try mod.ptrType(.{
+                    .ty = (try sema.ptrType(.{
                         .child = struct_field_ty.toIntern(),
                         .flags = .{
                             .size = .Slice,
@@ -17877,7 +17877,7 @@ fn typeInfoDecls(
         .none, // default alignment
     );
     return try mod.intern(.{ .ptr = .{
-        .ty = (try mod.ptrType(.{
+        .ty = (try sema.ptrType(.{
             .child = declaration_ty.toIntern(),
             .flags = .{
                 .size = .Slice,
@@ -18447,7 +18447,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
 
     const operand_ty = sema.typeOf(operand);
     const ptr_info = operand_ty.ptrInfo(mod);
-    const res_ty = try mod.ptrType(.{
+    const res_ty = try sema.ptrType(.{
         .child = err_union_ty.errorUnionPayload(mod).toIntern(),
         .flags = .{
             .is_const = ptr_info.flags.is_const,
@@ -19001,7 +19001,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         }
     }
 
-    const ty = try mod.ptrType(.{
+    const ty = try sema.ptrType(.{
         .child = elem_ty.toIntern(),
         .sentinel = sentinel,
         .flags = .{
@@ -19239,7 +19239,7 @@ fn zirStructInit(
 
         if (is_ref) {
             const target = mod.getTarget();
-            const alloc_ty = try mod.ptrType(.{
+            const alloc_ty = try sema.ptrType(.{
                 .child = resolved_ty.toIntern(),
                 .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
             });
@@ -19363,7 +19363,7 @@ fn finishStructInit(
     if (is_ref) {
         try sema.resolveStructLayout(struct_ty);
         const target = sema.mod.getTarget();
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = struct_ty.toIntern(),
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
@@ -19516,7 +19516,7 @@ fn structInitAnon(
 
     if (is_ref) {
         const target = mod.getTarget();
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = tuple_ty,
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
@@ -19530,7 +19530,7 @@ fn structInitAnon(
             };
             extra_index = item.end;
 
-            const field_ptr_ty = try mod.ptrType(.{
+            const field_ptr_ty = try sema.ptrType(.{
                 .child = field_ty,
                 .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
             });
@@ -19654,7 +19654,7 @@ fn zirArrayInit(
 
     if (is_ref) {
         const target = mod.getTarget();
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = array_ty.toIntern(),
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
@@ -19662,7 +19662,7 @@ fn zirArrayInit(
 
         if (array_ty.isTuple(mod)) {
             for (resolved_args, 0..) |arg, i| {
-                const elem_ptr_ty = try mod.ptrType(.{
+                const elem_ptr_ty = try sema.ptrType(.{
                     .child = array_ty.structFieldType(i, mod).toIntern(),
                     .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
                 });
@@ -19675,7 +19675,7 @@ fn zirArrayInit(
             return sema.makePtrConst(block, alloc);
         }
 
-        const elem_ptr_ty = try mod.ptrType(.{
+        const elem_ptr_ty = try sema.ptrType(.{
             .child = array_ty.elemType2(mod).toIntern(),
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
@@ -19763,14 +19763,14 @@ fn arrayInitAnon(
 
     if (is_ref) {
         const target = sema.mod.getTarget();
-        const alloc_ty = try mod.ptrType(.{
+        const alloc_ty = try sema.ptrType(.{
             .child = tuple_ty,
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
         for (operands, 0..) |operand, i_usize| {
             const i: u32 = @intCast(i_usize);
-            const field_ptr_ty = try mod.ptrType(.{
+            const field_ptr_ty = try sema.ptrType(.{
                 .child = types[i],
                 .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
             });
@@ -20332,7 +20332,7 @@ fn zirReify(
                 }
             }
 
-            const ty = try mod.ptrType(.{
+            const ty = try sema.ptrType(.{
                 .child = elem_ty.toIntern(),
                 .sentinel = actual_sentinel,
                 .flags = .{
@@ -21936,7 +21936,7 @@ fn ptrCastFull(
         // Only convert to a many-pointer at first
         var info = dest_info;
         info.flags.size = .Many;
-        const ty = try mod.ptrType(info);
+        const ty = try sema.ptrType(info);
         if (dest_ty.zigTypeTag(mod) == .Optional) {
             break :blk try mod.optionalType(ty.toIntern());
         } else {
@@ -22015,7 +22015,7 @@ fn ptrCastFull(
         // We can't change address spaces with a bitcast, so this requires two instructions
         var intermediate_info = src_info;
         intermediate_info.flags.address_space = dest_info.flags.address_space;
-        const intermediate_ptr_ty = try mod.ptrType(intermediate_info);
+        const intermediate_ptr_ty = try sema.ptrType(intermediate_info);
         const intermediate_ty = if (dest_ptr_ty.zigTypeTag(mod) == .Optional) blk: {
             break :blk try mod.optionalType(intermediate_ptr_ty.toIntern());
         } else intermediate_ptr_ty;
@@ -22071,7 +22071,7 @@ fn zirPtrCastNoDest(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     var ptr_info = operand_ty.ptrInfo(mod);
     if (flags.const_cast) ptr_info.flags.is_const = false;
     if (flags.volatile_cast) ptr_info.flags.is_volatile = false;
-    const dest_ty = try mod.ptrType(ptr_info);
+    const dest_ty = try sema.ptrType(ptr_info);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
         return Air.internedToRef((try mod.getCoerced(operand_val, dest_ty)).toIntern());
@@ -22606,7 +22606,7 @@ fn checkAtomicPtrOperand(
     const ptr_data = switch (try ptr_ty.zigTypeTagOrPoison(mod)) {
         .Pointer => ptr_ty.ptrInfo(mod),
         else => {
-            const wanted_ptr_ty = try mod.ptrType(wanted_ptr_data);
+            const wanted_ptr_ty = try sema.ptrType(wanted_ptr_data);
             _ = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
             unreachable;
         },
@@ -22616,7 +22616,7 @@ fn checkAtomicPtrOperand(
     wanted_ptr_data.flags.is_allowzero = ptr_data.flags.is_allowzero;
     wanted_ptr_data.flags.is_volatile = ptr_data.flags.is_volatile;
 
-    const wanted_ptr_ty = try mod.ptrType(wanted_ptr_data);
+    const wanted_ptr_ty = try sema.ptrType(wanted_ptr_data);
     const casted_ptr = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
 
     return casted_ptr;
@@ -23798,11 +23798,11 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         };
     }
 
-    const actual_field_ptr_ty = try mod.ptrType(ptr_ty_data);
+    const actual_field_ptr_ty = try sema.ptrType(ptr_ty_data);
     const casted_field_ptr = try sema.coerce(block, actual_field_ptr_ty, field_ptr, ptr_src);
 
     ptr_ty_data.child = parent_ty.toIntern();
-    const result_ptr = try mod.ptrType(ptr_ty_data);
+    const result_ptr = try sema.ptrType(ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, casted_field_ptr)) |field_ptr_val| {
         const field = switch (ip.indexToKey(field_ptr_val.toIntern())) {
@@ -24133,7 +24133,7 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
         // Already an array pointer.
         return ptr;
     }
-    const new_ty = try mod.ptrType(.{
+    const new_ty = try sema.ptrType(.{
         .child = (try mod.arrayType(.{
             .len = len,
             .sentinel = info.sentinel,
@@ -24337,7 +24337,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             assert(dest_manyptr_ty_key.flags.size == .One);
             dest_manyptr_ty_key.child = dest_elem_ty.toIntern();
             dest_manyptr_ty_key.flags.size = .Many;
-            break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(dest_manyptr_ty_key), new_dest_ptr, dest_src);
+            break :ptr try sema.coerceCompatiblePtrs(block, try sema.ptrType(dest_manyptr_ty_key), new_dest_ptr, dest_src);
         } else new_dest_ptr;
 
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
@@ -24348,7 +24348,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             assert(src_manyptr_ty_key.flags.size == .One);
             src_manyptr_ty_key.child = src_elem_ty.toIntern();
             src_manyptr_ty_key.flags.size = .Many;
-            break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(src_manyptr_ty_key), new_src_ptr, src_src);
+            break :ptr try sema.coerceCompatiblePtrs(block, try sema.ptrType(src_manyptr_ty_key), new_src_ptr, src_src);
         } else new_src_ptr;
 
         // ok1: dest >= src + len
@@ -25579,7 +25579,7 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
         const stack_trace_ty = try sema.getBuiltinType("StackTrace");
         try sema.resolveTypeFields(stack_trace_ty);
         const target = mod.getTarget();
-        const ptr_stack_trace_ty = try mod.ptrType(.{
+        const ptr_stack_trace_ty = try sema.ptrType(.{
             .child = stack_trace_ty.toIntern(),
             .flags = .{
                 .address_space = target_util.defaultAddressSpace(target, .global_constant),
@@ -25931,7 +25931,7 @@ fn fieldVal(
                 return Air.internedToRef((try mod.intValue(Type.usize, inner_ty.arrayLen(mod))).toIntern());
             } else if (ip.stringEqlSlice(field_name, "ptr") and is_pointer_to) {
                 const ptr_info = object_ty.ptrInfo(mod);
-                const result_ty = try mod.ptrType(.{
+                const result_ty = try sema.ptrType(.{
                     .child = ptr_info.child.toType().childType(mod).toIntern(),
                     .sentinel = ptr_info.sentinel,
                     .flags = .{
@@ -26150,7 +26150,7 @@ fn fieldPtr(
             if (ip.stringEqlSlice(field_name, "ptr")) {
                 const slice_ptr_ty = inner_ty.slicePtrFieldType(mod);
 
-                const result_ty = try mod.ptrType(.{
+                const result_ty = try sema.ptrType(.{
                     .child = slice_ptr_ty.toIntern(),
                     .flags = .{
                         .is_const = !attr_ptr_ty.ptrIsMutable(mod),
@@ -26172,7 +26172,7 @@ fn fieldPtr(
 
                 return block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
             } else if (ip.stringEqlSlice(field_name, "len")) {
-                const result_ty = try mod.ptrType(.{
+                const result_ty = try sema.ptrType(.{
                     .child = .usize_type,
                     .flags = .{
                         .is_const = !attr_ptr_ty.ptrIsMutable(mod),
@@ -26497,7 +26497,7 @@ fn finishFieldCallBind(
     object_ptr: Air.Inst.Ref,
 ) CompileError!ResolvedFieldCallee {
     const mod = sema.mod;
-    const ptr_field_ty = try mod.ptrType(.{
+    const ptr_field_ty = try sema.ptrType(.{
         .child = field_ty.toIntern(),
         .flags = .{
             .is_const = !ptr_ty.ptrIsMutable(mod),
@@ -26715,7 +26715,7 @@ fn structFieldPtrByIndex(
         ptr_ty_data.flags.alignment = field_align.min(parent_align);
     }
 
-    const ptr_field_ty = try mod.ptrType(ptr_ty_data);
+    const ptr_field_ty = try sema.ptrType(ptr_ty_data);
 
     if (struct_type.fieldIsComptime(ip, field_index)) {
         const val = try mod.intern(.{ .ptr = .{
@@ -26888,7 +26888,7 @@ fn unionFieldPtr(
     const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
     const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-    const ptr_field_ty = try mod.ptrType(.{
+    const ptr_field_ty = try sema.ptrType(.{
         .child = field_ty.toIntern(),
         .flags = .{
             .is_const = union_ptr_info.flags.is_const,
@@ -27269,7 +27269,7 @@ fn tupleFieldPtr(
     }
 
     const field_ty = tuple_ty.structFieldType(field_index, mod);
-    const ptr_field_ty = try mod.ptrType(.{
+    const ptr_field_ty = try sema.ptrType(.{
         .child = field_ty.toIntern(),
         .flags = .{
             .is_const = !tuple_ptr_ty.ptrIsMutable(mod),
@@ -31309,7 +31309,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: boo
 
     const decl = mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
-    const ptr_ty = try mod.ptrType(.{
+    const ptr_ty = try sema.ptrType(.{
         .child = decl_tv.ty.toIntern(),
         .flags = .{
             .alignment = decl.alignment,
@@ -31363,14 +31363,14 @@ fn analyzeRef(
 
     try sema.requireRuntimeBlock(block, src, null);
     const address_space = target_util.defaultAddressSpace(mod.getTarget(), .local);
-    const ptr_type = try mod.ptrType(.{
+    const ptr_type = try sema.ptrType(.{
         .child = operand_ty.toIntern(),
         .flags = .{
             .is_const = true,
             .address_space = address_space,
         },
     });
-    const mut_ptr_type = try mod.ptrType(.{
+    const mut_ptr_type = try sema.ptrType(.{
         .child = operand_ty.toIntern(),
         .flags = .{ .address_space = address_space },
     });
@@ -31742,7 +31742,7 @@ fn analyzeSlice(
         assert(manyptr_ty_key.flags.size == .One);
         manyptr_ty_key.child = elem_ty.toIntern();
         manyptr_ty_key.flags.size = .Many;
-        break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(manyptr_ty_key), ptr_or_slice, ptr_src);
+        break :ptr try sema.coerceCompatiblePtrs(block, try sema.ptrType(manyptr_ty_key), ptr_or_slice, ptr_src);
     } else ptr_or_slice;
 
     const start = try sema.coerce(block, Type.usize, uncasted_start, start_src);
@@ -31965,7 +31965,7 @@ fn analyzeSlice(
     if (opt_new_len_val) |new_len_val| {
         const new_len_int = new_len_val.toUnsignedInt(mod);
 
-        const return_ty = try mod.ptrType(.{
+        const return_ty = try sema.ptrType(.{
             .child = (try mod.arrayType(.{
                 .len = new_len_int,
                 .sentinel = if (sentinel) |s| s.toIntern() else .none,
@@ -32026,7 +32026,7 @@ fn analyzeSlice(
         return sema.fail(block, src, "non-zero length slice of undefined pointer", .{});
     }
 
-    const return_ty = try mod.ptrType(.{
+    const return_ty = try sema.ptrType(.{
         .child = elem_ty.toIntern(),
         .sentinel = if (sentinel) |s| s.toIntern() else .none,
         .flags = .{
@@ -33293,7 +33293,7 @@ fn resolvePeerTypesInner(
 
                 opt_ptr_info = ptr_info;
             }
-            return .{ .success = try mod.ptrType(opt_ptr_info.?) };
+            return .{ .success = try sema.ptrType(opt_ptr_info.?) };
         },
 
         .ptr => {
@@ -33603,7 +33603,7 @@ fn resolvePeerTypesInner(
                 },
             }
 
-            return .{ .success = try mod.ptrType(opt_ptr_info.?) };
+            return .{ .success = try sema.ptrType(opt_ptr_info.?) };
         },
 
         .func => {
@@ -36418,7 +36418,7 @@ fn analyzeComptimeAlloc(
     // Needed to make an anon decl with type `var_type` (the `finish()` call below).
     _ = try sema.typeHasOnePossibleValue(var_type);
 
-    const ptr_type = try mod.ptrType(.{
+    const ptr_type = try sema.ptrType(.{
         .child = var_type.toIntern(),
         .flags = .{
             .alignment = alignment,
@@ -37576,7 +37576,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         assert(new_align != .none);
         break :a new_align;
     };
-    return mod.ptrType(.{
+    return sema.ptrType(.{
         .child = elem_ty.toIntern(),
         .flags = .{
             .alignment = alignment,
@@ -37630,4 +37630,11 @@ fn isKnownZigType(sema: *Sema, ref: Air.Inst.Ref, tag: std.builtin.TypeId) bool 
         else => {},
     };
     return sema.typeOf(ref).zigTypeTag(sema.mod) == tag;
+}
+
+fn ptrType(sema: *Sema, info: InternPool.Key.PtrType) CompileError!Type {
+    if (info.flags.alignment != .none) {
+        _ = try sema.typeAbiAlignment(info.child.toType());
+    }
+    return sema.mod.ptrType(info);
 }
