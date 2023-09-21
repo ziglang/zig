@@ -619,3 +619,58 @@ test "sub-aligned pointer field access" {
         .Little => try expect(x == 0x09080706),
     }
 }
+
+test "alignment of zero-bit types is respected" {
+    if (true) return error.SkipZigTest; // TODO
+
+    const S = struct { arr: [0]usize = .{} };
+
+    comptime assert(@alignOf(void) == 1);
+    comptime assert(@alignOf(u0) == 1);
+    comptime assert(@alignOf([0]usize) == @alignOf(usize));
+    comptime assert(@alignOf(S) == @alignOf(usize));
+
+    var s: S = .{};
+    var v32: void align(32) = {};
+    var x32: u0 align(32) = 0;
+    var s32: S align(32) = .{};
+
+    var zero: usize = 0;
+
+    try expect(@intFromPtr(&s) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(&s.arr) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(s.arr[zero..zero].ptr) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(&v32) % 32 == 0);
+    try expect(@intFromPtr(&x32) % 32 == 0);
+    try expect(@intFromPtr(&s32) % 32 == 0);
+    try expect(@intFromPtr(&s32.arr) % 32 == 0);
+    try expect(@intFromPtr(s32.arr[zero..zero].ptr) % 32 == 0);
+}
+
+test "zero-bit fields in extern struct pad fields appropriately" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = extern struct {
+        x: u8,
+        a: [0]u16 = .{},
+        y: u8,
+    };
+
+    // `a` should give `S` alignment 2, and pad the `arr` field.
+    comptime assert(@alignOf(S) == 2);
+    comptime assert(@sizeOf(S) == 4);
+    comptime assert(@offsetOf(S, "x") == 0);
+    comptime assert(@offsetOf(S, "a") == 2);
+    comptime assert(@offsetOf(S, "y") == 2);
+
+    var s: S = .{ .x = 100, .y = 200 };
+
+    try expect(@intFromPtr(&s) % 2 == 0);
+    try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
+    try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
+    try expect(@fieldParentPtr(S, "a", &s.a) == &s);
+}

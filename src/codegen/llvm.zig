@@ -833,7 +833,10 @@ pub const Object = struct {
 
     /// When an LLVM struct type is created, an entry is inserted into this
     /// table for every zig source field of the struct that has a corresponding
-    /// LLVM struct field. comptime fields and 0 bit fields are not included.
+    /// LLVM struct field. comptime fields are not included. Zero-bit fields are
+    /// mapped to a field at the correct byte, which may be a padding field, or
+    /// are not mapped, in which case they are sematically at the end of the
+    /// struct.
     /// The value is the LLVM struct field index.
     /// This is denormalized data.
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
@@ -2500,7 +2503,6 @@ pub const Object = struct {
                 try di_fields.ensureUnusedCapacity(gpa, field_types.len);
 
                 comptime assert(struct_layout_version == 2);
-                var offset: u64 = 0;
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
                     const field_ty = field_types[field_index].toType();
@@ -2511,8 +2513,7 @@ pub const Object = struct {
                         field_ty,
                         struct_type.layout,
                     );
-                    const field_offset = field_align.forward(offset);
-                    offset = field_offset + field_size;
+                    const field_offset = ty.structFieldOffset(field_index, mod);
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
                         try ip.getOrPutStringFmt(gpa, "{d}", .{field_index});
@@ -3304,10 +3305,10 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: InternPool.Alignment = .@"1";
                     var struct_kind: Builder.Type.Structure.Kind = .normal;
+                    // When we encounter a zero-bit field, we place it here so we know to map it to the next non-zero-bit field (if any).
                     var it = struct_type.iterateRuntimeOrder(ip);
                     while (it.next()) |field_index| {
                         const field_ty = struct_type.field_types.get(ip)[field_index].toType();
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         const field_align = mod.structFieldAlignment(
                             struct_type.fieldAlign(ip, field_index),
                             field_ty,
@@ -3324,6 +3325,20 @@ pub const Object = struct {
                             o.gpa,
                             try o.builder.arrayType(padding_len, .i8),
                         );
+
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                            // This is a zero-bit field. If there are runtime bits after this field,
+                            // map to the next LLVM field (which we know exists): otherwise, don't
+                            // map the field, indicating it's at the end of the struct.
+                            if (offset != struct_type.size(ip).*) {
+                                try o.struct_field_map.put(o.gpa, .{
+                                    .struct_ty = t.toIntern(),
+                                    .field_index = field_index,
+                                }, @intCast(llvm_field_types.items.len));
+                            }
+                            continue;
+                        }
+
                         try o.struct_field_map.put(o.gpa, .{
                             .struct_ty = t.toIntern(),
                             .field_index = field_index,
@@ -3360,12 +3375,14 @@ pub const Object = struct {
                     var offset: u64 = 0;
                     var big_align: InternPool.Alignment = .none;
 
+                    const struct_size = t.abiSize(mod);
+
                     for (
                         anon_struct_type.types.get(ip),
                         anon_struct_type.values.get(ip),
                         0..,
                     ) |field_ty, field_val, field_index| {
-                        if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
+                        if (field_val != .none) continue;
 
                         const field_align = field_ty.toType().abiAlignment(mod);
                         big_align = big_align.max(field_align);
@@ -3377,6 +3394,18 @@ pub const Object = struct {
                             o.gpa,
                             try o.builder.arrayType(padding_len, .i8),
                         );
+                        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) {
+                            // This is a zero-bit field. If there are runtime bits after this field,
+                            // map to the next LLVM field (which we know exists): otherwise, don't
+                            // map the field, indicating it's at the end of the struct.
+                            if (offset != struct_size) {
+                                try o.struct_field_map.put(o.gpa, .{
+                                    .struct_ty = t.toIntern(),
+                                    .field_index = @intCast(field_index),
+                                }, @intCast(llvm_field_types.items.len));
+                            }
+                            continue;
+                        }
                         try o.struct_field_map.put(o.gpa, .{
                             .struct_ty = t.toIntern(),
                             .field_index = @intCast(field_index),
@@ -4019,7 +4048,6 @@ pub const Object = struct {
                     var field_it = struct_type.iterateRuntimeOrder(ip);
                     while (field_it.next()) |field_index| {
                         const field_ty = struct_type.field_types.get(ip)[field_index].toType();
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         const field_align = mod.structFieldAlignment(
                             struct_type.fieldAlign(ip, field_index),
                             field_ty,
@@ -4038,6 +4066,11 @@ pub const Object = struct {
                             assert(fields[llvm_index] ==
                                 struct_ty.structFields(&o.builder)[llvm_index]);
                             llvm_index += 1;
+                        }
+
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                            // This is a zero-bit field - we only needed it for the alignment.
+                            continue;
                         }
 
                         vals[llvm_index] = try o.lowerValue(
@@ -6122,7 +6155,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType(mod);
-        if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return (try o.lowerPtrToVoid(ptr_ty)).toValue();
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return self.resolveInst(bin_op.lhs);
 
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);

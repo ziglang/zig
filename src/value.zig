@@ -1265,7 +1265,8 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.orderAgainstScalar(0),
                     inline .u64, .i64 => |x| std.math.order(x, 0),
-                    .lazy_align, .lazy_size => |ty| return if (ty.toType().hasRuntimeBitsAdvanced(
+                    .lazy_align => .gt, // alignment is never 0
+                    .lazy_size => |ty| return if (ty.toType().hasRuntimeBitsAdvanced(
                         mod,
                         false,
                         if (opt_sema) |sema| .{ .sema = sema } else .eager,

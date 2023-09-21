@@ -833,7 +833,7 @@ pub const Type = struct {
         };
     }
 
-    /// Returns `none` for 0-bit types.
+    /// Never returns `none`. Asserts that all necessary type resolution is already done.
     pub fn abiAlignment(ty: Type, mod: *Module) Alignment {
         return (ty.abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
     }
@@ -878,10 +878,10 @@ pub const Type = struct {
         };
 
         switch (ty.toIntern()) {
-            .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = .none },
+            .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = .@"1" },
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
-                    if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = .none };
+                    if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
                     return .{ .scalar = intAbiAlignment(int_type.bits, target) };
                 },
                 .ptr_type, .anyframe_type => {
@@ -929,6 +929,7 @@ pub const Type = struct {
                     .isize,
                     .export_options,
                     .extern_options,
+                    .type_info,
                     => return .{
                         .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
                     },
@@ -974,8 +975,7 @@ pub const Type = struct {
                     .null,
                     .undefined,
                     .enum_literal,
-                    .type_info,
-                    => return .{ .scalar = .none },
+                    => return .{ .scalar = .@"1" },
 
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
@@ -1010,11 +1010,9 @@ pub const Type = struct {
                     };
                 },
                 .anon_struct_type => |tuple| {
-                    var big_align: Alignment = .none;
+                    var big_align: Alignment = .@"1";
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         if (val != .none) continue; // comptime field
-                        if (!(field_ty.toType().hasRuntimeBits(mod))) continue;
-
                         switch (try field_ty.toType().abiAlignmentAdvanced(mod, strat)) {
                             .scalar => |field_align| big_align = big_align.max(field_align),
                             .val => switch (strat) {
@@ -1059,7 +1057,7 @@ pub const Type = struct {
                         }
                     }
 
-                    var max_align: Alignment = .none;
+                    var max_align: Alignment = .@"1";
                     if (union_obj.hasTag(ip)) max_align = union_obj.enum_tag_ty.toType().abiAlignment(mod);
                     for (0..union_obj.field_names.len) |field_index| {
                         const field_ty = union_obj.field_types.get(ip)[field_index].toType();
@@ -1172,7 +1170,7 @@ pub const Type = struct {
                 .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
             },
             .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, mod, strat),
-            .NoReturn => return .{ .scalar = .none },
+            .NoReturn => return .{ .scalar = .@"1" },
             else => {},
         }
 

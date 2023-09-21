@@ -34325,6 +34325,7 @@ pub fn resolveStructAlignment(
         struct_type.flagsPtr(ip).alignment = result;
         return result;
     }
+    defer struct_type.clearAlignmentWip(ip);
 
     var result: Alignment = .@"1";
 
@@ -34337,7 +34338,7 @@ pub fn resolveStructAlignment(
             field_ty,
             struct_type.layout,
         );
-        result = result.max(field_align);
+        result = result.maxStrict(field_align);
     }
 
     struct_type.flagsPtr(ip).alignment = result;
@@ -34373,6 +34374,8 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const aligns = try sema.arena.alloc(Alignment, struct_type.field_types.len);
     const sizes = try sema.arena.alloc(u64, struct_type.field_types.len);
 
+    var big_align: Alignment = .@"1";
+
     for (aligns, sizes, 0..) |*field_align, *field_size, i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
         if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty)) {
@@ -34381,6 +34384,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             field_align.* = .none;
             continue;
         }
+
         field_size.* = sema.typeAbiSize(field_ty) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
@@ -34394,6 +34398,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             field_ty,
             struct_type.layout,
         );
+        big_align = big_align.maxStrict(field_align.*);
     }
 
     if (struct_type.flagsPtr(ip).assumed_runtime_bits and !(try sema.typeHasRuntimeBits(ty))) {
@@ -34409,8 +34414,13 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     if (struct_type.hasReorderedFields()) {
         const runtime_order = struct_type.runtime_order.get(ip);
 
-        for (sizes, runtime_order, 0..) |size, *ro, i| {
-            ro.* = if (size != 0) @enumFromInt(i) else .omitted;
+        for (runtime_order, 0..) |*ro, i| {
+            const field_ty = struct_type.field_types.get(ip)[i].toType();
+            if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty)) {
+                ro.* = .omitted;
+            } else {
+                ro.* = @enumFromInt(i);
+            }
         }
 
         const RuntimeOrder = InternPool.Key.StructType.RuntimeOrder;
@@ -34454,10 +34464,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const offsets = struct_type.offsets.get(ip);
     var it = struct_type.iterateRuntimeOrder(ip);
     var offset: u64 = 0;
-    var big_align: Alignment = .@"1";
     while (it.next()) |i| {
-        if (aligns[i] == .none) continue;
-        big_align = big_align.maxStrict(aligns[i]);
         offsets[i] = @intCast(aligns[i].forward(offset));
         offset = offsets[i] + sizes[i];
     }
