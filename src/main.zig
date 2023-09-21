@@ -2688,6 +2688,13 @@ fn buildOutputType(
         lib: Compilation.SystemLib,
     }) = .{};
 
+    var libc_installation: ?LibCInstallation = null;
+    if (libc_paths_file) |paths_file| {
+        libc_installation = LibCInstallation.parse(arena, paths_file, cross_target) catch |err| {
+            fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
+        };
+    }
+
     for (system_libs.keys(), system_libs.values()) |lib_name, info| {
         if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
             link_libc = true;
@@ -2709,7 +2716,7 @@ fn buildOutputType(
             },
         }
 
-        if (target_info.target.os.tag == .windows) {
+        if (target_info.target.isMinGW()) {
             const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
                 fatal("failed to check zig installation for DLL import libs: {s}", .{
                     @errorName(err),
@@ -2766,6 +2773,21 @@ fn buildOutputType(
         try framework_dirs.appendSlice(paths.framework_dirs.items);
         try lib_dirs.appendSlice(paths.lib_dirs.items);
         try rpath_list.appendSlice(paths.rpaths.items);
+    }
+
+    if (builtin.target.os.tag == .windows and
+        target_info.target.abi == .msvc and
+        external_system_libs.len != 0)
+    {
+        if (libc_installation == null) {
+            libc_installation = try LibCInstallation.findNative(.{
+                .allocator = arena,
+                .verbose = true,
+                .target = cross_target.toTarget(),
+            });
+
+            try lib_dirs.appendSlice(&.{ libc_installation.?.msvc_lib_dir.?, libc_installation.?.kernel32_lib_dir.? });
+        }
     }
 
     // If any libs in this list are statically provided, we omit them from the
@@ -3239,15 +3261,6 @@ fn buildOutputType(
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
-
-    var libc_installation: ?LibCInstallation = null;
-    defer if (libc_installation) |*l| l.deinit(gpa);
-
-    if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(gpa, paths_file, cross_target) catch |err| {
-            fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
-        };
-    }
 
     var global_cache_directory: Compilation.Directory = l: {
         if (override_global_cache_dir) |p| {
