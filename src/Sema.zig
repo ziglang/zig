@@ -26698,21 +26698,25 @@ fn structFieldPtrByIndex(
             }
         }
     } else if (struct_type.layout == .Extern) {
-        // For extern structs, field aligment might be bigger than type's natural alignment. Eg, in
-        // `extern struct { x: u32, y: u16 }` the second field is aligned as u32.
+        // For extern structs, field alignment might be bigger than type's
+        // natural alignment. Eg, in `extern struct { x: u32, y: u16 }` the
+        // second field is aligned as u32.
         const field_offset = struct_ty.structFieldOffset(field_index, mod);
         ptr_ty_data.flags.alignment = if (parent_align == .none)
             .none
         else
             @enumFromInt(@min(@intFromEnum(parent_align), @ctz(field_offset)));
     } else {
-        // Our alignment is capped at the field alignment
+        // Our alignment is capped at the field alignment.
         const field_align = try sema.structFieldAlignment(
             struct_type.fieldAlign(ip, field_index),
             field_ty.toType(),
             struct_type.layout,
         );
-        ptr_ty_data.flags.alignment = field_align.min(parent_align);
+        ptr_ty_data.flags.alignment = if (struct_ptr_ty_info.flags.alignment == .none)
+            field_align
+        else
+            field_align.min(parent_align);
     }
 
     const ptr_field_ty = try sema.ptrType(ptr_ty_data);
@@ -28635,8 +28639,8 @@ const InMemoryCoercionResult = union(enum) {
                 break;
             },
             .ptr_alignment => |pair| {
-                try sema.errNote(block, src, msg, "pointer alignment '{}' cannot cast into pointer alignment '{}'", .{
-                    pair.actual, pair.wanted,
+                try sema.errNote(block, src, msg, "pointer alignment '{d}' cannot cast into pointer alignment '{d}'", .{
+                    pair.actual.toByteUnits(0), pair.wanted.toByteUnits(0),
                 });
                 break;
             },
@@ -34307,20 +34311,29 @@ pub fn resolveStructAlignment(
 
     try sema.resolveTypeFieldsStruct(ty, struct_type);
 
+    if (struct_type.setAlignmentWip(ip)) {
+        // We'll guess "pointer-aligned", if the struct has an
+        // underaligned pointer field then some allocations
+        // might require explicit alignment.
+        //TODO write this bit and emit an error later if incorrect
+        //struct_type.flagsPtr(ip).assumed_pointer_aligned = true;
+        const result = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+        struct_type.flagsPtr(ip).alignment = result;
+        return result;
+    }
+
     var result: Alignment = .@"1";
 
     for (0..struct_type.field_types.len) |i| {
-        if (struct_type.fieldIsComptime(ip, i)) continue;
         const field_ty = struct_type.field_types.get(ip)[i].toType();
-        if (try sema.typeRequiresComptime(field_ty)) continue;
-        if (try sema.typeHasRuntimeBits(field_ty)) {
-            const field_align = try sema.structFieldAlignment(
-                struct_type.fieldAlign(ip, i),
-                field_ty,
-                struct_type.layout,
-            );
-            result = result.max(field_align);
-        }
+        if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty))
+            continue;
+        const field_align = try sema.structFieldAlignment(
+            struct_type.fieldAlign(ip, i),
+            field_ty,
+            struct_type.layout,
+        );
+        result = result.max(field_align);
     }
 
     struct_type.flagsPtr(ip).alignment = result;
@@ -34358,7 +34371,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
 
     for (aligns, sizes, 0..) |*field_align, *field_size, i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
-        if (struct_type.fieldIsComptime(ip, i) or !(try sema.typeHasRuntimeBits(field_ty))) {
+        if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty)) {
             struct_type.offsets.get(ip)[i] = 0;
             field_size.* = 0;
             field_align.* = .none;
@@ -34439,10 +34452,8 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     var offset: u64 = 0;
     var big_align: Alignment = .@"1";
     while (it.next()) |i| {
-        const field_ty = struct_type.field_types.get(ip)[i].toType();
-        // Type query definitely valid as we performed it earlier
-        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-        big_align = big_align.max(aligns[i]);
+        if (aligns[i] == .none) continue;
+        big_align = big_align.maxStrict(aligns[i]);
         offsets[i] = @intCast(aligns[i].forward(offset));
         offset = offsets[i] + sizes[i];
     }
@@ -36870,7 +36881,7 @@ fn structFieldAlignment(
     // extern
     const ty_abi_align = try sema.typeAbiAlignment(field_ty);
     if (field_ty.isAbiInt(mod) and field_ty.intInfo(mod).bits >= 128) {
-        return ty_abi_align.max(.@"16");
+        return ty_abi_align.maxStrict(.@"16");
     }
     return ty_abi_align;
 }

@@ -536,6 +536,19 @@ pub const Key = union(enum) {
             s.flagsPtr(ip).layout_wip = false;
         }
 
+        pub fn setAlignmentWip(s: @This(), ip: *InternPool) bool {
+            if (s.layout == .Packed) return false;
+            const flags_ptr = s.flagsPtr(ip);
+            if (flags_ptr.alignment_wip) return true;
+            flags_ptr.alignment_wip = true;
+            return false;
+        }
+
+        pub fn clearAlignmentWip(s: @This(), ip: *InternPool) void {
+            if (s.layout == .Packed) return;
+            s.flagsPtr(ip).alignment_wip = false;
+        }
+
         pub fn setFullyResolved(s: @This(), ip: *InternPool) bool {
             if (s.layout == .Packed) return true;
             const flags_ptr = s.flagsPtr(ip);
@@ -2971,6 +2984,8 @@ pub const Tag = enum(u8) {
             any_aligned_fields: bool,
             /// `undefined` until the layout_resolved
             alignment: Alignment,
+            /// Dependency loop detection when resolving struct alignment.
+            alignment_wip: bool,
             /// Dependency loop detection when resolving field types.
             field_types_wip: bool,
             /// Dependency loop detection when resolving struct layout.
@@ -2982,7 +2997,7 @@ pub const Tag = enum(u8) {
             // which `layout_resolved` does not ensure.
             fully_resolved: bool,
 
-            _: u12 = 0,
+            _: u11 = 0,
         };
     };
 };
@@ -5300,6 +5315,7 @@ pub fn getStructType(
                 .any_default_inits = ini.any_default_inits,
                 .any_aligned_fields = ini.any_aligned_fields,
                 .alignment = .none,
+                .alignment_wip = false,
                 .field_types_wip = false,
                 .layout_wip = false,
                 .layout_resolved = false,
