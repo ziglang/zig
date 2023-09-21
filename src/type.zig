@@ -1929,8 +1929,12 @@ pub const Type = struct {
     pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
-        const index = mod.unionTagFieldIndex(union_obj, enum_tag).?;
-        return union_obj.field_types.get(ip)[index].toType();
+        const union_fields = union_obj.field_types.get(ip);
+        if (mod.unionTagFieldIndex(union_obj, enum_tag)) |index| {
+            return union_fields[index].toType();
+        } else {
+            return mod.unionLargestField(union_obj).ty;
+        }
     }
 
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {

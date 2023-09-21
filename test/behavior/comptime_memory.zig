@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.cpu.arch.endian();
 const testing = @import("std").testing;
@@ -451,4 +452,26 @@ test "type pun null pointer-like optional" {
     const p: ?*u8 = null;
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
+}
+
+test "reinterpret extern union" {
+    const U = extern union {
+        a: u32,
+        b: u64,
+    };
+
+    comptime var u: U = undefined;
+    comptime @memset(std.mem.asBytes(&u), 42);
+    try testing.expectEqual(@as(u64, 0x2a2a2a2a_2a2a2a2a), u.b);
+}
+
+test "reinterpret packed union" {
+    const U = packed union {
+        a: u32,
+        b: u64,
+    };
+
+    comptime var u: U = undefined;
+    comptime @memset(std.mem.asBytes(&u), 42);
+    try testing.expectEqual(@as(u64, 0x2a2a2a2a_2a2a2a2a), u.b);
 }

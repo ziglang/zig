@@ -29740,10 +29740,15 @@ fn storePtrVal(
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ReinterpretDeclRef => unreachable,
                 error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
-                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{mut_kit.ty.fmt(mod)}),
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{operand_ty.fmt(mod)}),
             };
 
-            reinterpret.val_ptr.* = (try (try Value.readFromMemory(mut_kit.ty, mod, buffer, sema.arena)).intern(mut_kit.ty, mod)).toValue();
+            const val = Value.readFromMemory(mut_kit.ty, mod, buffer, sema.arena) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.IllDefinedMemoryLayout => unreachable,
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{mut_kit.ty.fmt(mod)}),
+            };
+            reinterpret.val_ptr.* = (try val.intern(mut_kit.ty, mod)).toValue();
         },
         .bad_decl_ty, .bad_ptr_ty => {
             // TODO show the decl declaration site in a note and explain whether the decl
@@ -30655,7 +30660,12 @@ fn bitCastVal(
         error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
         error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(mod)}),
     };
-    return try Value.readFromMemory(new_ty, mod, buffer[buffer_offset..], sema.arena);
+
+    return Value.readFromMemory(new_ty, mod, buffer[buffer_offset..], sema.arena) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.IllDefinedMemoryLayout => unreachable,
+        error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{new_ty.fmt(mod)}),
+    };
 }
 
 fn coerceArrayPtrToSlice(

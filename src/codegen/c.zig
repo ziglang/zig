@@ -1439,7 +1439,10 @@ pub const DeclGen = struct {
                 }
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_i = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                const field_i = mod.unionTagFieldIndex(union_obj, un.tag.toValue()) orelse f: {
+                    assert(union_obj.getLayout(ip) == .Extern);
+                    break :f mod.unionLargestField(union_obj).index;
+                };
                 const field_ty = union_obj.field_types.get(ip)[field_i].toType();
                 const field_name = union_obj.field_names.get(ip)[field_i];
                 if (union_obj.getLayout(ip) == .Packed) {

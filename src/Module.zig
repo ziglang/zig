@@ -6607,6 +6607,7 @@ pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_in
 
 pub fn unionTagFieldIndex(mod: *Module, u: InternPool.UnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
+    if (enum_tag.toIntern() == .undef) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
     const enum_type = ip.indexToKey(u.enum_tag_ty).enum_type;
     return enum_type.tagValueIndex(ip, enum_tag.toIntern());
@@ -6671,4 +6672,31 @@ pub fn structPackedFieldBitOffset(
         bit_sum += field_ty.bitSize(mod);
     }
     unreachable; // index out of bounds
+}
+
+pub fn unionLargestField(mod: *Module, u: InternPool.UnionType) struct {
+    ty: Type,
+    index: u32,
+    size: u64,
+} {
+    const fields = u.field_types.get(&mod.intern_pool);
+    assert(fields.len != 0);
+    var largest_field_ty: Type = undefined;
+    var largest_field_size: u64 = 0;
+    var largest_field_index: u32 = 0;
+    for (fields, 0..) |union_field, i| {
+        const field_ty = union_field.toType();
+        const size: u32 = @intCast(field_ty.abiSize(mod));
+        if (size > largest_field_size) {
+            largest_field_ty = field_ty;
+            largest_field_size = size;
+            largest_field_index = @intCast(i);
+        }
+    }
+
+    return .{
+        .ty = largest_field_ty,
+        .index = largest_field_index,
+        .size = largest_field_size,
+    };
 }

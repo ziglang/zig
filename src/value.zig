@@ -704,7 +704,22 @@ pub const Value = struct {
             },
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => return error.Unimplemented,
+                .Extern => {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    const union_tag = val.unionTag(mod);
+
+                    const field_type, const field_index = if (mod.unionTagFieldIndex(union_obj, union_tag)) |field_index| .{
+                        union_obj.field_types.get(&mod.intern_pool)[field_index].toType(),
+                        field_index,
+                    } else f: {
+                        const largest_field = mod.unionLargestField(union_obj);
+                        break :f .{ largest_field.ty, largest_field.index };
+                    };
+
+                    const field_val = try val.fieldValue(mod, field_index);
+                    const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                    return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
+                },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
@@ -856,7 +871,11 @@ pub const Value = struct {
         mod: *Module,
         buffer: []const u8,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        Unimplemented,
+        OutOfMemory,
+    }!Value {
         const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -966,6 +985,26 @@ pub const Value = struct {
                     .name = name,
                 } })).toValue();
             },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    const largest_field = mod.unionLargestField(union_obj);
+                    const field_size: usize = @intCast(largest_field.size);
+                    const val = try (try readFromMemory(largest_field.ty, mod, buffer[0..field_size], arena)).intern(largest_field.ty, mod);
+                    return (try mod.intern(.{
+                        .un = .{
+                            .ty = ty.toIntern(),
+                            .tag = .undef,
+                            .val = val,
+                        },
+                    })).toValue();
+                },
+                .Packed => {
+                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+                },
+            },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
                 const int_val = try readFromMemory(Type.usize, mod, buffer, arena);
@@ -987,7 +1026,7 @@ pub const Value = struct {
                     },
                 } })).toValue();
             },
-            else => @panic("TODO implement readFromMemory for more types"),
+            else => return error.Unimplemented,
         }
     }
 
@@ -1001,7 +1040,10 @@ pub const Value = struct {
         buffer: []const u8,
         bit_offset: usize,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        OutOfMemory,
+    }!Value {
         const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -1097,6 +1139,21 @@ pub const Value = struct {
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = field_vals },
                 } })).toValue();
+            },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => unreachable, // Handled by non-packed readFromMemory
+                .Packed => {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    const largest_field = mod.unionLargestField(union_obj);
+                    const un_tag_val = try mod.enumValueFieldIndex(union_obj.enum_tag_ty.toType(), largest_field.index);
+                    const un_val = try (try readFromPackedMemory(largest_field.ty, mod, buffer, bit_offset, arena)).intern(largest_field.ty, mod);
+                    return (try mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = un_tag_val.ip_index,
+                        .val = un_val,
+                    } })).toValue();
+                },
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
@@ -1709,6 +1766,14 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
             .un => |un| un.tag.toValue(),
+            else => unreachable,
+        };
+    }
+
+    pub fn unionValue(val: Value, mod: *Module) Value {
+        if (val.ip_index == .none) return val.castTag(.@"union").?.data.val;
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .un => |un| un.val.toValue(),
             else => unreachable,
         };
     }

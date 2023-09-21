@@ -4108,7 +4108,10 @@ pub const Object = struct {
                 if (layout.payload_size == 0) return o.lowerValue(un.tag);
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()) orelse f: {
+                    assert(union_obj.getLayout(ip) == .Extern);
+                    break :f mod.unionLargestField(union_obj).index;
+                };
 
                 const field_ty = union_obj.field_types.get(ip)[field_index].toType();
                 if (union_obj.getLayout(ip) == .Packed) {
