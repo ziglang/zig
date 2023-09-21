@@ -2537,7 +2537,7 @@ test "0-terminated sentinel array" {
     try expect(array[4] == 0);
 }
 
-&#14;test "extra 0s in 0-terminated sentinel array" {
+test "extra 0s in 0-terminated sentinel array" {
     // The sentinel value may appear earlier, but does not influence the compile-time 'len'.
     const array = [_:0]u8 {1, 0, 0, 4};
 
