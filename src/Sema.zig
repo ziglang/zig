@@ -3517,6 +3517,7 @@ fn zirRetPtr(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
         // We are inlining a function call; this should be emitted as an alloc, not a ret_ptr.
         // TODO when functions gain result location support, the inlining struct in
         // Block should contain the return pointer, and we would pass that through here.
+        try sema.queueFullTypeResolution(sema.fn_ret_ty);
         return block.addTy(.alloc, ptr_type);
     }
 
