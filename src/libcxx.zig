@@ -139,6 +139,11 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     });
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
+    var libcxx_flags = switch (try std.process.hasEnvVar(arena, "ZIG_LIBCXX_FLAGS")) {
+        false => "",
+        else => try std.process.getEnvVarOwned(arena, "ZIG_LIBCXX_FLAGS"),
+    };
+
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
@@ -159,6 +164,10 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 continue;
             }
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+        }
+
+        if (libcxx_flags.len != 0) {
+            try cflags.append(libcxx_flags);
         }
 
         try cflags.append("-DNDEBUG");
