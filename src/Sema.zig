@@ -24406,10 +24406,12 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         });
     };
 
-    const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
+    const elem = try sema.coerce(block, dest_elem_ty, uncoerced_elem, value_src);
+
+    const runtime_src = rs: {
+        const ptr_val = try sema.resolveDefinedValue(block, dest_src, dest_ptr) orelse break :rs dest_src;
         const len_air_ref = try sema.fieldVal(block, src, dest_ptr, try ip.getOrPutString(gpa, "len"), dest_src);
-        const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse
-            break :rs dest_src;
+        const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse break :rs dest_src;
         const len_u64 = (try len_val.getUnsignedIntAdvanced(mod, sema)).?;
         const len = try sema.usizeCast(block, dest_src, len_u64);
         if (len == 0) {
@@ -24418,33 +24420,25 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         }
 
         if (!ptr_val.isComptimeMutablePtr(mod)) break :rs dest_src;
-        if (try sema.resolveMaybeUndefVal(uncoerced_elem)) |_| {
-            for (0..len) |i| {
-                const elem_index = try mod.intRef(Type.usize, i);
-                const elem_ptr = try sema.elemPtrOneLayerOnly(
-                    block,
-                    src,
-                    dest_ptr,
-                    elem_index,
-                    src,
-                    true, // init
-                    false, // oob_safety
-                );
-                try sema.storePtr2(
-                    block,
-                    src,
-                    elem_ptr,
-                    dest_src,
-                    uncoerced_elem,
-                    value_src,
-                    .store,
-                );
-            }
-            return;
-        } else break :rs value_src;
-    } else dest_src;
-
-    const elem = try sema.coerce(block, dest_elem_ty, uncoerced_elem, value_src);
+        const elem_val = try sema.resolveMaybeUndefVal(elem) orelse break :rs value_src;
+        const array_ty = try mod.arrayType(.{
+            .child = dest_elem_ty.toIntern(),
+            .len = len_u64,
+        });
+        const array_val = (try mod.intern(.{ .aggregate = .{
+            .ty = array_ty.toIntern(),
+            .storage = .{ .repeated_elem = elem_val.toIntern() },
+        } })).toValue();
+        const array_ptr_ty = ty: {
+            var info = dest_ptr_ty.ptrInfo(mod);
+            info.flags.size = .One;
+            info.child = array_ty.toIntern();
+            break :ty try mod.ptrType(info);
+        };
+        const raw_ptr_val = if (dest_ptr_ty.isSlice(mod)) ptr_val.slicePtr(mod) else ptr_val;
+        const array_ptr_val = try mod.getCoerced(raw_ptr_val, array_ptr_ty);
+        return sema.storePtrVal(block, src, array_ptr_val, array_val, array_ty);
+    };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     _ = try block.addInst(.{
