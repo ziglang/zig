@@ -166,8 +166,8 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
         }
 
-        if (libcxx_flags.len != 0) {
-            try cflags.append(libcxx_flags);
+        if (target.os.tag == .windows) {
+            try cflags.append(try minVersionStr(arena, @intFromEnum(target.os.getVersionRange().windows.min)));
         }
 
         try cflags.append("-DNDEBUG");
@@ -351,6 +351,10 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
+        if (target.os.tag == .windows) {
+            try cflags.append(try minVersionStr(arena, @intFromEnum(target.os.getVersionRange().windows.min)));
+        }
+
         try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
         try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
@@ -451,4 +455,12 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
+}
+
+// helper function to format the minimum windows target version as a hex string
+fn minVersionStr(allocator: std.mem.Allocator, targetVer: u32) ![]const u8 {
+    // Take the most significant 2 bytes of the u32 windows version enum, and truncate to a u16.
+    // Then write as eg 0x0601 (padded to 4 digits).
+    var minVer: u16 = @truncate(targetVer >> 16);
+    return try std.fmt.allocPrint(allocator, "-D_WIN32_WINNT=0x{x:0>4}", .{minVer});
 }
