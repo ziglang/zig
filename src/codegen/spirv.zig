@@ -771,21 +771,25 @@ pub const DeclGen = struct {
                     return try self.constructArray(result_ty_ref, constituents);
                 },
                 .struct_type => {
-                    const struct_ty = mod.typeToStruct(ty).?;
-                    if (struct_ty.layout == .Packed) {
+                    const struct_type = mod.typeToStruct(ty).?;
+                    if (struct_type.layout == .Packed) {
                         return self.todo("packed struct constants", .{});
                     }
 
                     var constituents = std.ArrayList(IdRef).init(self.gpa);
                     defer constituents.deinit();
 
-                    var field_it = struct_ty.runtimeFieldIterator(mod);
-                    while (field_it.next()) |field_and_index| {
-                        const field = field_and_index.field;
-                        const index = field_and_index.index;
+                    var it = struct_type.iterateRuntimeOrder(ip);
+                    while (it.next()) |field_index| {
+                        const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                            // This is a zero-bit field - we only needed it for the alignment.
+                            continue;
+                        }
+
                         // TODO: Padding?
-                        const field_val = try val.fieldValue(mod, index);
-                        const field_id = try self.constant(field.ty, field_val, .indirect);
+                        const field_val = try val.fieldValue(mod, field_index);
+                        const field_id = try self.constant(field_ty, field_val, .indirect);
 
                         try constituents.append(field_id);
                     }
