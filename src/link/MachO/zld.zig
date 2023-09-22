@@ -241,7 +241,7 @@ pub fn linkWithZld(
                 try argv.append(@tagName(platform.os_tag));
                 try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
 
-                const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(comp);
+                const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
                 if (sdk_version) |ver| {
                     try argv.append(try std.fmt.allocPrint(arena, "{d}.{d}", .{ ver.major, ver.minor }));
                 } else {
@@ -588,7 +588,7 @@ pub fn linkWithZld(
         });
         {
             const platform = Platform.fromTarget(macho_file.base.options.target);
-            const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(comp);
+            const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
             if (platform.isBuildVersionCompatible()) {
                 try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
             } else {

@@ -558,7 +558,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     {
         const platform = Platform.fromTarget(self.base.options.target);
-        const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(comp);
+        const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
         } else if (platform.isVersionMinCompatible()) {
@@ -652,10 +652,9 @@ pub fn resolveLibSystem(
             "libSystem",
         )) break :success;
 
-        switch (self.base.options.libc_provider) {
+        switch (self.base.options.darwinSdkLayout) {
             .none => unreachable,
-            .installation => unreachable,
-            .sysroot => {
+            .sdk => {
                 const dir = try fs.path.join(tmp_arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
             },

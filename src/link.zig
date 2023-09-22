@@ -134,10 +134,10 @@ pub const Options = struct {
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool,
     use_lib_llvm: bool,
-    libc_provider: LibCProvider,
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,
+    darwinSdkLayout: DarwinSdkLayout,
     function_sections: bool,
     no_builtin: bool,
     eh_frame_hdr: bool,
@@ -283,10 +283,13 @@ pub const HashStyle = enum { sysv, gnu, both };
 
 pub const CompressDebugSections = enum { none, zlib };
 
-pub const LibCProvider = enum {
+/// The filesystem layout of darwin SDK elements.
+pub const DarwinSdkLayout = enum {
+    /// Does not apply to the target.
     none,
-    installation,
-    sysroot,
+    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
+    sdk,
+    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
     vendored,
 };
 
