@@ -18780,22 +18780,23 @@ fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
         .adhoc_inferred_error_set_type => {
             const ies = sema.fn_ret_ty_ies.?;
             assert(ies.func == .none);
-            try addToInferredErrorSetPtr(mod, ies, sema.typeOf(uncasted_operand));
+            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand));
         },
         else => if (ip.isInferredErrorSetType(err_set_ty)) {
             const ies = sema.fn_ret_ty_ies.?;
             assert(ies.func == sema.func_index);
-            try addToInferredErrorSetPtr(mod, ies, sema.typeOf(uncasted_operand));
+            try sema.addToInferredErrorSetPtr(ies, sema.typeOf(uncasted_operand));
         },
     }
 }
 
-fn addToInferredErrorSetPtr(mod: *Module, ies: *InferredErrorSet, op_ty: Type) !void {
-    const gpa = mod.gpa;
+fn addToInferredErrorSetPtr(sema: *Sema, ies: *InferredErrorSet, op_ty: Type) !void {
+    const arena = sema.arena;
+    const mod = sema.mod;
     const ip = &mod.intern_pool;
     switch (op_ty.zigTypeTag(mod)) {
-        .ErrorSet => try ies.addErrorSet(op_ty, ip, gpa),
-        .ErrorUnion => try ies.addErrorSet(op_ty.errorUnionSet(mod), ip, gpa),
+        .ErrorSet => try ies.addErrorSet(op_ty, ip, arena),
+        .ErrorUnion => try ies.addErrorSet(op_ty.errorUnionSet(mod), ip, arena),
         else => {},
     }
 }
@@ -28858,7 +28859,7 @@ fn coerceInMemoryAllowedErrorSets(
         // We are trying to coerce an error set to the current function's
         // inferred error set.
         const dst_ies = sema.fn_ret_ty_ies.?;
-        try dst_ies.addErrorSet(src_ty, ip, gpa);
+        try dst_ies.addErrorSet(src_ty, ip, sema.arena);
         return .ok;
     }
 
@@ -28868,7 +28869,7 @@ fn coerceInMemoryAllowedErrorSets(
             if (dst_ies.func == dst_ies_func_index) {
                 // We are trying to coerce an error set to the current function's
                 // inferred error set.
-                try dst_ies.addErrorSet(src_ty, ip, gpa);
+                try dst_ies.addErrorSet(src_ty, ip, sema.arena);
                 return .ok;
             }
         }
