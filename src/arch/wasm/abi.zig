@@ -28,19 +28,20 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return none;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            if (ty.containerLayout(mod) == .Packed) {
+            const struct_type = mod.typeToStruct(ty).?;
+            if (struct_type.layout == .Packed) {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
-            if (ty.structFieldCount(mod) > 1) {
+            if (struct_type.field_types.len > 1) {
                 // The struct type is non-scalar.
                 return memory;
             }
-            const field_ty = ty.structFieldType(0, mod);
-            const resolved_align = ty.structFieldAlign(0, mod);
-            if (resolved_align.compare(.gt, field_ty.abiAlignment(mod))) {
-                // The struct's alignment is greater than natural alignment.
-                return memory;
+            const field_ty = struct_type.field_types.get(ip)[0].toType();
+            const explicit_align = struct_type.fieldAlign(ip, 0);
+            if (explicit_align != .none) {
+                if (explicit_align.compareStrict(.gt, field_ty.abiAlignment(mod)))
+                    return memory;
             }
             return classifyType(field_ty, mod);
         },
