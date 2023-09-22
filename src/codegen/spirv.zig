@@ -1215,6 +1215,13 @@ pub const DeclGen = struct {
                 try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
                 return ty_ref;
             },
+            .Opaque => {
+                return try self.spv.resolve(.{
+                    .opaque_type = .{
+                        .name = .none, // TODO
+                    },
+                });
+            },
 
             .Null,
             .Undefined,
