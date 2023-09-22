@@ -90,6 +90,14 @@ is_linking_libc: bool,
 is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
 
+// keep in sync with src/Compilation.zig:RcIncludes
+/// Behavior of automatic detection of include directories when compiling .rc files.
+///  any: Use MSVC if available, fall back to MinGW.
+///  msvc: Use MSVC include paths (must be present on the system).
+///  gnu: Use MinGW include paths (distributed with Zig).
+///  none: Do not use any autodetected include paths.
+rc_includes: enum { any, msvc, gnu, none } = .any,
+
 installed_path: ?[]const u8,
 
 /// Base address for an executable image.
@@ -221,6 +229,26 @@ pub const CSourceFile = struct {
     }
 };
 
+pub const RcSourceFile = struct {
+    file: LazyPath,
+    /// Any option that rc.exe accepts will work here, with the exception of:
+    /// - `/fo`: The output filename is set by the build system
+    /// - Any MUI-related option
+    /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
+    ///
+    /// Implicitly defined options:
+    ///  /x (ignore the INCLUDE environment variable)
+    ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
+    flags: []const []const u8 = &.{},
+
+    pub fn dupe(self: RcSourceFile, b: *std.Build) RcSourceFile {
+        return .{
+            .file = self.file.dupe(b),
+            .flags = b.dupeStrings(self.flags),
+        };
+    }
+};
+
 pub const LinkObject = union(enum) {
     static_path: LazyPath,
     other_step: *Compile,
@@ -228,6 +256,7 @@ pub const LinkObject = union(enum) {
     assembly_file: LazyPath,
     c_source_file: *CSourceFile,
     c_source_files: *CSourceFiles,
+    win32_resource_file: *RcSourceFile,
 };
 
 pub const SystemLib = struct {
@@ -910,6 +939,18 @@ pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
     source.file.addStepDependencies(&self.step);
 }
 
+pub fn addWin32ResourceFile(self: *Compile, source: RcSourceFile) void {
+    // Only the PE/COFF format has a Resource Table, so for any other target
+    // the resource file is just ignored.
+    if (self.target.getObjectFormat() != .coff) return;
+
+    const b = self.step.owner;
+    const rc_source_file = b.allocator.create(RcSourceFile) catch @panic("OOM");
+    rc_source_file.* = source.dupe(b);
+    self.link_objects.append(.{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
+    source.file.addStepDependencies(&self.step);
+}
+
 pub fn setVerboseLink(self: *Compile, value: bool) void {
     self.verbose_link = value;
 }
@@ -1358,6 +1399,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try transitive_deps.add(self.link_objects.items);
 
     var prev_has_cflags = false;
+    var prev_has_rcflags = false;
     var prev_search_strategy: SystemLib.SearchStrategy = .paths_first;
     var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
 
@@ -1499,6 +1541,24 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 for (c_source_files.files) |file| {
                     try zig_args.append(b.pathFromRoot(file));
                 }
+            },
+
+            .win32_resource_file => |rc_source_file| {
+                if (rc_source_file.flags.len == 0) {
+                    if (prev_has_rcflags) {
+                        try zig_args.append("-rcflags");
+                        try zig_args.append("--");
+                        prev_has_rcflags = false;
+                    }
+                } else {
+                    try zig_args.append("-rcflags");
+                    for (rc_source_file.flags) |arg| {
+                        try zig_args.append(arg);
+                    }
+                    try zig_args.append("--");
+                    prev_has_rcflags = true;
+                }
+                try zig_args.append(rc_source_file.file.getPath(b));
             },
         }
     }
@@ -1895,6 +1955,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 search_prefix, @errorName(e),
             }),
         }
+    }
+
+    if (self.rc_includes != .any) {
+        try zig_args.append("-rcincludes");
+        try zig_args.append(@tagName(self.rc_includes));
     }
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);

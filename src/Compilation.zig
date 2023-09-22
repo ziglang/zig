@@ -39,6 +39,7 @@ const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Autodoc = @import("Autodoc.zig");
 const Color = @import("main.zig").Color;
+const resinator = @import("resinator.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -46,6 +47,7 @@ gpa: Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+win32_resource_table: std.AutoArrayHashMapUnmanaged(*Win32Resource, void) = .{},
 /// This is a pointer to a local variable inside `update()`.
 whole_cache_manifest: ?*Cache.Manifest = null,
 whole_cache_manifest_mutex: std.Thread.Mutex = .{},
@@ -60,6 +62,10 @@ anon_work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 /// gets linked with the Compilation.
 c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 
+/// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
+/// gets linked with the Compilation.
+win32_resource_work_queue: std.fifo.LinearFifo(*Win32Resource, .Dynamic),
+
 /// These jobs are to tokenize, parse, and astgen files, which may be outdated
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
@@ -72,6 +78,10 @@ embed_file_work_queue: std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic),
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .{},
+
+/// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
+/// This data is accessed by multiple threads and is protected by `mutex`.
+failed_win32_resources: std.AutoArrayHashMapUnmanaged(*Win32Resource, ErrorBundle) = .{},
 
 /// Miscellaneous things that can fail.
 misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
@@ -109,6 +119,7 @@ last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
+rc_source_files: []const RcSourceFile,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
@@ -125,6 +136,7 @@ local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
 libc_framework_dir_list: []const []const u8,
+rc_include_dir_list: []const []const u8,
 thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
@@ -225,6 +237,23 @@ pub const CSourceFile = struct {
     ext: ?FileExt = null,
 };
 
+/// For passing to resinator.
+pub const RcSourceFile = struct {
+    src_path: []const u8,
+    extra_flags: []const []const u8 = &.{},
+};
+
+pub const RcIncludes = enum {
+    /// Use MSVC if available, fall back to MinGW.
+    any,
+    /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).
+    msvc,
+    /// Use MinGW include paths (distributed with Zig).
+    gnu,
+    /// Do not use any autodetected include paths.
+    none,
+};
+
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
@@ -321,6 +350,50 @@ pub const CObject = struct {
     }
 
     pub fn destroy(self: *CObject, gpa: Allocator) void {
+        _ = self.clearStatus(gpa);
+        gpa.destroy(self);
+    }
+};
+
+pub const Win32Resource = struct {
+    /// Relative to cwd. Owned by arena.
+    src: RcSourceFile,
+    status: union(enum) {
+        new,
+        success: struct {
+            /// The outputted result. Owned by gpa.
+            res_path: []u8,
+            /// This is a file system lock on the cache hash manifest representing this
+            /// object. It prevents other invocations of the Zig compiler from interfering
+            /// with this object until released.
+            lock: Cache.Lock,
+        },
+        /// There will be a corresponding ErrorMsg in Compilation.failed_win32_resources.
+        failure,
+        /// A transient failure happened when trying to compile the resource file; it may
+        /// succeed if we try again. There may be a corresponding ErrorMsg in
+        /// Compilation.failed_win32_resources. If there is not, the failure is out of memory.
+        failure_retryable,
+    },
+
+    /// Returns true if there was failure.
+    pub fn clearStatus(self: *Win32Resource, gpa: Allocator) bool {
+        switch (self.status) {
+            .new => return false,
+            .failure, .failure_retryable => {
+                self.status = .new;
+                return true;
+            },
+            .success => |*success| {
+                gpa.free(success.res_path);
+                success.lock.release();
+                self.status = .new;
+                return false;
+            },
+        }
+    }
+
+    pub fn destroy(self: *Win32Resource, gpa: Allocator) void {
         _ = self.clearStatus(gpa);
         gpa.destroy(self);
     }
@@ -505,6 +578,8 @@ pub const InitOptions = struct {
     rpath_list: []const []const u8 = &[0][]const u8{},
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
+    rc_source_files: []const RcSourceFile = &[0]RcSourceFile{},
+    rc_includes: RcIncludes = .any,
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const Framework = &.{},
@@ -936,6 +1011,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.is_native_abi,
             link_libc,
             options.libc_installation,
+        );
+
+        const rc_dirs = try detectWin32ResourceIncludeDirs(
+            arena,
+            options,
         );
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
@@ -1591,16 +1671,19 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
+            .win32_resource_work_queue = std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
             .c_source_files = options.c_source_files,
+            .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
+            .rc_include_dir_list = rc_dirs.libc_include_dir_list,
             .sanitize_c = sanitize_c,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
@@ -1645,6 +1728,19 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .src = c_source_file,
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
+    }
+
+    // Add a `Win32Resource` for each `rc_source_files`.
+    try comp.win32_resource_table.ensureTotalCapacity(gpa, options.rc_source_files.len);
+    for (options.rc_source_files) |rc_source_file| {
+        const win32_resource = try gpa.create(Win32Resource);
+        errdefer gpa.destroy(win32_resource);
+
+        win32_resource.* = .{
+            .status = .{ .new = {} },
+            .src = rc_source_file,
+        };
+        comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
     }
 
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
@@ -1804,6 +1900,7 @@ pub fn destroy(self: *Compilation) void {
     self.work_queue.deinit();
     self.anon_work_queue.deinit();
     self.c_object_work_queue.deinit();
+    self.win32_resource_work_queue.deinit();
     self.astgen_work_queue.deinit();
     self.embed_file_work_queue.deinit();
 
@@ -1851,6 +1948,16 @@ pub fn destroy(self: *Compilation) void {
         value.destroy(gpa);
     }
     self.failed_c_objects.deinit(gpa);
+
+    for (self.win32_resource_table.keys()) |key| {
+        key.destroy(gpa);
+    }
+    self.win32_resource_table.deinit(gpa);
+
+    for (self.failed_win32_resources.values()) |*value| {
+        value.deinit(gpa);
+    }
+    self.failed_win32_resources.deinit(gpa);
 
     for (self.lld_errors.items) |*lld_error| {
         lld_error.deinit(gpa);
@@ -2012,6 +2119,13 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
     for (comp.c_object_table.keys()) |key| {
         comp.c_object_work_queue.writeItemAssumeCapacity(key);
+    }
+
+    // For compiling Win32 resources, we rely on the cache hash system to avoid duplicating work.
+    // Add a Job for each Win32 resource file.
+    try comp.win32_resource_work_queue.ensureUnusedCapacity(comp.win32_resource_table.count());
+    for (comp.win32_resource_table.keys()) |key| {
+        comp.win32_resource_work_queue.writeItemAssumeCapacity(key);
     }
 
     if (comp.bin_file.options.module) |module| {
@@ -2336,6 +2450,13 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addListOfBytes(key.src.extra_flags);
     }
 
+    for (comp.win32_resource_table.keys()) |key| {
+        _ = try man.addFile(key.src.src_path, null);
+        man.hash.addListOfBytes(key.src.extra_flags);
+    }
+
+    man.hash.addListOfBytes(comp.rc_include_dir_list);
+
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
@@ -2571,8 +2692,14 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
-    var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
-        @intFromBool(self.alloc_failure_occurred) + self.lld_errors.items.len;
+    var total: usize = self.failed_c_objects.count() +
+        self.misc_failures.count() +
+        @intFromBool(self.alloc_failure_occurred) +
+        self.lld_errors.items.len;
+
+    for (self.failed_win32_resources.values()) |errs| {
+        total += errs.errorMessageCount();
+    }
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
@@ -2664,6 +2791,13 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }
     }
 
+    {
+        var it = self.failed_win32_resources.iterator();
+        while (it.next()) |entry| {
+            try bundle.addBundleAsRoots(entry.value_ptr.*);
+        }
+    }
+
     for (self.lld_errors.items) |lld_error| {
         const notes_len = @as(u32, @intCast(lld_error.context_lines.len));
 
@@ -2683,7 +2817,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             .msg = try bundle.addString(value.msg),
             .notes_len = if (value.children) |b| b.errorMessageCount() else 0,
         });
-        if (value.children) |b| try bundle.addBundle(b);
+        if (value.children) |b| try bundle.addBundleAsNotes(b);
     }
     if (self.alloc_failure_occurred) {
         try bundle.addRootErrorMessage(.{
@@ -3082,6 +3216,9 @@ pub fn performAllTheWork(
     var c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
     defer c_obj_prog_node.end();
 
+    var win32_resource_prog_node = main_progress_node.start("Compile Win32 Resources", comp.rc_source_files.len);
+    defer win32_resource_prog_node.end();
+
     var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", comp.embed_file_work_queue.count);
     defer embed_file_prog_node.end();
 
@@ -3128,6 +3265,13 @@ pub fn performAllTheWork(
             comp.work_queue_wait_group.start();
             try comp.thread_pool.spawn(workerUpdateCObject, .{
                 comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
+            });
+        }
+
+        while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
+            comp.work_queue_wait_group.start();
+            try comp.thread_pool.spawn(workerUpdateWin32Resource, .{
+                comp, win32_resource, &win32_resource_prog_node, &comp.work_queue_wait_group,
             });
         }
     }
@@ -3659,6 +3803,14 @@ pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     return man;
 }
 
+pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest {
+    var man = comp.cache_parent.obtain();
+
+    man.hash.addListOfBytes(comp.rc_include_dir_list);
+
+    return man;
+}
+
 test "cImport" {
     _ = cImport;
 }
@@ -3832,6 +3984,26 @@ fn workerUpdateCObject(
     };
 }
 
+fn workerUpdateWin32Resource(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    progress_node: *std.Progress.Node,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    comp.updateWin32Resource(win32_resource, progress_node) catch |err| switch (err) {
+        error.AnalysisFail => return,
+        else => {
+            comp.reportRetryableWin32ResourceError(win32_resource, err) catch |oom| switch (oom) {
+                // Swallowing this error is OK because it's implied to be OOM when
+                // there is a missing failed_win32_resources error message.
+                error.OutOfMemory => {},
+            };
+        },
+    };
+}
+
 fn buildCompilerRtOneShot(
     comp: *Compilation,
     output_mode: std.builtin.OutputMode,
@@ -3875,6 +4047,18 @@ fn reportRetryableCObjectError(
         defer comp.mutex.unlock();
         try comp.failed_c_objects.putNoClobber(comp.gpa, c_object, c_obj_err_msg);
     }
+}
+
+fn reportRetryableWin32ResourceError(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    err: anyerror,
+) error{OutOfMemory}!void {
+    win32_resource.status = .failure_retryable;
+
+    // TODO: something
+    _ = comp;
+    _ = @errorName(err);
 }
 
 fn reportRetryableAstGenError(
@@ -4233,6 +4417,311 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     };
 }
 
+fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: *std.Progress.Node) !void {
+    if (!build_options.have_llvm) {
+        return comp.failWin32Resource(win32_resource, "clang not available: compiler built without LLVM extensions", .{});
+    }
+    const self_exe_path = comp.self_exe_path orelse
+        return comp.failWin32Resource(win32_resource, "clang compilation disabled", .{});
+
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
+
+    log.debug("updating win32 resource: {s}", .{win32_resource.src.src_path});
+
+    if (win32_resource.clearStatus(comp.gpa)) {
+        // There was previous failure.
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        // If the failure was OOM, there will not be an entry here, so we do
+        // not assert discard.
+        _ = comp.failed_win32_resources.swapRemove(win32_resource);
+    }
+
+    var man = comp.obtainWin32ResourceCacheManifest();
+    defer man.deinit();
+
+    _ = try man.addFile(win32_resource.src.src_path, null);
+    man.hash.addListOfBytes(win32_resource.src.extra_flags);
+
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const rc_basename = std.fs.path.basename(win32_resource.src.src_path);
+
+    win32_resource_prog_node.activate();
+    var child_progress_node = win32_resource_prog_node.start(rc_basename, 0);
+    child_progress_node.activate();
+    defer child_progress_node.end();
+
+    const rc_basename_noext = rc_basename[0 .. rc_basename.len - std.fs.path.extension(rc_basename).len];
+
+    const digest = if (try man.hit()) man.final() else blk: {
+        const rcpp_filename = try std.fmt.allocPrint(arena, "{s}.rcpp", .{rc_basename_noext});
+
+        const out_rcpp_path = try comp.tmpFilePath(arena, rcpp_filename);
+        var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
+        defer zig_cache_tmp_dir.close();
+
+        const res_filename = try std.fmt.allocPrint(arena, "{s}.res", .{rc_basename_noext});
+
+        // We can't know the digest until we do the compilation,
+        // so we need a temporary filename.
+        const out_res_path = try comp.tmpFilePath(arena, res_filename);
+
+        var options = options: {
+            var resinator_args = try std.ArrayListUnmanaged([]const u8).initCapacity(comp.gpa, win32_resource.src.extra_flags.len + 4);
+            defer resinator_args.deinit(comp.gpa);
+
+            resinator_args.appendAssumeCapacity(""); // dummy 'process name' arg
+            resinator_args.appendSliceAssumeCapacity(win32_resource.src.extra_flags);
+            resinator_args.appendSliceAssumeCapacity(&.{ "--", out_rcpp_path, out_res_path });
+
+            var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
+            defer cli_diagnostics.deinit();
+            var options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
+                error.ParseError => {
+                    return comp.failWin32ResourceCli(win32_resource, &cli_diagnostics);
+                },
+                else => |e| return e,
+            };
+            break :options options;
+        };
+        defer options.deinit();
+
+        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        defer argv.deinit();
+        var temp_strings = std.ArrayList([]const u8).init(comp.gpa);
+        defer {
+            for (temp_strings.items) |temp_string| {
+                comp.gpa.free(temp_string);
+            }
+            temp_strings.deinit();
+        }
+
+        // TODO: support options.preprocess == .no and .only
+        //       alternatively, error if those options are used
+        try argv.appendSlice(&[_][]const u8{
+            self_exe_path,
+            "clang",
+            "-E", // preprocessor only
+            "--comments",
+            "-fuse-line-directives", // #line <num> instead of # <num>
+            "-xc", // output c
+            "-Werror=null-character", // error on null characters instead of converting them to spaces
+            "-fms-compatibility", // Allow things like "header.h" to be resolved relative to the 'root' .rc file, among other things
+            "-DRC_INVOKED", // https://learn.microsoft.com/en-us/windows/win32/menurc/predefined-macros
+        });
+        // Using -fms-compatibility and targeting the gnu abi interact in a strange way:
+        // - Targeting the GNU abi stops _MSC_VER from being defined
+        // - Passing -fms-compatibility stops __GNUC__ from being defined
+        // Neither being defined is a problem for things like things like MinGW's
+        // vadefs.h, which will fail during preprocessing if neither are defined.
+        // So, when targeting the GNU abi, we need to force __GNUC__ to be defined.
+        //
+        // TODO: This is a workaround that should be removed if possible.
+        if (comp.getTarget().isGnu()) {
+            // This is the same default gnuc version that Clang uses:
+            // https://github.com/llvm/llvm-project/blob/4b5366c9512aa273a5272af1d833961e1ed156e7/clang/lib/Driver/ToolChains/Clang.cpp#L6738
+            try argv.append("-fgnuc-version=4.2.1");
+        }
+        for (options.extra_include_paths.items) |extra_include_path| {
+            try argv.append("--include-directory");
+            try argv.append(extra_include_path);
+        }
+        var symbol_it = options.symbols.iterator();
+        while (symbol_it.next()) |entry| {
+            switch (entry.value_ptr.*) {
+                .define => |value| {
+                    try argv.append("-D");
+                    const define_arg = arg: {
+                        const arg = try std.fmt.allocPrint(comp.gpa, "{s}={s}", .{ entry.key_ptr.*, value });
+                        errdefer comp.gpa.free(arg);
+                        try temp_strings.append(arg);
+                        break :arg arg;
+                    };
+                    try argv.append(define_arg);
+                },
+                .undefine => {
+                    try argv.append("-U");
+                    try argv.append(entry.key_ptr.*);
+                },
+            }
+        }
+        try argv.append(win32_resource.src.src_path);
+        try argv.appendSlice(&[_][]const u8{
+            "-o",
+            out_rcpp_path,
+        });
+
+        const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_rcpp_path});
+        // Note: addCCArgs will implicitly add _DEBUG/NDEBUG depending on the optimization
+        // mode. While these defines are not normally present when calling rc.exe directly,
+        // them being defined matches the behavior of how MSVC calls rc.exe which is the more
+        // relevant behavior in this case.
+        try comp.addCCArgs(arena, &argv, .rc, out_dep_path);
+
+        if (comp.verbose_cc) {
+            dump_argv(argv.items);
+        }
+
+        if (std.process.can_spawn) {
+            var child = std.ChildProcess.init(argv.items, arena);
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Pipe;
+
+            try child.spawn();
+
+            const stderr_reader = child.stderr.?.reader();
+
+            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+
+            const term = child.wait() catch |err| {
+                return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+            };
+
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        // TODO parse clang stderr and turn it into an error message
+                        // and then call failCObjWithOwnedErrorMsg
+                        log.err("clang preprocessor failed with stderr:\n{s}", .{stderr});
+                        return comp.failWin32Resource(win32_resource, "clang preprocessor exited with code {d}", .{code});
+                    }
+                },
+                else => {
+                    log.err("clang preprocessor terminated with stderr:\n{s}", .{stderr});
+                    return comp.failWin32Resource(win32_resource, "clang preprocessor terminated unexpectedly", .{});
+                },
+            }
+        } else {
+            const exit_code = try clangMain(arena, argv.items);
+            if (exit_code != 0) {
+                return comp.failWin32Resource(win32_resource, "clang preprocessor exited with code {d}", .{exit_code});
+            }
+        }
+
+        const dep_basename = std.fs.path.basename(out_dep_path);
+        // Add the files depended on to the cache system.
+        try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        if (comp.whole_cache_manifest) |whole_cache_manifest| {
+            comp.whole_cache_manifest_mutex.lock();
+            defer comp.whole_cache_manifest_mutex.unlock();
+            try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        }
+        // Just to save disk space, we delete the file because it is never needed again.
+        zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
+        };
+
+        var full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| {
+                return comp.failWin32Resource(win32_resource, "failed to read preprocessed file '{s}': {s}", .{ out_rcpp_path, @errorName(e) });
+            },
+        };
+
+        var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = win32_resource.src.src_path });
+        defer mapping_results.mappings.deinit(arena);
+
+        var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+
+        var output_file = zig_cache_tmp_dir.createFile(out_res_path, .{}) catch |err| {
+            return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ out_res_path, @errorName(err) });
+        };
+        var output_file_closed = false;
+        defer if (!output_file_closed) output_file.close();
+
+        var diagnostics = resinator.errors.Diagnostics.init(arena);
+        defer diagnostics.deinit();
+
+        var dependencies_list = std.ArrayList([]const u8).init(comp.gpa);
+        defer {
+            for (dependencies_list.items) |item| {
+                comp.gpa.free(item);
+            }
+            dependencies_list.deinit();
+        }
+
+        var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
+
+        resinator.compile.compile(arena, final_input, output_buffered_stream.writer(), .{
+            .cwd = std.fs.cwd(),
+            .diagnostics = &diagnostics,
+            .source_mappings = &mapping_results.mappings,
+            .dependencies_list = &dependencies_list,
+            .system_include_paths = comp.rc_include_dir_list,
+            .ignore_include_env_var = true,
+            // options
+            .extra_include_paths = options.extra_include_paths.items,
+            .default_language_id = options.default_language_id,
+            .default_code_page = options.default_code_page orelse .windows1252,
+            .verbose = options.verbose,
+            .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
+            .max_string_literal_codepoints = options.max_string_literal_codepoints,
+            .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
+            .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
+        }) catch |err| switch (err) {
+            error.ParseError, error.CompileError => {
+                // Delete the output file on error
+                output_file.close();
+                output_file_closed = true;
+                // Failing to delete is not really a big deal, so swallow any errors
+                zig_cache_tmp_dir.deleteFile(out_res_path) catch {
+                    log.warn("failed to delete '{s}': {s}", .{ out_res_path, @errorName(err) });
+                };
+                return comp.failWin32ResourceCompile(win32_resource, final_input, &diagnostics, mapping_results.mappings);
+            },
+            else => |e| return e,
+        };
+
+        try output_buffered_stream.flush();
+
+        for (dependencies_list.items) |dep_file_path| {
+            try man.addFilePost(dep_file_path);
+            if (comp.whole_cache_manifest) |whole_cache_manifest| {
+                comp.whole_cache_manifest_mutex.lock();
+                defer comp.whole_cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addFilePost(dep_file_path);
+            }
+        }
+
+        // Rename into place.
+        const digest = man.final();
+        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        defer o_dir.close();
+        const tmp_basename = std.fs.path.basename(out_res_path);
+        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
+        const tmp_rcpp_basename = std.fs.path.basename(out_rcpp_path);
+        try std.fs.rename(zig_cache_tmp_dir, tmp_rcpp_basename, o_dir, rcpp_filename);
+        break :blk digest;
+    };
+
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ win32_resource.src.src_path, @errorName(err) });
+        };
+    }
+
+    const res_basename = try std.fmt.allocPrint(arena, "{s}.res", .{rc_basename_noext});
+
+    win32_resource.status = .{
+        .success = .{
+            .res_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
+                "o", &digest, res_basename,
+            }),
+            .lock = man.toOwnedLock(),
+        },
+    };
+}
+
 pub fn tmpFilePath(comp: *Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
@@ -4350,7 +4839,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h, .cu => {
+        .c, .cpp, .m, .mm, .h, .cu, .rc => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -4378,9 +4867,16 @@ pub fn addCCArgs(
             try argv.append("-isystem");
             try argv.append(c_headers_dir);
 
-            for (comp.libc_include_dir_list) |include_dir| {
-                try argv.append("-isystem");
-                try argv.append(include_dir);
+            if (ext == .rc) {
+                for (comp.rc_include_dir_list) |include_dir| {
+                    try argv.append("-isystem");
+                    try argv.append(include_dir);
+                }
+            } else {
+                for (comp.libc_include_dir_list) |include_dir| {
+                    try argv.append("-isystem");
+                    try argv.append(include_dir);
+                }
             }
 
             if (target.cpu.model.llvm_name) |llvm_name| {
@@ -4692,6 +5188,253 @@ fn failCObjWithOwnedErrorMsg(
     return error.AnalysisFail;
 }
 
+/// The include directories used when preprocessing .rc files are separate from the
+/// target. Which include directories are used is determined by `options.rc_includes`.
+///
+/// Note: It should be okay that the include directories used when compiling .rc
+/// files differ from the include directories used when compiling the main
+/// binary, since the .res format is not dependent on anything ABI-related. The
+/// only relevant differences would be things like `#define` constants being
+/// different in the MinGW headers vs the MSVC headers, but any such
+/// differences would likely be a MinGW bug.
+fn detectWin32ResourceIncludeDirs(arena: Allocator, options: InitOptions) !LibCDirs {
+    // Set the includes to .none here when there are no rc files to compile
+    var includes = if (options.rc_source_files.len > 0) options.rc_includes else .none;
+    if (builtin.target.os.tag != .windows) {
+        switch (includes) {
+            // MSVC can't be found when the host isn't Windows, so short-circuit.
+            .msvc => return error.WindowsSdkNotFound,
+            // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
+            .any => includes = .gnu,
+            .none, .gnu => {},
+        }
+    }
+    while (true) {
+        switch (includes) {
+            .any, .msvc => return detectLibCIncludeDirs(
+                arena,
+                options.zig_lib_directory.path.?,
+                .{
+                    .cpu = options.target.cpu,
+                    .os = options.target.os,
+                    .abi = .msvc,
+                    .ofmt = options.target.ofmt,
+                },
+                options.is_native_abi,
+                // The .rc preprocessor will need to know the libc include dirs even if we
+                // are not linking libc, so force 'link_libc' to true
+                true,
+                options.libc_installation,
+            ) catch |err| {
+                if (includes == .any) {
+                    // fall back to mingw
+                    includes = .gnu;
+                    continue;
+                }
+                return err;
+            },
+            .gnu => return detectLibCFromBuilding(arena, options.zig_lib_directory.path.?, .{
+                .cpu = options.target.cpu,
+                .os = options.target.os,
+                .abi = .gnu,
+                .ofmt = options.target.ofmt,
+            }),
+            .none => return LibCDirs{
+                .libc_include_dir_list = &[0][]u8{},
+                .libc_installation = null,
+                .libc_framework_dir_list = &.{},
+                .sysroot = null,
+            },
+        }
+    }
+}
+
+fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
+    @setCold(true);
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(comp.gpa);
+    errdefer bundle.deinit();
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.printString(format, args),
+        .src_loc = try bundle.addSourceLocation(.{
+            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .line = 0,
+            .column = 0,
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+        }),
+    });
+    const finished_bundle = try bundle.toOwnedBundle("");
+    return comp.failWin32ResourceWithOwnedBundle(win32_resource, finished_bundle);
+}
+
+fn failWin32ResourceWithOwnedBundle(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    err_bundle: ErrorBundle,
+) SemaError {
+    @setCold(true);
+    {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, err_bundle);
+    }
+    win32_resource.status = .failure;
+    return error.AnalysisFail;
+}
+
+fn failWin32ResourceCli(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    diagnostics: *resinator.cli.Diagnostics,
+) SemaError {
+    @setCold(true);
+
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(comp.gpa);
+    errdefer bundle.deinit();
+
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.addString("invalid command line option(s)"),
+        .src_loc = try bundle.addSourceLocation(.{
+            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .line = 0,
+            .column = 0,
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+        }),
+    });
+
+    var cur_err: ?ErrorBundle.ErrorMessage = null;
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    defer cur_notes.deinit(comp.gpa);
+    for (diagnostics.errors.items) |err_details| {
+        switch (err_details.type) {
+            .err => {
+                if (cur_err) |err| {
+                    try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
+                }
+                cur_err = .{
+                    .msg = try bundle.addString(err_details.msg.items),
+                };
+                cur_notes.clearRetainingCapacity();
+            },
+            .warning => cur_err = null,
+            .note => {
+                if (cur_err == null) continue;
+                cur_err.?.notes_len += 1;
+                try cur_notes.append(comp.gpa, .{
+                    .msg = try bundle.addString(err_details.msg.items),
+                });
+            },
+        }
+    }
+    if (cur_err) |err| {
+        try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
+    }
+
+    const finished_bundle = try bundle.toOwnedBundle("");
+    return comp.failWin32ResourceWithOwnedBundle(win32_resource, finished_bundle);
+}
+
+fn failWin32ResourceCompile(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    source: []const u8,
+    diagnostics: *resinator.errors.Diagnostics,
+    mappings: resinator.source_mapping.SourceMappings,
+) SemaError {
+    @setCold(true);
+
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(comp.gpa);
+    errdefer bundle.deinit();
+
+    var msg_buf: std.ArrayListUnmanaged(u8) = .{};
+    defer msg_buf.deinit(comp.gpa);
+    var cur_err: ?ErrorBundle.ErrorMessage = null;
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    defer cur_notes.deinit(comp.gpa);
+    for (diagnostics.errors.items) |err_details| {
+        switch (err_details.type) {
+            .hint => continue,
+            // Clear the current error so that notes don't bleed into unassociated errors
+            .warning => {
+                cur_err = null;
+                continue;
+            },
+            .note => if (cur_err == null) continue,
+            .err => {},
+        }
+        const corresponding_span = mappings.get(err_details.token.line_number);
+        const corresponding_file = mappings.files.get(corresponding_span.filename_offset);
+
+        const source_line_start = err_details.token.getLineStart(source);
+        const column = err_details.token.calculateColumn(source, 1, source_line_start);
+        const err_line = corresponding_span.start_line;
+
+        msg_buf.clearRetainingCapacity();
+        try err_details.render(msg_buf.writer(comp.gpa), source, diagnostics.strings.items);
+
+        const src_loc = src_loc: {
+            var src_loc: ErrorBundle.SourceLocation = .{
+                .src_path = try bundle.addString(corresponding_file),
+                .line = @intCast(err_line - 1), // 1-based -> 0-based
+                .column = @intCast(column),
+                .span_start = 0,
+                .span_main = 0,
+                .span_end = 0,
+            };
+            if (err_details.print_source_line) {
+                const source_line = err_details.token.getLine(source, source_line_start);
+                const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len);
+                src_loc.span_start = @intCast(visual_info.point_offset - visual_info.before_len);
+                src_loc.span_main = @intCast(visual_info.point_offset);
+                src_loc.span_end = @intCast(visual_info.point_offset + 1 + visual_info.after_len);
+                src_loc.source_line = try bundle.addString(source_line);
+            }
+            break :src_loc try bundle.addSourceLocation(src_loc);
+        };
+
+        switch (err_details.type) {
+            .err => {
+                if (cur_err) |err| {
+                    try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
+                }
+                cur_err = .{
+                    .msg = try bundle.addString(msg_buf.items),
+                    .src_loc = src_loc,
+                };
+                cur_notes.clearRetainingCapacity();
+            },
+            .note => {
+                cur_err.?.notes_len += 1;
+                try cur_notes.append(comp.gpa, .{
+                    .msg = try bundle.addString(msg_buf.items),
+                    .src_loc = src_loc,
+                });
+            },
+            .warning, .hint => unreachable,
+        }
+    }
+    if (cur_err) |err| {
+        try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
+    }
+
+    const finished_bundle = try bundle.toOwnedBundle("");
+    return comp.failWin32ResourceWithOwnedBundle(win32_resource, finished_bundle);
+}
+
+fn win32ResourceFlushErrorMessage(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMessage, notes: []const ErrorBundle.ErrorMessage) !void {
+    try wip.addRootErrorMessage(msg);
+    const notes_start = try wip.reserveNotes(@intCast(notes.len));
+    for (notes_start.., notes) |i, note| {
+        wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
+    }
+}
+
 pub const FileExt = enum {
     c,
     cpp,
@@ -4708,6 +5451,7 @@ pub const FileExt = enum {
     static_library,
     zig,
     def,
+    rc,
     res,
     unknown,
 
@@ -4724,6 +5468,7 @@ pub const FileExt = enum {
             .static_library,
             .zig,
             .def,
+            .rc,
             .res,
             .unknown,
             => false,
@@ -4747,6 +5492,7 @@ pub const FileExt = enum {
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
+            .rc => ".rc",
             .res => ".res",
             .unknown => "",
         };
@@ -4839,7 +5585,9 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
-    } else if (mem.endsWith(u8, filename, ".res")) {
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".rc")) {
+        return .rc;
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".res")) {
         return .res;
     } else {
         return .unknown;
@@ -4983,6 +5731,13 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
     if (!is_redundant) list.appendAssumeCapacity(lci.sys_include_dir.?);
 
     if (target.os.tag == .windows) {
+        if (std.fs.path.dirname(lci.sys_include_dir.?)) |sys_include_dir_parent| {
+            // This include path will only exist when the optional "Desktop development with C++"
+            // is installed. It contains headers, .rc files, and resources. It is especially
+            // necessary when working with Windows resources.
+            const atlmfc_dir = try std.fs.path.join(arena, &[_][]const u8{ sys_include_dir_parent, "atlmfc", "include" });
+            list.appendAssumeCapacity(atlmfc_dir);
+        }
         if (std.fs.path.dirname(lci.include_dir.?)) |include_dir_parent| {
             const um_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_parent, "um" });
             list.appendAssumeCapacity(um_dir);

@@ -472,6 +472,12 @@ const usage_build_generic =
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
+    \\  -rcflags [flags] --       Set extra flags for the next positional .rc source files
+    \\  -rcincludes=[type]        Set the type of includes to use when compiling .rc source files
+    \\    any                     (default) Use msvc if available, fall back to gnu
+    \\    msvc                    Use msvc include paths (must be present on the system)
+    \\    gnu                     Use mingw include paths (distributed with Zig)
+    \\    none                    Do not use any autodetected include paths
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
@@ -919,11 +925,15 @@ fn buildOutputType(
     var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(arena);
     var clang_argv = std.ArrayList([]const u8).init(arena);
     var extra_cflags = std.ArrayList([]const u8).init(arena);
+    var extra_rcflags = std.ArrayList([]const u8).init(arena);
     // These are before resolving sysroot.
     var lib_dir_args = std.ArrayList([]const u8).init(arena);
     var rpath_list = std.ArrayList([]const u8).init(arena);
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    var rc_source_files = std.ArrayList(Compilation.RcSourceFile).init(arena);
+    var rc_includes: Compilation.RcIncludes = .any;
+    var res_files = std.ArrayList(Compilation.LinkObject).init(arena);
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
     var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
@@ -1041,6 +1051,19 @@ fn buildOutputType(
                             };
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_cflags.append(next_arg);
+                        }
+                    } else if (mem.eql(u8, arg, "-rcincludes")) {
+                        rc_includes = parseRcIncludes(args_iter.nextOrFatal());
+                    } else if (mem.startsWith(u8, arg, "-rcincludes=")) {
+                        rc_includes = parseRcIncludes(arg["-rcincludes=".len..]);
+                    } else if (mem.eql(u8, arg, "-rcflags")) {
+                        extra_rcflags.shrinkRetainingCapacity(0);
+                        while (true) {
+                            const next_arg = args_iter.next() orelse {
+                                fatal("expected -- after -rcflags", .{});
+                            };
+                            if (mem.eql(u8, next_arg, "--")) break;
+                            try extra_rcflags.append(next_arg);
                         }
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
@@ -1590,13 +1613,20 @@ fn buildOutputType(
                     }
                 } else switch (file_ext orelse
                     Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library, .res => try link_objects.append(.{ .path = arg }),
+                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .res => try res_files.append(.{ .path = arg }),
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
                             // duped when parsing the args.
                             .ext = file_ext,
+                        });
+                    },
+                    .rc => {
+                        try rc_source_files.append(.{
+                            .src_path = arg,
+                            .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
                         });
                     },
                     .zig => {
@@ -1684,12 +1714,19 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .unknown, .shared_library, .object, .static_library, .res => try link_objects.append(.{
+                        .unknown, .shared_library, .object, .static_library => try link_objects.append(.{
+                            .path = it.only_arg,
+                            .must_link = must_link,
+                        }),
+                        .res => try res_files.append(.{
                             .path = it.only_arg,
                             .must_link = must_link,
                         }),
                         .def => {
                             linker_module_definition_file = it.only_arg;
+                        },
+                        .rc => {
+                            try rc_source_files.append(.{ .src_path = it.only_arg });
                         },
                         .zig => {
                             if (root_src_file) |other| {
@@ -2452,6 +2489,12 @@ fn buildOutputType(
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
             break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (rc_source_files.items.len >= 1) {
+            const basename = fs.path.basename(rc_source_files.items[0].src_path);
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
+        } else if (res_files.items.len >= 1) {
+            const basename = fs.path.basename(res_files.items[0].path);
+            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
@@ -2528,6 +2571,21 @@ fn buildOutputType(
             link_libc = true;
         if (ensure_libcpp_on_non_freestanding)
             link_libcpp = true;
+    }
+
+    if (target_info.target.ofmt == .coff) {
+        // Now that we know the target supports resources,
+        // we can add the res files as link objects.
+        for (res_files.items) |res_file| {
+            try link_objects.append(res_file);
+        }
+    } else {
+        if (rc_source_files.items.len != 0) {
+            fatal("rc files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
+        if (res_files.items.len != 0) {
+            fatal("res files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
     }
 
     if (target_info.target.cpu.arch.isWasm()) blk: {
@@ -2933,6 +2991,7 @@ fn buildOutputType(
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
             @intFromBool(root_src_file != null) +
+            rc_source_files.items.len +
             link_objects.items.len;
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
@@ -3319,6 +3378,8 @@ fn buildOutputType(
         .rpath_list = rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,
+        .rc_source_files = rc_source_files.items,
+        .rc_includes = rc_includes,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
         .frameworks = resolved_frameworks.items,
@@ -6477,4 +6538,9 @@ fn accessFrameworkPath(
     }
 
     return false;
+}
+
+fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
+    return std.meta.stringToEnum(Compilation.RcIncludes, arg) orelse
+        fatal("unsupported rc includes type: '{s}'", .{arg});
 }
