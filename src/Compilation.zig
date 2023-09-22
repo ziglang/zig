@@ -4056,9 +4056,26 @@ fn reportRetryableWin32ResourceError(
 ) error{OutOfMemory}!void {
     win32_resource.status = .failure_retryable;
 
-    // TODO: something
-    _ = comp;
-    _ = @errorName(err);
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(comp.gpa);
+    errdefer bundle.deinit();
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.printString("{s}", .{@errorName(err)}),
+        .src_loc = try bundle.addSourceLocation(.{
+            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .line = 0,
+            .column = 0,
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+        }),
+    });
+    const finished_bundle = try bundle.toOwnedBundle("");
+    {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
+    }
 }
 
 fn reportRetryableAstGenError(
