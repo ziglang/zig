@@ -563,7 +563,20 @@ pub const Request = struct {
             try w.writeByte(':');
             try w.print("{}", .{req.uri.port.?});
         } else {
-            try writeUri(w, req.uri, options.raw_uri, req.connection.?.data.proxied);
+            if (req.connection.?.data.proxied) {
+                // proxied connections require the full uri
+                if (options.raw_uri) {
+                    try w.print("{+/r}", .{req.uri});
+                } else {
+                    try w.print("{+/}", .{req.uri});
+                }
+            } else {
+                if (options.raw_uri) {
+                    try w.print("{/r}", .{req.uri});
+                } else {
+                    try w.print("{/}", .{req.uri});
+                }
+            }
         }
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
