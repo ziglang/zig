@@ -2495,17 +2495,16 @@ pub const Object = struct {
                 }
 
                 const struct_type = mod.typeToStruct(ty).?;
-                const field_types = struct_type.field_types.get(ip);
 
                 var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                 defer di_fields.deinit(gpa);
 
-                try di_fields.ensureUnusedCapacity(gpa, field_types.len);
+                try di_fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
 
                 comptime assert(struct_layout_version == 2);
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
-                    const field_ty = field_types[field_index].toType();
+                    const field_ty = struct_type.field_types.get(ip)[field_index].toType();
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                     const field_size = field_ty.abiSize(mod);
                     const field_align = mod.structFieldAlignment(
