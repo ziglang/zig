@@ -27,6 +27,7 @@ const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
+const Alignment = InternPool.Alignment;
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
@@ -607,19 +608,21 @@ const InstTracking = struct {
 
 const FrameAlloc = struct {
     abi_size: u31,
-    abi_align: u5,
+    abi_align: Alignment,
     ref_count: u16,
 
-    fn init(alloc_abi: struct { size: u64, alignment: u32 }) FrameAlloc {
-        assert(math.isPowerOfTwo(alloc_abi.alignment));
+    fn init(alloc_abi: struct { size: u64, alignment: Alignment }) FrameAlloc {
         return .{
             .abi_size = @intCast(alloc_abi.size),
-            .abi_align = math.log2_int(u32, alloc_abi.alignment),
+            .abi_align = alloc_abi.alignment,
             .ref_count = 0,
         };
     }
     fn initType(ty: Type, mod: *Module) FrameAlloc {
-        return init(.{ .size = ty.abiSize(mod), .alignment = ty.abiAlignment(mod) });
+        return init(.{
+            .size = ty.abiSize(mod),
+            .alignment = ty.abiAlignment(mod),
+        });
     }
 };
 
@@ -702,12 +705,12 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = @intCast(func.analysis(ip).stack_alignment.toByteUnitsOptional() orelse 1),
+            .alignment = func.analysis(ip).stack_alignment.max(.@"1"),
         }),
     );
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.call_frame),
-        FrameAlloc.init(.{ .size = 0, .alignment = 1 }),
+        FrameAlloc.init(.{ .size = 0, .alignment = .@"1" }),
     );
 
     const fn_info = mod.typeToFunc(fn_type).?;
@@ -729,15 +732,21 @@ pub fn generate(
     function.ret_mcv = call_info.return_value;
     function.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), FrameAlloc.init(.{
         .size = Type.usize.abiSize(mod),
-        .alignment = @min(Type.usize.abiAlignment(mod), call_info.stack_align),
+        .alignment = Type.usize.abiAlignment(mod).min(call_info.stack_align),
     }));
     function.frame_allocs.set(@intFromEnum(FrameIndex.base_ptr), FrameAlloc.init(.{
         .size = Type.usize.abiSize(mod),
-        .alignment = @min(Type.usize.abiAlignment(mod) * 2, call_info.stack_align),
+        .alignment = Alignment.min(
+            call_info.stack_align,
+            Alignment.fromNonzeroByteUnits(bin_file.options.target.stackAlignment()),
+        ),
     }));
     function.frame_allocs.set(
         @intFromEnum(FrameIndex.args_frame),
-        FrameAlloc.init(.{ .size = call_info.stack_byte_count, .alignment = call_info.stack_align }),
+        FrameAlloc.init(.{
+            .size = call_info.stack_byte_count,
+            .alignment = call_info.stack_align,
+        }),
     );
 
     function.gen() catch |err| switch (err) {
@@ -2156,8 +2165,8 @@ fn setFrameLoc(
 ) void {
     const frame_i = @intFromEnum(frame_index);
     if (aligned) {
-        const alignment = @as(i32, 1) << self.frame_allocs.items(.abi_align)[frame_i];
-        offset.* = mem.alignForward(i32, offset.*, alignment);
+        const alignment = self.frame_allocs.items(.abi_align)[frame_i];
+        offset.* = @intCast(alignment.forward(@intCast(offset.*)));
     }
     self.frame_locs.set(frame_i, .{ .base = base, .disp = offset.* });
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
@@ -2179,7 +2188,7 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
         const SortContext = struct {
             frame_align: @TypeOf(frame_align),
             pub fn lessThan(context: @This(), lhs: FrameIndex, rhs: FrameIndex) bool {
-                return context.frame_align[@intFromEnum(lhs)] > context.frame_align[@intFromEnum(rhs)];
+                return context.frame_align[@intFromEnum(lhs)].compare(.gt, context.frame_align[@intFromEnum(rhs)]);
             }
         };
         const sort_context = SortContext{ .frame_align = frame_align };
@@ -2189,8 +2198,8 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     const call_frame_align = frame_align[@intFromEnum(FrameIndex.call_frame)];
     const stack_frame_align = frame_align[@intFromEnum(FrameIndex.stack_frame)];
     const args_frame_align = frame_align[@intFromEnum(FrameIndex.args_frame)];
-    const needed_align = @max(call_frame_align, stack_frame_align);
-    const need_align_stack = needed_align > args_frame_align;
+    const needed_align = call_frame_align.max(stack_frame_align);
+    const need_align_stack = needed_align.compare(.gt, args_frame_align);
 
     // Create list of registers to save in the prologue.
     // TODO handle register classes
@@ -2214,21 +2223,21 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     self.setFrameLoc(.stack_frame, .rsp, &rsp_offset, true);
     for (stack_frame_order) |frame_index| self.setFrameLoc(frame_index, .rsp, &rsp_offset, true);
     rsp_offset += stack_frame_align_offset;
-    rsp_offset = mem.alignForward(i32, rsp_offset, @as(i32, 1) << needed_align);
+    rsp_offset = @intCast(needed_align.forward(@intCast(rsp_offset)));
     rsp_offset -= stack_frame_align_offset;
     frame_size[@intFromEnum(FrameIndex.call_frame)] =
         @intCast(rsp_offset - frame_offset[@intFromEnum(FrameIndex.stack_frame)]);
 
     return .{
-        .stack_mask = @as(u32, math.maxInt(u32)) << (if (need_align_stack) needed_align else 0),
+        .stack_mask = @as(u32, math.maxInt(u32)) << @intCast(if (need_align_stack) @intFromEnum(needed_align) else 0),
         .stack_adjust = @intCast(rsp_offset - frame_offset[@intFromEnum(FrameIndex.call_frame)]),
         .save_reg_list = save_reg_list,
     };
 }
 
-fn getFrameAddrAlignment(self: *Self, frame_addr: FrameAddr) u32 {
-    const alloc_align = @as(u32, 1) << self.frame_allocs.get(@intFromEnum(frame_addr.index)).abi_align;
-    return @min(alloc_align, @as(u32, @bitCast(frame_addr.off)) & (alloc_align - 1));
+fn getFrameAddrAlignment(self: *Self, frame_addr: FrameAddr) Alignment {
+    const alloc_align = self.frame_allocs.get(@intFromEnum(frame_addr.index)).abi_align;
+    return @enumFromInt(@min(@intFromEnum(alloc_align), @ctz(frame_addr.off)));
 }
 
 fn getFrameAddrSize(self: *Self, frame_addr: FrameAddr) u32 {
@@ -2241,13 +2250,13 @@ fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
     const frame_align = frame_allocs_slice.items(.abi_align);
 
     const stack_frame_align = &frame_align[@intFromEnum(FrameIndex.stack_frame)];
-    stack_frame_align.* = @max(stack_frame_align.*, alloc.abi_align);
+    stack_frame_align.* = stack_frame_align.max(alloc.abi_align);
 
     for (self.free_frame_indices.keys(), 0..) |frame_index, free_i| {
         const abi_size = frame_size[@intFromEnum(frame_index)];
         if (abi_size != alloc.abi_size) continue;
         const abi_align = &frame_align[@intFromEnum(frame_index)];
-        abi_align.* = @max(abi_align.*, alloc.abi_align);
+        abi_align.* = abi_align.max(alloc.abi_align);
 
         _ = self.free_frame_indices.swapRemoveAt(free_i);
         return frame_index;
@@ -2266,7 +2275,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !FrameIndex {
         .size = math.cast(u32, val_ty.abiSize(mod)) orelse {
             return self.fail("type '{}' too big to fit into stack frame", .{val_ty.fmt(mod)});
         },
-        .alignment = @max(ptr_ty.ptrAlignment(mod), 1),
+        .alignment = ptr_ty.ptrAlignment(mod).max(.@"1"),
     }));
 }
 
@@ -4266,7 +4275,7 @@ fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (tag_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const adjusted_ptr: MCValue = if (layout.payload_size > 0 and layout.tag_align < layout.payload_align) blk: {
+    const adjusted_ptr: MCValue = if (layout.payload_size > 0 and layout.tag_align.compare(.lt, layout.payload_align)) blk: {
         // TODO reusing the operand
         const reg = try self.copyToTmpRegister(ptr_union_ty, ptr);
         try self.genBinOpMir(
@@ -4309,7 +4318,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
         switch (operand) {
             .load_frame => |frame_addr| {
                 if (tag_abi_size <= 8) {
-                    const off: i32 = if (layout.tag_align < layout.payload_align)
+                    const off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
                         @intCast(layout.payload_size)
                     else
                         0;
@@ -4321,7 +4330,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("TODO implement get_union_tag for ABI larger than 8 bytes and operand {}", .{operand});
             },
             .register => {
-                const shift: u6 = if (layout.tag_align < layout.payload_align)
+                const shift: u6 = if (layout.tag_align.compare(.lt, layout.payload_align))
                     @intCast(layout.payload_size * 8)
                 else
                     0;
@@ -5600,8 +5609,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => @intCast(container_ty.structFieldOffset(index, mod) * 8),
-            .Packed => if (mod.typeToStruct(container_ty)) |struct_obj|
-                struct_obj.packedFieldBitOffset(mod, index)
+            .Packed => if (mod.typeToStruct(container_ty)) |struct_type|
+                mod.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
         };
@@ -8084,14 +8093,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // We need a properly aligned and sized call frame to be able to call this function.
     {
         const needed_call_frame =
-            FrameAlloc.init(.{ .size = info.stack_byte_count, .alignment = info.stack_align });
+            FrameAlloc.init(.{
+            .size = info.stack_byte_count,
+            .alignment = info.stack_align,
+        });
         const frame_allocs_slice = self.frame_allocs.slice();
         const stack_frame_size =
             &frame_allocs_slice.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
         stack_frame_size.* = @max(stack_frame_size.*, needed_call_frame.abi_size);
         const stack_frame_align =
             &frame_allocs_slice.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
-        stack_frame_align.* = @max(stack_frame_align.*, needed_call_frame.abi_align);
+        stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
     try self.spillEflagsIfOccupied();
@@ -9944,7 +9956,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 .indirect => try self.moveStrategy(ty, false),
                 .load_frame => |frame_addr| try self.moveStrategy(
                     ty,
-                    self.getFrameAddrAlignment(frame_addr) >= ty.abiAlignment(mod),
+                    self.getFrameAddrAlignment(frame_addr).compare(.gte, ty.abiAlignment(mod)),
                 ),
                 .lea_frame => .{ .move = .{ ._, .lea } },
                 else => unreachable,
@@ -9973,10 +9985,8 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                         .base = .{ .reg = .ds },
                         .disp = small_addr,
                     });
-                    switch (try self.moveStrategy(ty, mem.isAlignedGeneric(
-                        u32,
+                    switch (try self.moveStrategy(ty, ty.abiAlignment(mod).check(
                         @as(u32, @bitCast(small_addr)),
-                        ty.abiAlignment(mod),
                     ))) {
                         .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
                         .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
@@ -10142,22 +10152,14 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
             );
             const src_alias = registerAlias(src_reg, abi_size);
             switch (try self.moveStrategy(ty, switch (base) {
-                .none => mem.isAlignedGeneric(
-                    u32,
-                    @as(u32, @bitCast(disp)),
-                    ty.abiAlignment(mod),
-                ),
+                .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
                 .reg => |reg| switch (reg) {
-                    .es, .cs, .ss, .ds => mem.isAlignedGeneric(
-                        u32,
-                        @as(u32, @bitCast(disp)),
-                        ty.abiAlignment(mod),
-                    ),
+                    .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
                     else => false,
                 },
                 .frame => |frame_index| self.getFrameAddrAlignment(
                     .{ .index = frame_index, .off = disp },
-                ) >= ty.abiAlignment(mod),
+                ).compare(.gte, ty.abiAlignment(mod)),
             })) {
                 .move => |tag| try self.asmMemoryRegister(tag, dst_mem, src_alias),
                 .insert_extract, .vex_insert_extract => |ie| try self.asmMemoryRegisterImmediate(
@@ -11079,7 +11081,7 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
         stack_frame_size.* = @max(stack_frame_size.*, needed_call_frame.abi_size);
         const stack_frame_align =
             &frame_allocs_slice.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
-        stack_frame_align.* = @max(stack_frame_align.*, needed_call_frame.abi_align);
+        stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
     try self.spillEflagsIfOccupied();
@@ -11418,13 +11420,14 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 const frame_index =
                     try self.allocFrameIndex(FrameAlloc.initType(result_ty, mod));
                 if (result_ty.containerLayout(mod) == .Packed) {
-                    const struct_obj = mod.typeToStruct(result_ty).?;
+                    const struct_type = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },
                         .{ .immediate = 0 },
                         .{ .immediate = result_ty.abiSize(mod) },
                     );
-                    for (elements, 0..) |elem, elem_i| {
+                    for (elements, 0..) |elem, elem_i_usize| {
+                        const elem_i: u32 = @intCast(elem_i_usize);
                         if ((try result_ty.structFieldValueComptime(mod, elem_i)) != null) continue;
 
                         const elem_ty = result_ty.structFieldType(elem_i, mod);
@@ -11437,7 +11440,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         }
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = struct_obj.packedFieldBitOffset(mod, elem_i);
+                        const elem_off = mod.structPackedFieldBitOffset(struct_type, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try self.resolveInst(elem);
@@ -11576,13 +11579,13 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
         const tag_int = tag_int_val.toUnsignedInt(mod);
-        const tag_off: i32 = if (layout.tag_align < layout.payload_align)
+        const tag_off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
             @intCast(layout.payload_size)
         else
             0;
         try self.genCopy(tag_ty, dst_mcv.address().offset(tag_off).deref(), .{ .immediate = tag_int });
 
-        const pl_off: i32 = if (layout.tag_align < layout.payload_align)
+        const pl_off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
             0
         else
             @intCast(layout.tag_size);
@@ -11823,7 +11826,7 @@ const CallMCValues = struct {
     args: []MCValue,
     return_value: InstTracking,
     stack_byte_count: u31,
-    stack_align: u31,
+    stack_align: Alignment,
 
     fn deinit(self: *CallMCValues, func: *Self) void {
         func.gpa.free(self.args);
@@ -11867,12 +11870,12 @@ fn resolveCallingConventionValues(
         .Naked => {
             assert(result.args.len == 0);
             result.return_value = InstTracking.init(.unreach);
-            result.stack_align = 8;
+            result.stack_align = .@"8";
         },
         .C => {
             var param_reg_i: usize = 0;
             var param_sse_reg_i: usize = 0;
-            result.stack_align = 16;
+            result.stack_align = .@"16";
 
             switch (self.target.os.tag) {
                 .windows => {
@@ -11957,7 +11960,7 @@ fn resolveCallingConventionValues(
                 }
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod));
+                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -11968,7 +11971,7 @@ fn resolveCallingConventionValues(
             }
         },
         .Unspecified => {
-            result.stack_align = 16;
+            result.stack_align = .@"16";
 
             // Return values
             if (ret_ty.zigTypeTag(mod) == .NoReturn) {
@@ -11997,7 +12000,7 @@ fn resolveCallingConventionValues(
                     continue;
                 }
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod));
+                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -12010,7 +12013,7 @@ fn resolveCallingConventionValues(
         else => return self.fail("TODO implement function parameters and return values for {} on x86_64", .{cc}),
     }
 
-    result.stack_byte_count = mem.alignForward(u31, result.stack_byte_count, result.stack_align);
+    result.stack_byte_count = @intCast(result.stack_align.forward(result.stack_byte_count));
     return result;
 }
 

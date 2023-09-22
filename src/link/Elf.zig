@@ -409,7 +409,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     const image_base = self.calcImageBase();
 
     if (self.phdr_table_index == null) {
-        self.phdr_table_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_table_index = @intCast(self.phdrs.items.len);
         const p_align: u16 = switch (self.ptr_width) {
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
@@ -428,7 +428,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_table_load_index == null) {
-        self.phdr_table_load_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_table_load_index = @intCast(self.phdrs.items.len);
         // TODO Same as for GOT
         try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
@@ -444,7 +444,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_load_re_index = @intCast(self.phdrs.items.len);
         const file_size = self.base.options.program_code_size_hint;
         const p_align = self.page_size;
         const off = self.findFreeSpace(file_size, p_align);
@@ -465,7 +465,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_got_index == null) {
-        self.phdr_got_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_got_index = @intCast(self.phdrs.items.len);
         const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
@@ -490,7 +490,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_ro_index == null) {
-        self.phdr_load_ro_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_load_ro_index = @intCast(self.phdrs.items.len);
         // TODO Find a hint about how much data need to be in rodata ?
         const file_size = 1024;
         // Same reason as for GOT
@@ -513,7 +513,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_rw_index == null) {
-        self.phdr_load_rw_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_load_rw_index = @intCast(self.phdrs.items.len);
         // TODO Find a hint about how much data need to be in data ?
         const file_size = 1024;
         // Same reason as for GOT
@@ -536,7 +536,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_zerofill_index == null) {
-        self.phdr_load_zerofill_index = @as(u16, @intCast(self.phdrs.items.len));
+        self.phdr_load_zerofill_index = @intCast(self.phdrs.items.len);
         const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
         const off = self.phdrs.items[self.phdr_load_rw_index.?].p_offset;
         log.debug("found PT_LOAD zerofill free space 0x{x} to 0x{x}", .{ off, off });
@@ -556,7 +556,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.shstrtab_section_index == null) {
-        self.shstrtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.shstrtab_section_index = @intCast(self.shdrs.items.len);
         assert(self.shstrtab.buffer.items.len == 0);
         try self.shstrtab.buffer.append(gpa, 0); // need a 0 at position 0
         const off = self.findFreeSpace(self.shstrtab.buffer.items.len, 1);
@@ -578,7 +578,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.strtab_section_index == null) {
-        self.strtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.strtab_section_index = @intCast(self.shdrs.items.len);
         assert(self.strtab.buffer.items.len == 0);
         try self.strtab.buffer.append(gpa, 0); // need a 0 at position 0
         const off = self.findFreeSpace(self.strtab.buffer.items.len, 1);
@@ -600,7 +600,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.text_section_index == null) {
-        self.text_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.text_section_index = @intCast(self.shdrs.items.len);
         const phdr = &self.phdrs.items[self.phdr_load_re_index.?];
         try self.shdrs.append(gpa, .{
             .sh_name = try self.shstrtab.insert(gpa, ".text"),
@@ -620,7 +620,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.got_section_index == null) {
-        self.got_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.got_section_index = @intCast(self.shdrs.items.len);
         const phdr = &self.phdrs.items[self.phdr_got_index.?];
         try self.shdrs.append(gpa, .{
             .sh_name = try self.shstrtab.insert(gpa, ".got"),
@@ -639,7 +639,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.rodata_section_index == null) {
-        self.rodata_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.rodata_section_index = @intCast(self.shdrs.items.len);
         const phdr = &self.phdrs.items[self.phdr_load_ro_index.?];
         try self.shdrs.append(gpa, .{
             .sh_name = try self.shstrtab.insert(gpa, ".rodata"),
@@ -659,7 +659,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.data_section_index == null) {
-        self.data_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.data_section_index = @intCast(self.shdrs.items.len);
         const phdr = &self.phdrs.items[self.phdr_load_rw_index.?];
         try self.shdrs.append(gpa, .{
             .sh_name = try self.shstrtab.insert(gpa, ".data"),
@@ -679,7 +679,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.bss_section_index == null) {
-        self.bss_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.bss_section_index = @intCast(self.shdrs.items.len);
         const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
         try self.shdrs.append(gpa, .{
             .sh_name = try self.shstrtab.insert(gpa, ".bss"),
@@ -699,7 +699,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.symtab_section_index == null) {
-        self.symtab_section_index = @as(u16, @intCast(self.shdrs.items.len));
+        self.symtab_section_index = @intCast(self.shdrs.items.len);
         const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
         const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
         const file_size = self.base.options.symbol_count_hint * each_size;
@@ -714,7 +714,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .sh_size = file_size,
             // The section header index of the associated string table.
             .sh_link = self.strtab_section_index.?,
-            .sh_info = @as(u32, @intCast(self.symbols.items.len)),
+            .sh_info = @intCast(self.symbols.items.len),
             .sh_addralign = min_align,
             .sh_entsize = each_size,
         });
@@ -723,7 +723,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
-            self.debug_str_section_index = @as(u16, @intCast(self.shdrs.items.len));
+            self.debug_str_section_index = @intCast(self.shdrs.items.len);
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
             try self.shdrs.append(gpa, .{
@@ -743,7 +743,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.debug_info_section_index == null) {
-            self.debug_info_section_index = @as(u16, @intCast(self.shdrs.items.len));
+            self.debug_info_section_index = @intCast(self.shdrs.items.len);
             const file_size_hint = 200;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -768,7 +768,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.debug_abbrev_section_index == null) {
-            self.debug_abbrev_section_index = @as(u16, @intCast(self.shdrs.items.len));
+            self.debug_abbrev_section_index = @intCast(self.shdrs.items.len);
             const file_size_hint = 128;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -793,7 +793,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.debug_aranges_section_index == null) {
-            self.debug_aranges_section_index = @as(u16, @intCast(self.shdrs.items.len));
+            self.debug_aranges_section_index = @intCast(self.shdrs.items.len);
             const file_size_hint = 160;
             const p_align = 16;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -818,7 +818,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.debug_line_section_index == null) {
-            self.debug_line_section_index = @as(u16, @intCast(self.shdrs.items.len));
+            self.debug_line_section_index = @intCast(self.shdrs.items.len);
             const file_size_hint = 250;
             const p_align = 1;
             const off = self.findFreeSpace(file_size_hint, p_align);
@@ -2666,12 +2666,12 @@ fn updateDeclCode(
 
     const old_size = atom_ptr.size;
     const old_vaddr = atom_ptr.value;
-    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
 
     if (old_size > 0 and self.base.child_pid == null) {
         const capacity = atom_ptr.capacity(self);
-        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
+        const need_realloc = code.len > capacity or !required_alignment.check(sym.value);
         if (need_realloc) {
             try atom_ptr.grow(self);
             log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom_ptr.value });
@@ -2869,7 +2869,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const mod = self.base.options.module.?;
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
 
-    var required_alignment: u32 = undefined;
+    var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -2918,7 +2918,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const atom_ptr = local_sym.atom(self).?;
     atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
-    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
 
     try atom_ptr.allocate(self);
@@ -2995,7 +2995,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const atom_ptr = local_sym.atom(self).?;
     atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
-    atom_ptr.alignment = math.log2_int(u64, required_alignment);
+    atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
 
     try atom_ptr.allocate(self);

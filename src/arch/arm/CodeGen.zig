@@ -23,6 +23,7 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
+const Alignment = InternPool.Alignment;
 
 const Result = codegen.Result;
 const CodeGenError = codegen.CodeGenError;
@@ -508,7 +509,7 @@ fn gen(self: *Self) !void {
             // The address of where to store the return value is in
             // r0. As this register might get overwritten along the
             // way, save the address to the stack.
-            const stack_offset = try self.allocMem(4, 4, null);
+            const stack_offset = try self.allocMem(4, .@"4", null);
 
             try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = .r0 });
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
@@ -986,14 +987,14 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
 fn allocMem(
     self: *Self,
     abi_size: u32,
-    abi_align: u32,
+    abi_align: Alignment,
     maybe_inst: ?Air.Inst.Index,
 ) !u32 {
     assert(abi_size > 0);
-    assert(abi_align > 0);
+    assert(abi_align != .none);
 
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align) + abi_size;
+    const offset: u32 = @intCast(abi_align.forward(self.next_stack_offset) + abi_size);
     self.next_stack_offset = offset;
     self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
@@ -1490,7 +1491,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const len = try self.resolveInst(bin_op.rhs);
         const len_ty = self.typeOf(bin_op.rhs);
 
-        const stack_offset = try self.allocMem(8, 4, inst);
+        const stack_offset = try self.allocMem(8, .@"4", inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(len_ty, stack_offset - 4, len);
         break :result MCValue{ .stack_offset = stack_offset };
@@ -4251,8 +4252,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const r0_lock: ?RegisterLock = if (info.return_value == .stack_offset) blk: {
         log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType(mod);
-        const ret_abi_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
-        const ret_abi_align = @as(u32, @intCast(ret_ty.abiAlignment(mod)));
+        const ret_abi_size: u32 = @intCast(ret_ty.abiSize(mod));
+        const ret_abi_align = ret_ty.abiAlignment(mod);
         const stack_offset = try self.allocMem(ret_abi_size, ret_abi_align, inst);
 
         const ptr_ty = try mod.singleMutPtrType(ret_ty);
@@ -5896,7 +5897,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const array_ty = ptr_ty.childType(mod);
         const array_len = @as(u32, @intCast(array_ty.arrayLen(mod)));
 
-        const stack_offset = try self.allocMem(8, 8, inst);
+        const stack_offset = try self.allocMem(8, .@"8", inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(Type.usize, stack_offset - 4, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
@@ -6201,7 +6202,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                if (ty.toType().abiAlignment(mod) == 8)
+                if (ty.toType().abiAlignment(mod) == .@"8")
                     ncrn = std.mem.alignForward(usize, ncrn, 2);
 
                 const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
@@ -6216,7 +6217,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     return self.fail("TODO MCValues split between registers and stack", .{});
                 } else {
                     ncrn = 4;
-                    if (ty.toType().abiAlignment(mod) == 8)
+                    if (ty.toType().abiAlignment(mod) == .@"8")
                         nsaa = std.mem.alignForward(u32, nsaa, 8);
 
                     result_arg.* = .{ .stack_argument_offset = nsaa };
@@ -6252,10 +6253,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 if (ty.toType().abiSize(mod) > 0) {
-                    const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
+                    const param_size: u32 = @intCast(ty.toType().abiSize(mod));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
-                    stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
+                    stack_offset = @intCast(param_alignment.forward(stack_offset));
                     result_arg.* = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {

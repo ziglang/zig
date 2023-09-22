@@ -2840,7 +2840,10 @@ pub const Inst = struct {
             is_tuple: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            _: u5 = undefined,
+            any_default_inits: bool,
+            any_comptime_fields: bool,
+            any_aligned_fields: bool,
+            _: u2 = undefined,
         };
     };
 

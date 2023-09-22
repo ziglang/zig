@@ -8,6 +8,7 @@ const types = @import("types.zig");
 const std = @import("std");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
+const Alignment = types.Alignment;
 
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
@@ -88,12 +89,9 @@ const RelocatableData = struct {
     /// meta data of the given object file.
     /// NOTE: Alignment is encoded as a power of 2, so we shift the symbol's
     /// alignment to retrieve the natural alignment.
-    pub fn getAlignment(relocatable_data: RelocatableData, object: *const Object) u32 {
-        if (relocatable_data.type != .data) return 1;
-        const data_alignment = object.segment_info[relocatable_data.index].alignment;
-        if (data_alignment == 0) return 1;
-        // Decode from power of 2 to natural alignment
-        return @as(u32, 1) << @as(u5, @intCast(data_alignment));
+    pub fn getAlignment(relocatable_data: RelocatableData, object: *const Object) Alignment {
+        if (relocatable_data.type != .data) return .@"1";
+        return object.segment_info[relocatable_data.index].alignment;
     }
 
     /// Returns the symbol kind that corresponds to the relocatable section
@@ -671,7 +669,7 @@ fn Parser(comptime ReaderType: type) type {
                         try reader.readNoEof(name);
                         segment.* = .{
                             .name = name,
-                            .alignment = try leb.readULEB128(u32, reader),
+                            .alignment = @enumFromInt(try leb.readULEB128(u32, reader)),
                             .flags = try leb.readULEB128(u32, reader),
                         };
                         log.debug("Found segment: {s} align({d}) flags({b})", .{
@@ -919,7 +917,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
             continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
         };
 
-        const atom_index = @as(Atom.Index, @intCast(wasm_bin.managed_atoms.items.len));
+        const atom_index: Atom.Index = @intCast(wasm_bin.managed_atoms.items.len);
         const atom = try wasm_bin.managed_atoms.addOne(gpa);
         atom.* = Atom.empty;
         atom.file = object_index;
@@ -984,7 +982,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
         if (relocatable_data.type == .data) { //code section and debug sections are 1-byte aligned
-            segment.alignment = @max(segment.alignment, atom.alignment);
+            segment.alignment = segment.alignment.max(atom.alignment);
         }
 
         try wasm_bin.appendAtomAtIndex(final_index, atom_index);

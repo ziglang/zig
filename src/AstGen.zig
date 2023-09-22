@@ -4758,6 +4758,9 @@ fn structDeclInner(
             .known_non_opv = false,
             .known_comptime_only = false,
             .is_tuple = false,
+            .any_comptime_fields = false,
+            .any_default_inits = false,
+            .any_aligned_fields = false,
         });
         return indexToRef(decl_inst);
     }
@@ -4881,6 +4884,9 @@ fn structDeclInner(
 
     var known_non_opv = false;
     var known_comptime_only = false;
+    var any_comptime_fields = false;
+    var any_aligned_fields = false;
+    var any_default_inits = false;
     for (container_decl.ast.members) |member_node| {
         var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -4910,13 +4916,13 @@ fn structDeclInner(
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
 
-        if (is_comptime and layout == .Packed) {
-            return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{});
-        } else if (is_comptime and layout == .Extern) {
-            return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{});
-        }
-
-        if (!is_comptime) {
+        if (is_comptime) {
+            switch (layout) {
+                .Packed => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
+                .Extern => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
+                .Auto => any_comptime_fields = true,
+            }
+        } else {
             known_non_opv = known_non_opv or
                 nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);
             known_comptime_only = known_comptime_only or
@@ -4942,6 +4948,7 @@ fn structDeclInner(
             if (layout == .Packed) {
                 try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
             }
+            any_aligned_fields = true;
             const align_ref = try expr(&block_scope, &namespace.base, coerced_align_ri, member.ast.align_expr);
             if (!block_scope.endsWithNoReturn()) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, align_ref);
@@ -4955,6 +4962,7 @@ fn structDeclInner(
         }
 
         if (have_value) {
+            any_default_inits = true;
             const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = field_type } };
 
             const default_inst = try expr(&block_scope, &namespace.base, ri, member.ast.value_expr);
@@ -4982,6 +4990,9 @@ fn structDeclInner(
         .known_non_opv = known_non_opv,
         .known_comptime_only = known_comptime_only,
         .is_tuple = is_tuple,
+        .any_comptime_fields = any_comptime_fields,
+        .any_default_inits = any_default_inits,
+        .any_aligned_fields = any_aligned_fields,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -12080,6 +12091,9 @@ const GenZir = struct {
         known_non_opv: bool,
         known_comptime_only: bool,
         is_tuple: bool,
+        any_comptime_fields: bool,
+        any_default_inits: bool,
+        any_aligned_fields: bool,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -12117,6 +12131,9 @@ const GenZir = struct {
                     .is_tuple = args.is_tuple,
                     .name_strategy = gz.anon_name_strategy,
                     .layout = args.layout,
+                    .any_comptime_fields = args.any_comptime_fields,
+                    .any_default_inits = args.any_default_inits,
+                    .any_aligned_fields = args.any_aligned_fields,
                 }),
                 .operand = payload_index,
             } },

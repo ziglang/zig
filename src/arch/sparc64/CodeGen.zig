@@ -24,6 +24,7 @@ const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Endian = std.builtin.Endian;
+const Alignment = InternPool.Alignment;
 
 const build_options = @import("build_options");
 
@@ -62,7 +63,7 @@ ret_mcv: MCValue,
 fn_type: Type,
 arg_index: usize,
 src_loc: Module.SrcLoc,
-stack_align: u32,
+stack_align: Alignment,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -227,7 +228,7 @@ const CallMCValues = struct {
     args: []MCValue,
     return_value: MCValue,
     stack_byte_count: u32,
-    stack_align: u32,
+    stack_align: Alignment,
 
     fn deinit(self: *CallMCValues, func: *Self) void {
         func.gpa.free(self.args);
@@ -424,7 +425,7 @@ fn gen(self: *Self) !void {
 
         // Backpatch stack offset
         const total_stack_size = self.max_end_stack + abi.stack_reserved_area;
-        const stack_size = mem.alignForward(u32, total_stack_size, self.stack_align);
+        const stack_size = self.stack_align.forward(total_stack_size);
         if (math.cast(i13, stack_size)) |size| {
             self.mir_instructions.set(save_inst, .{
                 .tag = .save,
@@ -880,11 +881,8 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr = try self.resolveInst(ty_op.operand);
         const array_ty = ptr_ty.childType(mod);
         const array_len = @as(u32, @intCast(array_ty.arrayLen(mod)));
-
-        const ptr_bits = self.target.ptrBitWidth();
-        const ptr_bytes = @divExact(ptr_bits, 8);
-
-        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        const ptr_bytes = 8;
+        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, .@"8");
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(Type.usize, stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
@@ -2438,11 +2436,8 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const len = try self.resolveInst(bin_op.rhs);
         const len_ty = self.typeOf(bin_op.rhs);
-
-        const ptr_bits = self.target.ptrBitWidth();
-        const ptr_bytes = @divExact(ptr_bits, 8);
-
-        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        const ptr_bytes = 8;
+        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, .@"8");
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(len_ty, stack_offset - ptr_bytes, len);
         break :result MCValue{ .stack_offset = stack_offset };
@@ -2782,11 +2777,10 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     return result_index;
 }
 
-fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
+fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: Alignment) !u32 {
+    self.stack_align = self.stack_align.max(abi_align);
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align) + abi_size;
+    const offset: u32 = @intCast(abi_align.forward(self.next_stack_offset) + abi_size);
     self.next_stack_offset = offset;
     if (self.next_stack_offset > self.max_end_stack)
         self.max_end_stack = self.next_stack_offset;
@@ -2825,8 +2819,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     const abi_align = elem_ty.abiAlignment(mod);
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
+    self.stack_align = self.stack_align.max(abi_align);
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
@@ -4479,7 +4472,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
-            result.stack_align = 1;
+            result.stack_align = .@"1";
             return result;
         },
         .Unspecified, .C => {
@@ -4521,7 +4514,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
             }
 
             result.stack_byte_count = next_stack_offset;
-            result.stack_align = 16;
+            result.stack_align = .@"16";
 
             if (ret_ty.zigTypeTag(mod) == .NoReturn) {
                 result.return_value = .{ .unreach = {} };

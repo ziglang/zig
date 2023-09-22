@@ -28,12 +28,14 @@ size: u64 = 0,
 
 /// Alignment of this atom as a power of 2.
 /// For instance, aligmment of 0 should be read as 2^0 = 1 byte aligned.
-alignment: u32 = 0,
+alignment: Alignment = .@"1",
 
 /// Points to the previous and next neighbours
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
 next_index: ?Index = null,
 prev_index: ?Index = null,
+
+pub const Alignment = @import("../../InternPool.zig").Alignment;
 
 pub const Index = u32;
 
