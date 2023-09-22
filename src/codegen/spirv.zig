@@ -784,11 +784,12 @@ pub const DeclGen = struct {
             .opt_payload => unreachable, // TODO
             .comptime_field => unreachable,
             .elem => |elem_ptr| {
-                const elem_ptr_ty = mod.intern_pool.typeOf(elem_ptr.base).toType();
-                const parent_ptr_id = try self.constantPtr(elem_ptr_ty, elem_ptr.base.toValue());
+                const parent_ptr_ty = mod.intern_pool.typeOf(elem_ptr.base).toType();
+                const parent_ptr_id = try self.constantPtr(parent_ptr_ty, elem_ptr.base.toValue());
                 const size_ty_ref = try self.sizeType();
                 const index_id = try self.constInt(size_ty_ref, elem_ptr.index);
-                return self.ptrAccessChain(result_ty_ref, parent_ptr_id, index_id, &.{});
+
+                return try self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
             },
             .field => unreachable, // TODO
         }

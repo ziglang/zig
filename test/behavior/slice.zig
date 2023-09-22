@@ -219,7 +219,6 @@ test "slice string literal has correct type" {
 
 test "result location zero sized array inside struct field implicit cast to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = struct {
         entries: []u32,
