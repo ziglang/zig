@@ -70,6 +70,9 @@ pub const State = enum {
     /// This state indicates that the step did not complete, however, it also did not fail,
     /// and it is safe to continue executing its dependencies.
     skipped,
+    /// This step was skipped because it specified a max_rss that exceeded the runner's maximum.
+    /// It is not safe to run its dependencies.
+    skipped_oom,
 };
 
 pub const Id = enum {
