@@ -544,12 +544,7 @@ pub const Request = struct {
     };
 
     /// Send the request to the server.
-    pub fn start(req: *Request) StartError!void {
-        try req.startWithOptions(.{});
-    }
-
-    /// Send the request to the server.
-    pub fn startWithOptions(req: *Request, options: StartOptions) StartError!void {
+    pub fn start(req: *Request, options: StartOptions) StartError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
         var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
@@ -644,23 +639,6 @@ pub const Request = struct {
         try w.writeAll("\r\n");
 
         try buffered.flush();
-    }
-
-    fn writeUri(uri_writer: anytype, uri: std.Uri, raw_uri: bool, proxied: bool) !void {
-        if (proxied) {
-            // proxied connections require the full uri
-            if (raw_uri) {
-                try uri_writer.print("{+/r}", .{uri});
-            } else {
-                try uri_writer.print("{+/}", .{uri});
-            }
-        } else {
-            if (raw_uri) {
-                try uri_writer.print("{/r}", .{uri});
-            } else {
-                try uri_writer.print("{/}", .{uri});
-            }
-        }
     }
 
     const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
@@ -793,7 +771,7 @@ pub const Request = struct {
 
                 try req.redirect(resolved_url);
 
-                try req.start();
+                try req.start(.{});
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
@@ -1222,7 +1200,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
             .none => {},
         }
 
-        try req.start();
+        try req.start(.{});
 
         switch (options.payload) {
             .string => |str| try req.writeAll(str),
