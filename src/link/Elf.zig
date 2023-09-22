@@ -373,9 +373,8 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     return null;
 }
 
-pub fn allocatedSize(self: *Elf, start: u64) u64 {
-    if (start == 0)
-        return 0;
+fn allocatedSize(self: *Elf, start: u64) u64 {
+    if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     if (self.shdr_table_offset) |off| {
         if (off > start and off < min_pos) min_pos = off;
@@ -391,7 +390,17 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
+fn allocatedVirtualSize(self: *Elf, start: u64) u64 {
+    if (start == 0) return 0;
+    var min_pos: u64 = std.math.maxInt(u64);
+    for (self.phdrs.items) |phdr| {
+        if (phdr.p_vaddr <= start) continue;
+        if (phdr.p_vaddr < min_pos) min_pos = phdr.p_vaddr;
+    }
+    return min_pos - start;
+}
+
+fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
@@ -907,7 +916,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 }
 
 pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
-    // TODO Also detect virtual address collisions.
     const shdr = &self.shdrs.items[shdr_index];
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const phdr = &self.phdrs.items[phdr_index];
@@ -922,8 +930,8 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         } else shdr.sh_size;
         shdr.sh_size = 0;
 
-        log.debug("new '{?s}' file offset 0x{x} to 0x{x}", .{
-            self.shstrtab.get(shdr.sh_name),
+        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+            self.shstrtab.getAssumeExists(shdr.sh_name),
             new_offset,
             new_offset + existing_size,
         });
@@ -934,6 +942,9 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         shdr.sh_offset = new_offset;
         phdr.p_offset = new_offset;
     }
+
+    const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
+    assert(needed_size <= mem_capacity); // TODO grow section in virtual memory
 
     shdr.sh_size = needed_size;
     phdr.p_memsz = needed_size;
