@@ -521,59 +521,6 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn constructDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
-        const mod = self.module;
-        const ty_ref = try self.resolveType(ty, .direct);
-        const ty_id = self.typeId(ty_ref);
-        const decl = mod.declPtr(decl_index);
-        const spv_decl_index = try self.resolveDecl(decl_index);
-        switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
-            .func => {
-                // TODO: Properly lower function pointers. For now we are going to hack around it and
-                // just generate an empty pointer. Function pointers are represented by a pointer to usize.
-                // TODO: Add dependency
-                return try self.spv.constNull(ty_ref);
-            },
-            .extern_func => unreachable, // TODO
-            else => {
-                const decl_id = self.spv.declPtr(spv_decl_index).result_id;
-                try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
-
-                const final_storage_class = spvStorageClass(decl.@"addrspace");
-
-                const decl_ty_ref = try self.resolveType(decl.ty, .indirect);
-                const decl_ptr_ty_ref = try self.spv.ptrType(decl_ty_ref, final_storage_class);
-
-                const ptr_id = switch (final_storage_class) {
-                    .Generic => blk: {
-                        // Pointer should be Generic, but is actually placed in CrossWorkgroup.
-                        const result_id = self.spv.allocId();
-                        try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                            .id_result_type = self.typeId(decl_ptr_ty_ref),
-                            .id_result = result_id,
-                            .pointer = decl_id,
-                        });
-                        break :blk result_id;
-                    },
-                    else => decl_id,
-                };
-
-                if (decl_ptr_ty_ref != ty_ref) {
-                    // Differing pointer types, insert a cast.
-                    const casted_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                        .id_result_type = ty_id,
-                        .id_result = casted_ptr_id,
-                        .operand = ptr_id,
-                    });
-                    return casted_ptr_id;
-                } else {
-                    return ptr_id;
-                }
-            },
-        }
-    }
-
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
     /// When the constant is simple, it can be generated directly using OpConstant instructions.
     /// When the constant is more complicated however, it needs to be constructed using multiple values. This
@@ -796,7 +743,8 @@ pub const DeclGen = struct {
 
                     return try self.constructStruct(result_ty_ref, constituents.items);
                 },
-                .vector_type, .anon_struct_type => unreachable, // TODO
+                .vector_type => unreachable, // TODO
+                .anon_struct_type => unreachable, // TODO
                 else => unreachable,
             },
             .un => |un| {
@@ -817,9 +765,9 @@ pub const DeclGen = struct {
         const result_ty_ref = try self.resolveType(ptr_ty, .direct);
         const mod = self.module;
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
-            .decl => |decl| return try self.constructDeclRef(ptr_ty, decl),
+            .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
+            .mut_decl => |decl_mut| return try self.constantDeclRef(ptr_ty, decl_mut.decl),
             .anon_decl => @panic("TODO"),
-            .mut_decl => |decl_mut| return try self.constructDeclRef(ptr_ty, decl_mut.decl),
             .int => |int| {
                 const ptr_id = self.spv.allocId();
                 // TODO: This can probably be an OpSpecConstantOp Bitcast, but
@@ -843,6 +791,65 @@ pub const DeclGen = struct {
                 return self.ptrAccessChain(result_ty_ref, parent_ptr_id, index_id, &.{});
             },
             .field => unreachable, // TODO
+        }
+    }
+
+    fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
+        const mod = self.module;
+        const ty_ref = try self.resolveType(ty, .direct);
+        const ty_id = self.typeId(ty_ref);
+        const decl = mod.declPtr(decl_index);
+        switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
+            .func => {
+                // TODO: Properly lower function pointers. For now we are going to hack around it and
+                // just generate an empty pointer. Function pointers are represented by a pointer to usize.
+                // TODO: Add dependency
+                return try self.spv.constNull(ty_ref);
+            },
+            .extern_func => unreachable, // TODO
+            else => {},
+        }
+
+        if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+            // Pointer to nothing - return undefined.
+            return self.spv.constUndef(ty_ref);
+        }
+
+        const spv_decl_index = try self.resolveDecl(decl_index);
+
+        const decl_id = self.spv.declPtr(spv_decl_index).result_id;
+        try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
+
+        const final_storage_class = spvStorageClass(decl.@"addrspace");
+
+        const decl_ty_ref = try self.resolveType(decl.ty, .indirect);
+        const decl_ptr_ty_ref = try self.spv.ptrType(decl_ty_ref, final_storage_class);
+
+        const ptr_id = switch (final_storage_class) {
+            .Generic => blk: {
+                // Pointer should be Generic, but is actually placed in CrossWorkgroup.
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                    .id_result_type = self.typeId(decl_ptr_ty_ref),
+                    .id_result = result_id,
+                    .pointer = decl_id,
+                });
+                break :blk result_id;
+            },
+            else => decl_id,
+        };
+
+        if (decl_ptr_ty_ref != ty_ref) {
+            // Differing pointer types, insert a cast.
+            const casted_ptr_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                .id_result_type = ty_id,
+                .id_result = casted_ptr_id,
+                .operand = ptr_id,
+            });
+            return casted_ptr_id;
+        } else {
+            return ptr_id;
         }
     }
 
@@ -1126,10 +1133,16 @@ pub const DeclGen = struct {
 
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
-                    const field_ty = struct_type.field_types.get(ip)[field_index];
-                    const field_name = ip.stringToSlice(struct_type.field_names.get(ip)[field_index]);
-                    try member_types.append(try self.resolveType(field_ty.toType(), .indirect));
-                    try member_names.append(try self.spv.resolveString(field_name));
+                    const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                        // This is a zero-bit field - we only needed it for the alignment.
+                        continue;
+                    }
+
+                    const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
+                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index});
+                    try member_types.append(try self.resolveType(field_ty, .indirect));
+                    try member_names.append(try self.spv.resolveString(ip.stringToSlice(field_name)));
                 }
 
                 const ty_ref = try self.spv.resolve(.{ .struct_type = .{
