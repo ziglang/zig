@@ -400,12 +400,44 @@ fn allocatedVirtualSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
+fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
+}
+
+const AllocateSegmentOpts = struct {
+    addr: u64, // TODO find free VM space
+    size: u64,
+    alignment: u64,
+    flags: u32 = elf.PF_R,
+};
+
+fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) !u16 {
+    const index = @as(u16, @intCast(self.phdrs.items.len));
+    try self.phdrs.ensureUnusedCapacity(self.base.allocator, 1);
+    const off = self.findFreeSpace(opts.size, opts.alignment);
+    log.debug("found PHDR {c}{c}{c} free space 0x{x} to 0x{x}", .{
+        if (opts.flags & elf.PF_R != 0) @as(u8, 'R') else '_',
+        if (opts.flags & elf.PF_W != 0) @as(u8, 'W') else '_',
+        if (opts.flags & elf.PF_X != 0) @as(u8, 'X') else '_',
+        off,
+        off + opts.size,
+    });
+    self.phdrs.appendAssumeCapacity(.{
+        .p_type = elf.PT_LOAD,
+        .p_offset = off,
+        .p_filesz = opts.size,
+        .p_vaddr = opts.addr,
+        .p_paddr = opts.addr,
+        .p_memsz = opts.size,
+        .p_align = opts.alignment,
+        .p_flags = opts.flags,
+    });
+    self.phdr_table_dirty = true;
+    return index;
 }
 
 pub fn populateMissingMetadata(self: *Elf) !void {
@@ -438,7 +470,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = @intCast(self.phdrs.items.len);
-        // TODO Same as for GOT
         try self.phdrs.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = 0,
@@ -453,115 +484,67 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = @intCast(self.phdrs.items.len);
-        const file_size = self.base.options.program_code_size_hint;
-        const p_align = self.page_size;
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        const entry_addr = self.defaultEntryAddress();
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = entry_addr,
-            .p_paddr = entry_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_X | elf.PF_R | elf.PF_W,
+        self.phdr_load_re_index = try self.allocateSegment(.{
+            .addr = self.defaultEntryAddress(),
+            .size = self.base.options.program_code_size_hint,
+            .alignment = self.page_size,
+            .flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
         self.entry_addr = null;
-        self.phdr_table_dirty = true;
     }
 
     if (self.phdr_got_index == null) {
-        self.phdr_got_index = @intCast(self.phdrs.items.len);
-        const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
-        // We really only need ptr alignment but since we are using PROGBITS, linux requires
-        // page align.
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD GOT free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const got_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = got_addr,
-            .p_paddr = got_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
+        const addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
+        // We really only need ptr alignment but since we are using PROGBITS, linux requires
+        // page align.
+        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        self.phdr_got_index = try self.allocateSegment(.{
+            .addr = addr,
+            .size = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
+            .alignment = alignment,
+            .flags = elf.PF_R | elf.PF_W,
         });
-        self.phdr_table_dirty = true;
     }
 
     if (self.phdr_load_ro_index == null) {
-        self.phdr_load_ro_index = @intCast(self.phdrs.items.len);
-        // TODO Find a hint about how much data need to be in rodata ?
-        const file_size = 1024;
-        // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = rodata_addr,
-            .p_paddr = rodata_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
+        const addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
+        // Same reason as for GOT
+        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        self.phdr_load_ro_index = try self.allocateSegment(.{
+            .addr = addr,
+            .size = 1024,
+            .alignment = alignment,
+            .flags = elf.PF_R | elf.PF_W,
         });
-        self.phdr_table_dirty = true;
     }
 
     if (self.phdr_load_rw_index == null) {
-        self.phdr_load_rw_index = @intCast(self.phdrs.items.len);
-        // TODO Find a hint about how much data need to be in data ?
-        const file_size = 1024;
-        // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = rwdata_addr,
-            .p_paddr = rwdata_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
+        const addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
+        // Same reason as for GOT
+        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        self.phdr_load_rw_index = try self.allocateSegment(.{
+            .addr = addr,
+            .size = 1024,
+            .alignment = alignment,
+            .flags = elf.PF_R | elf.PF_W,
         });
-        self.phdr_table_dirty = true;
     }
 
     if (self.phdr_load_zerofill_index == null) {
-        self.phdr_load_zerofill_index = @intCast(self.phdrs.items.len);
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.phdrs.items[self.phdr_load_rw_index.?].p_offset;
-        log.debug("found PT_LOAD zerofill free space 0x{x} to 0x{x}", .{ off, off });
         // TODO Same as for GOT
-        const addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x14000000 else 0xf000;
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = 0,
-            .p_vaddr = addr,
-            .p_paddr = addr,
-            .p_memsz = 0,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
+        const addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x14000000 else 0xf000;
+        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        self.phdr_load_zerofill_index = try self.allocateSegment(.{
+            .addr = addr,
+            .size = 0,
+            .alignment = alignment,
+            .flags = elf.PF_R | elf.PF_W,
         });
-        self.phdr_table_dirty = true;
     }
 
     if (self.shstrtab_section_index == null) {
