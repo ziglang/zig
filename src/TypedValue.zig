@@ -355,11 +355,11 @@ pub fn print(
                         const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
                             .Struct => {
-                                if (container_ty.isTuple(mod)) {
+                                if (container_ty.structFieldName(@intCast(field.index), mod).unwrap()) |field_name| {
+                                    try writer.print(".{i}", .{field_name.fmt(ip)});
+                                } else {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name = container_ty.structFieldName(@as(usize, @intCast(field.index)), mod);
-                                try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
                                 const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];

@@ -4699,12 +4699,13 @@ fn validateStructInit(
         // In this case the only thing we need to do is evaluate the implicit
         // store instructions for default field values, and report any missing fields.
         // Avoid the cost of the extra machinery for detecting a comptime struct init value.
-        for (found_fields, 0..) |field_ptr, i| {
+        for (found_fields, 0..) |field_ptr, i_usize| {
+            const i: u32 = @intCast(i_usize);
             if (field_ptr != 0) continue;
 
             const default_val = struct_ty.structFieldDefaultValue(i, mod);
             if (default_val.toIntern() == .unreachable_value) {
-                if (struct_ty.isTuple(mod)) {
+                const field_name = struct_ty.structFieldName(i, mod).unwrap() orelse {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
                         try sema.errNote(block, init_src, msg, template, .{i});
@@ -4712,8 +4713,7 @@ fn validateStructInit(
                         root_msg = try sema.errMsg(block, init_src, template, .{i});
                     }
                     continue;
-                }
-                const field_name = struct_ty.structFieldName(i, mod);
+                };
                 const template = "missing struct field: {}";
                 const args = .{field_name.fmt(ip)};
                 if (root_msg) |msg| {
@@ -4763,7 +4763,8 @@ fn validateStructInit(
     // ends up being comptime-known.
     const field_values = try sema.arena.alloc(InternPool.Index, struct_ty.structFieldCount(mod));
 
-    field: for (found_fields, 0..) |field_ptr, i| {
+    field: for (found_fields, 0..) |field_ptr, i_usize| {
+        const i: u32 = @intCast(i_usize);
         if (field_ptr != 0) {
             // Determine whether the value stored to this pointer is comptime-known.
             const field_ty = struct_ty.structFieldType(i, mod);
@@ -4842,7 +4843,7 @@ fn validateStructInit(
 
         const default_val = struct_ty.structFieldDefaultValue(i, mod);
         if (default_val.toIntern() == .unreachable_value) {
-            if (struct_ty.isTuple(mod)) {
+            const field_name = struct_ty.structFieldName(i, mod).unwrap() orelse {
                 const template = "missing tuple field with index {d}";
                 if (root_msg) |msg| {
                     try sema.errNote(block, init_src, msg, template, .{i});
@@ -4850,8 +4851,7 @@ fn validateStructInit(
                     root_msg = try sema.errMsg(block, init_src, template, .{i});
                 }
                 continue;
-            }
-            const field_name = struct_ty.structFieldName(i, mod);
+            };
             const template = "missing struct field: {}";
             const args = .{field_name.fmt(ip)};
             if (root_msg) |msg| {
@@ -21862,10 +21862,10 @@ fn ptrCastFull(
                 const msg = try sema.errMsg(block, src, "cast increases pointer alignment", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, operand_src, msg, "'{}' has alignment '{d}'", .{
-                    operand_ty.fmt(mod), src_align,
+                    operand_ty.fmt(mod), src_align.toByteUnits(0),
                 });
                 try sema.errNote(block, src, msg, "'{}' has alignment '{d}'", .{
-                    dest_ty.fmt(mod), dest_align,
+                    dest_ty.fmt(mod), dest_align.toByteUnits(0),
                 });
                 try sema.errNote(block, src, msg, "use @alignCast to assert pointer alignment", .{});
                 break :msg msg;
@@ -26376,7 +26376,7 @@ fn fieldCallBind(
                     const max = concrete_ty.structFieldCount(mod);
                     for (0..max) |i_usize| {
                         const i: u32 = @intCast(i_usize);
-                        if (field_name == concrete_ty.structFieldName(i, mod)) {
+                        if (field_name == concrete_ty.structFieldName(i, mod).unwrap().?) {
                             return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.structFieldType(i, mod), i, object_ptr);
                         }
                     }
@@ -31143,7 +31143,8 @@ fn coerceTupleToTuple(
     var root_msg: ?*Module.ErrorMsg = null;
     errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-    for (field_refs, 0..) |*field_ref, i| {
+    for (field_refs, 0..) |*field_ref, i_usize| {
+        const i: u32 = @intCast(i_usize);
         if (field_ref.* != .none) continue;
 
         const default_val = switch (ip.indexToKey(tuple_ty.toIntern())) {
@@ -31154,7 +31155,7 @@ fn coerceTupleToTuple(
 
         const field_src = inst_src; // TODO better source location
         if (default_val == .none) {
-            if (tuple_ty.isTuple(mod)) {
+            const field_name = tuple_ty.structFieldName(i, mod).unwrap() orelse {
                 const template = "missing tuple field: {d}";
                 if (root_msg) |msg| {
                     try sema.errNote(block, field_src, msg, template, .{i});
@@ -31162,9 +31163,9 @@ fn coerceTupleToTuple(
                     root_msg = try sema.errMsg(block, field_src, template, .{i});
                 }
                 continue;
-            }
+            };
             const template = "missing struct field: {}";
-            const args = .{tuple_ty.structFieldName(i, mod).fmt(ip)};
+            const args = .{field_name.fmt(ip)};
             if (root_msg) |msg| {
                 try sema.errNote(block, field_src, msg, template, args);
             } else {
@@ -33897,8 +33898,9 @@ fn resolvePeerTypesInner(
                 }
 
                 if (!is_tuple) {
-                    for (field_names, 0..) |expected, field_idx| {
-                        const actual = ty.structFieldName(field_idx, mod);
+                    for (field_names, 0..) |expected, field_index_usize| {
+                        const field_index: u32 = @intCast(field_index_usize);
+                        const actual = ty.structFieldName(field_index, mod).unwrap().?;
                         if (actual == expected) continue;
                         return .{ .conflict = .{
                             .peer_idx_a = first_idx,

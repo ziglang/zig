@@ -656,6 +656,17 @@ pub const Key = union(enum) {
         pub fn isTuple(self: AnonStructType) bool {
             return self.names.len == 0;
         }
+
+        pub fn fieldName(
+            self: AnonStructType,
+            ip: *const InternPool,
+            index: u32,
+        ) OptionalNullTerminatedString {
+            if (self.names.len == 0)
+                return .none;
+
+            return self.names.get(ip)[index].toOptional();
+        }
     };
 
     /// Serves two purposes:

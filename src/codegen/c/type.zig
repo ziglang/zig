@@ -1953,7 +1953,8 @@ pub const CType = extern union {
 
                     const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
                     var c_field_i: usize = 0;
-                    for (0..fields_len) |field_i| {
+                    for (0..fields_len) |field_i_usize| {
+                        const field_i: u32 = @intCast(field_i_usize);
                         const field_ty = ty.structFieldType(field_i, mod);
                         if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                             !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -1964,7 +1965,7 @@ pub const CType = extern union {
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
                                 arena.dupeZ(u8, ip.stringToSlice(switch (zig_ty_tag) {
-                                    .Struct => ty.structFieldName(field_i, mod),
+                                    .Struct => ty.legacyStructFieldName(field_i, mod),
                                     .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                     else => unreachable,
                                 })),
@@ -2097,7 +2098,8 @@ pub const CType = extern union {
                                 .Struct => ty.structFieldCount(mod),
                                 .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
-                            }) |field_i| {
+                            }) |field_i_usize| {
+                                const field_i: u32 = @intCast(field_i_usize);
                                 const field_ty = ty.structFieldType(field_i, mod);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -2116,7 +2118,7 @@ pub const CType = extern union {
                                         std.fmt.bufPrintZ(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else
                                         ip.stringToSlice(switch (zig_ty_tag) {
-                                            .Struct => ty.structFieldName(field_i, mod),
+                                            .Struct => ty.legacyStructFieldName(field_i, mod),
                                             .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                             else => unreachable,
                                         }),
@@ -2225,7 +2227,8 @@ pub const CType = extern union {
                                 .Struct => ty.structFieldCount(mod),
                                 .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
-                            }) |field_i| {
+                            }) |field_i_usize| {
+                                const field_i: u32 = @intCast(field_i_usize);
                                 const field_ty = ty.structFieldType(field_i, mod);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -2240,7 +2243,7 @@ pub const CType = extern union {
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                 else
                                     mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
-                                        .Struct => ty.structFieldName(field_i, mod),
+                                        .Struct => ty.legacyStructFieldName(field_i, mod),
                                         .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                         else => unreachable,
                                     }));

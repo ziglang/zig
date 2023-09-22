@@ -5226,7 +5226,8 @@ fn fieldLocation(
     const container_ty = container_ptr_ty.childType(mod);
     return switch (container_ty.zigTypeTag(mod)) {
         .Struct => switch (container_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index| {
+            .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index_usize| {
+                const next_field_index: u32 = @intCast(next_field_index_usize);
                 if (container_ty.structFieldIsComptime(next_field_index, mod)) continue;
                 const field_ty = container_ty.structFieldType(next_field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -5234,7 +5235,7 @@ fn fieldLocation(
                 break .{ .field = if (container_ty.isSimpleTuple(mod))
                     .{ .field = next_field_index }
                 else
-                    .{ .identifier = ip.stringToSlice(container_ty.structFieldName(next_field_index, mod)) } };
+                    .{ .identifier = ip.stringToSlice(container_ty.legacyStructFieldName(next_field_index, mod)) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
                 .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
@@ -5421,7 +5422,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
                 .{ .field = extra.field_index }
             else
-                .{ .identifier = ip.stringToSlice(struct_ty.structFieldName(extra.field_index, mod)) },
+                .{ .identifier = ip.stringToSlice(struct_ty.legacyStructFieldName(extra.field_index, mod)) },
             .Packed => {
                 const struct_type = mod.typeToStruct(struct_ty).?;
                 const int_info = struct_ty.intInfo(mod);
@@ -5483,7 +5484,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 0)
             .{ .field = extra.field_index }
         else
-            .{ .identifier = ip.stringToSlice(struct_ty.structFieldName(extra.field_index, mod)) },
+            .{ .identifier = ip.stringToSlice(struct_ty.legacyStructFieldName(extra.field_index, mod)) },
 
         .union_type => |union_type| field_name: {
             const union_obj = ip.loadUnionType(union_type);
@@ -6816,7 +6817,8 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         },
         .Struct => switch (inst_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (resolved_elements, 0..) |element, field_i| {
+            .Auto, .Extern => for (resolved_elements, 0..) |element, field_i_usize| {
+                const field_i: u32 = @intCast(field_i_usize);
                 if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
                 const field_ty = inst_ty.structFieldType(field_i, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -6825,7 +6827,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple(mod))
                     .{ .field = field_i }
                 else
-                    .{ .identifier = ip.stringToSlice(inst_ty.structFieldName(field_i, mod)) });
+                    .{ .identifier = ip.stringToSlice(inst_ty.legacyStructFieldName(field_i, mod)) });
                 try a.assign(f, writer);
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);

@@ -2907,16 +2907,28 @@ pub const Type = struct {
         return enum_type.tagValueIndex(ip, int_tag);
     }
 
-    pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
+    /// Returns none in the case of a tuple which uses the integer index as the field name.
+    pub fn structFieldName(ty: Type, field_index: u32, mod: *Module) InternPool.OptionalNullTerminatedString {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| struct_type.field_names.get(ip)[field_index],
-            .anon_struct_type => |anon_struct| anon_struct.names.get(ip)[field_index],
+            .struct_type => |struct_type| struct_type.fieldName(ip, field_index),
+            .anon_struct_type => |anon_struct| anon_struct.fieldName(ip, field_index),
             else => unreachable,
         };
     }
 
-    pub fn structFieldCount(ty: Type, mod: *Module) usize {
+    /// When struct types have no field names, the names are implicitly understood to be
+    /// strings corresponding to the field indexes in declaration order. It used to be the
+    /// case that a NullTerminatedString would be stored for each field in this case, however,
+    /// now, callers must handle the possibility that there are no names stored at all.
+    /// Here we fake the previous behavior. Probably something better could be done by examining
+    /// all the callsites of this function.
+    pub fn legacyStructFieldName(ty: Type, i: u32, mod: *Module) InternPool.NullTerminatedString {
+        return ty.structFieldName(i, mod).unwrap() orelse
+            mod.intern_pool.getOrPutStringFmt(mod.gpa, "{d}", .{i}) catch @panic("OOM");
+    }
+
+    pub fn structFieldCount(ty: Type, mod: *Module) u32 {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| struct_type.field_types.len,
