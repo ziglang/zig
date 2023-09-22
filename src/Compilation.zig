@@ -5573,9 +5573,9 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
-    } else if (mem.endsWith(u8, filename, ".rc")) {
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".rc")) {
         return .rc;
-    } else if (mem.endsWith(u8, filename, ".res")) {
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".res")) {
         return .res;
     } else {
         return .unknown;
