@@ -538,8 +538,18 @@ pub const Request = struct {
 
     pub const StartError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
+    pub const StartOptions = struct {
+        /// Specifies that the uri should be used as is
+        raw_uri: bool = false,
+    };
+
     /// Send the request to the server.
     pub fn start(req: *Request) StartError!void {
+        try req.startWithOptions(.{});
+    }
+
+    /// Send the request to the server.
+    pub fn startWithOptions(req: *Request, options: StartOptions) StartError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
         var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
@@ -552,13 +562,9 @@ pub const Request = struct {
             try w.writeAll(req.uri.host.?);
             try w.writeByte(':');
             try w.print("{}", .{req.uri.port.?});
-        } else if (req.connection.?.data.proxied) {
-            // proxied connections require the full uri
-            try w.print("{+/}", .{req.uri});
         } else {
-            try w.print("{/}", .{req.uri});
+            try writeUri(w, req.uri, options.raw_uri, req.connection.?.data.proxied);
         }
-
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
         try w.writeAll("\r\n");
@@ -625,6 +631,23 @@ pub const Request = struct {
         try w.writeAll("\r\n");
 
         try buffered.flush();
+    }
+
+    fn writeUri(uri_writer: anytype, uri: std.Uri, raw_uri: bool, proxied: bool) !void {
+        if (proxied) {
+            // proxied connections require the full uri
+            if (raw_uri) {
+                try uri_writer.print("{+/r}", .{uri});
+            } else {
+                try uri_writer.print("{+/}", .{uri});
+            }
+        } else {
+            if (raw_uri) {
+                try uri_writer.print("{/r}", .{uri});
+            } else {
+                try uri_writer.print("{/}", .{uri});
+            }
+        }
     }
 
     const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;

@@ -216,6 +216,7 @@ pub fn format(
 
     const needs_absolute = comptime std.mem.indexOf(u8, fmt, "+") != null;
     const needs_path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
+    const raw_path = comptime std.mem.indexOf(u8, fmt, "r") != null;
     const needs_fragment = comptime std.mem.indexOf(u8, fmt, "#") != null;
 
     if (needs_absolute) {
@@ -246,7 +247,11 @@ pub fn format(
         if (uri.path.len == 0) {
             try writer.writeAll("/");
         } else {
-            try Uri.writeEscapedPath(writer, uri.path);
+            if (raw_path) {
+                try writer.writeAll(uri.path);
+            } else {
+                try Uri.writeEscapedPath(writer, uri.path);
+            }
         }
 
         if (uri.query) |q| {
