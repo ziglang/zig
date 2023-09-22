@@ -46,7 +46,6 @@ $HOME/local/bin/ninja install
 
 stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
-  --skip-oom-steps \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
