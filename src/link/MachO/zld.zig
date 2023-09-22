@@ -985,19 +985,16 @@ fn calcSectionSizes(macho_file: *MachO) !void {
 
         while (true) {
             const atom = macho_file.getAtom(atom_index);
-            const atom_alignment = try math.powi(u32, 2, atom.alignment);
-            const atom_offset = mem.alignForward(u64, header.size, atom_alignment);
+            const atom_offset = atom.alignment.forward(header.size);
             const padding = atom_offset - header.size;
 
             const sym = macho_file.getSymbolPtr(atom.getSymbolWithLoc());
             sym.n_value = atom_offset;
 
             header.size += padding + atom.size;
-            header.@"align" = @max(header.@"align", atom.alignment);
+            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
 
-            if (atom.next_index) |next_index| {
-                atom_index = next_index;
-            } else break;
+            atom_index = atom.next_index orelse break;
         }
     }
 

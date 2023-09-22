@@ -11,12 +11,12 @@
 #define _LIBCPP___ITERATOR_WRAP_ITER_H
 
 #include <__config>
-#include <__debug>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_convertible.h>
+#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -34,7 +34,7 @@ public:
     typedef typename iterator_traits<iterator_type>::pointer           pointer;
     typedef typename iterator_traits<iterator_type>::reference         reference;
     typedef typename iterator_traits<iterator_type>::iterator_category iterator_category;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     typedef contiguous_iterator_tag                                    iterator_concept;
 #endif
 
@@ -44,60 +44,23 @@ public:
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __wrap_iter() _NOEXCEPT
                 : __i_()
     {
-        _VSTD::__debug_db_insert_i(this);
     }
     template <class _Up> _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
         __wrap_iter(const __wrap_iter<_Up>& __u,
             typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = nullptr) _NOEXCEPT
             : __i_(__u.base())
     {
-#ifdef _LIBCPP_ENABLE_DEBUG_MODE
-      if (!__libcpp_is_constant_evaluated())
-        __get_db()->__iterator_copy(this, _VSTD::addressof(__u));
-#endif
     }
-#ifdef _LIBCPP_ENABLE_DEBUG_MODE
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    __wrap_iter(const __wrap_iter& __x)
-        : __i_(__x.base())
-    {
-      if (!__libcpp_is_constant_evaluated())
-        __get_db()->__iterator_copy(this, _VSTD::addressof(__x));
-    }
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    __wrap_iter& operator=(const __wrap_iter& __x)
-    {
-        if (this != _VSTD::addressof(__x))
-        {
-            if (!__libcpp_is_constant_evaluated())
-                __get_db()->__iterator_copy(this, _VSTD::addressof(__x));
-            __i_ = __x.__i_;
-        }
-        return *this;
-    }
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-    ~__wrap_iter()
-    {
-      if (!__libcpp_is_constant_evaluated())
-        __get_db()->__erase_i(this);
-    }
-#endif
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference operator*() const _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__dereferenceable(this),
-                             "Attempted to dereference a non-dereferenceable iterator");
         return *__i_;
     }
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pointer operator->() const _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__dereferenceable(this),
-                             "Attempted to dereference a non-dereferenceable iterator");
         return _VSTD::__to_address(__i_);
     }
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __wrap_iter& operator++() _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__dereferenceable(this),
-                             "Attempted to increment a non-incrementable iterator");
         ++__i_;
         return *this;
     }
@@ -106,8 +69,6 @@ public:
 
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __wrap_iter& operator--() _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__decrementable(this),
-                             "Attempted to decrement a non-decrementable iterator");
         --__i_;
         return *this;
     }
@@ -117,8 +78,6 @@ public:
         {__wrap_iter __w(*this); __w += __n; return __w;}
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __wrap_iter& operator+=(difference_type __n) _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__addable(this, __n),
-                             "Attempted to add/subtract an iterator outside its valid range");
         __i_ += __n;
         return *this;
     }
@@ -128,8 +87,6 @@ public:
         {*this += -__n; return *this;}
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference    operator[](difference_type __n) const _NOEXCEPT
     {
-        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__subscriptable(this, __n),
-                             "Attempted to subscript an iterator outside its valid range");
         return __i_[__n];
     }
 
@@ -137,13 +94,8 @@ public:
 
 private:
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    explicit __wrap_iter(const void* __p, iterator_type __x) _NOEXCEPT : __i_(__x)
+    explicit __wrap_iter(iterator_type __x) _NOEXCEPT : __i_(__x)
     {
-        (void)__p;
-#ifdef _LIBCPP_ENABLE_DEBUG_MODE
-      if (!__libcpp_is_constant_evaluated())
-        __get_db()->__insert_ic(this, __p);
-#endif
     }
 
     template <class _Up> friend class __wrap_iter;
@@ -170,8 +122,6 @@ template <class _Iter1>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT
 {
-    _LIBCPP_DEBUG_ASSERT(__get_const_db()->__less_than_comparable(_VSTD::addressof(__x), _VSTD::addressof(__y)),
-                         "Attempted to compare incomparable iterators");
     return __x.base() < __y.base();
 }
 
@@ -179,8 +129,6 @@ template <class _Iter1, class _Iter2>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
-    _LIBCPP_DEBUG_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
-                         "Attempted to compare incomparable iterators");
     return __x.base() < __y.base();
 }
 
@@ -250,8 +198,6 @@ typename __wrap_iter<_Iter1>::difference_type
 operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 #endif // C++03
 {
-    _LIBCPP_DEBUG_ASSERT(__get_const_db()->__less_than_comparable(_VSTD::addressof(__x), _VSTD::addressof(__y)),
-                         "Attempted to subtract incompatible iterators");
     return __x.base() - __y.base();
 }
 
@@ -265,7 +211,7 @@ __wrap_iter<_Iter1> operator+(typename __wrap_iter<_Iter1>::difference_type __n,
 
 #if _LIBCPP_STD_VER <= 17
 template <class _It>
-struct __is_cpp17_contiguous_iterator<__wrap_iter<_It> > : true_type {};
+struct __libcpp_is_contiguous_iterator<__wrap_iter<_It> > : true_type {};
 #endif
 
 template <class _It>

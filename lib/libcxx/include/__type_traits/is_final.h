@@ -18,15 +18,15 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS
-__libcpp_is_final : public integral_constant<bool, __is_final(_Tp)> {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS __libcpp_is_final : public integral_constant<bool, __is_final(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 11
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS
-is_final : public integral_constant<bool, __is_final(_Tp)> {};
+#if _LIBCPP_STD_VER >= 14
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_final : public integral_constant<bool, __is_final(_Tp)> {};
 #endif
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_final_v = __is_final(_Tp);
 #endif

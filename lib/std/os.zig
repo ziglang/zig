@@ -37,6 +37,7 @@ pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
+pub const emscripten = @import("os/emscripten.zig");
 pub const windows = @import("os/windows.zig");
 
 comptime {
@@ -507,6 +508,13 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             }
         }
         return;
+    }
+    if (builtin.os.tag == .emscripten) {
+        const err = std.c.getErrno(std.c.getentropy(buffer.ptr, buffer.len));
+        switch (err) {
+            .SUCCESS => return,
+            else => return unexpectedErrno(err),
+        }
     }
     switch (builtin.os.tag) {
         .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
@@ -1893,6 +1901,9 @@ pub fn execvpeZ(
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
+    if (builtin.os.tag == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.os.getenvW for a Windows-specific API.");
+    }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
@@ -1906,9 +1917,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         }
         return null;
     }
-    if (builtin.os.tag == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
-    } else if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi) {
         @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
@@ -3981,7 +3990,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
             .WSAENOTSOCK => unreachable,
-            .WSAEWOULDBLOCK => unreachable,
+            .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,

@@ -27,12 +27,15 @@
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/unreachable_sentinel.h>
-#include <__ranges/copyable_box.h>
 #include <__ranges/enable_borrowed_range.h>
+#include <__ranges/movable_box.h>
 #include <__ranges/view_interface.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/is_nothrow_copy_constructible.h>
+#include <__type_traits/make_unsigned.h>
+#include <__type_traits/type_identity.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -40,12 +43,12 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace ranges {
   template<class _Int>
   struct __get_wider_signed {
-    static auto __call() {
+    consteval static auto __call() {
            if constexpr (sizeof(_Int) < sizeof(short)) return type_identity<short>{};
       else if constexpr (sizeof(_Int) < sizeof(int))   return type_identity<int>{};
       else if constexpr (sizeof(_Int) < sizeof(long))  return type_identity<long>{};
@@ -278,7 +281,8 @@ namespace ranges {
     public:
       _LIBCPP_HIDE_FROM_ABI
       __sentinel() = default;
-      constexpr explicit __sentinel(_BoundSentinel __bound_sentinel) : __bound_sentinel_(std::move(__bound_sentinel)) {}
+      _LIBCPP_HIDE_FROM_ABI constexpr explicit __sentinel(_BoundSentinel __bound_sentinel)
+          : __bound_sentinel_(std::move(__bound_sentinel)) {}
 
       _LIBCPP_HIDE_FROM_ABI
       friend constexpr bool operator==(const __iterator& __x, const __sentinel& __y) {
@@ -311,28 +315,28 @@ namespace ranges {
     constexpr explicit iota_view(_Start __value) : __value_(std::move(__value)) { }
 
     _LIBCPP_HIDE_FROM_ABI
-    constexpr iota_view(type_identity_t<_Start> __value, type_identity_t<_BoundSentinel> __bound_sentinel)
+    constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 iota_view(type_identity_t<_Start> __value, type_identity_t<_BoundSentinel> __bound_sentinel)
         : __value_(std::move(__value)), __bound_sentinel_(std::move(__bound_sentinel)) {
       // Validate the precondition if possible.
       if constexpr (totally_ordered_with<_Start, _BoundSentinel>) {
-        _LIBCPP_ASSERT(ranges::less_equal()(__value_, __bound_sentinel_),
-                       "Precondition violated: value is greater than bound.");
+        _LIBCPP_ASSERT_UNCATEGORIZED(ranges::less_equal()(__value_, __bound_sentinel_),
+                                     "Precondition violated: value is greater than bound.");
       }
     }
 
     _LIBCPP_HIDE_FROM_ABI
-    constexpr iota_view(__iterator __first, __iterator __last)
+    constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 iota_view(__iterator __first, __iterator __last)
       requires same_as<_Start, _BoundSentinel>
     : iota_view(std::move(__first.__value_), std::move(__last.__value_)) {}
 
     _LIBCPP_HIDE_FROM_ABI
-    constexpr iota_view(__iterator __first, _BoundSentinel __last)
+    constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 iota_view(__iterator __first, _BoundSentinel __last)
       requires same_as<_BoundSentinel, unreachable_sentinel_t>
     : iota_view(std::move(__first.__value_), std::move(__last)) {}
 
     _LIBCPP_HIDE_FROM_ABI
-    constexpr iota_view(__iterator __first, __sentinel __last)
-      requires(!same_as<_Start, _BoundSentinel> && !same_as<_Start, unreachable_sentinel_t>)
+    constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 iota_view(__iterator __first, __sentinel __last)
+      requires(!same_as<_Start, _BoundSentinel> && !same_as<_BoundSentinel, unreachable_sentinel_t>)
     : iota_view(std::move(__first.__value_), std::move(__last.__bound_sentinel_)) {}
 
     _LIBCPP_HIDE_FROM_ABI
@@ -403,7 +407,7 @@ inline namespace __cpo {
 } // namespace views
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

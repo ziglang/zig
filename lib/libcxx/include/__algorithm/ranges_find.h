@@ -9,7 +9,9 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_FIND_H
 #define _LIBCPP___ALGORITHM_RANGES_FIND_H
 
+#include <__algorithm/find.h>
 #include <__algorithm/ranges_find_if.h>
+#include <__algorithm/unwrap_range.h>
 #include <__config>
 #include <__functional/identity.h>
 #include <__functional/invoke.h>
@@ -26,38 +28,48 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __find {
 struct __fn {
+  template <class _Iter, class _Sent, class _Tp, class _Proj>
+  _LIBCPP_HIDE_FROM_ABI static constexpr _Iter
+  __find_unwrap(_Iter __first, _Sent __last, const _Tp& __value, _Proj& __proj) {
+    if constexpr (forward_iterator<_Iter>) {
+      auto [__first_un, __last_un] = std::__unwrap_range(__first, std::move(__last));
+      return std::__rewrap_range<_Sent>(
+          std::move(__first), std::__find_impl(std::move(__first_un), std::move(__last_un), __value, __proj));
+    } else {
+      return std::__find_impl(std::move(__first), std::move(__last), __value, __proj);
+    }
+  }
+
   template <input_iterator _Ip, sentinel_for<_Ip> _Sp, class _Tp, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<_Ip, _Proj>, const _Tp*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  _Ip operator()(_Ip __first, _Sp __last, const _Tp& __value, _Proj __proj = {}) const {
-    auto __pred = [&](auto&& __e) { return std::forward<decltype(__e)>(__e) == __value; };
-    return ranges::__find_if_impl(std::move(__first), std::move(__last), __pred, __proj);
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Ip
+  operator()(_Ip __first, _Sp __last, const _Tp& __value, _Proj __proj = {}) const {
+    return __find_unwrap(std::move(__first), std::move(__last), __value, __proj);
   }
 
   template <input_range _Rp, class _Tp, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Rp>, _Proj>, const _Tp*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  borrowed_iterator_t<_Rp> operator()(_Rp&& __r, const _Tp& __value, _Proj __proj = {}) const {
-    auto __pred = [&](auto&& __e) { return std::forward<decltype(__e)>(__e) == __value; };
-    return ranges::__find_if_impl(ranges::begin(__r), ranges::end(__r), __pred, __proj);
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Rp>
+  operator()(_Rp&& __r, const _Tp& __value, _Proj __proj = {}) const {
+    return __find_unwrap(ranges::begin(__r), ranges::end(__r), __value, __proj);
   }
 };
 } // namespace __find
 
 inline namespace __cpo {
-  inline constexpr auto find = __find::__fn{};
+inline constexpr auto find = __find::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_FIND_H

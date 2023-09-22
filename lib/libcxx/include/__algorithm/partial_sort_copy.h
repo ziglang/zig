@@ -79,8 +79,7 @@ _RandomAccessIterator
 partial_sort_copy(_InputIterator __first, _InputIterator __last,
                   _RandomAccessIterator __result_first, _RandomAccessIterator __result_last)
 {
-    return _VSTD::partial_sort_copy(__first, __last, __result_first, __result_last,
-                                   __less<typename iterator_traits<_RandomAccessIterator>::value_type>());
+    return _VSTD::partial_sort_copy(__first, __last, __result_first, __result_last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

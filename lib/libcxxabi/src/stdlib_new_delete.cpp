@@ -4,30 +4,40 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//
-// This file implements the new and delete operators.
 //===----------------------------------------------------------------------===//
 
 #include "__cxxabi_config.h"
-#include <new>
+#include <__memory/aligned_alloc.h>
 #include <cstdlib>
+#include <new>
 
-#if !defined(_THROW_BAD_ALLOC) || !defined(_LIBCXXABI_WEAK)
-#error The _THROW_BAD_ALLOC and _LIBCXXABI_WEAK libc++ macros must \
-       already be defined by libc++.
+// Perform a few sanity checks on libc++ and libc++abi macros to ensure that
+// the code below can be an exact copy of the code in libcxx/src/new.cpp.
+#if !defined(_THROW_BAD_ALLOC)
+#  error The _THROW_BAD_ALLOC macro should be already defined by libc++
 #endif
+
+#ifndef _LIBCPP_WEAK
+#  error The _LIBCPP_WEAK macro should be already defined by libc++
+#endif
+
+#if defined(_LIBCXXABI_NO_EXCEPTIONS) != defined(_LIBCPP_HAS_NO_EXCEPTIONS)
+#  error libc++ and libc++abi seem to disagree on whether exceptions are enabled
+#endif
+
+// ------------------ BEGIN COPY ------------------
 // Implement all new and delete operators as weak definitions
 // in this shared library, so that they can be overridden by programs
 // that define non-weak copies of the functions.
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void *
 operator new(std::size_t size) _THROW_BAD_ALLOC
 {
     if (size == 0)
         size = 1;
     void* p;
-    while ((p = ::malloc(size)) == nullptr)
+    while ((p = std::malloc(size)) == nullptr)
     {
         // If malloc fails and there is a new_handler,
         // call it to try free up memory.
@@ -35,7 +45,7 @@ operator new(std::size_t size) _THROW_BAD_ALLOC
         if (nh)
             nh();
         else
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
             throw std::bad_alloc();
 #else
             break;
@@ -44,87 +54,87 @@ operator new(std::size_t size) _THROW_BAD_ALLOC
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new(size_t size, const std::nothrow_t&) noexcept
 {
     void* p = nullptr;
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         p = ::operator new(size);
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
     }
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new[](size_t size) _THROW_BAD_ALLOC
 {
     return ::operator new(size);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new[](size_t size, const std::nothrow_t&) noexcept
 {
     void* p = nullptr;
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         p = ::operator new[](size);
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
     }
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr) noexcept
 {
-    ::free(ptr);
+    std::free(ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr, const std::nothrow_t&) noexcept
 {
     ::operator delete(ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr, size_t) noexcept
 {
     ::operator delete(ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr) noexcept
 {
     ::operator delete(ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr, const std::nothrow_t&) noexcept
 {
     ::operator delete[](ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr, size_t) noexcept
 {
@@ -133,7 +143,7 @@ operator delete[] (void* ptr, size_t) noexcept
 
 #if !defined(_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION)
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void *
 operator new(std::size_t size, std::align_val_t alignment) _THROW_BAD_ALLOC
 {
@@ -155,7 +165,7 @@ operator new(std::size_t size, std::align_val_t alignment) _THROW_BAD_ALLOC
         if (nh)
             nh();
         else {
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
             throw std::bad_alloc();
 #else
             break;
@@ -165,87 +175,87 @@ operator new(std::size_t size, std::align_val_t alignment) _THROW_BAD_ALLOC
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new(size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
 {
     void* p = nullptr;
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         p = ::operator new(size, alignment);
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
     }
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new[](size_t size, std::align_val_t alignment) _THROW_BAD_ALLOC
 {
     return ::operator new(size, alignment);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void*
 operator new[](size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
 {
     void* p = nullptr;
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         p = ::operator new[](size, alignment);
-#ifndef _LIBCXXABI_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     }
     catch (...)
     {
     }
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
     return p;
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr, std::align_val_t) noexcept
 {
     std::__libcpp_aligned_free(ptr);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr, std::align_val_t alignment, const std::nothrow_t&) noexcept
 {
     ::operator delete(ptr, alignment);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete(void* ptr, size_t, std::align_val_t alignment) noexcept
 {
     ::operator delete(ptr, alignment);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr, std::align_val_t alignment) noexcept
 {
     ::operator delete(ptr, alignment);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr, std::align_val_t alignment, const std::nothrow_t&) noexcept
 {
     ::operator delete[](ptr, alignment);
 }
 
-_LIBCXXABI_WEAK
+_LIBCPP_WEAK
 void
 operator delete[] (void* ptr, size_t, std::align_val_t alignment) noexcept
 {
@@ -253,3 +263,4 @@ operator delete[] (void* ptr, size_t, std::align_val_t alignment) noexcept
 }
 
 #endif // !_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+// ------------------ END COPY ------------------

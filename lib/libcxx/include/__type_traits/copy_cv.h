@@ -23,27 +23,23 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Let COPYCV(FROM, TO) be an alias for type TO with the addition of FROM's
 // top-level cv-qualifiers.
 template <class _From, class _To>
-struct __copy_cv
-{
-    using type = _To;
+struct __copy_cv {
+  using type = _To;
 };
 
 template <class _From, class _To>
-struct __copy_cv<const _From, _To>
-{
-    using type = typename add_const<_To>::type;
+struct __copy_cv<const _From, _To> {
+  using type = typename add_const<_To>::type;
 };
 
 template <class _From, class _To>
-struct __copy_cv<volatile _From, _To>
-{
-    using type = typename add_volatile<_To>::type;
+struct __copy_cv<volatile _From, _To> {
+  using type = typename add_volatile<_To>::type;
 };
 
 template <class _From, class _To>
-struct __copy_cv<const volatile _From, _To>
-{
-    using type = typename add_cv<_To>::type;
+struct __copy_cv<const volatile _From, _To> {
+  using type = typename add_cv<_To>::type;
 };
 
 template <class _From, class _To>

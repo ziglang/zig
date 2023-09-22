@@ -991,6 +991,16 @@ test "closure capture type of runtime-known parameter" {
     try S.b(c);
 }
 
+test "closure capture type of runtime-known var" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var x: u32 = 1234;
+    const S = struct { val: @TypeOf(x + 100) };
+    const s: S = .{ .val = x };
+    try expect(s.val == 1234);
+}
+
 test "comptime break passing through runtime condition converted to runtime break" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;

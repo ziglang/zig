@@ -18,7 +18,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -40,10 +40,6 @@ public:
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator==(const month_weekday& __lhs, const month_weekday& __rhs) noexcept
 { return __lhs.month() == __rhs.month() && __lhs.weekday_indexed() == __rhs.weekday_indexed(); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const month_weekday& __lhs, const month_weekday& __rhs) noexcept
-{ return !(__lhs == __rhs); }
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 month_weekday operator/(const month& __lhs, const weekday_indexed& __rhs) noexcept
@@ -78,11 +74,6 @@ bool operator==(const month_weekday_last& __lhs, const month_weekday_last& __rhs
 { return __lhs.month() == __rhs.month() && __lhs.weekday_last() == __rhs.weekday_last(); }
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const month_weekday_last& __lhs, const month_weekday_last& __rhs) noexcept
-{ return !(__lhs == __rhs); }
-
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
 month_weekday_last operator/(const month& __lhs, const weekday_last& __rhs) noexcept
 { return month_weekday_last{__lhs, __rhs}; }
 
@@ -101,6 +92,6 @@ month_weekday_last operator/(const weekday_last& __lhs, int __rhs) noexcept
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_MONTH_WEEKDAY_H

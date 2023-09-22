@@ -15,9 +15,9 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_FUNC_VIS void declare_reachable(void*) {}
-_LIBCPP_FUNC_VIS void declare_no_pointers(char*, size_t) {}
-_LIBCPP_FUNC_VIS void undeclare_no_pointers(char*, size_t) {}
-_LIBCPP_FUNC_VIS void* __undeclare_reachable(void* p) { return p; }
+_LIBCPP_EXPORTED_FROM_ABI void declare_reachable(void*) {}
+_LIBCPP_EXPORTED_FROM_ABI void declare_no_pointers(char*, size_t) {}
+_LIBCPP_EXPORTED_FROM_ABI void undeclare_no_pointers(char*, size_t) {}
+_LIBCPP_EXPORTED_FROM_ABI void* __undeclare_reachable(void* p) { return p; }
 
 _LIBCPP_END_NAMESPACE_STD

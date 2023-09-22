@@ -11,7 +11,7 @@ file_index: File.Index = 0,
 size: u64 = 0,
 
 /// Alignment of this atom as a power of two.
-alignment: u8 = 0,
+alignment: Alignment = .@"1",
 
 /// Index of the input section.
 input_section_index: Index = 0,
@@ -41,6 +41,8 @@ fde_end: u32 = 0,
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: Index = 0,
 next_index: Index = 0,
+
+pub const Alignment = @import("../../InternPool.zig").Alignment;
 
 pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     return elf_file.strtab.getAssumeExists(self.name_offset);
@@ -112,7 +114,6 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
-    const alignment = try std.math.powi(u64, 2, self.alignment);
 
     // We use these to indicate our intention to update metadata, placing the new atom,
     // and possibly removing a free list node.
@@ -136,7 +137,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             const ideal_capacity_end_vaddr = std.math.add(u64, big_atom.value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = big_atom.value + cap;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = std.mem.alignBackward(u64, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = self.alignment.backward(new_start_vaddr_unaligned);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the block that it points to has grown to take up
@@ -163,7 +164,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         } else if (elf_file.atom(last_atom_index.*)) |last| {
             const ideal_capacity = Elf.padToIdeal(last.size);
             const ideal_capacity_end_vaddr = last.value + ideal_capacity;
-            const new_start_vaddr = std.mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
             // Set up the metadata to be updated, after errors are no longer possible.
             atom_placement = last.atom_index;
             break :blk new_start_vaddr;
@@ -192,7 +193,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             elf_file.debug_aranges_section_dirty = true;
         }
     }
-    shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
+    shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnitsOptional().?);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
@@ -224,10 +225,8 @@ pub fn shrink(self: *Atom, elf_file: *Elf) void {
 }
 
 pub fn grow(self: *Atom, elf_file: *Elf) !void {
-    const alignment = try std.math.powi(u64, 2, self.alignment);
-    const align_ok = std.mem.alignBackward(u64, self.value, alignment) == self.value;
-    const need_realloc = !align_ok or self.size > self.capacity(elf_file);
-    if (need_realloc) try self.allocate(elf_file);
+    if (!self.alignment.check(self.value) or self.size > self.capacity(elf_file))
+        try self.allocate(elf_file);
 }
 
 pub fn free(self: *Atom, elf_file: *Elf) void {

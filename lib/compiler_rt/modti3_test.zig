@@ -33,5 +33,5 @@ fn make_ti(high: u64, low: u64) i128 {
     var result: u128 = high;
     result <<= 64;
     result |= low;
-    return @as(i128, @bitCast(result));
+    return @bitCast(result);
 }

@@ -14,3 +14,15 @@
 #ifdef max
 #  undef max
 #endif
+
+#ifdef refresh
+#  undef refresh
+#endif
+
+#ifdef move
+#  undef move
+#endif
+
+#ifdef erase
+#  undef erase
+#endif

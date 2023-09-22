@@ -22,7 +22,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int bit_width(_Tp __t) noexcept {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int bit_width(_Tp __t) noexcept {
   return __t == 0 ? 0 : std::__bit_log2(__t) + 1;
 }
 

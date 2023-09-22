@@ -82,8 +82,8 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
 
     var highA: u64 = 0;
     var highB: u64 = 0;
-    var lowA: u64 = @as(u64, @truncate(aRep));
-    var lowB: u64 = @as(u64, @truncate(bRep));
+    var lowA: u64 = @truncate(aRep);
+    var lowB: u64 = @truncate(bRep);
 
     while (expA > expB) : (expA -= 1) {
         var high = highA -% highB;
@@ -125,7 +125,7 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     if (expA < -fractionalBits) {
         return @bitCast(signA);
     } else if (expA <= 0) {
-        return @bitCast((lowA >> @as(math.Log2Int(u64), @intCast(1 - expA))) | signA);
+        return @bitCast((lowA >> @intCast(1 - expA)) | signA);
     } else {
         return @bitCast(lowA | (@as(Z, @as(u16, @intCast(expA))) << significandBits) | signA);
     }
@@ -136,10 +136,10 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
 pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     var amod = a;
     var bmod = b;
-    const aPtr_u64 = @as([*]u64, @ptrCast(&amod));
-    const bPtr_u64 = @as([*]u64, @ptrCast(&bmod));
-    const aPtr_u16 = @as([*]u16, @ptrCast(&amod));
-    const bPtr_u16 = @as([*]u16, @ptrCast(&bmod));
+    const aPtr_u64: [*]u64 = @ptrCast(&amod);
+    const bPtr_u64: [*]u64 = @ptrCast(&bmod);
+    const aPtr_u16: [*]u16 = @ptrCast(&amod);
+    const bPtr_u16: [*]u16 = @ptrCast(&bmod);
 
     const exp_and_sign_index = comptime switch (builtin.target.cpu.arch.endian()) {
         .Little => 7,
@@ -173,8 +173,8 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     }
 
     // Remove the sign from both
-    aPtr_u16[exp_and_sign_index] = @as(u16, @bitCast(@as(i16, @intCast(expA))));
-    bPtr_u16[exp_and_sign_index] = @as(u16, @bitCast(@as(i16, @intCast(expB))));
+    aPtr_u16[exp_and_sign_index] = @bitCast(@as(i16, @intCast(expA)));
+    bPtr_u16[exp_and_sign_index] = @bitCast(@as(i16, @intCast(expB)));
     if (amod <= bmod) {
         if (amod == bmod) {
             return 0 * a;
@@ -264,7 +264,6 @@ pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
 inline fn generic_fmod(comptime T: type, x: T, y: T) T {
     const bits = @typeInfo(T).Float.bits;
     const uint = std.meta.Int(.unsigned, bits);
-    const log2uint = math.Log2Int(uint);
     comptime assert(T == f32 or T == f64);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;
@@ -293,7 +292,7 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
             ex -= 1;
             i <<= 1;
         }) {}
-        ux <<= @as(log2uint, @intCast(@as(u32, @bitCast(-ex + 1))));
+        ux <<= @intCast(@as(u32, @bitCast(-ex + 1)));
     } else {
         ux &= math.maxInt(uint) >> exp_bits;
         ux |= 1 << digits;
@@ -304,7 +303,7 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
             ey -= 1;
             i <<= 1;
         }) {}
-        uy <<= @as(log2uint, @intCast(@as(u32, @bitCast(-ey + 1))));
+        uy <<= @intCast(@as(u32, @bitCast(-ey + 1)));
     } else {
         uy &= math.maxInt(uint) >> exp_bits;
         uy |= 1 << digits;
@@ -336,7 +335,7 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
         ux -%= 1 << digits;
         ux |= @as(uint, @as(u32, @bitCast(ex))) << digits;
     } else {
-        ux >>= @as(log2uint, @intCast(@as(u32, @bitCast(-ex + 1))));
+        ux >>= @intCast(@as(u32, @bitCast(-ex + 1)));
     }
     if (T == f32) {
         ux |= sx;

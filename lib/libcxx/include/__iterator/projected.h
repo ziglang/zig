@@ -21,7 +21,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template<indirectly_readable _It, indirectly_regular_unary_invocable<_It> _Proj>
 struct projected {
@@ -34,7 +34,7 @@ struct incrementable_traits<projected<_It, _Proj>> {
   using difference_type = iter_difference_t<_It>;
 };
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

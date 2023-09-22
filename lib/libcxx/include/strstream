@@ -141,12 +141,12 @@ private:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-class _LIBCPP_TYPE_VIS strstreambuf
+class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI strstreambuf
     : public streambuf
 {
 public:
 #ifndef _LIBCPP_CXX03_LANG
-    strstreambuf() : strstreambuf(0) {}
+    _LIBCPP_HIDE_FROM_ABI strstreambuf() : strstreambuf(0) {}
     explicit strstreambuf(streamsize __alsize);
 #else
     explicit strstreambuf(streamsize __alsize = 0);
@@ -237,7 +237,7 @@ strstreambuf::operator=(strstreambuf&& __rhs)
 
 #endif // _LIBCPP_CXX03_LANG
 
-class _LIBCPP_TYPE_VIS istrstream
+class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI istrstream
     : public istream
 {
 public:
@@ -256,8 +256,8 @@ public:
 
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    istrstream(istrstream&& __rhs)
-        : istream(_VSTD::move(__rhs)),
+    istrstream(istrstream&& __rhs)  // extension
+        : istream(_VSTD::move(static_cast<istream&>(__rhs))),
           __sb_(_VSTD::move(__rhs.__sb_))
     {
         istream::set_rdbuf(&__sb_);
@@ -290,7 +290,7 @@ private:
     strstreambuf __sb_;
 };
 
-class _LIBCPP_TYPE_VIS ostrstream
+class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI ostrstream
     : public ostream
 {
 public:
@@ -305,8 +305,8 @@ public:
 
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    ostrstream(ostrstream&& __rhs)
-        : ostream(_VSTD::move(__rhs)),
+    ostrstream(ostrstream&& __rhs)  // extension
+        : ostream(_VSTD::move(static_cast<ostream&>(__rhs))),
           __sb_(_VSTD::move(__rhs.__sb_))
     {
         ostream::set_rdbuf(&__sb_);
@@ -343,7 +343,7 @@ private:
     strstreambuf __sb_; // exposition only
 };
 
-class _LIBCPP_TYPE_VIS strstream
+class _LIBCPP_DEPRECATED _LIBCPP_EXPORTED_FROM_ABI strstream
     : public iostream
 {
 public:
@@ -365,8 +365,8 @@ public:
 
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    strstream(strstream&& __rhs)
-        : iostream(_VSTD::move(__rhs)),
+    strstream(strstream&& __rhs)  // extension
+        : iostream(_VSTD::move(static_cast<iostream&>(__rhs))),
           __sb_(_VSTD::move(__rhs.__sb_))
     {
         iostream::set_rdbuf(&__sb_);

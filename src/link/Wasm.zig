@@ -187,8 +187,10 @@ debug_pubtypes_atom: ?Atom.Index = null,
 /// rather than by the linker.
 synthetic_functions: std.ArrayListUnmanaged(Atom.Index) = .{},
 
+pub const Alignment = types.Alignment;
+
 pub const Segment = struct {
-    alignment: u32,
+    alignment: Alignment,
     size: u32,
     offset: u32,
     flags: u32,
@@ -1490,7 +1492,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
-    atom.size = @as(u32, @intCast(code.len));
+    atom.size = @intCast(code.len);
     if (code.len == 0) return;
     atom.alignment = decl.getAlignment(mod);
 }
@@ -2050,7 +2052,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     };
 
     const segment: *Segment = &wasm.segments.items[final_index];
-    segment.alignment = @max(segment.alignment, atom.alignment);
+    segment.alignment = segment.alignment.max(atom.alignment);
 
     try wasm.appendAtomAtIndex(final_index, atom_index);
 }
@@ -2121,7 +2123,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
                     }
                 }
             }
-            offset = std.mem.alignForward(u32, offset, atom.alignment);
+            offset = @intCast(atom.alignment.forward(offset));
             atom.offset = offset;
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
                 symbol_loc.getName(wasm),
@@ -2132,7 +2134,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
             offset += atom.size;
             atom_index = atom.prev orelse break;
         }
-        segment.size = std.mem.alignForward(u32, offset, segment.alignment);
+        segment.size = @intCast(segment.alignment.forward(offset));
     }
 }
 
@@ -2351,7 +2353,7 @@ fn createSyntheticFunction(
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
-        .alignment = 1,
+        .alignment = .@"1",
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
@@ -2382,11 +2384,11 @@ pub fn createFunction(
     const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = .{
-        .size = @as(u32, @intCast(function_body.items.len)),
+        .size = @intCast(function_body.items.len),
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
-        .alignment = 1,
+        .alignment = .@"1",
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
@@ -2734,8 +2736,8 @@ fn setupMemory(wasm: *Wasm) !void {
     const page_size = std.wasm.page_size; // 64kb
     // Use the user-provided stack size or else we use 1MB by default
     const stack_size = wasm.base.options.stack_size_override orelse page_size * 16;
-    const stack_alignment = 16; // wasm's stack alignment as specified by tool-convention
-    const heap_alignment = 16; // wasm's heap alignment as specified by tool-convention
+    const stack_alignment: Alignment = .@"16"; // wasm's stack alignment as specified by tool-convention
+    const heap_alignment: Alignment = .@"16"; // wasm's heap alignment as specified by tool-convention
 
     // Always place the stack at the start by default
     // unless the user specified the global-base flag
@@ -2748,7 +2750,7 @@ fn setupMemory(wasm: *Wasm) !void {
     const is_obj = wasm.base.options.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
+        memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += stack_size;
         // We always put the stack pointer global at index 0
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
@@ -2758,7 +2760,7 @@ fn setupMemory(wasm: *Wasm) !void {
     var data_seg_it = wasm.data_segments.iterator();
     while (data_seg_it.next()) |entry| {
         const segment = &wasm.segments.items[entry.value_ptr.*];
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, segment.alignment);
+        memory_ptr = segment.alignment.forward(memory_ptr);
 
         // set TLS-related symbols
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
@@ -2768,7 +2770,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment);
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnitsOptional().?);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
@@ -2795,7 +2797,7 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     if (!place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
+        memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += stack_size;
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
@@ -2804,7 +2806,7 @@ fn setupMemory(wasm: *Wasm) !void {
     // We must set its virtual address so it can be used in relocations.
     if (wasm.findGlobalSymbol("__heap_base")) |loc| {
         const symbol = loc.getSymbol(wasm);
-        symbol.virtual_address = @as(u32, @intCast(mem.alignForward(u64, memory_ptr, heap_alignment)));
+        symbol.virtual_address = @intCast(heap_alignment.forward(memory_ptr));
     }
 
     // Setup the max amount of pages
@@ -2879,7 +2881,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
-                    .alignment = 1,
+                    .alignment = .@"1",
                     .size = 0,
                     .offset = 0,
                     .flags = flags,
@@ -2954,7 +2956,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
 /// Appends a new segment with default field values
 fn appendDummySegment(wasm: *Wasm) !void {
     try wasm.segments.append(wasm.base.allocator, .{
-        .alignment = 1,
+        .alignment = .@"1",
         .size = 0,
         .offset = 0,
         .flags = 0,
@@ -3011,7 +3013,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     // the pointers into the list using addends which are appended to the relocation.
     const names_atom_index = try wasm.createAtom();
     const names_atom = wasm.getAtomPtr(names_atom_index);
-    names_atom.alignment = 1;
+    names_atom.alignment = .@"1";
     const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_names");
     const names_symbol = &wasm.symbols.items[names_atom.sym_index];
     names_symbol.* = .{
@@ -3085,7 +3087,7 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
     };
 
-    atom.alignment = 1; // debug sections are always 1-byte-aligned
+    atom.alignment = .@"1"; // debug sections are always 1-byte-aligned
     return atom_index;
 }
 
@@ -4724,12 +4726,12 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     for (wasm.segment_info.values()) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
             segment_info.name,
-            @ctz(segment_info.alignment),
+            segment_info.alignment,
             segment_info.flags,
         });
         try leb.writeULEB128(writer, @as(u32, @intCast(segment_info.name.len)));
         try writer.writeAll(segment_info.name);
-        try leb.writeULEB128(writer, @ctz(segment_info.alignment));
+        try leb.writeULEB128(writer, segment_info.alignment.toLog2Units());
         try leb.writeULEB128(writer, segment_info.flags);
     }
 

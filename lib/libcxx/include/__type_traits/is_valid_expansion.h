@@ -18,12 +18,12 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <template <class...> class _Templ, class ..._Args, class = _Templ<_Args...> >
+template <template <class...> class _Templ, class... _Args, class = _Templ<_Args...> >
 true_type __sfinae_test_impl(int);
-template <template <class...> class, class ...>
+template <template <class...> class, class...>
 false_type __sfinae_test_impl(...);
 
-template <template <class ...> class _Templ, class ..._Args>
+template <template <class...> class _Templ, class... _Args>
 using _IsValidExpansion _LIBCPP_NODEBUG = decltype(std::__sfinae_test_impl<_Templ, _Args...>(0));
 
 _LIBCPP_END_NAMESPACE_STD

@@ -17,15 +17,15 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
-_LIBCPP_INLINE_VISIBILITY
-inline constexpr bool is_constant_evaluated() noexcept {
+#if _LIBCPP_STD_VER >= 20
+_LIBCPP_INLINE_VISIBILITY inline constexpr bool is_constant_evaluated() noexcept {
   return __builtin_is_constant_evaluated();
 }
 #endif
 
-_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR
-bool __libcpp_is_constant_evaluated() _NOEXCEPT { return __builtin_is_constant_evaluated(); }
+_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR bool __libcpp_is_constant_evaluated() _NOEXCEPT {
+  return __builtin_is_constant_evaluated();
+}
 
 _LIBCPP_END_NAMESPACE_STD
 

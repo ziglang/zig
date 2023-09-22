@@ -59,3 +59,6 @@ typedef _Bool uintptr_t;
 
 #define REMAINDER_CONSTANT(version) (version % 10000)
 #define REMAINDER_ARGS(A, B) (A % B)
+
+#define LONG(x) x##L
+#define X LONG(10)

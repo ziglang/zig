@@ -19,7 +19,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 namespace __itoa {
 
@@ -62,32 +62,41 @@ inline constexpr char __base_16_lut[512] = {
     'f', 'd', 'f', 'e', 'f', 'f'};
 
 inline constexpr uint32_t __pow10_32[10] = {
-    UINT32_C(0),      UINT32_C(10),      UINT32_C(100),      UINT32_C(1000),      UINT32_C(10000),
-    UINT32_C(100000), UINT32_C(1000000), UINT32_C(10000000), UINT32_C(100000000), UINT32_C(1000000000)};
+    UINT32_C(0),
+    UINT32_C(10),
+    UINT32_C(100),
+    UINT32_C(1000),
+    UINT32_C(10000),
+    UINT32_C(100000),
+    UINT32_C(1000000),
+    UINT32_C(10000000),
+    UINT32_C(100000000),
+    UINT32_C(1000000000)};
 
-inline constexpr uint64_t __pow10_64[20] = {UINT64_C(0),
-                                               UINT64_C(10),
-                                               UINT64_C(100),
-                                               UINT64_C(1000),
-                                               UINT64_C(10000),
-                                               UINT64_C(100000),
-                                               UINT64_C(1000000),
-                                               UINT64_C(10000000),
-                                               UINT64_C(100000000),
-                                               UINT64_C(1000000000),
-                                               UINT64_C(10000000000),
-                                               UINT64_C(100000000000),
-                                               UINT64_C(1000000000000),
-                                               UINT64_C(10000000000000),
-                                               UINT64_C(100000000000000),
-                                               UINT64_C(1000000000000000),
-                                               UINT64_C(10000000000000000),
-                                               UINT64_C(100000000000000000),
-                                               UINT64_C(1000000000000000000),
-                                               UINT64_C(10000000000000000000)};
+inline constexpr uint64_t __pow10_64[20] = {
+    UINT64_C(0),
+    UINT64_C(10),
+    UINT64_C(100),
+    UINT64_C(1000),
+    UINT64_C(10000),
+    UINT64_C(100000),
+    UINT64_C(1000000),
+    UINT64_C(10000000),
+    UINT64_C(100000000),
+    UINT64_C(1000000000),
+    UINT64_C(10000000000),
+    UINT64_C(100000000000),
+    UINT64_C(1000000000000),
+    UINT64_C(10000000000000),
+    UINT64_C(100000000000000),
+    UINT64_C(1000000000000000),
+    UINT64_C(10000000000000000),
+    UINT64_C(100000000000000000),
+    UINT64_C(1000000000000000000),
+    UINT64_C(10000000000000000000)};
 
 #  ifndef _LIBCPP_HAS_NO_INT128
-inline constexpr int __pow10_128_offset = 0;
+inline constexpr int __pow10_128_offset      = 0;
 inline constexpr __uint128_t __pow10_128[40] = {
     UINT64_C(0),
     UINT64_C(10),
@@ -147,7 +156,7 @@ inline constexpr char __digits_base_10[200] = {
 
 } // namespace __itoa
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

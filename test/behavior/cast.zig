@@ -334,10 +334,11 @@ test "*const ?[*]const T to [*c]const [*c]const T" {
     try expect(b[0][1] == 'k');
 }
 
-test "array coersion to undefined at runtime" {
+test "array coercion to undefined at runtime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     @setRuntimeSafety(true);
 
@@ -1156,6 +1157,11 @@ fn foobar(func: PFN_void) !void {
 test "cast function with an opaque parameter" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_c) {
+        // https://github.com/ziglang/zig/issues/16845
+        return error.SkipZigTest;
+    }
+
     const Container = struct {
         const Ctx = opaque {};
         ctx: *Ctx,
@@ -1193,7 +1199,7 @@ test "implicit ptr to *anyopaque" {
     try expect(c.* == 1);
 }
 
-test "return null from fn() anyerror!?&T" {
+test "return null from fn () anyerror!?&T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;

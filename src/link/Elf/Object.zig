@@ -181,10 +181,10 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
         const data = try self.shdrContents(shndx);
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         atom.size = chdr.ch_size;
-        atom.alignment = math.log2_int(u64, chdr.ch_addralign);
+        atom.alignment = Alignment.fromNonzeroByteUnits(chdr.ch_addralign);
     } else {
         atom.size = shdr.sh_size;
-        atom.alignment = math.log2_int(u64, shdr.sh_addralign);
+        atom.alignment = Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
     }
 }
 
@@ -571,7 +571,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         atom.file = self.index;
         atom.size = this_sym.st_size;
         const alignment = this_sym.st_value;
-        atom.alignment = math.log2_int(u64, alignment);
+        atom.alignment = Alignment.fromNonzeroByteUnits(alignment);
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -870,3 +870,4 @@ const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const StringTable = @import("../strtab.zig").StringTable;
 const Symbol = @import("Symbol.zig");
+const Alignment = Atom.Alignment;

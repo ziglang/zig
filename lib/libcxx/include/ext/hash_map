@@ -208,7 +208,6 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 #include <ext/__hash>
 #include <functional>
 #include <stdexcept>
-#include <type_traits>
 
 #if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
@@ -324,7 +323,7 @@ public:
     bool __first_constructed;
     bool __second_constructed;
 
-    __hash_map_node_destructor(__hash_map_node_destructor const&) = default;
+    _LIBCPP_HIDE_FROM_ABI __hash_map_node_destructor(__hash_map_node_destructor const&) = default;
     __hash_map_node_destructor& operator=(const __hash_map_node_destructor&) = delete;
 
     _LIBCPP_INLINE_VISIBILITY
@@ -508,23 +507,23 @@ public:
     typedef __hash_map_const_iterator<typename __table::const_iterator> const_iterator;
 
     _LIBCPP_INLINE_VISIBILITY hash_map() { }
-    explicit hash_map(size_type __n, const hasher& __hf = hasher(),
+    explicit _LIBCPP_HIDE_FROM_ABI hash_map(size_type __n, const hasher& __hf = hasher(),
                            const key_equal& __eql = key_equal());
-    hash_map(size_type __n, const hasher& __hf,
+    _LIBCPP_HIDE_FROM_ABI hash_map(size_type __n, const hasher& __hf,
                   const key_equal& __eql,
                   const allocator_type& __a);
     template <class _InputIterator>
-        hash_map(_InputIterator __first, _InputIterator __last);
+    _LIBCPP_HIDE_FROM_ABI hash_map(_InputIterator __first, _InputIterator __last);
     template <class _InputIterator>
-        hash_map(_InputIterator __first, _InputIterator __last,
+    _LIBCPP_HIDE_FROM_ABI hash_map(_InputIterator __first, _InputIterator __last,
                       size_type __n, const hasher& __hf = hasher(),
                       const key_equal& __eql = key_equal());
     template <class _InputIterator>
-        hash_map(_InputIterator __first, _InputIterator __last,
+    _LIBCPP_HIDE_FROM_ABI hash_map(_InputIterator __first, _InputIterator __last,
                       size_type __n, const hasher& __hf,
                       const key_equal& __eql,
                       const allocator_type& __a);
-    hash_map(const hash_map& __u);
+    _LIBCPP_HIDE_FROM_ABI hash_map(const hash_map& __u);
 
     _LIBCPP_INLINE_VISIBILITY
     allocator_type get_allocator() const
@@ -588,7 +587,7 @@ public:
     std::pair<const_iterator, const_iterator> equal_range(const key_type& __k) const
         {return __table_.__equal_range_unique(__k);}
 
-    mapped_type& operator[](const key_type& __k);
+    _LIBCPP_HIDE_FROM_ABI mapped_type& operator[](const key_type& __k);
 
     _LIBCPP_INLINE_VISIBILITY
     size_type bucket_count() const {return __table_.bucket_count();}
@@ -603,7 +602,7 @@ public:
     void resize(size_type __n) {__table_.__rehash_unique(__n);}
 
 private:
-    __node_holder __construct_node(const key_type& __k);
+    _LIBCPP_HIDE_FROM_ABI __node_holder __construct_node(const key_type& __k);
 };
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -780,23 +779,23 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     hash_multimap() { }
-    explicit hash_multimap(size_type __n, const hasher& __hf = hasher(),
+    explicit _LIBCPP_HIDE_FROM_ABI hash_multimap(size_type __n, const hasher& __hf = hasher(),
                                 const key_equal& __eql = key_equal());
-    hash_multimap(size_type __n, const hasher& __hf,
+    _LIBCPP_HIDE_FROM_ABI hash_multimap(size_type __n, const hasher& __hf,
                                 const key_equal& __eql,
                                 const allocator_type& __a);
     template <class _InputIterator>
-        hash_multimap(_InputIterator __first, _InputIterator __last);
+    _LIBCPP_HIDE_FROM_ABI hash_multimap(_InputIterator __first, _InputIterator __last);
     template <class _InputIterator>
-        hash_multimap(_InputIterator __first, _InputIterator __last,
+    _LIBCPP_HIDE_FROM_ABI hash_multimap(_InputIterator __first, _InputIterator __last,
                       size_type __n, const hasher& __hf = hasher(),
                       const key_equal& __eql = key_equal());
     template <class _InputIterator>
-        hash_multimap(_InputIterator __first, _InputIterator __last,
+    _LIBCPP_HIDE_FROM_ABI hash_multimap(_InputIterator __first, _InputIterator __last,
                       size_type __n, const hasher& __hf,
                       const key_equal& __eql,
                       const allocator_type& __a);
-    hash_multimap(const hash_multimap& __u);
+    _LIBCPP_HIDE_FROM_ABI hash_multimap(const hash_multimap& __u);
 
     _LIBCPP_INLINE_VISIBILITY
     allocator_type get_allocator() const
@@ -985,6 +984,7 @@ operator!=(const hash_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>& __x,
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <concepts>
 #  include <iterator>
+#  include <type_traits>
 #endif
 
 #endif // _LIBCPP_HASH_MAP

@@ -37,7 +37,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace ranges {
 
@@ -72,6 +72,9 @@ namespace ranges {
 
   template <range _Rp>
   using range_rvalue_reference_t = iter_rvalue_reference_t<iterator_t<_Rp>>;
+
+  template <range _Rp>
+  using range_common_reference_t = iter_common_reference_t<iterator_t<_Rp>>;
 
   // [range.sized]
   template <class _Tp>
@@ -140,7 +143,7 @@ namespace ranges {
 
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

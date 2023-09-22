@@ -28,7 +28,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifdef NEEDS_MUTEX_DESTRUCTOR
-class _LIBCPP_TYPE_VIS mutex
+class _LIBCPP_EXPORTED_FROM_ABI mutex
 {
     __libcpp_mutex_t __m_ = _LIBCPP_MUTEX_INITIALIZER;
 

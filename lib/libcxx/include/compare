@@ -151,6 +151,7 @@ namespace std {
 #include <__compare/ordering.h>
 #include <__compare/partial_order.h>
 #include <__compare/strong_order.h>
+#include <__compare/synth_three_way.h>
 #include <__compare/three_way_comparable.h>
 #include <__compare/weak_order.h>
 #include <__config>

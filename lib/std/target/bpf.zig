@@ -66,6 +66,8 @@ pub const cpu = struct {
     pub const v3 = CpuModel{
         .name = "v3",
         .llvm_name = "v3",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{
+            .alu32,
+        }),
     };
 };

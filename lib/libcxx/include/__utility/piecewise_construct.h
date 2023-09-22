@@ -18,10 +18,11 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 struct _LIBCPP_TEMPLATE_VIS piecewise_construct_t { explicit piecewise_construct_t() = default; };
-#if defined(_LIBCPP_CXX03_LANG) || defined(_LIBCPP_BUILDING_LIBRARY)
-extern _LIBCPP_EXPORTED_FROM_ABI const piecewise_construct_t piecewise_construct;// = piecewise_construct_t();
-#else
-/* inline */ constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();
+
+#if _LIBCPP_STD_VER >= 17
+inline constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();
+#elif !defined(_LIBCPP_CXX03_LANG)
+constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

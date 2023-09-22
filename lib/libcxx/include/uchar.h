@@ -42,10 +42,12 @@ size_t c32rtomb(char* s, char32_t c32, mbstate_t* ps);
 
 // Some platforms don't implement <uchar.h> and we don't want to give a hard
 // error on those platforms. When the platform doesn't provide <uchar.h>, at
-// least include <stddef.h> so we get the declaration for size_t.
+// least include <stddef.h> so we get the declaration for size_t, and try to
+// get the declaration of mbstate_t too.
 #if __has_include_next(<uchar.h>)
 # include_next <uchar.h>
 #else
+# include <__mbstate_t.h>
 # include <stddef.h>
 #endif
 

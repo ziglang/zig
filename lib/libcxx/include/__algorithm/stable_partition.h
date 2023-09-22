@@ -21,7 +21,6 @@
 #include <__utility/move.h>
 #include <__utility/pair.h>
 #include <new>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -123,7 +122,10 @@ _LIBCPP_HIDE_FROM_ABI _ForwardIterator
 __stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred,
                    forward_iterator_tag)
 {
-    const unsigned __alloc_limit = 3;  // might want to make this a function of trivial assignment
+    typedef typename iterator_traits<_ForwardIterator>::difference_type difference_type;
+    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
+
+    const difference_type __alloc_limit = 3;  // might want to make this a function of trivial assignment
     // Either prove all true and return __first or point to first false
     while (true)
     {
@@ -135,8 +137,6 @@ __stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Pred
     }
     // We now have a reduced range [__first, __last)
     // *__first is known to be false
-    typedef typename iterator_traits<_ForwardIterator>::difference_type difference_type;
-    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
     difference_type __len = _IterOps<_AlgPolicy>::distance(__first, __last);
     pair<value_type*, ptrdiff_t> __p(0, 0);
     unique_ptr<value_type, __return_temporary_buffer> __h;

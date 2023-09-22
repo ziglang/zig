@@ -25,7 +25,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 namespace __itoa {
 
@@ -72,7 +72,8 @@ _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI char* __append10(char* __fir
                            static_cast<uint32_t>(__value % 100000000));
 }
 
-_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u32(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char*
+__base_10_u32(char* __first, uint32_t __value) noexcept {
   if (__value < 1000000) {
     if (__value < 10000) {
       if (__value < 100) {
@@ -107,7 +108,8 @@ _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u32(c
   return __itoa::__append10(__first, __value);
 }
 
-_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u64(char* __buffer, uint64_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char*
+__base_10_u64(char* __buffer, uint64_t __value) noexcept {
   if (__value <= UINT32_MAX)
     return __itoa::__base_10_u32(__buffer, static_cast<uint32_t>(__value));
 
@@ -130,12 +132,13 @@ _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u64(c
 /// range that can be used. However the range is sufficient for
 /// \ref __base_10_u128.
 _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline __uint128_t __pow_10(int __exp) noexcept {
-  _LIBCPP_ASSERT(__exp >= __pow10_128_offset, "Index out of bounds");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__exp >= __pow10_128_offset, "Index out of bounds");
   return __pow10_128[__exp - __pow10_128_offset];
 }
 
-_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(char* __buffer, __uint128_t __value) noexcept {
-  _LIBCPP_ASSERT(
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char*
+__base_10_u128(char* __buffer, __uint128_t __value) noexcept {
+  _LIBCPP_ASSERT_UNCATEGORIZED(
       __value > numeric_limits<uint64_t>::max(), "The optimizations for this algorithm fail when this isn't true.");
 
   // Unlike the 64 to 32 bit case the 128 bit case the "upper half" can't be
@@ -159,8 +162,7 @@ _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(
     __value %= __itoa::__pow_10(29);
     __buffer = __itoa::__append10(__buffer, static_cast<uint64_t>(__value / __itoa::__pow_10(19)));
     __value %= __itoa::__pow_10(19);
-  }
-  else {
+  } else {
     // step 2
     // This version needs to determine the position of the leading non-zero digit.
     __buffer = __base_10_u64(__buffer, static_cast<uint64_t>(__value / __itoa::__pow_10(19)));
@@ -176,7 +178,7 @@ _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(
 #  endif
 } // namespace __itoa
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

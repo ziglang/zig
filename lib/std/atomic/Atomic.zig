@@ -21,7 +21,7 @@ pub fn Atomic(comptime T: type) type {
         /// ```
         /// const RefCount = struct {
         ///     count: Atomic(usize),
-        ///     dropFn: *const fn(*RefCount) void,
+        ///     dropFn: *const fn (*RefCount) void,
         ///
         ///     fn ref(self: *RefCount) void {
         ///         _ =  self.count.fetchAdd(1, .Monotonic); // no ordering necessary, just updating a counter

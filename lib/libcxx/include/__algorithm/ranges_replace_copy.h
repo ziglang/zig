@@ -26,7 +26,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -37,55 +37,52 @@ using replace_copy_result = in_out_result<_InIter, _OutIter>;
 
 namespace __replace_copy {
 
-  struct __fn {
-    template <input_iterator _InIter,
-              sentinel_for<_InIter> _Sent,
-              class _OldType,
-              class _NewType,
-              output_iterator<const _NewType&> _OutIter,
-              class _Proj = identity>
-      requires indirectly_copyable<_InIter, _OutIter> &&
-               indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _OldType*>
-    _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<_InIter, _OutIter>
-    operator()(_InIter __first,
-               _Sent __last,
-               _OutIter __result,
-               const _OldType& __old_value,
-               const _NewType& __new_value,
-               _Proj __proj = {}) const {
-      auto __pred = [&](const auto& __value) { return __value == __old_value; };
-      return ranges::__replace_copy_if_impl(
-          std::move(__first), std::move(__last), std::move(__result), __pred, __new_value, __proj);
-    }
+struct __fn {
+  template <input_iterator _InIter,
+            sentinel_for<_InIter> _Sent,
+            class _OldType,
+            class _NewType,
+            output_iterator<const _NewType&> _OutIter,
+            class _Proj = identity>
+    requires indirectly_copyable<_InIter, _OutIter> &&
+             indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _OldType*>
+  _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<_InIter, _OutIter>
+  operator()(_InIter __first,
+             _Sent __last,
+             _OutIter __result,
+             const _OldType& __old_value,
+             const _NewType& __new_value,
+             _Proj __proj = {}) const {
+    auto __pred = [&](const auto& __value) { return __value == __old_value; };
+    return ranges::__replace_copy_if_impl(
+        std::move(__first), std::move(__last), std::move(__result), __pred, __new_value, __proj);
+  }
 
-    template <input_range _Range,
-              class _OldType,
-              class _NewType,
-              output_iterator<const _NewType&> _OutIter,
-              class _Proj = identity>
-      requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
-               indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _OldType*>
-    _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<borrowed_iterator_t<_Range>, _OutIter>
-    operator()(_Range&& __range,
-               _OutIter __result,
-               const _OldType& __old_value,
-               const _NewType& __new_value,
-               _Proj __proj = {}) const {
-      auto __pred = [&](const auto& __value) { return __value == __old_value; };
-      return ranges::__replace_copy_if_impl(
-          ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __new_value, __proj);
-    }
-  };
+  template <input_range _Range,
+            class _OldType,
+            class _NewType,
+            output_iterator<const _NewType&> _OutIter,
+            class _Proj = identity>
+    requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
+             indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _OldType*>
+  _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<borrowed_iterator_t<_Range>, _OutIter> operator()(
+      _Range&& __range, _OutIter __result, const _OldType& __old_value, const _NewType& __new_value, _Proj __proj = {})
+      const {
+    auto __pred = [&](const auto& __value) { return __value == __old_value; };
+    return ranges::__replace_copy_if_impl(
+        ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __new_value, __proj);
+  }
+};
 
 } // namespace __replace_copy
 
 inline namespace __cpo {
-  inline constexpr auto replace_copy = __replace_copy::__fn{};
+inline constexpr auto replace_copy = __replace_copy::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_REPLACE_COPY_H

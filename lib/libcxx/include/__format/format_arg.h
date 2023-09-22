@@ -13,15 +13,17 @@
 #include <__assert>
 #include <__concepts/arithmetic.h>
 #include <__config>
-#include <__format/format_error.h>
+#include <__format/concepts.h>
 #include <__format/format_fwd.h>
 #include <__format/format_parse_context.h>
 #include <__functional/invoke.h>
 #include <__memory/addressof.h>
+#include <__type_traits/conditional.h>
 #include <__utility/forward.h>
+#include <__utility/move.h>
 #include <__utility/unreachable.h>
 #include <__variant/monostate.h>
-#include <string>
+#include <cstdint>
 #include <string_view>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -30,7 +32,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace __format {
 /// The type stored in @ref basic_format_arg.
@@ -81,7 +83,7 @@ constexpr bool __use_packed_format_arg_store(size_t __size) { return __size <= _
 
 _LIBCPP_HIDE_FROM_ABI
 constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
-  _LIBCPP_ASSERT(__id <= __packed_types_max, "");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__id <= __packed_types_max, "");
 
   if (__id > 0)
     __types >>= __id * __packed_arg_t_bits;
@@ -94,7 +96,7 @@ constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
 // This function is not user obervable, so it can directly use the non-standard
 // types of the "variant". See __arg_t for more details.
 template <class _Visitor, class _Context>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT decltype(auto)
+_LIBCPP_HIDE_FROM_ABI decltype(auto)
 __visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   switch (__arg.__type_) {
   case __format::__arg_t::__none:
@@ -155,18 +157,14 @@ public:
   /// Contains the implementation for basic_format_arg::handle.
   struct __handle {
     template <class _Tp>
-    _LIBCPP_HIDE_FROM_ABI explicit __handle(_Tp&& __v) noexcept
+    _LIBCPP_HIDE_FROM_ABI explicit __handle(_Tp& __v) noexcept
         : __ptr_(_VSTD::addressof(__v)),
           __format_([](basic_format_parse_context<_CharT>& __parse_ctx, _Context& __ctx, const void* __ptr) {
-            using _Dp = remove_cvref_t<_Tp>;
-            using _Formatter = typename _Context::template formatter_type<_Dp>;
-            constexpr bool __const_formattable =
-                requires { _Formatter().format(std::declval<const _Dp&>(), std::declval<_Context&>()); };
-            using _Qp = conditional_t<__const_formattable, const _Dp, _Dp>;
+            using _Dp = remove_const_t<_Tp>;
+            using _Qp = conditional_t<__formattable_with<const _Dp, _Context>, const _Dp, _Dp>;
+            static_assert(__formattable_with<_Qp, _Context>, "Mandated by [format.arg]/10");
 
-            static_assert(__const_formattable || !is_const_v<remove_reference_t<_Tp>>, "Mandated by [format.arg]/18");
-
-            _Formatter __f;
+            typename _Context::template formatter_type<_Dp> __f;
             __parse_ctx.advance_to(__f.parse(__parse_ctx));
             __ctx.advance_to(__f.format(*const_cast<_Qp*>(static_cast<const _Dp*>(__ptr)), __ctx));
           }) {}
@@ -218,13 +216,11 @@ public:
   _LIBCPP_HIDE_FROM_ABI __basic_format_arg_value(basic_string_view<_CharT> __value) noexcept
       : __string_view_(__value) {}
   _LIBCPP_HIDE_FROM_ABI __basic_format_arg_value(const void* __value) noexcept : __ptr_(__value) {}
-  _LIBCPP_HIDE_FROM_ABI __basic_format_arg_value(__handle __value) noexcept
-      // TODO FMT Investigate why it doesn't work without the forward.
-      : __handle_(std::forward<__handle>(__value)) {}
+  _LIBCPP_HIDE_FROM_ABI __basic_format_arg_value(__handle&& __value) noexcept : __handle_(std::move(__value)) {}
 };
 
 template <class _Context>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT basic_format_arg {
+class _LIBCPP_TEMPLATE_VIS basic_format_arg {
 public:
   class _LIBCPP_TEMPLATE_VIS handle;
 
@@ -276,7 +272,7 @@ private:
 // This function is user facing, so it must wrap the non-standard types of
 // the "variant" in a handle to stay conforming. See __arg_t for more details.
 template <class _Visitor, class _Context>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT decltype(auto)
+_LIBCPP_HIDE_FROM_ABI decltype(auto)
 visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   switch (__arg.__type_) {
 #  ifndef _LIBCPP_HAS_NO_INT128
@@ -295,7 +291,7 @@ visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   }
 }
 
-#endif //_LIBCPP_STD_VER > 17
+#endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -19,9 +19,12 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 template<class _T1, class _T2 = _T1>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 _T1 exchange(_T1& __obj, _T2&& __new_value)
@@ -31,8 +34,10 @@ _T1 exchange(_T1& __obj, _T2&& __new_value)
     __obj = _VSTD::forward<_T2>(__new_value);
     return __old_value;
 }
-#endif // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___UTILITY_EXCHANGE_H

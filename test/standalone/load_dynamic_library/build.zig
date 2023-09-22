@@ -10,6 +10,11 @@ pub fn build(b: *std.Build) void {
 
     if (builtin.os.tag == .wasi) return;
 
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/16960
+        return;
+    }
+
     const lib = b.addSharedLibrary(.{
         .name = "add",
         .root_source_file = .{ .path = "add.zig" },

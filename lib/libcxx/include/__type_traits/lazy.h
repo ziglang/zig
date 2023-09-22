@@ -17,7 +17,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <template <class...> class _Func, class ..._Args>
+template <template <class...> class _Func, class... _Args>
 struct _Lazy : _Func<_Args...> {};
 
 _LIBCPP_END_NAMESPACE_STD

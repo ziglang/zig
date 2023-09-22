@@ -23,6 +23,7 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
+const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
@@ -506,11 +507,9 @@ fn gen(self: *Self) !void {
             // (or w0 when pointer size is 32 bits). As this register
             // might get overwritten along the way, save the address
             // to the stack.
-            const ptr_bits = self.target.ptrBitWidth();
-            const ptr_bytes = @divExact(ptr_bits, 8);
             const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
 
-            const stack_offset = try self.allocMem(ptr_bytes, ptr_bytes, null);
+            const stack_offset = try self.allocMem(8, .@"8", null);
 
             try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = ret_ptr_reg });
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
@@ -998,11 +997,11 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
 fn allocMem(
     self: *Self,
     abi_size: u32,
-    abi_align: u32,
+    abi_align: Alignment,
     maybe_inst: ?Air.Inst.Index,
 ) !u32 {
     assert(abi_size > 0);
-    assert(abi_align > 0);
+    assert(abi_align != .none);
 
     // In order to efficiently load and store stack items that fit
     // into registers, we bump up the alignment to the next power of
@@ -1010,10 +1009,10 @@ fn allocMem(
     const adjusted_align = if (abi_size > 8)
         abi_align
     else
-        std.math.ceilPowerOfTwoAssert(u32, abi_size);
+        Alignment.fromNonzeroByteUnits(std.math.ceilPowerOfTwoAssert(u64, abi_size));
 
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForward(u32, self.next_stack_offset, adjusted_align) + abi_size;
+    const offset: u32 = @intCast(adjusted_align.forward(self.next_stack_offset) + abi_size);
     self.next_stack_offset = offset;
     self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
@@ -1515,12 +1514,9 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const len = try self.resolveInst(bin_op.rhs);
         const len_ty = self.typeOf(bin_op.rhs);
 
-        const ptr_bits = self.target.ptrBitWidth();
-        const ptr_bytes = @divExact(ptr_bits, 8);
-
-        const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
+        const stack_offset = try self.allocMem(16, .@"8", inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
-        try self.genSetStack(len_ty, stack_offset - ptr_bytes, len);
+        try self.genSetStack(len_ty, stack_offset - 8, len);
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -3285,9 +3281,9 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue{ .register = reg };
         }
 
-        const optional_abi_size = @as(u32, @intCast(optional_ty.abiSize(mod)));
+        const optional_abi_size: u32 = @intCast(optional_ty.abiSize(mod));
         const optional_abi_align = optional_ty.abiAlignment(mod);
-        const offset = @as(u32, @intCast(payload_ty.abiSize(mod)));
+        const offset: u32 = @intCast(payload_ty.abiSize(mod));
 
         const stack_offset = try self.allocMem(optional_abi_size, optional_abi_align, inst);
         try self.genSetStack(payload_ty, stack_offset, operand);
@@ -3376,7 +3372,7 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.ptrBitWidth();
+        const ptr_bits = 64;
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
@@ -3400,7 +3396,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.ptrBitWidth();
+        const ptr_bits = 64;
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
@@ -4272,8 +4268,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (info.return_value == .stack_offset) {
         log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType(mod);
-        const ret_abi_size = @as(u32, @intCast(ret_ty.abiSize(mod)));
-        const ret_abi_align = @as(u32, @intCast(ret_ty.abiAlignment(mod)));
+        const ret_abi_size: u32 = @intCast(ret_ty.abiSize(mod));
+        const ret_abi_align = ret_ty.abiAlignment(mod);
         const stack_offset = try self.allocMem(ret_abi_size, ret_abi_align, inst);
 
         const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
@@ -5939,11 +5935,8 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const ptr = try self.resolveInst(ty_op.operand);
         const array_ty = ptr_ty.childType(mod);
         const array_len = @as(u32, @intCast(array_ty.arrayLen(mod)));
-
-        const ptr_bits = self.target.ptrBitWidth();
-        const ptr_bytes = @divExact(ptr_bits, 8);
-
-        const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
+        const ptr_bytes = 8;
+        const stack_offset = try self.allocMem(ptr_bytes * 2, .@"8", inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
         try self.genSetStack(Type.usize, stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
@@ -6254,7 +6247,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
-                if (ty.toType().abiAlignment(mod) == 16 and !self.target.isDarwin()) {
+                if (ty.toType().abiAlignment(mod) == .@"16" and !self.target.isDarwin()) {
                     // Round up NCRN to the next even number
                     ncrn += ncrn % 2;
                 }
@@ -6272,7 +6265,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     ncrn = 8;
                     // TODO Apple allows the arguments on the stack to be non-8-byte aligned provided
                     // that the entire stack space consumed by the arguments is 8-byte aligned.
-                    if (ty.toType().abiAlignment(mod) == 8) {
+                    if (ty.toType().abiAlignment(mod) == .@"8") {
                         if (nsaa % 8 != 0) {
                             nsaa += 8 - (nsaa % 8);
                         }
@@ -6312,10 +6305,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
                 if (ty.toType().abiSize(mod) > 0) {
-                    const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
+                    const param_size: u32 = @intCast(ty.toType().abiSize(mod));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
-                    stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
+                    stack_offset = @intCast(param_alignment.forward(stack_offset));
                     result_arg.* = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {

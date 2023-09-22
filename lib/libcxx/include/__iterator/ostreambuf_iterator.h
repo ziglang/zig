@@ -33,7 +33,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 public:
     typedef output_iterator_tag                 iterator_category;
     typedef void                                value_type;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     typedef ptrdiff_t                           difference_type;
 #else
     typedef void                                difference_type;

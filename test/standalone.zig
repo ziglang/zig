@@ -195,6 +195,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/load_dynamic_library/build.zig"),
     },
     .{
+        .build_root = "test/standalone/windows_resources",
+        .import = @import("standalone/windows_resources/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/windows_spawn",
         .import = @import("standalone/windows_spawn/build.zig"),
     },

@@ -111,7 +111,7 @@ locale_t uselocale(locale_t newloc) {
         tokenized.push_back(s);
     }
 
-    _LIBCPP_ASSERT(tokenized.size() >= _NCAT, "locale-name list is too short");
+    _LIBCPP_ASSERT_UNCATEGORIZED(tokenized.size() >= _NCAT, "locale-name list is too short");
 
     previous_loc->lc_collate = tokenized[LC_COLLATE];
     previous_loc->lc_ctype = tokenized[LC_CTYPE];

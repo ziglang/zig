@@ -20,7 +20,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 /// The default formatter template.
 ///
@@ -32,13 +32,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 /// - is_copy_assignable<F>, and
 /// - is_move_assignable<F>.
 template <class _Tp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter {
+struct _LIBCPP_TEMPLATE_VIS formatter {
   formatter() = delete;
   formatter(const formatter&) = delete;
   formatter& operator=(const formatter&) = delete;
 };
 
-#  if _LIBCPP_STD_VER > 20
+#  if _LIBCPP_STD_VER >= 23
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI constexpr void __set_debug_format(_Tp& __formatter) {
@@ -46,8 +46,8 @@ _LIBCPP_HIDE_FROM_ABI constexpr void __set_debug_format(_Tp& __formatter) {
     __formatter.set_debug_format();
 }
 
-#  endif // _LIBCPP_STD_VER > 20
-#endif   // _LIBCPP_STD_VER > 17
+#  endif // _LIBCPP_STD_VER >= 23
+#endif   // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

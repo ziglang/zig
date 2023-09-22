@@ -69,8 +69,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 bool
 next_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {
-    return _VSTD::next_permutation(__first, __last,
-                                  __less<typename iterator_traits<_BidirectionalIterator>::value_type>());
+    return _VSTD::next_permutation(__first, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

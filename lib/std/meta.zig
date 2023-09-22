@@ -969,9 +969,9 @@ test "std.meta.Float" {
 /// correspond to the argument types.
 ///
 /// Examples:
-/// - `ArgsTuple(fn() void)` ⇒ `tuple { }`
-/// - `ArgsTuple(fn(a: u32) u32)` ⇒ `tuple { u32 }`
-/// - `ArgsTuple(fn(a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
+/// - `ArgsTuple(fn () void)` ⇒ `tuple { }`
+/// - `ArgsTuple(fn (a: u32) u32)` ⇒ `tuple { u32 }`
+/// - `ArgsTuple(fn (a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
 pub fn ArgsTuple(comptime Function: type) type {
     const info = @typeInfo(Function);
     if (info != .Fn)

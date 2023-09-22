@@ -1873,12 +1873,13 @@ pub const AddrSpace = enum(u24) {
 
     // See llvm/lib/Target/AVR/AVR.h
     pub const avr = struct {
-        pub const flash: AddrSpace = @enumFromInt(1);
-        pub const flash1: AddrSpace = @enumFromInt(2);
-        pub const flash2: AddrSpace = @enumFromInt(3);
-        pub const flash3: AddrSpace = @enumFromInt(4);
-        pub const flash4: AddrSpace = @enumFromInt(5);
-        pub const flash5: AddrSpace = @enumFromInt(6);
+        pub const data: AddrSpace = @enumFromInt(0);
+        pub const program: AddrSpace = @enumFromInt(1);
+        pub const program1: AddrSpace = @enumFromInt(2);
+        pub const program2: AddrSpace = @enumFromInt(3);
+        pub const program3: AddrSpace = @enumFromInt(4);
+        pub const program4: AddrSpace = @enumFromInt(5);
+        pub const program5: AddrSpace = @enumFromInt(6);
     };
 
     // See llvm/lib/Target/NVPTX/NVPTX.h
@@ -1901,6 +1902,7 @@ pub const AddrSpace = enum(u24) {
         pub const private: AddrSpace = @enumFromInt(5);
         pub const constant_32bit: AddrSpace = @enumFromInt(6);
         pub const buffer_fat_pointer: AddrSpace = @enumFromInt(7);
+        pub const buffer_resource: AddrSpace = @enumFromInt(8);
         pub const param_d: AddrSpace = @enumFromInt(6);
         pub const param_i: AddrSpace = @enumFromInt(7);
         pub const constant_buffer_0: AddrSpace = @enumFromInt(8);
@@ -1921,7 +1923,7 @@ pub const AddrSpace = enum(u24) {
         pub const constant_buffer_15: AddrSpace = @enumFromInt(23);
     };
 
-    // See llvm/lib/Target/WebAssembly/Utils/WebAssemblyTypeUtilities.h
+    // See llvm/include/llvm/CodeGen/WasmAddressSpaces.h
     pub const wasm = struct {
         pub const variable: AddrSpace = @enumFromInt(1);
         pub const externref: AddrSpace = @enumFromInt(10);
@@ -7181,7 +7183,6 @@ pub const Constant = enum(u32) {
         @"and",
         @"or",
         xor,
-        select,
         @"asm",
         @"asm sideeffect",
         @"asm alignstack",
@@ -7289,12 +7290,6 @@ pub const Constant = enum(u32) {
     };
 
     pub const Binary = extern struct {
-        lhs: Constant,
-        rhs: Constant,
-    };
-
-    pub const Select = extern struct {
-        cond: Constant,
         lhs: Constant,
         rhs: Constant,
     };
@@ -7430,7 +7425,6 @@ pub const Constant = enum(u32) {
                     .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
-                    .select => builder.constantExtraData(Select, item.data).lhs.typeOf(builder),
                     .@"asm",
                     .@"asm sideeffect",
                     .@"asm alignstack",
@@ -7816,15 +7810,6 @@ pub const Constant = enum(u32) {
                         const extra = data.builder.constantExtraData(Binary, item.data);
                         try writer.print("{s} ({%}, {%})", .{
                             @tagName(tag),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                        });
-                    },
-                    .select => |tag| {
-                        const extra = data.builder.constantExtraData(Select, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.cond.fmt(data.builder),
                             extra.lhs.fmt(data.builder),
                             extra.rhs.fmt(data.builder),
                         });
@@ -9224,20 +9209,6 @@ pub fn binValue(self: *Builder, tag: Constant.Tag, lhs: Constant, rhs: Constant)
     return (try self.binConst(tag, lhs, rhs)).toValue();
 }
 
-pub fn selectConst(
-    self: *Builder,
-    cond: Constant,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Select, 0);
-    return self.selectConstAssumeCapacity(cond, lhs, rhs);
-}
-
-pub fn selectValue(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Allocator.Error!Value {
-    return (try self.selectConst(cond, lhs, rhs)).toValue();
-}
-
 pub fn asmConst(
     self: *Builder,
     ty: Type,
@@ -10125,7 +10096,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
                 .data = self.addTypeExtraAssumeCapacity(data),
             });
             if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
-                child.toLlvm(self).arrayType(@intCast(len)),
+                child.toLlvm(self).arrayType2(len),
             );
         }
         return @enumFromInt(gop.index);
@@ -10158,7 +10129,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
                 .data = self.addTypeExtraAssumeCapacity(data),
             });
             if (self.useLibLlvm()) self.llvm.types.appendAssumeCapacity(
-                child.toLlvm(self).arrayType(@intCast(len)),
+                child.toLlvm(self).arrayType2(len),
             );
         }
         return @enumFromInt(gop.index);
@@ -10823,7 +10794,7 @@ fn arrayConstAssumeCapacity(
         for (llvm_vals, vals) |*llvm_val, val| llvm_val.* = val.toLlvm(self);
 
         self.llvm.constants.appendAssumeCapacity(
-            type_extra.child.toLlvm(self).constArray(llvm_vals.ptr, @intCast(llvm_vals.len)),
+            type_extra.child.toLlvm(self).constArray2(llvm_vals.ptr, llvm_vals.len),
         );
     }
     return result.constant;
@@ -11532,42 +11503,6 @@ fn binConstAssumeCapacity(
             .xor => &llvm.Value.constXor,
             else => unreachable,
         }(lhs.toLlvm(self), rhs.toLlvm(self)));
-    }
-    return @enumFromInt(gop.index);
-}
-
-comptime {
-    _ = &selectValue;
-}
-
-fn selectConstAssumeCapacity(self: *Builder, cond: Constant, lhs: Constant, rhs: Constant) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.Select) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(Constant.Tag.select)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.Select, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .select) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Select, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.Select{ .cond = cond, .lhs = lhs, .rhs = rhs };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .select,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-        if (self.useLibLlvm()) self.llvm.constants.appendAssumeCapacity(
-            cond.toLlvm(self).constSelect(lhs.toLlvm(self), rhs.toLlvm(self)),
-        );
     }
     return @enumFromInt(gop.index);
 }

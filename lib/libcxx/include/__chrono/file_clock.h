@@ -27,7 +27,7 @@ struct _FilesystemClock;
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 #endif // !_LIBCPP_CXX03_LANG
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -44,7 +44,7 @@ using file_time = time_point<file_clock, _Duration>;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #ifndef _LIBCPP_CXX03_LANG
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -63,9 +63,9 @@ struct _FilesystemClock {
   _LIBCPP_EXPORTED_FROM_ABI
   static _LIBCPP_CONSTEXPR_SINCE_CXX14 const bool is_steady = false;
 
-  _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_FUNC_VIS static time_point now() noexcept;
+  _LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY _LIBCPP_EXPORTED_FROM_ABI static time_point now() noexcept;
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
   template <class _Duration>
   _LIBCPP_HIDE_FROM_ABI
   static chrono::sys_time<_Duration> to_sys(const chrono::file_time<_Duration>& __t) {
@@ -77,7 +77,7 @@ struct _FilesystemClock {
   static chrono::file_time<_Duration> from_sys(const chrono::sys_time<_Duration>& __t) {
     return chrono::file_time<_Duration>(__t.time_since_epoch());
   }
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 };
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 #endif // !_LIBCPP_CXX03_LANG

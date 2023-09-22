@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifdef NEEDS_CONDVAR_DESTRUCTOR
 
-class _LIBCPP_TYPE_VIS condition_variable
+class _LIBCPP_EXPORTED_FROM_ABI condition_variable
 {
     __libcpp_condvar_t __cv_ = _LIBCPP_CONDVAR_INITIALIZER;
 public:

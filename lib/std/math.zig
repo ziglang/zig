@@ -743,6 +743,7 @@ fn testOverflow() !void {
 /// Returns the absolute value of x, where x is a value of a signed integer type.
 /// Does not convert and returns a value of a signed integer type.
 /// Use `absCast` if you want to convert the result and get an unsigned type.
+/// Use `@fabs` if you need the absolute value of a floating point value.
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     return switch (@typeInfo(T)) {

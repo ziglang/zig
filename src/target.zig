@@ -1,6 +1,7 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
+const Alignment = @import("InternPool.zig").Alignment;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
@@ -595,13 +596,13 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 }
 
 /// This function returns 1 if function alignment is not observable or settable.
-pub fn defaultFunctionAlignment(target: std.Target) u32 {
+pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
-        .arm, .armeb => 4,
-        .aarch64, .aarch64_32, .aarch64_be => 4,
-        .sparc, .sparcel, .sparc64 => 4,
-        .riscv64 => 2,
-        else => 1,
+        .arm, .armeb => .@"4",
+        .aarch64, .aarch64_32, .aarch64_be => .@"4",
+        .sparc, .sparcel, .sparc64 => .@"4",
+        .riscv64 => .@"2",
+        else => .@"1",
     };
 }
 

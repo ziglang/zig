@@ -25,52 +25,15 @@ extern "C" {
 #pragma clang riscv intrinsic vector
 
 
-#define __riscv_vlenb() __builtin_rvv_vlenb()
-
-enum RVV_CSR {
-  RVV_VSTART = 0,
-  RVV_VXSAT,
-  RVV_VXRM,
-  RVV_VCSR,
+enum __RISCV_FRM {
+  __RISCV_FRM_RNE = 0,
+  __RISCV_FRM_RTZ = 1,
+  __RISCV_FRM_RDN = 2,
+  __RISCV_FRM_RUP = 3,
+  __RISCV_FRM_RMM = 4,
 };
 
-static __inline__ __attribute__((__always_inline__, __nodebug__))
-unsigned long __riscv_vread_csr(enum RVV_CSR __csr) {
-  unsigned long __rv = 0;
-  switch (__csr) {
-    case RVV_VSTART:
-      __asm__ __volatile__ ("csrr\t%0, vstart" : "=r"(__rv) : : "memory");
-      break;
-    case RVV_VXSAT:
-      __asm__ __volatile__ ("csrr\t%0, vxsat" : "=r"(__rv) : : "memory");
-      break;
-    case RVV_VXRM:
-      __asm__ __volatile__ ("csrr\t%0, vxrm" : "=r"(__rv) : : "memory");
-      break;
-    case RVV_VCSR:
-      __asm__ __volatile__ ("csrr\t%0, vcsr" : "=r"(__rv) : : "memory");
-      break;
-  }
-  return __rv;
-}
-
-static __inline__ __attribute__((__always_inline__, __nodebug__))
-void __riscv_vwrite_csr(enum RVV_CSR __csr, unsigned long __value) {
-  switch (__csr) {
-    case RVV_VSTART:
-      __asm__ __volatile__ ("csrw\tvstart, %z0" : : "rJ"(__value) : "memory");
-      break;
-    case RVV_VXSAT:
-      __asm__ __volatile__ ("csrw\tvxsat, %z0" : : "rJ"(__value) : "memory");
-      break;
-    case RVV_VXRM:
-      __asm__ __volatile__ ("csrw\tvxrm, %z0" : : "rJ"(__value) : "memory");
-      break;
-    case RVV_VCSR:
-      __asm__ __volatile__ ("csrw\tvcsr, %z0" : : "rJ"(__value) : "memory");
-      break;
-  }
-}
+#define __riscv_vlenb() __builtin_rvv_vlenb()
 
 #define __riscv_vsetvl_e8mf4(avl) __builtin_rvv_vsetvli((size_t)(avl), 0, 6)
 #define __riscv_vsetvl_e8mf2(avl) __builtin_rvv_vsetvli((size_t)(avl), 0, 7)
@@ -130,6 +93,13 @@ void __riscv_vwrite_csr(enum RVV_CSR __csr, unsigned long __value) {
 #define __riscv_vsetvlmax_e64m8() __builtin_rvv_vsetvlimax(3, 3)
 #endif
 
+
+enum __RISCV_VXRM {
+  __RISCV_VXRM_RNU = 0,
+  __RISCV_VXRM_RNE = 1,
+  __RISCV_VXRM_RDN = 2,
+  __RISCV_VXRM_ROD = 3,
+};
 typedef __rvv_bool64_t vbool64_t;
 typedef __rvv_bool32_t vbool32_t;
 typedef __rvv_bool16_t vbool16_t;
@@ -139,70 +109,289 @@ typedef __rvv_bool2_t vbool2_t;
 typedef __rvv_bool1_t vbool1_t;
 typedef __rvv_int8mf8_t vint8mf8_t;
 typedef __rvv_uint8mf8_t vuint8mf8_t;
+typedef __rvv_int8mf8x2_t vint8mf8x2_t;
+typedef __rvv_uint8mf8x2_t vuint8mf8x2_t;
+typedef __rvv_int8mf8x3_t vint8mf8x3_t;
+typedef __rvv_uint8mf8x3_t vuint8mf8x3_t;
+typedef __rvv_int8mf8x4_t vint8mf8x4_t;
+typedef __rvv_uint8mf8x4_t vuint8mf8x4_t;
+typedef __rvv_int8mf8x5_t vint8mf8x5_t;
+typedef __rvv_uint8mf8x5_t vuint8mf8x5_t;
+typedef __rvv_int8mf8x6_t vint8mf8x6_t;
+typedef __rvv_uint8mf8x6_t vuint8mf8x6_t;
+typedef __rvv_int8mf8x7_t vint8mf8x7_t;
+typedef __rvv_uint8mf8x7_t vuint8mf8x7_t;
+typedef __rvv_int8mf8x8_t vint8mf8x8_t;
+typedef __rvv_uint8mf8x8_t vuint8mf8x8_t;
 typedef __rvv_int8mf4_t vint8mf4_t;
 typedef __rvv_uint8mf4_t vuint8mf4_t;
+typedef __rvv_int8mf4x2_t vint8mf4x2_t;
+typedef __rvv_uint8mf4x2_t vuint8mf4x2_t;
+typedef __rvv_int8mf4x3_t vint8mf4x3_t;
+typedef __rvv_uint8mf4x3_t vuint8mf4x3_t;
+typedef __rvv_int8mf4x4_t vint8mf4x4_t;
+typedef __rvv_uint8mf4x4_t vuint8mf4x4_t;
+typedef __rvv_int8mf4x5_t vint8mf4x5_t;
+typedef __rvv_uint8mf4x5_t vuint8mf4x5_t;
+typedef __rvv_int8mf4x6_t vint8mf4x6_t;
+typedef __rvv_uint8mf4x6_t vuint8mf4x6_t;
+typedef __rvv_int8mf4x7_t vint8mf4x7_t;
+typedef __rvv_uint8mf4x7_t vuint8mf4x7_t;
+typedef __rvv_int8mf4x8_t vint8mf4x8_t;
+typedef __rvv_uint8mf4x8_t vuint8mf4x8_t;
 typedef __rvv_int8mf2_t vint8mf2_t;
 typedef __rvv_uint8mf2_t vuint8mf2_t;
+typedef __rvv_int8mf2x2_t vint8mf2x2_t;
+typedef __rvv_uint8mf2x2_t vuint8mf2x2_t;
+typedef __rvv_int8mf2x3_t vint8mf2x3_t;
+typedef __rvv_uint8mf2x3_t vuint8mf2x3_t;
+typedef __rvv_int8mf2x4_t vint8mf2x4_t;
+typedef __rvv_uint8mf2x4_t vuint8mf2x4_t;
+typedef __rvv_int8mf2x5_t vint8mf2x5_t;
+typedef __rvv_uint8mf2x5_t vuint8mf2x5_t;
+typedef __rvv_int8mf2x6_t vint8mf2x6_t;
+typedef __rvv_uint8mf2x6_t vuint8mf2x6_t;
+typedef __rvv_int8mf2x7_t vint8mf2x7_t;
+typedef __rvv_uint8mf2x7_t vuint8mf2x7_t;
+typedef __rvv_int8mf2x8_t vint8mf2x8_t;
+typedef __rvv_uint8mf2x8_t vuint8mf2x8_t;
 typedef __rvv_int8m1_t vint8m1_t;
 typedef __rvv_uint8m1_t vuint8m1_t;
+typedef __rvv_int8m1x2_t vint8m1x2_t;
+typedef __rvv_uint8m1x2_t vuint8m1x2_t;
+typedef __rvv_int8m1x3_t vint8m1x3_t;
+typedef __rvv_uint8m1x3_t vuint8m1x3_t;
+typedef __rvv_int8m1x4_t vint8m1x4_t;
+typedef __rvv_uint8m1x4_t vuint8m1x4_t;
+typedef __rvv_int8m1x5_t vint8m1x5_t;
+typedef __rvv_uint8m1x5_t vuint8m1x5_t;
+typedef __rvv_int8m1x6_t vint8m1x6_t;
+typedef __rvv_uint8m1x6_t vuint8m1x6_t;
+typedef __rvv_int8m1x7_t vint8m1x7_t;
+typedef __rvv_uint8m1x7_t vuint8m1x7_t;
+typedef __rvv_int8m1x8_t vint8m1x8_t;
+typedef __rvv_uint8m1x8_t vuint8m1x8_t;
 typedef __rvv_int8m2_t vint8m2_t;
 typedef __rvv_uint8m2_t vuint8m2_t;
+typedef __rvv_int8m2x2_t vint8m2x2_t;
+typedef __rvv_uint8m2x2_t vuint8m2x2_t;
+typedef __rvv_int8m2x3_t vint8m2x3_t;
+typedef __rvv_uint8m2x3_t vuint8m2x3_t;
+typedef __rvv_int8m2x4_t vint8m2x4_t;
+typedef __rvv_uint8m2x4_t vuint8m2x4_t;
 typedef __rvv_int8m4_t vint8m4_t;
 typedef __rvv_uint8m4_t vuint8m4_t;
+typedef __rvv_int8m4x2_t vint8m4x2_t;
+typedef __rvv_uint8m4x2_t vuint8m4x2_t;
 typedef __rvv_int8m8_t vint8m8_t;
 typedef __rvv_uint8m8_t vuint8m8_t;
 typedef __rvv_int16mf4_t vint16mf4_t;
 typedef __rvv_uint16mf4_t vuint16mf4_t;
+typedef __rvv_int16mf4x2_t vint16mf4x2_t;
+typedef __rvv_uint16mf4x2_t vuint16mf4x2_t;
+typedef __rvv_int16mf4x3_t vint16mf4x3_t;
+typedef __rvv_uint16mf4x3_t vuint16mf4x3_t;
+typedef __rvv_int16mf4x4_t vint16mf4x4_t;
+typedef __rvv_uint16mf4x4_t vuint16mf4x4_t;
+typedef __rvv_int16mf4x5_t vint16mf4x5_t;
+typedef __rvv_uint16mf4x5_t vuint16mf4x5_t;
+typedef __rvv_int16mf4x6_t vint16mf4x6_t;
+typedef __rvv_uint16mf4x6_t vuint16mf4x6_t;
+typedef __rvv_int16mf4x7_t vint16mf4x7_t;
+typedef __rvv_uint16mf4x7_t vuint16mf4x7_t;
+typedef __rvv_int16mf4x8_t vint16mf4x8_t;
+typedef __rvv_uint16mf4x8_t vuint16mf4x8_t;
 typedef __rvv_int16mf2_t vint16mf2_t;
 typedef __rvv_uint16mf2_t vuint16mf2_t;
+typedef __rvv_int16mf2x2_t vint16mf2x2_t;
+typedef __rvv_uint16mf2x2_t vuint16mf2x2_t;
+typedef __rvv_int16mf2x3_t vint16mf2x3_t;
+typedef __rvv_uint16mf2x3_t vuint16mf2x3_t;
+typedef __rvv_int16mf2x4_t vint16mf2x4_t;
+typedef __rvv_uint16mf2x4_t vuint16mf2x4_t;
+typedef __rvv_int16mf2x5_t vint16mf2x5_t;
+typedef __rvv_uint16mf2x5_t vuint16mf2x5_t;
+typedef __rvv_int16mf2x6_t vint16mf2x6_t;
+typedef __rvv_uint16mf2x6_t vuint16mf2x6_t;
+typedef __rvv_int16mf2x7_t vint16mf2x7_t;
+typedef __rvv_uint16mf2x7_t vuint16mf2x7_t;
+typedef __rvv_int16mf2x8_t vint16mf2x8_t;
+typedef __rvv_uint16mf2x8_t vuint16mf2x8_t;
 typedef __rvv_int16m1_t vint16m1_t;
 typedef __rvv_uint16m1_t vuint16m1_t;
+typedef __rvv_int16m1x2_t vint16m1x2_t;
+typedef __rvv_uint16m1x2_t vuint16m1x2_t;
+typedef __rvv_int16m1x3_t vint16m1x3_t;
+typedef __rvv_uint16m1x3_t vuint16m1x3_t;
+typedef __rvv_int16m1x4_t vint16m1x4_t;
+typedef __rvv_uint16m1x4_t vuint16m1x4_t;
+typedef __rvv_int16m1x5_t vint16m1x5_t;
+typedef __rvv_uint16m1x5_t vuint16m1x5_t;
+typedef __rvv_int16m1x6_t vint16m1x6_t;
+typedef __rvv_uint16m1x6_t vuint16m1x6_t;
+typedef __rvv_int16m1x7_t vint16m1x7_t;
+typedef __rvv_uint16m1x7_t vuint16m1x7_t;
+typedef __rvv_int16m1x8_t vint16m1x8_t;
+typedef __rvv_uint16m1x8_t vuint16m1x8_t;
 typedef __rvv_int16m2_t vint16m2_t;
 typedef __rvv_uint16m2_t vuint16m2_t;
+typedef __rvv_int16m2x2_t vint16m2x2_t;
+typedef __rvv_uint16m2x2_t vuint16m2x2_t;
+typedef __rvv_int16m2x3_t vint16m2x3_t;
+typedef __rvv_uint16m2x3_t vuint16m2x3_t;
+typedef __rvv_int16m2x4_t vint16m2x4_t;
+typedef __rvv_uint16m2x4_t vuint16m2x4_t;
 typedef __rvv_int16m4_t vint16m4_t;
 typedef __rvv_uint16m4_t vuint16m4_t;
+typedef __rvv_int16m4x2_t vint16m4x2_t;
+typedef __rvv_uint16m4x2_t vuint16m4x2_t;
 typedef __rvv_int16m8_t vint16m8_t;
 typedef __rvv_uint16m8_t vuint16m8_t;
 typedef __rvv_int32mf2_t vint32mf2_t;
 typedef __rvv_uint32mf2_t vuint32mf2_t;
+typedef __rvv_int32mf2x2_t vint32mf2x2_t;
+typedef __rvv_uint32mf2x2_t vuint32mf2x2_t;
+typedef __rvv_int32mf2x3_t vint32mf2x3_t;
+typedef __rvv_uint32mf2x3_t vuint32mf2x3_t;
+typedef __rvv_int32mf2x4_t vint32mf2x4_t;
+typedef __rvv_uint32mf2x4_t vuint32mf2x4_t;
+typedef __rvv_int32mf2x5_t vint32mf2x5_t;
+typedef __rvv_uint32mf2x5_t vuint32mf2x5_t;
+typedef __rvv_int32mf2x6_t vint32mf2x6_t;
+typedef __rvv_uint32mf2x6_t vuint32mf2x6_t;
+typedef __rvv_int32mf2x7_t vint32mf2x7_t;
+typedef __rvv_uint32mf2x7_t vuint32mf2x7_t;
+typedef __rvv_int32mf2x8_t vint32mf2x8_t;
+typedef __rvv_uint32mf2x8_t vuint32mf2x8_t;
 typedef __rvv_int32m1_t vint32m1_t;
 typedef __rvv_uint32m1_t vuint32m1_t;
+typedef __rvv_int32m1x2_t vint32m1x2_t;
+typedef __rvv_uint32m1x2_t vuint32m1x2_t;
+typedef __rvv_int32m1x3_t vint32m1x3_t;
+typedef __rvv_uint32m1x3_t vuint32m1x3_t;
+typedef __rvv_int32m1x4_t vint32m1x4_t;
+typedef __rvv_uint32m1x4_t vuint32m1x4_t;
+typedef __rvv_int32m1x5_t vint32m1x5_t;
+typedef __rvv_uint32m1x5_t vuint32m1x5_t;
+typedef __rvv_int32m1x6_t vint32m1x6_t;
+typedef __rvv_uint32m1x6_t vuint32m1x6_t;
+typedef __rvv_int32m1x7_t vint32m1x7_t;
+typedef __rvv_uint32m1x7_t vuint32m1x7_t;
+typedef __rvv_int32m1x8_t vint32m1x8_t;
+typedef __rvv_uint32m1x8_t vuint32m1x8_t;
 typedef __rvv_int32m2_t vint32m2_t;
 typedef __rvv_uint32m2_t vuint32m2_t;
+typedef __rvv_int32m2x2_t vint32m2x2_t;
+typedef __rvv_uint32m2x2_t vuint32m2x2_t;
+typedef __rvv_int32m2x3_t vint32m2x3_t;
+typedef __rvv_uint32m2x3_t vuint32m2x3_t;
+typedef __rvv_int32m2x4_t vint32m2x4_t;
+typedef __rvv_uint32m2x4_t vuint32m2x4_t;
 typedef __rvv_int32m4_t vint32m4_t;
 typedef __rvv_uint32m4_t vuint32m4_t;
+typedef __rvv_int32m4x2_t vint32m4x2_t;
+typedef __rvv_uint32m4x2_t vuint32m4x2_t;
 typedef __rvv_int32m8_t vint32m8_t;
 typedef __rvv_uint32m8_t vuint32m8_t;
 typedef __rvv_int64m1_t vint64m1_t;
 typedef __rvv_uint64m1_t vuint64m1_t;
+typedef __rvv_int64m1x2_t vint64m1x2_t;
+typedef __rvv_uint64m1x2_t vuint64m1x2_t;
+typedef __rvv_int64m1x3_t vint64m1x3_t;
+typedef __rvv_uint64m1x3_t vuint64m1x3_t;
+typedef __rvv_int64m1x4_t vint64m1x4_t;
+typedef __rvv_uint64m1x4_t vuint64m1x4_t;
+typedef __rvv_int64m1x5_t vint64m1x5_t;
+typedef __rvv_uint64m1x5_t vuint64m1x5_t;
+typedef __rvv_int64m1x6_t vint64m1x6_t;
+typedef __rvv_uint64m1x6_t vuint64m1x6_t;
+typedef __rvv_int64m1x7_t vint64m1x7_t;
+typedef __rvv_uint64m1x7_t vuint64m1x7_t;
+typedef __rvv_int64m1x8_t vint64m1x8_t;
+typedef __rvv_uint64m1x8_t vuint64m1x8_t;
 typedef __rvv_int64m2_t vint64m2_t;
 typedef __rvv_uint64m2_t vuint64m2_t;
+typedef __rvv_int64m2x2_t vint64m2x2_t;
+typedef __rvv_uint64m2x2_t vuint64m2x2_t;
+typedef __rvv_int64m2x3_t vint64m2x3_t;
+typedef __rvv_uint64m2x3_t vuint64m2x3_t;
+typedef __rvv_int64m2x4_t vint64m2x4_t;
+typedef __rvv_uint64m2x4_t vuint64m2x4_t;
 typedef __rvv_int64m4_t vint64m4_t;
 typedef __rvv_uint64m4_t vuint64m4_t;
+typedef __rvv_int64m4x2_t vint64m4x2_t;
+typedef __rvv_uint64m4x2_t vuint64m4x2_t;
 typedef __rvv_int64m8_t vint64m8_t;
 typedef __rvv_uint64m8_t vuint64m8_t;
-#if defined(__riscv_zvfh)
 typedef __rvv_float16mf4_t vfloat16mf4_t;
+typedef __rvv_float16mf4x2_t vfloat16mf4x2_t;
+typedef __rvv_float16mf4x3_t vfloat16mf4x3_t;
+typedef __rvv_float16mf4x4_t vfloat16mf4x4_t;
+typedef __rvv_float16mf4x5_t vfloat16mf4x5_t;
+typedef __rvv_float16mf4x6_t vfloat16mf4x6_t;
+typedef __rvv_float16mf4x7_t vfloat16mf4x7_t;
+typedef __rvv_float16mf4x8_t vfloat16mf4x8_t;
 typedef __rvv_float16mf2_t vfloat16mf2_t;
+typedef __rvv_float16mf2x2_t vfloat16mf2x2_t;
+typedef __rvv_float16mf2x3_t vfloat16mf2x3_t;
+typedef __rvv_float16mf2x4_t vfloat16mf2x4_t;
+typedef __rvv_float16mf2x5_t vfloat16mf2x5_t;
+typedef __rvv_float16mf2x6_t vfloat16mf2x6_t;
+typedef __rvv_float16mf2x7_t vfloat16mf2x7_t;
+typedef __rvv_float16mf2x8_t vfloat16mf2x8_t;
 typedef __rvv_float16m1_t vfloat16m1_t;
+typedef __rvv_float16m1x2_t vfloat16m1x2_t;
+typedef __rvv_float16m1x3_t vfloat16m1x3_t;
+typedef __rvv_float16m1x4_t vfloat16m1x4_t;
+typedef __rvv_float16m1x5_t vfloat16m1x5_t;
+typedef __rvv_float16m1x6_t vfloat16m1x6_t;
+typedef __rvv_float16m1x7_t vfloat16m1x7_t;
+typedef __rvv_float16m1x8_t vfloat16m1x8_t;
 typedef __rvv_float16m2_t vfloat16m2_t;
+typedef __rvv_float16m2x2_t vfloat16m2x2_t;
+typedef __rvv_float16m2x3_t vfloat16m2x3_t;
+typedef __rvv_float16m2x4_t vfloat16m2x4_t;
 typedef __rvv_float16m4_t vfloat16m4_t;
+typedef __rvv_float16m4x2_t vfloat16m4x2_t;
 typedef __rvv_float16m8_t vfloat16m8_t;
-#endif
-#if (__riscv_v_elen_fp >= 32)
 typedef __rvv_float32mf2_t vfloat32mf2_t;
+typedef __rvv_float32mf2x2_t vfloat32mf2x2_t;
+typedef __rvv_float32mf2x3_t vfloat32mf2x3_t;
+typedef __rvv_float32mf2x4_t vfloat32mf2x4_t;
+typedef __rvv_float32mf2x5_t vfloat32mf2x5_t;
+typedef __rvv_float32mf2x6_t vfloat32mf2x6_t;
+typedef __rvv_float32mf2x7_t vfloat32mf2x7_t;
+typedef __rvv_float32mf2x8_t vfloat32mf2x8_t;
 typedef __rvv_float32m1_t vfloat32m1_t;
+typedef __rvv_float32m1x2_t vfloat32m1x2_t;
+typedef __rvv_float32m1x3_t vfloat32m1x3_t;
+typedef __rvv_float32m1x4_t vfloat32m1x4_t;
+typedef __rvv_float32m1x5_t vfloat32m1x5_t;
+typedef __rvv_float32m1x6_t vfloat32m1x6_t;
+typedef __rvv_float32m1x7_t vfloat32m1x7_t;
+typedef __rvv_float32m1x8_t vfloat32m1x8_t;
 typedef __rvv_float32m2_t vfloat32m2_t;
+typedef __rvv_float32m2x2_t vfloat32m2x2_t;
+typedef __rvv_float32m2x3_t vfloat32m2x3_t;
+typedef __rvv_float32m2x4_t vfloat32m2x4_t;
 typedef __rvv_float32m4_t vfloat32m4_t;
+typedef __rvv_float32m4x2_t vfloat32m4x2_t;
 typedef __rvv_float32m8_t vfloat32m8_t;
-#endif
-#if (__riscv_v_elen_fp >= 64)
 typedef __rvv_float64m1_t vfloat64m1_t;
+typedef __rvv_float64m1x2_t vfloat64m1x2_t;
+typedef __rvv_float64m1x3_t vfloat64m1x3_t;
+typedef __rvv_float64m1x4_t vfloat64m1x4_t;
+typedef __rvv_float64m1x5_t vfloat64m1x5_t;
+typedef __rvv_float64m1x6_t vfloat64m1x6_t;
+typedef __rvv_float64m1x7_t vfloat64m1x7_t;
+typedef __rvv_float64m1x8_t vfloat64m1x8_t;
 typedef __rvv_float64m2_t vfloat64m2_t;
+typedef __rvv_float64m2x2_t vfloat64m2x2_t;
+typedef __rvv_float64m2x3_t vfloat64m2x3_t;
+typedef __rvv_float64m2x4_t vfloat64m2x4_t;
 typedef __rvv_float64m4_t vfloat64m4_t;
+typedef __rvv_float64m4x2_t vfloat64m4x2_t;
 typedef __rvv_float64m8_t vfloat64m8_t;
-#endif
-
 #define __riscv_v_intrinsic_overloading 1
 
 #ifdef __cplusplus

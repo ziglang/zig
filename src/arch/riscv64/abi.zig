@@ -5,7 +5,7 @@ const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Module = @import("../../Module.zig");
 
-pub const Class = enum { memory, byval, integer, double_integer };
+pub const Class = enum { memory, byval, integer, double_integer, fields };
 
 pub fn classifyType(ty: Type, mod: *Module) Class {
     const target = mod.getTarget();
@@ -19,6 +19,24 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
+
+            if (std.Target.riscv.featureSetHas(target.cpu.features, .d)) fields: {
+                var any_fp = false;
+                var field_count: usize = 0;
+                for (0..ty.structFieldCount(mod)) |field_index| {
+                    const field_ty = ty.structFieldType(field_index, mod);
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    if (field_ty.isRuntimeFloat())
+                        any_fp = true
+                    else if (!field_ty.isAbiInt(mod))
+                        break :fields;
+                    field_count += 1;
+                    if (field_count > 2) break :fields;
+                }
+                std.debug.assert(field_count > 0 and field_count <= 2);
+                if (any_fp) return .fields;
+            }
+
             // TODO this doesn't exactly match what clang produces but its better than nothing
             if (bit_size > max_byval_size) return .memory;
             if (bit_size > max_byval_size / 2) return .double_integer;

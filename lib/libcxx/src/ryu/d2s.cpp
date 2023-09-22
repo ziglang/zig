@@ -154,7 +154,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // The average output length is 16.38 digits, so we check high-to-low.
   // Function precondition: __v is not an 18, 19, or 20-digit number.
   // (17 digits are sufficient for round-tripping.)
-  _LIBCPP_ASSERT(__v < 100000000000000000u, "");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__v < 100000000000000000u, "");
   if (__v >= 10000000000000000u) { return 17; }
   if (__v >= 1000000000000000u) { return 16; }
   if (__v >= 100000000000000u) { return 15; }
@@ -527,10 +527,10 @@ struct __floating_decimal_64 {
       const uint32_t __d0 = (__d % 100) << 1;
       const uint32_t __d1 = (__d / 100) << 1;
 
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c0, 2);
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c1, 2);
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __d0, 2);
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __d1, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c0, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c1, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __d0, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __d1, 2);
     }
     uint32_t __output2 = static_cast<uint32_t>(_Output);
     while (__output2 >= 10000) {
@@ -542,35 +542,35 @@ struct __floating_decimal_64 {
       __output2 /= 10000;
       const uint32_t __c0 = (__c % 100) << 1;
       const uint32_t __c1 = (__c / 100) << 1;
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c0, 2);
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c1, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c0, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c1, 2);
     }
     if (__output2 >= 100) {
       const uint32_t __c = (__output2 % 100) << 1;
       __output2 /= 100;
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c, 2);
     }
     if (__output2 >= 10) {
       const uint32_t __c = __output2 << 1;
-      _VSTD::memcpy(_Mid -= 2, __DIGIT_TABLE + __c, 2);
+      std::memcpy(_Mid -= 2, __DIGIT_TABLE + __c, 2);
     } else {
       *--_Mid = static_cast<char>('0' + __output2);
     }
 
     if (_Ryu_exponent > 0) { // case "172900" with _Can_use_ryu
       // Performance note: it might be more efficient to do this immediately after setting _Mid.
-      _VSTD::memset(_First + __olength, '0', static_cast<size_t>(_Ryu_exponent));
+      std::memset(_First + __olength, '0', static_cast<size_t>(_Ryu_exponent));
     } else if (_Ryu_exponent == 0) { // case "1729"
       // Done!
     } else if (_Whole_digits > 0) { // case "17.29"
       // Performance note: moving digits might not be optimal.
-      _VSTD::memmove(_First, _First + 1, static_cast<size_t>(_Whole_digits));
+      std::memmove(_First, _First + 1, static_cast<size_t>(_Whole_digits));
       _First[_Whole_digits] = '.';
     } else { // case "0.001729"
       // Performance note: a larger memset() followed by overwriting '.' might be more efficient.
       _First[0] = '0';
       _First[1] = '.';
-      _VSTD::memset(_First + 2, '0', static_cast<size_t>(-_Whole_digits));
+      std::memset(_First + 2, '0', static_cast<size_t>(-_Whole_digits));
     }
 
     return { _First + _Total_fixed_length, errc{} };
@@ -602,10 +602,10 @@ struct __floating_decimal_64 {
     const uint32_t __c1 = (__c / 100) << 1;
     const uint32_t __d0 = (__d % 100) << 1;
     const uint32_t __d1 = (__d / 100) << 1;
-    _VSTD::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c0, 2);
-    _VSTD::memcpy(__result + __olength - __i - 3, __DIGIT_TABLE + __c1, 2);
-    _VSTD::memcpy(__result + __olength - __i - 5, __DIGIT_TABLE + __d0, 2);
-    _VSTD::memcpy(__result + __olength - __i - 7, __DIGIT_TABLE + __d1, 2);
+    std::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c0, 2);
+    std::memcpy(__result + __olength - __i - 3, __DIGIT_TABLE + __c1, 2);
+    std::memcpy(__result + __olength - __i - 5, __DIGIT_TABLE + __d0, 2);
+    std::memcpy(__result + __olength - __i - 7, __DIGIT_TABLE + __d1, 2);
     __i += 8;
   }
   uint32_t __output2 = static_cast<uint32_t>(_Output);
@@ -618,14 +618,14 @@ struct __floating_decimal_64 {
     __output2 /= 10000;
     const uint32_t __c0 = (__c % 100) << 1;
     const uint32_t __c1 = (__c / 100) << 1;
-    _VSTD::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c0, 2);
-    _VSTD::memcpy(__result + __olength - __i - 3, __DIGIT_TABLE + __c1, 2);
+    std::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c0, 2);
+    std::memcpy(__result + __olength - __i - 3, __DIGIT_TABLE + __c1, 2);
     __i += 4;
   }
   if (__output2 >= 100) {
     const uint32_t __c = (__output2 % 100) << 1;
     __output2 /= 100;
-    _VSTD::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c, 2);
+    std::memcpy(__result + __olength - __i - 1, __DIGIT_TABLE + __c, 2);
     __i += 2;
   }
   if (__output2 >= 10) {
@@ -657,11 +657,11 @@ struct __floating_decimal_64 {
 
   if (_Scientific_exponent >= 100) {
     const int32_t __c = _Scientific_exponent % 10;
-    _VSTD::memcpy(__result + __index, __DIGIT_TABLE + 2 * (_Scientific_exponent / 10), 2);
+    std::memcpy(__result + __index, __DIGIT_TABLE + 2 * (_Scientific_exponent / 10), 2);
     __result[__index + 2] = static_cast<char>('0' + __c);
     __index += 3;
   } else {
-    _VSTD::memcpy(__result + __index, __DIGIT_TABLE + 2 * _Scientific_exponent, 2);
+    std::memcpy(__result + __index, __DIGIT_TABLE + 2 * _Scientific_exponent, 2);
     __index += 2;
   }
 
@@ -713,7 +713,7 @@ struct __floating_decimal_64 {
         return { _Last, errc::value_too_large };
       }
 
-      _VSTD::memcpy(_First, "0e+00", 5);
+      std::memcpy(_First, "0e+00", 5);
 
       return { _First + 5, errc{} };
     }

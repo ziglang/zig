@@ -218,7 +218,7 @@ const Scope = struct {
 
         /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
         fn contains(scope: *Root, name: []const u8) bool {
-            return scope.containsNow(name) or scope.context.global_names.contains(name);
+            return scope.containsNow(name) or scope.context.global_names.contains(name) or scope.context.weak_global_names.contains(name);
         }
     };
 
@@ -335,6 +335,15 @@ pub const Context = struct {
     /// up front in a pre-processing step.
     global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 
+    /// This is similar to `global_names`, but contains names which we would
+    /// *like* to use, but do not strictly *have* to if they are unavailable.
+    /// These are relevant to types, which ideally we would name like
+    /// 'struct_foo' with an alias 'foo', but if either of those names is taken,
+    /// may be mangled.
+    /// This is distinct from `global_names` so we can detect at a type
+    /// declaration whether or not the name is available.
+    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+
     pattern_list: PatternList,
 
     fn getMangle(c: *Context) u32 {
@@ -425,10 +434,8 @@ pub fn translate(
 
     try addMacros(&context);
     for (context.alias_list.items) |alias| {
-        if (!context.global_scope.sym_table.contains(alias.alias)) {
-            const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
-            try addTopLevelDecl(&context, alias.alias, node);
-        }
+        const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
+        try addTopLevelDecl(&context, alias.alias, node);
     }
 
     return ast.render(gpa, context.global_scope.nodes.items);
@@ -493,7 +500,29 @@ fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool
 fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
-        try c.global_names.put(c.gpa, decl_name, {});
+
+        switch (decl.getKind()) {
+            .Record, .Enum => {
+                // These types are prefixed with the container kind.
+                const container_prefix = if (decl.getKind() == .Record) prefix: {
+                    const record_decl: *const clang.RecordDecl = @ptrCast(decl);
+                    if (record_decl.isUnion()) {
+                        break :prefix "union";
+                    } else {
+                        break :prefix "struct";
+                    }
+                } else "enum";
+                const prefixed_name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_prefix, decl_name });
+                // `decl_name` and `prefixed_name` are the preferred names for this type.
+                // However, we can name it anything else if necessary, so these are "weak names".
+                try c.weak_global_names.ensureUnusedCapacity(c.gpa, 2);
+                c.weak_global_names.putAssumeCapacity(decl_name, {});
+                c.weak_global_names.putAssumeCapacity(prefixed_name, {});
+            },
+            else => {
+                try c.global_names.put(c.gpa, decl_name, {});
+            },
+        }
 
         // Check for typedefs with unnamed enum/record child types.
         if (decl.getKind() == .Typedef) {
@@ -1079,6 +1108,21 @@ fn flexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) ?*const 
     return flexible_field;
 }
 
+fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
+    var cur_name = want_name;
+
+    if (!c.weak_global_names.contains(want_name)) {
+        // This type wasn't noticed by the name detection pass, so nothing has been treating this as
+        // a weak global name. We must mangle it to avoid conflicts with locals.
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+
+    while (c.global_names.contains(cur_name)) {
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+    return cur_name;
+}
+
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
     if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
@@ -1113,6 +1157,9 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             is_unnamed = true;
         }
         name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+        if (toplevel and !is_unnamed) {
+            name = try mangleWeakGlobalName(c, name);
+        }
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), name);
@@ -1182,6 +1229,14 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
+            // C99 introduced designated initializers for structs. Omitted fields are implicitly
+            // initialized to zero. Some C APIs are designed with this in mind. Defaulting to zero
+            // values for translated struct fields permits Zig code to comfortably use such an API.
+            const default_value = if (record_decl.isStruct())
+                try Tag.std_mem_zeroes.create(c.arena, field_type)
+            else
+                null;
+
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @intFromPtr(field_decl.getCanonicalDecl()), field_name);
             }
@@ -1190,6 +1245,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .name = field_name,
                 .type = field_type,
                 .alignment = alignment,
+                .default_value = default_value,
             });
         }
 
@@ -1217,7 +1273,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const node = Node.initPayload(&payload.base);
     if (toplevel) {
         try addTopLevelDecl(c, name, node);
-        if (!is_unnamed)
+        // Only add the alias if the name is available *and* it was caught by
+        // name detection. Don't bother performing a weak mangle, since a
+        // mangled name is of no real use here.
+        if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(node);
@@ -1246,6 +1305,9 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             is_unnamed = true;
         }
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
+        if (toplevel and !is_unnamed) {
+            name = try mangleWeakGlobalName(c, name);
+        }
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), name);
@@ -1313,7 +1375,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     const node = Node.initPayload(&payload.base);
     if (toplevel) {
         try addTopLevelDecl(c, name, node);
-        if (!is_unnamed)
+        // Only add the alias if the name is available *and* it was caught by
+        // name detection. Don't bother performing a weak mangle, since a
+        // mangled name is of no real use here.
+        if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(node);
@@ -4881,7 +4946,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             var trans_scope = scope;
             if (@as(*const clang.Decl, @ptrCast(record_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
-                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
             }
             try transRecordDecl(c, trans_scope, record_decl);
             const name = c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl())).?;
@@ -4894,7 +4959,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             var trans_scope = scope;
             if (@as(*const clang.Decl, @ptrCast(enum_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
-                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
             }
             try transEnumDecl(c, trans_scope, enum_decl);
             const name = c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl())).?;
@@ -5524,22 +5589,38 @@ const MacroCtx = struct {
         return MacroSlicer{ .source = self.source, .tokens = self.list };
     }
 
-    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?[]const u8 {
+    const MacroTranslateError = union(enum) {
+        undefined_identifier: []const u8,
+        invalid_arg_usage: []const u8,
+    };
+
+    fn checkTranslatableMacro(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?MacroTranslateError {
         const slicer = self.makeSlicer();
+        var last_is_type_kw = false;
         var i: usize = 1; // index 0 is the macro name
         while (i < self.list.len) : (i += 1) {
             const token = self.list[i];
             switch (token.id) {
                 .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
+                .Keyword_struct, .Keyword_union, .Keyword_enum => if (!last_is_type_kw) {
+                    last_is_type_kw = true;
+                    continue;
+                },
                 .Identifier => {
                     const identifier = slicer.slice(token);
                     const is_param = for (params) |param| {
                         if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
                     } else false;
-                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) return identifier;
+                    if (is_param and last_is_type_kw) {
+                        return .{ .invalid_arg_usage = identifier };
+                    }
+                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) {
+                        return .{ .undefined_identifier = identifier };
+                    }
                 },
                 else => {},
             }
+            last_is_type_kw = false;
         }
         return null;
     }
@@ -5649,8 +5730,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
-    if (m.containsUndefinedIdentifier(scope, &.{})) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, &.{})) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => unreachable, // no args
+    };
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5698,8 +5781,10 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     try m.skip(c, .RParen);
 
-    if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, fn_params.items)) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => |ident| return m.fail(c, "unable to translate macro: untranslatable usage of arg `{s}`", .{ident}),
+    };
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;

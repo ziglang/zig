@@ -1,0 +1,40 @@
+#define ICO_ID 1
+
+// Nothing from windows.h is used in this .rc file,
+// but it's common to include it within a .rc file
+// so this makes sure that it can be found on
+// all platforms.
+#include "windows.h"
+
+ICO_ID ICON "zig.ico"
+
+1 VERSIONINFO
+ FILEVERSION 1L,0,0,2
+ PRODUCTVERSION 1,0,0,1
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x1L
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "CompanyName", "Zig"
+            VALUE "FileDescription", "My cool zig program"
+            VALUE "FileVersion", "1.0.0.1"
+            VALUE "InternalName", "zig-ico.exe"
+            VALUE "LegalCopyright", "(c) no one"
+            VALUE "OriginalFilename", "zig-ico.exe"
+            VALUE "ProductName", "Zig but with an icon"
+            VALUE "ProductVersion", "1.0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END
+
+#include "sub/sub.rc"

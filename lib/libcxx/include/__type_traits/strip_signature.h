@@ -19,23 +19,24 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template<class _Fp>
+template <class _Fp>
 struct __strip_signature;
 
 #  if defined(__cpp_static_call_operator) && __cpp_static_call_operator >= 202207L
 
 template <class _Rp, class... _Args>
-struct __strip_signature<_Rp(*)(_Args...)> {
+struct __strip_signature<_Rp (*)(_Args...)> {
   using type = _Rp(_Args...);
 };
 
 template <class _Rp, class... _Args>
-struct __strip_signature<_Rp(*)(_Args...) noexcept> {
+struct __strip_signature<_Rp (*)(_Args...) noexcept> {
   using type = _Rp(_Args...);
 };
 
 #  endif // defined(__cpp_static_call_operator) && __cpp_static_call_operator >= 202207L
 
+// clang-format off
 template<class _Rp, class _Gp, class ..._Ap>
 struct __strip_signature<_Rp (_Gp::*) (_Ap...)> { using type = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
@@ -71,6 +72,7 @@ template<class _Rp, class _Gp, class ..._Ap>
 struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile & noexcept> { using type = _Rp(_Ap...); };
 template<class _Rp, class _Gp, class ..._Ap>
 struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile & noexcept> { using type = _Rp(_Ap...); };
+// clang-format on
 
 _LIBCPP_END_NAMESPACE_STD
 

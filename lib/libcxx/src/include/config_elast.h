@@ -35,8 +35,6 @@
 #define _LIBCPP_ELAST 4095
 #elif defined(__APPLE__)
 // No _LIBCPP_ELAST needed on Apple
-#elif defined(__sun__)
-#define _LIBCPP_ELAST ESTALE
 #elif defined(__MVS__)
 #define _LIBCPP_ELAST 1160
 #elif defined(_LIBCPP_MSVCRT_LIKE)

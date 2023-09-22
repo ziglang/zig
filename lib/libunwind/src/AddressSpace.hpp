@@ -66,6 +66,10 @@ char *getFuncNameFromTBTable(uintptr_t pc, uint16_t &NameLen,
   // In 10.7.0 or later, libSystem.dylib implements this function.
   extern "C" bool _dyld_find_unwind_sections(void *, dyld_unwind_sections *);
 
+namespace libunwind {
+  bool findDynamicUnwindSections(void *, unw_dynamic_unwind_sections *);
+}
+
 #elif defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND) && defined(_LIBUNWIND_IS_BAREMETAL)
 
 // When statically linked on bare-metal, the symbols for the EH table are looked
@@ -497,6 +501,22 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
     info.compact_unwind_section_length = (size_t)dyldInfo.compact_unwind_section_length;
     return true;
   }
+
+  unw_dynamic_unwind_sections dynamicUnwindSectionInfo;
+  if (findDynamicUnwindSections((void *)targetAddr,
+                                &dynamicUnwindSectionInfo)) {
+    info.dso_base = dynamicUnwindSectionInfo.dso_base;
+#if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+    info.dwarf_section = (uintptr_t)dynamicUnwindSectionInfo.dwarf_section;
+    info.dwarf_section_length = dynamicUnwindSectionInfo.dwarf_section_length;
+#endif
+    info.compact_unwind_section =
+        (uintptr_t)dynamicUnwindSectionInfo.compact_unwind_section;
+    info.compact_unwind_section_length =
+        dynamicUnwindSectionInfo.compact_unwind_section_length;
+    return true;
+  }
+
 #elif defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND) && defined(_LIBUNWIND_IS_BAREMETAL)
   info.dso_base = 0;
   // Bare metal is statically linked, so no need to ask the dynamic loader
