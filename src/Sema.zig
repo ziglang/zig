@@ -6526,15 +6526,13 @@ fn addDbgVar(
 ) CompileError!void {
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
-    switch (air_tag) {
-        .dbg_var_ptr => {
-            if (!(try sema.typeHasRuntimeBits(operand_ty.childType(mod)))) return;
-        },
-        .dbg_var_val => {
-            if (!(try sema.typeHasRuntimeBits(operand_ty))) return;
-        },
+    const val_ty = switch (air_tag) {
+        .dbg_var_ptr => operand_ty.childType(mod),
+        .dbg_var_val => operand_ty,
         else => unreachable,
-    }
+    };
+    if (try sema.typeRequiresComptime(val_ty)) return;
+    if (!(try sema.typeHasRuntimeBits(val_ty))) return;
 
     try sema.queueFullTypeResolution(operand_ty);
 
