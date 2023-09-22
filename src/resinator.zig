@@ -1,3 +1,9 @@
+comptime {
+    if (@import("build_options").only_core_functionality) {
+        @compileError("resinator included in only_core_functionality build");
+    }
+}
+
 pub const ani = @import("resinator/ani.zig");
 pub const ast = @import("resinator/ast.zig");
 pub const bmp = @import("resinator/bmp.zig");
