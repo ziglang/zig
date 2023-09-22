@@ -29,6 +29,7 @@ test "add f32/f64" {
 
 test "add f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testAdd(f80);
     try comptime testAdd(f80);
@@ -60,6 +61,7 @@ test "sub f32/f64" {
 
 test "sub f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSub(f80);
     try comptime testSub(f80);
@@ -91,6 +93,7 @@ test "mul f32/f64" {
 
 test "mul f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMul(f80);
     try comptime testMul(f80);
@@ -200,7 +203,6 @@ test "different sized float comparisons" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try testDifferentSizedFloatComparisons();
@@ -235,6 +237,7 @@ fn testDifferentSizedFloatComparisons() !void {
 test "negative f128 intFromFloat at compile-time" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a: f128 = -2;
     var b = @as(i64, @intFromFloat(a));
@@ -908,6 +911,7 @@ test "@abs f16" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabs(f16);
     try comptime testFabs(f16);
@@ -917,6 +921,7 @@ test "@abs f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabs(f32);
     try comptime testFabs(f32);
@@ -930,6 +935,7 @@ test "@abs f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabs(f80);
     try comptime testFabs(f80);
@@ -1007,6 +1013,7 @@ test "@floor f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFloor(f16);
     try comptime testFloor(f16);
@@ -1017,6 +1024,7 @@ test "@floor f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFloor(f32);
     try comptime testFloor(f32);
@@ -1030,6 +1038,7 @@ test "@floor f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
@@ -1089,6 +1098,7 @@ test "@ceil f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCeil(f16);
     try comptime testCeil(f16);
@@ -1099,6 +1109,7 @@ test "@ceil f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCeil(f32);
     try comptime testCeil(f32);
@@ -1112,6 +1123,7 @@ test "@ceil f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
@@ -1148,8 +1160,8 @@ fn testCeil(comptime T: type) !void {
 test "@ceil with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .sse4_1)) return error.SkipZigTest;
 
@@ -1171,6 +1183,7 @@ test "@trunc f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
         // https://github.com/ziglang/zig/issues/16846
@@ -1186,6 +1199,7 @@ test "@trunc f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
         // https://github.com/ziglang/zig/issues/16846
@@ -1204,6 +1218,7 @@ test "@trunc f80/f128/c_longdouble" {
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12602
@@ -1390,6 +1405,7 @@ test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ f16, f32, f64, f80, f128 }) |F| {
         const pos = @as(F, 1) / @as(F, 0);

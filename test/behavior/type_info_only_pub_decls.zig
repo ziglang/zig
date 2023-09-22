@@ -15,8 +15,6 @@ const other = struct {
 };
 
 test {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const ti = @typeInfo(other);
     const decls = ti.Struct.decls;
 

@@ -4,8 +4,6 @@ const maxInt = std.math.maxInt;
 const builtin = @import("builtin");
 
 test "int comparison elision" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testIntEdges(u0);
     testIntEdges(i0);
     testIntEdges(u1);
@@ -17,6 +15,7 @@ test "int comparison elision" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // TODO: panic: integer overflow with int types > 65528 bits wide
     // TODO: LLVM generates too many parameters for wasmtime when splitting up int > 64000 bits wide

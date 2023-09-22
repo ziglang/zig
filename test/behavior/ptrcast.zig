@@ -233,7 +233,6 @@ test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
@@ -246,7 +245,6 @@ test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(slice: []u32) []i32 {
@@ -286,6 +284,8 @@ test "@ptrCast undefined value at comptime" {
 }
 
 test "comptime @ptrCast with packed struct leaves value unmodified" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = packed struct { three: u3 };
     const st: S = .{ .three = 6 };
     try expect(st.three == 6);
