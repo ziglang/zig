@@ -1153,6 +1153,7 @@ pub const FetchOptions = struct {
     method: http.Method = .GET,
     headers: http.Headers = http.Headers{ .allocator = std.heap.page_allocator, .owned = false },
     payload: Payload = .none,
+    raw_uri: bool = false,
 };
 
 pub const FetchResult = struct {
@@ -1200,7 +1201,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
             .none => {},
         }
 
-        try req.start(.{});
+        try req.start(.{ .raw_uri = options.raw_uri });
 
         switch (options.payload) {
             .string => |str| try req.writeAll(str),
