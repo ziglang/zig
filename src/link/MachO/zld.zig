@@ -351,20 +351,6 @@ pub fn linkWithZld(
             }
 
             Compilation.dump_argv(argv.items);
-
-            print: {
-                std.debug.getStderrMutex().lock();
-                defer std.debug.getStderrMutex().unlock();
-                const stderr = std.io.getStdErr().writer();
-                if (options.lib_dirs.len != 0) {
-                    nosuspend stderr.print("Library search paths:\n", .{}) catch break :print;
-                    for (options.lib_dirs) |dir| nosuspend stderr.print("\t{s}\n", .{dir}) catch break :print;
-                }
-                if (options.framework_dirs.len != 0) {
-                    nosuspend stderr.print("Framework search paths:\n", .{}) catch break :print;
-                    for (options.framework_dirs) |dir| nosuspend stderr.print("\t{s}\n", .{dir}) catch break :print;
-                }
-            }
         }
 
         var dependent_libs = std.fifo.LinearFifo(MachO.DylibReExportInfo, .Dynamic).init(arena);
