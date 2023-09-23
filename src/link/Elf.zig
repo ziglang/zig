@@ -458,7 +458,7 @@ fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfM
     try self.shdrs.ensureUnusedCapacity(gpa, 1);
     const sh_name = try self.shstrtab.insert(gpa, opts.name);
     try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
-    log.debug("allocating '{s}' in PHDR({d}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+    log.debug("allocating '{s}' in phdr({d}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         opts.name,
         opts.phdr_index,
         phdr.p_offset,
@@ -477,6 +477,39 @@ fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfM
         .sh_info = 0,
         .sh_addralign = opts.alignment,
         .sh_entsize = 0,
+    });
+    self.shdr_table_dirty = true;
+    return index;
+}
+
+const AllocateNonAllocSectionOpts = struct {
+    name: [:0]const u8,
+    size: u64,
+    alignment: u16 = 1,
+    flags: u32 = 0,
+    type: u32 = elf.SHT_PROGBITS,
+    link: u32 = 0,
+    info: u32 = 0,
+    entsize: u64 = 0,
+};
+
+fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{OutOfMemory}!u16 {
+    const index = @as(u16, @intCast(self.shdrs.items.len));
+    try self.shdrs.ensureUnusedCapacity(self.base.allocator, 1);
+    const sh_name = try self.shstrtab.insert(self.base.allocator, opts.name);
+    const off = self.findFreeSpace(opts.size, opts.alignment);
+    log.debug("allocating '{s}' from 0x{x} to 0x{x} ", .{ opts.name, off, off + opts.size });
+    self.shdrs.appendAssumeCapacity(.{
+        .sh_name = sh_name,
+        .sh_type = opts.type,
+        .sh_flags = opts.flags,
+        .sh_addr = 0,
+        .sh_offset = off,
+        .sh_size = opts.size,
+        .sh_link = opts.link,
+        .sh_info = opts.info,
+        .sh_addralign = opts.alignment,
+        .sh_entsize = opts.entsize,
     });
     self.shdr_table_dirty = true;
     return index;
@@ -592,47 +625,25 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.shstrtab_section_index == null) {
-        self.shstrtab_section_index = @intCast(self.shdrs.items.len);
         assert(self.shstrtab.buffer.items.len == 0);
         try self.shstrtab.buffer.append(gpa, 0); // need a 0 at position 0
-        const off = self.findFreeSpace(self.shstrtab.buffer.items.len, 1);
-        log.debug("found .shstrtab free space 0x{x} to 0x{x}", .{ off, off + self.shstrtab.buffer.items.len });
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".shstrtab"),
-            .sh_type = elf.SHT_STRTAB,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = self.shstrtab.buffer.items.len,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 0,
+        self.shstrtab_section_index = try self.allocateNonAllocSection(.{
+            .name = ".shstrtab",
+            .size = @intCast(self.shstrtab.buffer.items.len),
+            .type = elf.SHT_STRTAB,
         });
         self.shstrtab_dirty = true;
-        self.shdr_table_dirty = true;
     }
 
     if (self.strtab_section_index == null) {
-        self.strtab_section_index = @intCast(self.shdrs.items.len);
         assert(self.strtab.buffer.items.len == 0);
         try self.strtab.buffer.append(gpa, 0); // need a 0 at position 0
-        const off = self.findFreeSpace(self.strtab.buffer.items.len, 1);
-        log.debug("found .strtab free space 0x{x} to 0x{x}", .{ off, off + self.strtab.buffer.items.len });
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".strtab"),
-            .sh_type = elf.SHT_STRTAB,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = self.strtab.buffer.items.len,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 0,
+        self.strtab_section_index = try self.allocateNonAllocSection(.{
+            .name = ".strtab",
+            .size = @intCast(self.strtab.buffer.items.len),
+            .type = elf.SHT_STRTAB,
         });
         self.strtab_dirty = true;
-        self.shdr_table_dirty = true;
     }
 
     if (self.text_section_index == null) {
@@ -682,146 +693,66 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.symtab_section_index == null) {
-        self.symtab_section_index = @intCast(self.shdrs.items.len);
         const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
         const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
-        const file_size = self.base.options.symbol_count_hint * each_size;
-        const off = self.findFreeSpace(file_size, min_align);
-        log.debug("found symtab free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".symtab"),
-            .sh_type = elf.SHT_SYMTAB,
-            .sh_flags = 0,
-            .sh_addr = 0,
-            .sh_offset = off,
-            .sh_size = file_size,
-            // The section header index of the associated string table.
-            .sh_link = self.strtab_section_index.?,
-            .sh_info = @intCast(self.symbols.items.len),
-            .sh_addralign = min_align,
-            .sh_entsize = each_size,
+        self.symtab_section_index = try self.allocateNonAllocSection(.{
+            .name = ".symtab",
+            .size = self.base.options.symbol_count_hint * each_size,
+            .alignment = min_align,
+            .type = elf.SHT_SYMTAB,
+            .link = self.strtab_section_index.?, // Index of associated string table
+            .info = @intCast(self.symbols.items.len),
+            .entsize = each_size,
         });
         self.shdr_table_dirty = true;
     }
 
     if (self.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
-            self.debug_str_section_index = @intCast(self.shdrs.items.len);
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
-            try self.shdrs.append(gpa, .{
-                .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-                .sh_addr = 0,
-                .sh_offset = 0,
-                .sh_size = 0,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = 1,
-                .sh_entsize = 1,
+            self.debug_str_section_index = try self.allocateNonAllocSection(.{
+                .name = ".debug_str",
+                .size = @intCast(dw.strtab.buffer.items.len),
+                .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                .entsize = 1,
             });
             self.debug_strtab_dirty = true;
-            self.shdr_table_dirty = true;
         }
 
         if (self.debug_info_section_index == null) {
-            self.debug_info_section_index = @intCast(self.shdrs.items.len);
-            const file_size_hint = 200;
-            const p_align = 1;
-            const off = self.findFreeSpace(file_size_hint, p_align);
-            log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
-                off,
-                off + file_size_hint,
+            self.debug_info_section_index = try self.allocateNonAllocSection(.{
+                .name = ".debug_info",
+                .size = 200,
+                .alignment = 1,
             });
-            try self.shdrs.append(gpa, .{
-                .sh_name = try self.shstrtab.insert(gpa, ".debug_info"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = file_size_hint,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = p_align,
-                .sh_entsize = 0,
-            });
-            self.shdr_table_dirty = true;
             self.debug_info_header_dirty = true;
         }
 
         if (self.debug_abbrev_section_index == null) {
-            self.debug_abbrev_section_index = @intCast(self.shdrs.items.len);
-            const file_size_hint = 128;
-            const p_align = 1;
-            const off = self.findFreeSpace(file_size_hint, p_align);
-            log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
-                off,
-                off + file_size_hint,
+            self.debug_abbrev_section_index = try self.allocateNonAllocSection(.{
+                .name = ".debug_abbrev",
+                .size = 128,
+                .alignment = 1,
             });
-            try self.shdrs.append(gpa, .{
-                .sh_name = try self.shstrtab.insert(gpa, ".debug_abbrev"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = file_size_hint,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = p_align,
-                .sh_entsize = 0,
-            });
-            self.shdr_table_dirty = true;
             self.debug_abbrev_section_dirty = true;
         }
 
         if (self.debug_aranges_section_index == null) {
-            self.debug_aranges_section_index = @intCast(self.shdrs.items.len);
-            const file_size_hint = 160;
-            const p_align = 16;
-            const off = self.findFreeSpace(file_size_hint, p_align);
-            log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
-                off,
-                off + file_size_hint,
+            self.debug_aranges_section_index = try self.allocateNonAllocSection(.{
+                .name = ".debug_aranges",
+                .size = 160,
+                .alignment = 16,
             });
-            try self.shdrs.append(gpa, .{
-                .sh_name = try self.shstrtab.insert(gpa, ".debug_aranges"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = file_size_hint,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = p_align,
-                .sh_entsize = 0,
-            });
-            self.shdr_table_dirty = true;
             self.debug_aranges_section_dirty = true;
         }
 
         if (self.debug_line_section_index == null) {
-            self.debug_line_section_index = @intCast(self.shdrs.items.len);
-            const file_size_hint = 250;
-            const p_align = 1;
-            const off = self.findFreeSpace(file_size_hint, p_align);
-            log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
-                off,
-                off + file_size_hint,
+            self.debug_line_section_index = try self.allocateNonAllocSection(.{
+                .name = ".debug_line",
+                .size = 250,
+                .alignment = 1,
             });
-            try self.shdrs.append(gpa, .{
-                .sh_name = try self.shstrtab.insert(gpa, ".debug_line"),
-                .sh_type = elf.SHT_PROGBITS,
-                .sh_flags = 0,
-                .sh_addr = 0,
-                .sh_offset = off,
-                .sh_size = file_size_hint,
-                .sh_link = 0,
-                .sh_info = 0,
-                .sh_addralign = p_align,
-                .sh_entsize = 0,
-            });
-            self.shdr_table_dirty = true;
             self.debug_line_header_dirty = true;
         }
     }
