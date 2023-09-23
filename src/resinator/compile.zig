@@ -828,7 +828,7 @@ pub const Compiler = struct {
                         try writeResourceDataNoPadding(writer, file_reader, @intCast(bitmap_info.getActualPaletteByteLen()));
                         const padding_bytes = bitmap_info.getMissingPaletteByteLen();
                         if (padding_bytes > 0) {
-                            try writer.writeByteNTimes(0, padding_bytes);
+                            try writer.writeByteNTimes(0, @intCast(padding_bytes));
                         }
                     }
                     try file.seekTo(bitmap_info.pixel_data_offset);
@@ -2866,7 +2866,8 @@ pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) 
             if (self.bytes_read < size) {
                 const bytes_to_add = @min(amt, size - self.bytes_read);
                 const end_index = self.bytes_read + bytes_to_add;
-                std.mem.copy(u8, self.slurped_header[self.bytes_read..end_index], buf[0..bytes_to_add]);
+                const dest = self.slurped_header[@intCast(self.bytes_read)..@intCast(end_index)];
+                std.mem.copy(u8, dest, buf[0..bytes_to_add]);
             }
             self.bytes_read += amt;
             return amt;
