@@ -7373,10 +7373,10 @@ fn analyzeCall(
         const memoized_arg_values = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
 
         const owner_info = mod.typeToFunc(fn_owner_decl.ty).?;
+        const new_param_types = try sema.arena.alloc(InternPool.Index, owner_info.param_types.len);
         var new_fn_info: InternPool.GetFuncTypeKey = .{
-            .param_types = try sema.arena.alloc(InternPool.Index, owner_info.param_types.len),
+            .param_types = new_param_types,
             .return_type = owner_info.return_type,
-            .comptime_bits = 0,
             .noalias_bits = owner_info.noalias_bits,
             .alignment = if (owner_info.align_is_generic) null else owner_info.alignment,
             .cc = if (owner_info.cc_is_generic) null else owner_info.cc,
@@ -7403,7 +7403,7 @@ fn analyzeCall(
                 block,
                 &child_block,
                 inst,
-                new_fn_info.param_types,
+                new_param_types,
                 &arg_i,
                 args_info,
                 is_comptime_call,
@@ -21144,16 +21144,11 @@ fn zirReify(
 
             const ty = try mod.funcType(.{
                 .param_types = param_types,
-                .comptime_bits = 0,
                 .noalias_bits = noalias_bits,
                 .return_type = return_type.toIntern(),
                 .alignment = alignment,
                 .cc = cc,
                 .is_var_args = is_var_args,
-                .is_generic = false,
-                .is_noinline = false,
-                .section_is_generic = false,
-                .addrspace_is_generic = false,
             });
             return Air.internedToRef(ty.toIntern());
         },

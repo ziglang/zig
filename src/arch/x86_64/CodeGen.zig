@@ -1807,7 +1807,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .log2,
             .log10,
             .round,
-            => try self.airUnaryMath(inst),
+            => |tag| try self.airUnaryMath(inst, tag),
 
             .floor       => try self.airRound(inst, 0b1_0_01),
             .ceil        => try self.airRound(inst, 0b1_0_10),
@@ -5280,13 +5280,35 @@ fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
-fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
+fn airUnaryMath(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    _ = un_op;
-    return self.fail("TODO implement airUnaryMath for {}", .{
-        self.air.instructions.items(.tag)[inst],
-    });
-    //return self.finishAir(inst, result, .{ un_op, .none, .none });
+    const ty = self.typeOf(un_op).toIntern();
+    const result = try self.genCall(.{ .lib = .{
+        .return_type = ty,
+        .param_types = &.{ty},
+        .callee = switch (tag) {
+            inline .sin,
+            .cos,
+            .tan,
+            .exp,
+            .exp2,
+            .log,
+            .log2,
+            .log10,
+            .round,
+            => |comptime_tag| switch (ty) {
+                .f16_type => "__" ++ @tagName(comptime_tag) ++ "h",
+                .f32_type => @tagName(comptime_tag) ++ "f",
+                .f64_type => @tagName(comptime_tag),
+                .f80_type => "__" ++ @tagName(comptime_tag) ++ "x",
+                .f128_type => @tagName(comptime_tag) ++ "q",
+                .c_longdouble_type => @tagName(comptime_tag) ++ "l",
+                else => unreachable,
+            },
+            else => unreachable,
+        },
+    } }, &.{un_op});
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn reuseOperand(
@@ -7290,7 +7312,7 @@ fn genBinOp(
 
     switch (air_tag) {
         .add, .add_wrap, .sub, .sub_wrap, .mul, .mul_wrap, .div_float, .div_exact => {},
-        .div_trunc, .div_floor => if (self.hasFeature(.sse4_1)) try self.genRound(
+        .div_trunc, .div_floor => try self.genRound(
             lhs_ty,
             dst_reg,
             .{ .register = dst_reg },
@@ -7299,9 +7321,7 @@ fn genBinOp(
                 .div_floor => 0b1_0_01,
                 else => unreachable,
             },
-        ) else return self.fail("TODO implement genBinOp for {s} {} without sse4_1 feature", .{
-            @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
-        }),
+        ),
         .bit_and, .bit_or, .xor => {},
         .max, .min => if (maybe_mask_reg) |mask_reg| if (self.hasFeature(.avx)) {
             const rhs_copy_reg = registerAlias(src_mcv.getReg().?, abi_size);
@@ -8124,31 +8144,59 @@ fn airFence(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
-    const mod = self.bin_file.options.module.?;
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for x86_64", .{});
+
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
-    const ty = self.typeOf(callee);
 
-    const fn_ty = switch (ty.zigTypeTag(mod)) {
-        .Fn => ty,
-        .Pointer => ty.childType(mod),
-        else => unreachable,
+    const ret = try self.genCall(.{ .air = pl_op.operand }, args);
+
+    var bt = self.liveness.iterateBigTomb(inst);
+    self.feed(&bt, pl_op.operand);
+    for (args) |arg| self.feed(&bt, arg);
+
+    const result = if (self.liveness.isUnused(inst)) .unreach else ret;
+    return self.finishAirResult(inst, result);
+}
+
+fn genCall(self: *Self, info: union(enum) {
+    air: Air.Inst.Ref,
+    lib: struct {
+        return_type: InternPool.Index,
+        param_types: []const InternPool.Index,
+        lib: ?[]const u8 = null,
+        callee: []const u8,
+    },
+}, args: []const Air.Inst.Ref) !MCValue {
+    const mod = self.bin_file.options.module.?;
+
+    const fn_ty = switch (info) {
+        .air => |callee| fn_info: {
+            const callee_ty = self.typeOf(callee);
+            break :fn_info switch (callee_ty.zigTypeTag(mod)) {
+                .Fn => callee_ty,
+                .Pointer => callee_ty.childType(mod),
+                else => unreachable,
+            };
+        },
+        .lib => |lib| try mod.funcType(.{
+            .param_types = lib.param_types,
+            .return_type = lib.return_type,
+            .cc = .C,
+        }),
     };
-
     const fn_info = mod.typeToFunc(fn_ty).?;
 
-    var info = try self.resolveCallingConventionValues(fn_info, args[fn_info.param_types.len..], .call_frame);
-    defer info.deinit(self);
+    var call_info =
+        try self.resolveCallingConventionValues(fn_info, args[fn_info.param_types.len..], .call_frame);
+    defer call_info.deinit(self);
 
     // We need a properly aligned and sized call frame to be able to call this function.
     {
-        const needed_call_frame =
-            FrameAlloc.init(.{
-            .size = info.stack_byte_count,
-            .alignment = info.stack_align,
+        const needed_call_frame = FrameAlloc.init(.{
+            .size = call_info.stack_byte_count,
+            .alignment = call_info.stack_align,
         });
         const frame_allocs_slice = self.frame_allocs.slice();
         const stack_frame_size =
@@ -8164,24 +8212,20 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
-    switch (info.return_value.long) {
+    switch (call_info.return_value.long) {
         .none, .unreach => {},
         .indirect => |reg_off| try self.spillRegisters(&.{reg_off.reg}),
         else => unreachable,
     }
-    for (args, info.args) |arg, mc_arg| {
-        const arg_ty = self.typeOf(arg);
-        const arg_mcv = try self.resolveInst(arg);
-        switch (mc_arg) {
-            .none => {},
-            .register => |reg| try self.spillRegisters(&.{reg}),
-            .load_frame => try self.genCopy(arg_ty, mc_arg, arg_mcv),
-            else => unreachable,
-        }
-    }
+    for (call_info.args, args) |dst_arg, src_arg| switch (dst_arg) {
+        .none => {},
+        .register => |reg| try self.spillRegisters(&.{reg}),
+        .load_frame => try self.genCopy(self.typeOf(src_arg), dst_arg, try self.resolveInst(src_arg)),
+        else => unreachable,
+    };
 
     // now we are free to set register arguments
-    const ret_lock = switch (info.return_value.long) {
+    const ret_lock = switch (call_info.return_value.long) {
         .none, .unreach => null,
         .indirect => |reg_off| lock: {
             const ret_ty = fn_info.return_type.toType();
@@ -8189,125 +8233,80 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             try self.genSetReg(reg_off.reg, Type.usize, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
             });
-            info.return_value.short = .{ .load_frame = .{ .index = frame_index } };
+            call_info.return_value.short = .{ .load_frame = .{ .index = frame_index } };
             break :lock self.register_manager.lockRegAssumeUnused(reg_off.reg);
         },
         else => unreachable,
     };
     defer if (ret_lock) |lock| self.register_manager.unlockReg(lock);
 
-    for (args, info.args) |arg, mc_arg| {
-        const arg_ty = self.typeOf(arg);
-        const arg_mcv = try self.resolveInst(arg);
-        switch (mc_arg) {
+    for (call_info.args, args) |dst_arg, src_arg| {
+        switch (dst_arg) {
             .none, .load_frame => {},
-            .register => try self.genCopy(arg_ty, mc_arg, arg_mcv),
+            .register => try self.genCopy(self.typeOf(src_arg), dst_arg, try self.resolveInst(src_arg)),
             else => unreachable,
         }
     }
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (try self.air.value(callee, mod)) |func_value| {
-        const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
-        if (switch (func_key) {
-            .func => |func| func.owner_decl,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| decl,
+    switch (info) {
+        .air => |callee| if (try self.air.value(callee, mod)) |func_value| {
+            const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
+            if (switch (func_key) {
+                .func => |func| func.owner_decl,
+                .ptr => |ptr| switch (ptr.addr) {
+                    .decl => |decl| decl,
+                    else => null,
+                },
                 else => null,
-            },
-            else => null,
-        }) |owner_decl| {
-            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
-                const sym = elf_file.symbol(sym_index);
-                sym.flags.needs_got = true;
-                _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-                _ = try self.addInst(.{
-                    .tag = .call,
-                    .ops = .direct_got_reloc,
-                    .data = .{ .reloc = .{
-                        .atom_index = try self.owner.getSymbolIndex(self),
-                        .sym_index = sym.esym_index,
-                    } },
-                });
-            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const atom = try coff_file.getOrCreateAtomForDecl(owner_decl);
-                const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
-                try self.asmRegister(.{ ._, .call }, .rax);
-            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const atom = try macho_file.getOrCreateAtomForDecl(owner_decl);
-                const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
-                try self.asmRegister(.{ ._, .call }, .rax);
-            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                const atom_index = try p9.seeDecl(owner_decl);
-                const atom = p9.getAtom(atom_index);
-                try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
-                    .base = .{ .reg = .ds },
-                    .disp = @intCast(atom.getOffsetTableAddress(p9)),
-                }));
-            } else unreachable;
-        } else if (func_value.getExternFunc(mod)) |extern_func| {
-            const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
-            const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
-            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const atom_index = try self.owner.getSymbolIndex(self);
-                const sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name);
-                _ = try self.addInst(.{
-                    .tag = .call,
-                    .ops = .extern_fn_reloc,
-                    .data = .{ .reloc = .{
-                        .atom_index = atom_index,
-                        .sym_index = sym_index,
-                    } },
-                });
-            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const atom_index = try self.owner.getSymbolIndex(self);
-                const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
-                _ = try self.addInst(.{
-                    .tag = .mov,
-                    .ops = .import_reloc,
-                    .data = .{ .rx = .{
-                        .r1 = .rax,
-                        .payload = try self.addExtra(Mir.Reloc{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        }),
-                    } },
-                });
-                try self.asmRegister(.{ ._, .call }, .rax);
-            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const atom_index = try self.owner.getSymbolIndex(self);
-                const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
-                _ = try self.addInst(.{
-                    .tag = .call,
-                    .ops = .extern_fn_reloc,
-                    .data = .{ .reloc = .{
-                        .atom_index = atom_index,
-                        .sym_index = sym_index,
-                    } },
-                });
+            }) |owner_decl| {
+                if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
+                    const sym = elf_file.symbol(sym_index);
+                    sym.flags.needs_got = true;
+                    _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                    _ = try self.addInst(.{
+                        .tag = .call,
+                        .ops = .direct_got_reloc,
+                        .data = .{ .reloc = .{
+                            .atom_index = try self.owner.getSymbolIndex(self),
+                            .sym_index = sym.esym_index,
+                        } },
+                    });
+                } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                    const atom = try coff_file.getOrCreateAtomForDecl(owner_decl);
+                    const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
+                    try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
+                    try self.asmRegister(.{ ._, .call }, .rax);
+                } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom = try macho_file.getOrCreateAtomForDecl(owner_decl);
+                    const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
+                    try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
+                    try self.asmRegister(.{ ._, .call }, .rax);
+                } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                    const atom_index = try p9.seeDecl(owner_decl);
+                    const atom = p9.getAtom(atom_index);
+                    try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
+                        .base = .{ .reg = .ds },
+                        .disp = @intCast(atom.getOffsetTableAddress(p9)),
+                    }));
+                } else unreachable;
+            } else if (func_value.getExternFunc(mod)) |extern_func| {
+                const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
+                const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
+                try self.genExternSymbolRef(.call, lib_name, decl_name);
             } else {
-                return self.fail("TODO implement calling extern functions", .{});
+                return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling bitcasted functions", .{});
-        }
-    } else {
-        assert(ty.zigTypeTag(mod) == .Pointer);
-        const mcv = try self.resolveInst(callee);
-        try self.genSetReg(.rax, Type.usize, mcv);
-        try self.asmRegister(.{ ._, .call }, .rax);
+            assert(self.typeOf(callee).zigTypeTag(mod) == .Pointer);
+            try self.genSetReg(.rax, Type.usize, try self.resolveInst(callee));
+            try self.asmRegister(.{ ._, .call }, .rax);
+        },
+        .lib => |lib| try self.genExternSymbolRef(.call, lib.lib, lib.callee),
     }
-
-    var bt = self.liveness.iterateBigTomb(inst);
-    self.feed(&bt, callee);
-    for (args) |arg| self.feed(&bt, arg);
-
-    const result = if (self.liveness.isUnused(inst)) .unreach else info.return_value.short;
-    return self.finishAirResult(inst, result);
+    return call_info.return_value.short;
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -10279,6 +10278,51 @@ fn genInlineMemset(self: *Self, dst_ptr: MCValue, value: MCValue, len: MCValue) 
     try self.genSetReg(.al, Type.u8, value);
     try self.genSetReg(.rcx, Type.usize, len);
     try self.asmOpOnly(.{ .@"rep _sb", .sto });
+}
+
+fn genExternSymbolRef(
+    self: *Self,
+    comptime tag: Mir.Inst.Tag,
+    lib: ?[]const u8,
+    callee: []const u8,
+) InnerError!void {
+    const atom_index = try self.owner.getSymbolIndex(self);
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        _ = try self.addInst(.{
+            .tag = tag,
+            .ops = .extern_fn_reloc,
+            .data = .{ .reloc = .{
+                .atom_index = atom_index,
+                .sym_index = try elf_file.getGlobalSymbol(callee, lib),
+            } },
+        });
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .ops = .import_reloc,
+            .data = .{ .rx = .{
+                .r1 = .rax,
+                .payload = try self.addExtra(Mir.Reloc{
+                    .atom_index = atom_index,
+                    .sym_index = try coff_file.getGlobalSymbol(callee, lib),
+                }),
+            } },
+        });
+        switch (tag) {
+            .mov => {},
+            .call => try self.asmRegister(.{ ._, .call }, .rax),
+            else => unreachable,
+        }
+    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+        _ = try self.addInst(.{
+            .tag = .call,
+            .ops = .extern_fn_reloc,
+            .data = .{ .reloc = .{
+                .atom_index = atom_index,
+                .sym_index = try macho_file.getGlobalSymbol(callee, lib),
+            } },
+        });
+    } else return self.fail("TODO implement calling extern functions", .{});
 }
 
 fn genLazySymbolRef(
