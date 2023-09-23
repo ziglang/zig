@@ -92,10 +92,14 @@ pub fn print(
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
-                try print(.{
-                    .ty = ty.unionFieldType(union_val.tag, mod),
-                    .val = union_val.val,
-                }, writer, level - 1, mod);
+                if (ty.unionFieldType(union_val.tag, mod)) |field_ty| {
+                    try print(.{
+                        .ty = field_ty,
+                        .val = union_val.val,
+                    }, writer, level - 1, mod);
+                } else {
+                    return writer.writeAll("(no tag)");
+                }
 
                 return writer.writeAll(" }");
             },
@@ -409,10 +413,14 @@ pub fn print(
                         .val = un.tag.toValue(),
                     }, writer, level - 1, mod);
                     try writer.writeAll(" = ");
-                    try print(.{
-                        .ty = ty.unionFieldType(un.tag.toValue(), mod),
-                        .val = un.val.toValue(),
-                    }, writer, level - 1, mod);
+                    if (ty.unionFieldType(un.tag.toValue(), mod)) |field_ty| {
+                        try print(.{
+                            .ty = field_ty,
+                            .val = un.val.toValue(),
+                            }, writer, level - 1, mod);
+                    } else {
+                        try writer.writeAll("(no tag)");
+                    }
                 } else try writer.writeAll("...");
                 return writer.writeAll(" }");
             },

@@ -12124,7 +12124,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
         const analyze_body = if (union_originally) blk: {
             const item_val = sema.resolveConstLazyValue(block, .unneeded, item, undefined) catch unreachable;
-            const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+            const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
 
@@ -12250,7 +12250,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
                 const analyze_body = if (union_originally) blk: {
                     const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
-                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     break :blk field_ty.zigTypeTag(mod) != .NoReturn;
                 } else true;
 
@@ -12304,7 +12304,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             const analyze_body = if (union_originally)
                 for (items) |item| {
                     const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
-                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     if (field_ty.zigTypeTag(mod) != .NoReturn) break true;
                 } else false
             else
@@ -12456,7 +12456,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     const analyze_body = if (union_originally) blk: {
-                        const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                        const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                         break :blk field_ty.zigTypeTag(mod) != .NoReturn;
                     } else true;
 
@@ -16496,7 +16496,7 @@ fn analyzeCmpUnionTag(
 
     if (try sema.resolveMaybeUndefVal(coerced_tag)) |enum_val| {
         if (enum_val.isUndef(mod)) return mod.undefRef(Type.bool);
-        const field_ty = union_ty.unionFieldType(enum_val, mod);
+        const field_ty = union_ty.unionFieldType(enum_val, mod).?;
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
             return .bool_false;
         }
@@ -27208,7 +27208,11 @@ fn unionFieldVal(
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
-                    const old_ty = union_ty.unionFieldType(un.tag.toValue(), mod);
+                    const old_ty = if (un.tag == .none)
+                        ip.typeOf(un.val).toType()
+                    else
+                        union_ty.unionFieldType(un.tag.toValue(), mod).?;
+
                     if (try sema.bitCastVal(block, src, un.val.toValue(), old_ty, field_ty, 0)) |new_val| {
                         return Air.internedToRef(new_val.toIntern());
                     }

@@ -3259,10 +3259,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .un => |un| {
             // in this case we have a packed union which will not be passed by reference.
             const union_obj = mod.typeToUnion(ty).?;
-            const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()) orelse f: {
-                assert(union_obj.getLayout(ip) == .Extern);
-                break :f mod.unionLargestField(union_obj).index;
-            };
+            const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
             const field_ty = union_obj.field_types.get(ip)[field_index].toType();
             return func.lowerConstant(un.val.toValue(), field_ty);
         },

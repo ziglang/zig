@@ -330,7 +330,7 @@ pub const Value = struct {
                 return mod.intern(.{ .un = .{
                     .ty = ty.toIntern(),
                     .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
-                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
+                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod).?, mod),
                 } });
             },
         }
@@ -703,22 +703,20 @@ pub const Value = struct {
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @as(Int, @intCast(int)), endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
-                .Auto => return error.IllDefinedMemoryLayout,
+                .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
                 .Extern => {
                     const union_obj = mod.typeToUnion(ty).?;
                     const union_tag = val.unionTag(mod);
-
-                    const field_type, const field_index = if (mod.unionTagFieldIndex(union_obj, union_tag)) |field_index| .{
-                        union_obj.field_types.get(&mod.intern_pool)[field_index].toType(),
-                        field_index,
-                    } else f: {
-                        const largest_field = mod.unionLargestField(union_obj);
-                        break :f .{ largest_field.ty, largest_field.index };
-                    };
-
-                    const field_val = try val.fieldValue(mod, field_index);
-                    const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
-                    return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
+                    if (mod.unionTagFieldIndex(union_obj, union_tag)) |field_index| {
+                        const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
+                        const field_val = try val.fieldValue(mod, field_index);
+                        const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                        return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
+                    } else {
+                        const union_size = ty.abiSize(mod);
+                        const array_type = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..union_size]);
+                    }
                 },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
@@ -832,13 +830,11 @@ pub const Value = struct {
             .Union => {
                 const union_obj = mod.typeToUnion(ty).?;
                 switch (union_obj.getLayout(ip)) {
-                    .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                    .Extern => unreachable, // Handled in non-packed writeToMemory
+                    .Auto, .Extern => unreachable, // Handled in non-packed writeToMemory
                     .Packed => {
                         const field_index = mod.unionTagFieldIndex(union_obj, val.unionTag(mod)).?;
                         const field_type = union_obj.field_types.get(ip)[field_index].toType();
                         const field_val = try val.fieldValue(mod, field_index);
-
                         return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                     },
                 }
@@ -988,17 +984,14 @@ pub const Value = struct {
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => {
-                    const union_obj = mod.typeToUnion(ty).?;
-                    const largest_field = mod.unionLargestField(union_obj);
-                    const field_size: usize = @intCast(largest_field.size);
-                    const val = try (try readFromMemory(largest_field.ty, mod, buffer[0..field_size], arena)).intern(largest_field.ty, mod);
-                    return (try mod.intern(.{
-                        .un = .{
-                            .ty = ty.toIntern(),
-                            .tag = .undef,
-                            .val = val,
-                        },
-                    })).toValue();
+                    const union_size = ty.abiSize(mod);
+                    const array_ty = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                    const val = try (try readFromMemory(array_ty, mod, buffer, arena)).intern(array_ty, mod);
+                    return (try mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = .none,
+                        .val = val,
+                    } })).toValue();
                 },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
@@ -1141,17 +1134,17 @@ pub const Value = struct {
                 } })).toValue();
             },
             .Union => switch (ty.containerLayout(mod)) {
-                .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => unreachable, // Handled by non-packed readFromMemory
+                .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
-                    const union_obj = mod.typeToUnion(ty).?;
-                    const largest_field = mod.unionLargestField(union_obj);
-                    const un_tag_val = try mod.enumValueFieldIndex(union_obj.enum_tag_ty.toType(), largest_field.index);
-                    const un_val = try (try readFromPackedMemory(largest_field.ty, mod, buffer, bit_offset, arena)).intern(largest_field.ty, mod);
+                    const union_bits: u16 = @intCast(ty.bitSize(mod));
+                    // TODO: Remove after tests pass
+                    assert(union_bits != 0);
+                    const int_ty = try mod.intType(.unsigned, union_bits);
+                    const val = (try readFromPackedMemory(int_ty, mod, buffer, bit_offset, arena)).toIntern();
                     return (try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
-                        .tag = un_tag_val.ip_index,
-                        .val = un_val,
+                        .tag = .none,
+                        .val = val,
                     } })).toValue();
                 },
             },

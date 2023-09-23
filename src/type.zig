@@ -1658,6 +1658,7 @@ pub const Type = struct {
                     const field_ty = union_obj.field_types.get(ip)[field_index];
                     size = @max(size, try bitSizeAdvanced(field_ty.toType(), mod, opt_sema));
                 }
+
                 return size;
             },
             .opaque_type => unreachable,
@@ -1926,15 +1927,12 @@ pub const Type = struct {
         return union_obj.enum_tag_ty.toType();
     }
 
-    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
+    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) ?Type {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
         const union_fields = union_obj.field_types.get(ip);
-        if (mod.unionTagFieldIndex(union_obj, enum_tag)) |index| {
-            return union_fields[index].toType();
-        } else {
-            return mod.unionLargestField(union_obj).ty;
-        }
+        const index = mod.unionTagFieldIndex(union_obj, enum_tag) orelse return null;
+        return union_fields[index].toType();
     }
 
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {

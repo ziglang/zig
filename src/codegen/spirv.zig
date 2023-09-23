@@ -838,10 +838,7 @@ pub const DeclGen = struct {
                         return dg.todo("packed union constants", .{});
                     }
 
-                    const active_field = ty.unionTagFieldIndex(un.tag.toValue(), dg.module) orelse f: {
-                        assert(union_obj.getLayout(ip) == .Extern);
-                        break :f mod.unionLargestField(union_obj).index;
-                    };
+                    const active_field = ty.unionTagFieldIndex(un.tag.toValue(), dg.module).?;
                     const active_field_ty = union_obj.field_types.get(ip)[active_field].toType();
 
                     const has_tag = layout.tag_size != 0;

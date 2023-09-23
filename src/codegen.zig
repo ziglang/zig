@@ -583,10 +583,7 @@ pub fn generateSymbol(
             }
 
             const union_obj = mod.typeToUnion(typed_value.ty).?;
-            const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod) orelse f: {
-                assert(union_obj.getLayout(ip) == .Extern);
-                break :f mod.unionLargestField(union_obj).index;
-            };
+            const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
 
             const field_ty = union_obj.field_types.get(ip)[field_index].toType();
             if (!field_ty.hasRuntimeBits(mod)) {
