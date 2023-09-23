@@ -706,8 +706,8 @@ pub const Value = struct {
                 .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
                 .Extern => {
                     const union_obj = mod.typeToUnion(ty).?;
-                    const union_tag = val.unionTag(mod);
-                    if (mod.unionTagFieldIndex(union_obj, union_tag)) |field_index| {
+                    if (val.unionTag(mod)) |union_tag| {
+                        const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
                         const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
                         const field_val = try val.fieldValue(mod, field_index);
                         const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
@@ -715,7 +715,7 @@ pub const Value = struct {
                     } else {
                         const union_size = ty.abiSize(mod);
                         const array_type = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
-                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..union_size]);
+                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..@as(usize, @intCast(union_size))]);
                     }
                 },
                 .Packed => {
@@ -832,10 +832,16 @@ pub const Value = struct {
                 switch (union_obj.getLayout(ip)) {
                     .Auto, .Extern => unreachable, // Handled in non-packed writeToMemory
                     .Packed => {
-                        const field_index = mod.unionTagFieldIndex(union_obj, val.unionTag(mod)).?;
-                        const field_type = union_obj.field_types.get(ip)[field_index].toType();
-                        const field_val = try val.fieldValue(mod, field_index);
-                        return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                        if (val.unionTag(mod)) |union_tag| {
+                            const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
+                            const field_type = union_obj.field_types.get(ip)[field_index].toType();
+                            const field_val = try val.fieldValue(mod, field_index);
+                            return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                        } else {
+                            const union_bits: u16 = @intCast(ty.bitSize(mod));
+                            const int_ty = try mod.intType(.unsigned, union_bits);
+                            return val.unionValue(mod).writeToPackedMemory(int_ty, mod, buffer, bit_offset);
+                        }
                     },
                 }
             },
@@ -1137,7 +1143,6 @@ pub const Value = struct {
                 .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
                     const union_bits: u16 = @intCast(ty.bitSize(mod));
-                    // TODO: Remove after tests pass
                     assert(union_bits != 0);
                     const int_ty = try mod.intType(.unsigned, union_bits);
                     const val = (try readFromPackedMemory(int_ty, mod, buffer, bit_offset, arena)).toIntern();
@@ -1754,11 +1759,11 @@ pub const Value = struct {
         };
     }
 
-    pub fn unionTag(val: Value, mod: *Module) Value {
+    pub fn unionTag(val: Value, mod: *Module) ?Value {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
-            .un => |un| un.tag.toValue(),
+            .un => |un| if (un.tag != .none) un.tag.toValue() else return null,
             else => unreachable,
         };
     }

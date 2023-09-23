@@ -32879,7 +32879,7 @@ fn unionToTag(
         return Air.internedToRef(opv.toIntern());
     }
     if (try sema.resolveMaybeUndefVal(un)) |un_val| {
-        return Air.internedToRef(un_val.unionTag(mod).toIntern());
+        return Air.internedToRef(un_val.unionTag(mod).?.toIntern());
     }
     try sema.requireRuntimeBlock(block, un_src, null);
     return block.addTyOp(.get_union_tag, enum_ty, un);
