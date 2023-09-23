@@ -317,7 +317,6 @@ pub fn linkWithZld(
             try argv.append(full_out_path);
 
             try argv.append("-lSystem");
-            try argv.append("-lc");
 
             for (options.system_libs.keys()) |l_name| {
                 const info = options.system_libs.get(l_name).?;

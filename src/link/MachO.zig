@@ -676,27 +676,6 @@ pub fn resolveLibSystem(
         .weak = false,
         .path = libsystem_path,
     });
-
-    const ext = fs.path.extension(libsystem_path);
-    if (mem.eql(u8, ext, ".dylib")) {
-        // We found 'libSystem.dylib', so now we also need to look for 'libc.dylib'.
-        success: {
-            if (self.base.options.sysroot) |root| {
-                const dir = try fs.path.join(tmp_arena, &[_][]const u8{ root, "usr", "lib" });
-                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libc")) break :success;
-            }
-
-            for (search_dirs) |dir| if (try accessLibPath(
-                tmp_arena,
-                &test_path,
-                &checked_paths,
-                dir,
-                "libc",
-            )) break :success;
-
-            try self.reportMissingLibraryError(checked_paths.items, "unable to find libc system library", .{});
-        }
-    }
 }
 
 fn accessLibPath(
