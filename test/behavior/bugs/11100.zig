@@ -9,7 +9,5 @@ pub fn do() bool {
 }
 
 test "bug" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try std.testing.expect(!do());
 }

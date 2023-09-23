@@ -9,7 +9,6 @@ test {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const zerox32: u8x32 = [_]u8{0} ** 32;
     const bigsum: u32x8 = @as(u32x8, @bitCast(zerox32));

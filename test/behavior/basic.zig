@@ -330,7 +330,6 @@ const FnPtrWrapper = struct {
 
 test "const ptr from var variable" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u64 = undefined;
     var y: u64 = undefined;
@@ -581,7 +580,7 @@ test "comptime cast fn to ptr" {
 }
 
 test "equality compare fn ptrs" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // Test passes but should not
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = &emptyFn;
     try expect(a == a);
@@ -607,7 +606,6 @@ test "self reference through fn ptr field" {
 
 test "global variable initialized to global variable array element" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(global_ptr == &gdt[0]);
 }
@@ -639,7 +637,6 @@ test "global constant is loaded with a runtime-known index" {
 
 test "multiline string literal is null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -711,7 +708,6 @@ test "comptime manyptr concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s = "epic";
     const actual = manyptrConcat(s);
@@ -1027,7 +1023,6 @@ comptime {
 
 test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a: u32 = 0;
     var b: [2]u32 = undefined;
@@ -1136,8 +1131,6 @@ test "orelse coercion as function argument" {
 }
 
 test "runtime-known globals initialized with undefined" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         var array: [10]u32 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         var vp: [*]u32 = undefined;

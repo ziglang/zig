@@ -7,29 +7,21 @@ test "issue12891" {
     try std.testing.expect(i < f);
 }
 test "nan" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const f = comptime std.math.nan(f64);
     var i: usize = 0;
     try std.testing.expect(!(f < i));
 }
 test "inf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const f = comptime std.math.inf(f64);
     var i: usize = 0;
     try std.testing.expect(f > i);
 }
 test "-inf < 0" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const f = comptime -std.math.inf(f64);
     var i: usize = 0;
     try std.testing.expect(f < i);
 }
 test "inf >= 1" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const f = comptime std.math.inf(f64);
     var i: usize = 1;
     try std.testing.expect(f >= i);

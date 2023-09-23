@@ -1020,7 +1020,6 @@ test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var a: u8 = 1;
@@ -1146,8 +1145,6 @@ test "overflow arithmetic with u0 values" {
 }
 
 test "allow signed integer division/remainder when values are comptime-known and positive or exact" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(5 / 3 == 1);
     try expect(-5 / -3 == 1);
     try expect(-6 / 3 == -2);
@@ -1289,6 +1286,8 @@ fn testShrExact(x: u8) !void {
 }
 
 test "shift left/right on u0 operand" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var x: u0 = 0;

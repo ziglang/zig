@@ -5,8 +5,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "compile time recursion" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(some_data.len == 21);
 }
 var some_data: [@as(usize, @intCast(fibonacci(7)))]u8 = undefined;
@@ -74,7 +72,6 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
 test "constant expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var array: [array_size]u8 = undefined;
     try expect(@sizeOf(@TypeOf(array)) == 20);
@@ -143,7 +140,6 @@ test "pointer to type" {
 test "a type constructed in a global expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var l: List = undefined;
     l.array[0] = 10;
@@ -202,8 +198,6 @@ test "@setEvalBranchQuota" {
 }
 
 test "constant struct with negation" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(vertices[0].x == @as(f32, -0.6));
 }
 const Vertex = struct {
@@ -308,8 +302,6 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "comptime iterate over fn ptr list" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(performFn('t', 1) == 6);
     try expect(performFn('o', 0) == 1);
     try expect(performFn('w', 99) == 99);
@@ -348,7 +340,6 @@ fn doesAlotT(comptime T: type, value: usize) T {
 test "@setEvalBranchQuota at same scope as generic function call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(doesAlotT(u32, 2) == 2);
 }
@@ -385,8 +376,6 @@ test "zero extend from u0 to u1" {
 }
 
 test "return 0 from function that has u0 return type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo_zero() u0 {
             return 0;
@@ -417,8 +406,6 @@ var st_init_str_foo = StInitStrFoo{
 };
 
 test "inline for with same type but different values" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var res: usize = 0;
     inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
         var a: T = undefined;
@@ -544,7 +531,6 @@ test "runtime 128 bit integer division" {
 test "@tagName of @typeInfo" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const str = @tagName(@typeInfo(u8));
     try expect(std.mem.eql(u8, str, "Int"));
@@ -554,7 +540,6 @@ test "static eval list init" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(static_vec3.data[2] == 1.0);
     try expect(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
@@ -586,7 +571,6 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
 test "ptr to local array argument at comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         var bytes: [10]u8 = undefined;
@@ -623,7 +607,6 @@ const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try assertEqualPtrs(&hi1[0], &hi2[0]);
     try comptime expect(&hi1[0] == &hi2[0]);
@@ -659,8 +642,6 @@ pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
 }
 
 test "comptime function with mutable pointer is not memoized" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     comptime {
         var x: i32 = 1;
         const ptr = &x;
@@ -729,6 +710,7 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     try testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }
 
@@ -752,7 +734,6 @@ test "array concatenation of function calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = oneItem(3) ++ oneItem(4);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
@@ -762,7 +743,6 @@ test "array multiplication of function calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = oneItem(3) ** scalar(2);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
@@ -851,7 +831,6 @@ test "array multiplication sets the sentinel - value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = [2:7]u3{ 1, 6 };
     var b = a ** 2;
@@ -868,7 +847,6 @@ test "array multiplication sets the sentinel - pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a = [2:7]u3{ 1, 6 };
     var b = &a ** 2;
@@ -1003,7 +981,6 @@ test "closure capture type of runtime-known var" {
 
 test "comptime break passing through runtime condition converted to runtime break" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1037,7 +1014,6 @@ test "comptime break to outer loop passing through runtime condition converted t
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1109,7 +1085,6 @@ test "comptime break operand passing through runtime switch converted to runtime
 test "no dependency loop for alignment of self struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1147,7 +1122,6 @@ test "no dependency loop for alignment of self struct" {
 test "no dependency loop for alignment of self bare union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1185,7 +1159,6 @@ test "no dependency loop for alignment of self bare union" {
 test "no dependency loop for alignment of self tagged union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1376,7 +1349,6 @@ test "lazy value is resolved as slice operand" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct { a: u32 };
     var a: [512]u64 = undefined;
@@ -1434,7 +1406,6 @@ test "inline for inside a runtime condition" {
 
 test "continue in inline for inside a comptime switch" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const arr = .{ 1, 2, 3 };
     var count: u8 = 0;
@@ -1500,7 +1471,6 @@ test "continue nested inline for loop in named block expr" {
 
 test "x and false is comptime-known false" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct {
         var x: u32 = 0;
@@ -1528,7 +1498,6 @@ test "x and false is comptime-known false" {
 
 test "x or true is comptime-known true" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct {
         var x: u32 = 0;
@@ -1558,7 +1527,6 @@ test "non-optional and optional array elements concatenated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const array = [1]u8{'A'} ++ [1]?u8{null};
     var index: usize = 0;
@@ -1647,8 +1615,6 @@ test "result of nested switch assigned to variable" {
 }
 
 test "inline for loop of functions returning error unions" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const T1 = struct {
         fn v() error{}!usize {
             return 1;
