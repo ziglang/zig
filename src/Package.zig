@@ -17,6 +17,7 @@ const Module = @import("Module.zig");
 const Cache = std.Build.Cache;
 const build_options = @import("build_options");
 const Manifest = @import("Manifest.zig");
+const git = @import("git.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -514,6 +515,7 @@ const FetchLocation = union(enum) {
     file: []const u8,
     directory: []const u8,
     http_request: std.Uri,
+    git_request: std.Uri,
 
     pub fn init(gpa: Allocator, dep: Manifest.Dependency, root_dir: Compilation.Directory, report: Report) !FetchLocation {
         switch (dep.location) {
@@ -524,8 +526,13 @@ const FetchLocation = union(enum) {
                 };
                 if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
                     return report.fail(dep.location_tok, "'file' scheme is not allowed for URLs. Use '.path' instead", .{});
+                } else if (ascii.eqlIgnoreCase(uri.scheme, "http") or ascii.eqlIgnoreCase(uri.scheme, "https")) {
+                    return .{ .http_request = uri };
+                } else if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or ascii.eqlIgnoreCase(uri.scheme, "git+https")) {
+                    return .{ .git_request = uri };
+                } else {
+                    return report.fail(dep.location_tok, "Unsupported URL scheme: {s}", .{uri.scheme});
                 }
-                return .{ .http_request = uri };
             },
             .path => |path| {
                 if (fs.path.isAbsolute(path)) {
@@ -548,7 +555,7 @@ const FetchLocation = union(enum) {
     pub fn deinit(f: *FetchLocation, gpa: Allocator) void {
         switch (f.*) {
             inline .file, .directory => |path| gpa.free(path),
-            .http_request => {},
+            .http_request, .git_request => {},
         }
         f.* = undefined;
     }
@@ -592,6 +599,71 @@ const FetchLocation = union(enum) {
                     .resource = .{ .http_request = req },
                 };
             },
+            .git_request => |uri| {
+                var transport_uri = uri;
+                transport_uri.scheme = uri.scheme["git+".len..];
+                var redirect_uri: []u8 = undefined;
+                var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
+                session.discoverCapabilities(gpa, &redirect_uri) catch |e| switch (e) {
+                    error.Redirected => {
+                        defer gpa.free(redirect_uri);
+                        return report.fail(dep.location_tok, "Repository moved to {s}", .{redirect_uri});
+                    },
+                    else => |other| return other,
+                };
+
+                const want_oid = want_oid: {
+                    const want_ref = uri.fragment orelse "HEAD";
+                    if (git.parseOid(want_ref)) |oid| break :want_oid oid else |_| {}
+
+                    const want_ref_head = try std.fmt.allocPrint(gpa, "refs/heads/{s}", .{want_ref});
+                    defer gpa.free(want_ref_head);
+                    const want_ref_tag = try std.fmt.allocPrint(gpa, "refs/tags/{s}", .{want_ref});
+                    defer gpa.free(want_ref_tag);
+
+                    var ref_iterator = try session.listRefs(gpa, .{
+                        .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
+                        .include_peeled = true,
+                    });
+                    defer ref_iterator.deinit();
+                    while (try ref_iterator.next()) |ref| {
+                        if (mem.eql(u8, ref.name, want_ref) or
+                            mem.eql(u8, ref.name, want_ref_head) or
+                            mem.eql(u8, ref.name, want_ref_tag))
+                        {
+                            break :want_oid ref.peeled orelse ref.oid;
+                        }
+                    }
+                    return report.fail(dep.location_tok, "Ref not found: {s}", .{want_ref});
+                };
+                if (uri.fragment == null) {
+                    const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+                    defer gpa.free(file_path);
+
+                    const eb = report.error_bundle;
+                    const notes_len = 1;
+                    try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
+                        .tok = dep.location_tok,
+                        .off = 0,
+                        .msg = "url field is missing an explicit ref",
+                    });
+                    const notes_start = try eb.reserveNotes(notes_len);
+                    eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("try .url = \"{+/}#{}\",", .{ uri, std.fmt.fmtSliceHexLower(&want_oid) }),
+                    }));
+                    return error.PackageFetchFailed;
+                }
+
+                var want_oid_buf: [git.fmt_oid_length]u8 = undefined;
+                _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{std.fmt.fmtSliceHexLower(&want_oid)}) catch unreachable;
+                var fetch_stream = try session.fetch(gpa, &.{&want_oid_buf});
+                errdefer fetch_stream.deinit();
+
+                return .{
+                    .path = try gpa.dupe(u8, &want_oid_buf),
+                    .resource = .{ .git_fetch_stream = fetch_stream },
+                };
+            },
             .directory => unreachable, // Directories do not require fetching
         }
     }
@@ -602,6 +674,7 @@ const ReadableResource = struct {
     resource: union(enum) {
         file: fs.File,
         http_request: std.http.Client.Request,
+        git_fetch_stream: git.Session.FetchStream,
     },
 
     /// Unpack the package into the global cache directory.
@@ -617,7 +690,7 @@ const ReadableResource = struct {
         pkg_prog_node: *std.Progress.Node,
     ) !PackageLocation {
         switch (rr.resource) {
-            inline .file, .http_request => |*r| {
+            inline .file, .http_request, .git_fetch_stream => |*r| {
                 const s = fs.path.sep_str;
                 const rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
@@ -663,6 +736,7 @@ const ReadableResource = struct {
                         // I have not checked what buffer sizes the xz decompression implementation uses
                         // by default, so the same logic applies for buffering the reader as for gzip.
                         .@"tar.xz" => try unpackTarball(allocator, prog_reader, tmp_directory.handle, std.compress.xz),
+                        .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle),
                     }
 
                     // Unpack completed - stop showing amount as progress
@@ -697,13 +771,15 @@ const ReadableResource = struct {
     const FileType = enum {
         @"tar.gz",
         @"tar.xz",
+        git_pack,
     };
 
     pub fn getSize(rr: ReadableResource) !?u64 {
         switch (rr.resource) {
+            .file => |f| return (try f.metadata()).size(),
             // TODO: Handle case of chunked content-length
             .http_request => |req| return req.response.content_length,
-            .file => |f| return (try f.metadata()).size(),
+            .git_fetch_stream => |stream| return stream.request.response.content_length,
         }
     }
 
@@ -734,6 +810,7 @@ const ReadableResource = struct {
                         return report.fail(dep.location_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
                 } else return report.fail(dep.location_tok, "Unrecognized value for 'Content-Type' header: {s}", .{content_type});
             },
+            .git_fetch_stream => return .git_pack,
         }
     }
 
@@ -769,6 +846,7 @@ const ReadableResource = struct {
         switch (rr.resource) {
             .file => |file| file.close(),
             .http_request => |*req| req.deinit(),
+            .git_fetch_stream => |*stream| stream.deinit(),
         }
         rr.* = undefined;
     }
@@ -947,7 +1025,7 @@ fn fetchAndUnpack(
     /// is only intended to be human-readable for progress reporting.
     name_for_prog: []const u8,
 ) !DependencyModule {
-    assert(fetch_location == .file or fetch_location == .http_request);
+    assert(fetch_location != .directory);
 
     const gpa = http_client.allocator;
 
@@ -1022,6 +1100,51 @@ fn unpackTarball(
         //    bit on Windows from the ACLs (see the isExecutable function).
         .mode_mode = .ignore,
     });
+}
+
+fn unpackGitPack(
+    gpa: Allocator,
+    reader: anytype,
+    want_oid: git.Oid,
+    out_dir: fs.Dir,
+) !void {
+    // The .git directory is used to store the packfile and associated index, but
+    // we do not attempt to replicate the exact structure of a real .git
+    // directory, since that isn't relevant for fetching a package.
+    {
+        var pack_dir = try out_dir.makeOpenPath(".git", .{});
+        defer pack_dir.close();
+        var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
+        defer pack_file.close();
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        try fifo.pump(reader.reader(), pack_file.writer());
+        try pack_file.sync();
+
+        var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
+        defer index_file.close();
+        {
+            var index_prog_node = reader.prog_node.start("Index pack", 0);
+            defer index_prog_node.end();
+            index_prog_node.activate();
+            index_prog_node.context.refresh();
+            var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
+            try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
+            try index_buffered_writer.flush();
+            try index_file.sync();
+        }
+
+        {
+            var checkout_prog_node = reader.prog_node.start("Checkout", 0);
+            defer checkout_prog_node.end();
+            checkout_prog_node.activate();
+            checkout_prog_node.context.refresh();
+            var repository = try git.Repository.init(gpa, pack_file, index_file);
+            defer repository.deinit();
+            try repository.checkout(out_dir, want_oid);
+        }
+    }
+
+    try out_dir.deleteTree(".git");
 }
 
 const HashedFile = struct {
