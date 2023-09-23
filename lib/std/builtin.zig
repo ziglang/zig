@@ -405,6 +405,7 @@ pub const Type = union(enum) {
             is_generic: bool,
             is_noalias: bool,
             type: ?type,
+            is_comptime: bool,
         };
     };
 

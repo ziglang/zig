@@ -16,7 +16,7 @@ test "ErrorSet comptime_field_ptr" {
 
 const fn_info = .{
     .params = [_]builtin.Type.Fn.Param{
-        .{ .is_generic = false, .is_noalias = false, .type = u8 },
+        .{ .is_generic = false, .is_noalias = false, .type = u8, .is_comptime = false },
     },
 };
 const Bar = @Type(.{
