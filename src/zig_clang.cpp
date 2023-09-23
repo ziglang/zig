@@ -3053,6 +3053,11 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
             msg->msg_len = msg_str_ref.size();
 
             clang::FullSourceLoc fsl = it->getLocation();
+
+            // Ensure the source location is valid before expanding it
+            if (fsl.isInvalid()) {
+                continue;
+            }
             // Expand the location if possible
             fsl = fsl.getFileLoc();
 
