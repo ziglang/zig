@@ -16,11 +16,13 @@ out_basename: []const u8,
 target: CrossTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
+link_libc: bool,
 
 pub const Options = struct {
     source_file: std.Build.LazyPath,
     target: CrossTarget,
     optimize: std.builtin.OptimizeMode,
+    link_libc: bool = true,
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
@@ -40,6 +42,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
         .target = options.target,
         .optimize = options.optimize,
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
+        .link_libc = options.link_libc,
     };
     source.addStepDependencies(&self.step);
     return self;
@@ -124,7 +127,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
     try argv_list.append(b.zig_exe);
     try argv_list.append("translate-c");
-    try argv_list.append("-lc");
+    if (self.link_libc) {
+        try argv_list.append("-lc");
+    }
 
     try argv_list.append("--listen=-");
 
