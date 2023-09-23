@@ -155,6 +155,22 @@ pub fn resetGlobals(self: *ZigModule, elf_file: *Elf) void {
     }
 }
 
+pub fn markLive(self: *ZigModule, elf_file: *Elf) void {
+    for (self.globals(), 0..) |index, i| {
+        const esym = self.global_esyms.items[i];
+        if (esym.st_bind() == elf.STB_WEAK) continue;
+
+        const global = elf_file.symbol(index);
+        const file = global.file(elf_file) orelse continue;
+        const should_keep = esym.st_shndx == elf.SHN_UNDEF or
+            (esym.st_shndx == elf.SHN_COMMON and global.elfSym(elf_file).st_shndx != elf.SHN_COMMON);
+        if (should_keep and !file.isAlive()) {
+            file.setAlive();
+            file.markLive(elf_file);
+        }
+    }
+}
+
 pub fn updateSymtabSize(self: *ZigModule, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);

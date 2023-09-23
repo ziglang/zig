@@ -1493,6 +1493,7 @@ fn resolveSymbols(self: *Elf) error{Overflow}!void {
 /// This routine will prune unneeded objects extracted from archives and
 /// unneeded shared objects.
 fn markLive(self: *Elf) void {
+    if (self.zig_module_index) |index| self.file(index).?.markLive(self);
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
