@@ -1034,6 +1034,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         these_tests.addIncludePath(.{ .path = "test" });
 
+        if (test_target.target.getOs().tag == .wasi) {
+            // WASI's default stack size can be too small for some big tests.
+            these_tests.stack_size = 2 * 1024 * 1024;
+        }
+
         const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
