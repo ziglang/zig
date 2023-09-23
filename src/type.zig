@@ -1646,8 +1646,12 @@ pub const Type = struct {
             },
 
             .union_type => |union_type| {
-                if (opt_sema) |sema| try sema.resolveTypeFields(ty);
-                if (ty.containerLayout(mod) != .Packed) {
+                const is_packed = ty.containerLayout(mod) == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (!is_packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
                 }
                 const union_obj = ip.loadUnionType(union_type);

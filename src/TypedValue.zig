@@ -417,7 +417,7 @@ pub fn print(
                         try print(.{
                             .ty = field_ty,
                             .val = un.val.toValue(),
-                            }, writer, level - 1, mod);
+                        }, writer, level - 1, mod);
                     } else {
                         try writer.writeAll("(no tag)");
                     }

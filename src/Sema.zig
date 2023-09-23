@@ -4000,7 +4000,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
                 const air_ptr_inst = Air.refToIndex(bin_op.lhs).?;
                 const tag_val = (try sema.resolveMaybeUndefVal(bin_op.rhs)).?;
                 const union_ty = sema.typeOf(bin_op.lhs).childType(mod);
-                const payload_ty = union_ty.unionFieldType(tag_val, mod);
+                const payload_ty = union_ty.unionFieldType(tag_val, mod).?;
                 if (try sema.typeHasOnePossibleValue(payload_ty)) |payload_val| {
                     const new_ptr = ptr_mapping.get(air_ptr_inst).?;
                     const store_val = try mod.unionValue(union_ty, tag_val, payload_val);
