@@ -415,16 +415,19 @@ const AllocateSegmentOpts = struct {
     flags: u32 = elf.PF_R,
 };
 
-fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) !u16 {
+fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
     const index = @as(u16, @intCast(self.phdrs.items.len));
     try self.phdrs.ensureUnusedCapacity(self.base.allocator, 1);
     const off = self.findFreeSpace(opts.size, opts.alignment);
-    log.debug("found PHDR {c}{c}{c} free space 0x{x} to 0x{x}", .{
+    log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+        index,
         if (opts.flags & elf.PF_R != 0) @as(u8, 'R') else '_',
         if (opts.flags & elf.PF_W != 0) @as(u8, 'W') else '_',
         if (opts.flags & elf.PF_X != 0) @as(u8, 'X') else '_',
         off,
         off + opts.size,
+        opts.addr,
+        opts.addr + opts.size,
     });
     self.phdrs.appendAssumeCapacity(.{
         .p_type = elf.PT_LOAD,
@@ -437,6 +440,45 @@ fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) !u16 {
         .p_flags = opts.flags,
     });
     self.phdr_table_dirty = true;
+    return index;
+}
+
+const AllocateAllocSectionOpts = struct {
+    name: [:0]const u8,
+    phdr_index: u16,
+    alignment: u16 = 1,
+    flags: u16 = elf.SHF_ALLOC,
+    type: u32 = elf.SHT_PROGBITS,
+};
+
+fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfMemory}!u16 {
+    const gpa = self.base.allocator;
+    const phdr = &self.phdrs.items[opts.phdr_index];
+    const index = @as(u16, @intCast(self.shdrs.items.len));
+    try self.shdrs.ensureUnusedCapacity(gpa, 1);
+    const sh_name = try self.shstrtab.insert(gpa, opts.name);
+    try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
+    log.debug("allocating '{s}' in PHDR({d}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+        opts.name,
+        opts.phdr_index,
+        phdr.p_offset,
+        phdr.p_offset + phdr.p_filesz,
+        phdr.p_vaddr,
+        phdr.p_vaddr + phdr.p_memsz,
+    });
+    self.shdrs.appendAssumeCapacity(.{
+        .sh_name = sh_name,
+        .sh_type = opts.type,
+        .sh_flags = opts.flags,
+        .sh_addr = phdr.p_vaddr,
+        .sh_offset = phdr.p_offset,
+        .sh_size = phdr.p_filesz,
+        .sh_link = 0,
+        .sh_info = 0,
+        .sh_addralign = opts.alignment,
+        .sh_entsize = 0,
+    });
+    self.shdr_table_dirty = true;
     return index;
 }
 
@@ -545,6 +587,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
+        const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
+        phdr.p_offset = self.phdrs.items[self.phdr_load_rw_index.?].p_offset; // .bss overlaps .data
     }
 
     if (self.shstrtab_section_index == null) {
@@ -592,102 +636,49 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.text_section_index == null) {
-        self.text_section_index = @intCast(self.shdrs.items.len);
-        const phdr = &self.phdrs.items[self.phdr_load_re_index.?];
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".text"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-            .sh_addr = phdr.p_vaddr,
-            .sh_offset = phdr.p_offset,
-            .sh_size = phdr.p_filesz,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 0,
+        self.text_section_index = try self.allocateAllocSection(.{
+            .name = ".text",
+            .phdr_index = self.phdr_load_re_index.?,
+            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
         });
-        try self.phdr_to_shdr_table.putNoClobber(gpa, self.text_section_index.?, self.phdr_load_re_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.text_section_index.?, .{});
-        self.shdr_table_dirty = true;
     }
 
     if (self.got_section_index == null) {
-        self.got_section_index = @intCast(self.shdrs.items.len);
-        const phdr = &self.phdrs.items[self.phdr_got_index.?];
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".got"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_ALLOC,
-            .sh_addr = phdr.p_vaddr,
-            .sh_offset = phdr.p_offset,
-            .sh_size = phdr.p_filesz,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = @as(u16, ptr_size),
-            .sh_entsize = 0,
+        self.got_section_index = try self.allocateAllocSection(.{
+            .name = ".got",
+            .phdr_index = self.phdr_got_index.?,
+            .alignment = ptr_size,
         });
-        try self.phdr_to_shdr_table.putNoClobber(gpa, self.got_section_index.?, self.phdr_got_index.?);
-        self.shdr_table_dirty = true;
     }
 
     if (self.rodata_section_index == null) {
-        self.rodata_section_index = @intCast(self.shdrs.items.len);
-        const phdr = &self.phdrs.items[self.phdr_load_ro_index.?];
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".rodata"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_ALLOC,
-            .sh_addr = phdr.p_vaddr,
-            .sh_offset = phdr.p_offset,
-            .sh_size = phdr.p_filesz,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = 1,
-            .sh_entsize = 0,
+        self.rodata_section_index = try self.allocateAllocSection(.{
+            .name = ".rodata",
+            .phdr_index = self.phdr_load_ro_index.?,
         });
-        try self.phdr_to_shdr_table.putNoClobber(gpa, self.rodata_section_index.?, self.phdr_load_ro_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.rodata_section_index.?, .{});
-        self.shdr_table_dirty = true;
     }
 
     if (self.data_section_index == null) {
-        self.data_section_index = @intCast(self.shdrs.items.len);
-        const phdr = &self.phdrs.items[self.phdr_load_rw_index.?];
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".data"),
-            .sh_type = elf.SHT_PROGBITS,
-            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
-            .sh_addr = phdr.p_vaddr,
-            .sh_offset = phdr.p_offset,
-            .sh_size = phdr.p_filesz,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = @as(u16, ptr_size),
-            .sh_entsize = 0,
+        self.data_section_index = try self.allocateAllocSection(.{
+            .name = ".data",
+            .phdr_index = self.phdr_load_rw_index.?,
+            .alignment = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         });
-        try self.phdr_to_shdr_table.putNoClobber(gpa, self.data_section_index.?, self.phdr_load_rw_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_section_index.?, .{});
-        self.shdr_table_dirty = true;
     }
 
     if (self.bss_section_index == null) {
-        self.bss_section_index = @intCast(self.shdrs.items.len);
-        const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
-        try self.shdrs.append(gpa, .{
-            .sh_name = try self.shstrtab.insert(gpa, ".bss"),
-            .sh_type = elf.SHT_NOBITS,
-            .sh_flags = elf.SHF_WRITE | elf.SHF_ALLOC,
-            .sh_addr = phdr.p_vaddr,
-            .sh_offset = phdr.p_offset,
-            .sh_size = phdr.p_filesz,
-            .sh_link = 0,
-            .sh_info = 0,
-            .sh_addralign = @as(u16, ptr_size),
-            .sh_entsize = 0,
+        self.bss_section_index = try self.allocateAllocSection(.{
+            .name = ".bss",
+            .phdr_index = self.phdr_load_zerofill_index.?,
+            .alignment = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .type = elf.SHT_NOBITS,
         });
-        try self.phdr_to_shdr_table.putNoClobber(gpa, self.bss_section_index.?, self.phdr_load_zerofill_index.?);
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_section_index.?, .{});
-        self.shdr_table_dirty = true;
     }
 
     if (self.symtab_section_index == null) {
@@ -1154,7 +1145,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         for (self.file(index).?.zig_module.atoms.keys()) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             if (!atom_ptr.alive) continue;
-            const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
             const code = try gpa.alloc(u8, size);
@@ -1183,6 +1174,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit the symbol table.
     try self.updateSymtabSize();
     try self.writeSymtab();
+
+    // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
+    // get mapped by the loader
+    if (self.data_section_index) |data_shndx| blk: {
+        const bss_shndx = self.bss_section_index orelse break :blk;
+        const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
+        const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
+        self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
+        self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
+    }
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -1683,7 +1684,7 @@ fn writeObjects(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.alive) continue;
 
-            const shdr = &self.shdrs.items[atom_ptr.output_section_index];
+            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue; // TODO we don't yet know how to handle non-alloc sections
 
@@ -2557,15 +2558,15 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateMetadataForLazySymbol(self: *Elf, sym: link.File.LazySymbol) !Symbol.Index {
+pub fn getOrCreateMetadataForLazySymbol(self: *Elf, lazy_sym: link.File.LazySymbol) !Symbol.Index {
     const mod = self.base.options.module.?;
-    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl(mod));
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, lazy_sym.getDecl(mod));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct {
         symbol_index: *Symbol.Index,
         state: *LazySymbolMetadata.State,
-    } = switch (sym.kind) {
+    } = switch (lazy_sym.kind) {
         .code => .{
             .symbol_index = &gop.value_ptr.text_symbol_index,
             .state = &gop.value_ptr.text_state,
@@ -2577,17 +2578,14 @@ pub fn getOrCreateMetadataForLazySymbol(self: *Elf, sym: link.File.LazySymbol) !
     };
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     switch (metadata.state.*) {
-        .unused => metadata.symbol_index.* = try zig_module.addAtom(switch (sym.kind) {
-            .code => self.text_section_index.?,
-            .const_data => self.rodata_section_index.?,
-        }, self),
+        .unused => metadata.symbol_index.* = try zig_module.addAtom(self),
         .pending_flush => return metadata.symbol_index.*,
         .flushed => {},
     }
     metadata.state.* = .pending_flush;
     const symbol_index = metadata.symbol_index.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(mod) != .none) try self.updateLazySymbol(sym, symbol_index);
+    if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(lazy_sym, symbol_index);
     return symbol_index;
 }
 
@@ -2596,35 +2594,37 @@ pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Sy
     if (!gop.found_existing) {
         const zig_module = self.file(self.zig_module_index.?).?.zig_module;
         gop.value_ptr.* = .{
-            .symbol_index = try zig_module.addAtom(self.getDeclShdrIndex(decl_index), self),
+            .symbol_index = try zig_module.addAtom(self),
             .exports = .{},
         };
     }
     return gop.value_ptr.symbol_index;
 }
 
-fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
+fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index, code: []const u8) u16 {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    const ty = decl.ty;
-    const zig_ty = ty.zigTypeTag(mod);
-    const val = decl.val;
-    const shdr_index: u16 = blk: {
-        if (val.isUndefDeep(mod)) {
-            // TODO in release-fast and release-small, we should put undef in .bss
-            break :blk self.data_section_index.?;
-        }
-
-        switch (zig_ty) {
-            // TODO: what if this is a function pointer?
-            .Fn => break :blk self.text_section_index.?,
-            else => {
-                if (val.getVariable(mod)) |_| {
-                    break :blk self.data_section_index.?;
+    const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
+        // TODO: what if this is a function pointer?
+        .Fn => self.text_section_index.?,
+        else => blk: {
+            if (decl.getOwnedVariable(mod)) |variable| {
+                if (variable.is_const) break :blk self.rodata_section_index.?;
+                if (variable.init.toValue().isUndefDeep(mod)) {
+                    const mode = self.base.options.optimize_mode;
+                    if (mode == .Debug or mode == .ReleaseSafe) break :blk self.data_section_index.?;
+                    break :blk self.bss_section_index.?;
                 }
-                break :blk self.rodata_section_index.?;
-            },
-        }
+                // TODO I blatantly copied the logic from the Wasm linker, but is there a less
+                // intrusive check for all zeroes than this?
+                const is_all_zeroes = for (code) |byte| {
+                    if (byte != 0) break false;
+                } else true;
+                if (is_all_zeroes) break :blk self.bss_section_index.?;
+                break :blk self.data_section_index.?;
+            }
+            break :blk self.rodata_section_index.?;
+        },
     };
     return shdr_index;
 }
@@ -2649,7 +2649,10 @@ fn updateDeclCode(
     const sym = self.symbol(sym_index);
     const esym = &zig_module.local_esyms.items[sym.esym_index];
     const atom_ptr = sym.atom(self).?;
-    const shdr_index = sym.output_section_index;
+
+    const shdr_index = self.getDeclShdrIndex(decl_index, code);
+    sym.output_section_index = shdr_index;
+    atom_ptr.output_section_index = shdr_index;
 
     sym.name_offset = try self.strtab.insert(gpa, decl_name);
     atom_ptr.alive = true;
@@ -2902,9 +2905,14 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
         },
     };
 
+    const output_section_index = switch (sym.kind) {
+        .code => self.text_section_index.?,
+        .const_data => self.rodata_section_index.?,
+    };
     const local_sym = self.symbol(symbol_index);
-    const phdr_index = self.phdr_to_shdr_table.get(local_sym.output_section_index).?;
+    const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     local_sym.name_offset = name_str_index;
+    local_sym.output_section_index = output_section_index;
     const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
@@ -2914,6 +2922,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
+    atom_ptr.output_section_index = output_section_index;
 
     try atom_ptr.allocate(self);
     errdefer self.freeDeclMetadata(symbol_index);
@@ -2932,7 +2941,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     try self.got.writeEntry(self, gop.index);
 
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.shdrs.items[local_sym.output_section_index].sh_offset + section_offset;
+    const file_offset = self.shdrs.items[output_section_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -2960,7 +2969,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const name = self.strtab.get(name_str_index).?;
 
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const sym_index = try zig_module.addAtom(self.rodata_section_index.?, self);
+    const sym_index = try zig_module.addAtom(self);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
         .none = {},
@@ -2982,6 +2991,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
     const local_sym = self.symbol(sym_index);
     local_sym.name_offset = name_str_index;
+    local_sym.output_section_index = self.rodata_section_index.?;
     const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
@@ -2991,6 +3001,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
+    atom_ptr.output_section_index = self.rodata_section_index.?;
 
     try atom_ptr.allocate(self);
     errdefer self.freeDeclMetadata(sym_index);
@@ -4008,6 +4019,54 @@ fn reportParseError(
     });
 }
 
+fn fmtShdrs(self: *Elf) std.fmt.Formatter(formatShdrs) {
+    return .{ .data = self };
+}
+
+fn formatShdrs(
+    self: *Elf,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = options;
+    _ = unused_fmt_string;
+    for (self.shdrs.items, 0..) |shdr, i| {
+        try writer.print("shdr({d}) : phdr({?d}) : {s} : @{x} ({x}) : align({x}) : size({x})\n", .{
+            i,                                           self.phdr_to_shdr_table.get(@intCast(i)),
+            self.shstrtab.getAssumeExists(shdr.sh_name), shdr.sh_offset,
+            shdr.sh_addr,                                shdr.sh_addralign,
+            shdr.sh_size,
+        });
+    }
+}
+
+fn fmtPhdrs(self: *Elf) std.fmt.Formatter(formatPhdrs) {
+    return .{ .data = self };
+}
+
+fn formatPhdrs(
+    self: *Elf,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = options;
+    _ = unused_fmt_string;
+    for (self.phdrs.items, 0..) |phdr, i| {
+        const write = phdr.p_flags & elf.PF_W != 0;
+        const read = phdr.p_flags & elf.PF_R != 0;
+        const exec = phdr.p_flags & elf.PF_X != 0;
+        var flags: [3]u8 = [_]u8{'_'} ** 3;
+        if (exec) flags[0] = 'X';
+        if (write) flags[1] = 'W';
+        if (read) flags[2] = 'R';
+        try writer.print("phdr({d}) : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})\n", .{
+            i, flags, phdr.p_offset, phdr.p_vaddr, phdr.p_align, phdr.p_filesz, phdr.p_memsz,
+        });
+    }
+}
+
 fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
     return .{ .data = self };
 }
@@ -4047,6 +4106,10 @@ fn fmtDumpState(
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
     try writer.print("{}\n", .{self.got.fmt(self)});
+    try writer.writeAll("Output shdrs\n");
+    try writer.print("{}\n", .{self.fmtShdrs()});
+    try writer.writeAll("Output phdrs\n");
+    try writer.print("{}\n", .{self.fmtPhdrs()});
 }
 
 /// Binary search
