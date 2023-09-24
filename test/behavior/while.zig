@@ -50,8 +50,6 @@ test "while with continue expression" {
 }
 
 test "while with else" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var sum: i32 = 0;
     var i: i32 = 0;
     var got_else: i32 = 0;
@@ -79,8 +77,6 @@ fn getNumberOrNull() ?i32 {
 }
 
 test "continue outer while loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testContinueOuter();
     comptime testContinueOuter();
 }
@@ -127,7 +123,6 @@ test "while copies its payload" {
 
 test "continue and break" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try runContinueAndBreakTest();
     try expect(continue_and_break_counter == 8);
@@ -149,7 +144,6 @@ fn runContinueAndBreakTest() !void {
 test "while with optional as condition" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -162,7 +156,6 @@ test "while with optional as condition" {
 test "while with optional as condition with else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -223,7 +216,6 @@ test "while on optional with else result follow break prong" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = while (returnOptional(10)) |value| {
         break value;
@@ -251,8 +243,6 @@ fn returnTrue() bool {
 }
 
 test "return with implicit cast from while loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
 fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
@@ -263,7 +253,6 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
 
 test "while on error union with else result follow else prong" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = while (returnError()) |value| {
         break value;
@@ -273,7 +262,6 @@ test "while on error union with else result follow else prong" {
 
 test "while on error union with else result follow break prong" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = while (returnSuccess(10)) |value| {
         break value;
@@ -319,7 +307,6 @@ test "while error 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry(opt_t: anyerror!bool, f: bool) !void {
@@ -345,8 +332,6 @@ test "continue inline while loop" {
 }
 
 test "else continue outer while" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var i: usize = 0;
     while (true) {
         i += 1;

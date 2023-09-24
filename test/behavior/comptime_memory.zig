@@ -425,6 +425,8 @@ test "mutate entire slice at comptime" {
 }
 
 test "dereference undefined pointer to zero-bit type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const p0: *void = undefined;
     try testing.expectEqual({}, p0.*);
 

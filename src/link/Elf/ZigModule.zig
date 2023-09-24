@@ -49,21 +49,19 @@ pub fn addGlobalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
     return index | 0x10000000;
 }
 
-pub fn addAtom(self: *ZigModule, output_section_index: u16, elf_file: *Elf) !Symbol.Index {
+pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
 
     const atom_index = try elf_file.addAtom();
     try self.atoms.putNoClobber(gpa, atom_index, {});
     const atom_ptr = elf_file.atom(atom_index).?;
     atom_ptr.file_index = self.index;
-    atom_ptr.output_section_index = output_section_index;
 
     const symbol_index = try elf_file.addSymbol();
     try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
-    symbol_ptr.output_section_index = output_section_index;
 
     const esym_index = try self.addLocalEsym(gpa);
     const esym = &self.local_esyms.items[esym_index];
@@ -98,9 +96,9 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
                 else => esym.st_shndx,
             };
             const output_section_index = if (elf_file.atom(atom_index)) |atom|
-                atom.output_section_index
+                atom.outputShndx().?
             else
-                0;
+                elf.SHN_UNDEF;
             global.value = esym.st_value;
             global.atom_index = atom_index;
             global.esym_index = esym_index;
@@ -154,6 +152,22 @@ pub fn resetGlobals(self: *ZigModule, elf_file: *Elf) void {
         const off = global.name_offset;
         global.* = .{};
         global.name_offset = off;
+    }
+}
+
+pub fn markLive(self: *ZigModule, elf_file: *Elf) void {
+    for (self.globals(), 0..) |index, i| {
+        const esym = self.global_esyms.items[i];
+        if (esym.st_bind() == elf.STB_WEAK) continue;
+
+        const global = elf_file.symbol(index);
+        const file = global.file(elf_file) orelse continue;
+        const should_keep = esym.st_shndx == elf.SHN_UNDEF or
+            (esym.st_shndx == elf.SHN_COMMON and global.elfSym(elf_file).st_shndx != elf.SHN_COMMON);
+        if (should_keep and !file.isAlive()) {
+            file.setAlive();
+            file.markLive(elf_file);
+        }
     }
 }
 

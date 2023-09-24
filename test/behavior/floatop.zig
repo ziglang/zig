@@ -736,7 +736,6 @@ test "@ceil" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try comptime testCeil();
     try testCeil();
@@ -1053,7 +1052,6 @@ test "negation f128" {
 test "eval @setFloatMode at compile-time" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = comptime fnWithFloatMode();
     try expect(result == 1234.0);
@@ -1089,7 +1087,6 @@ test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     inline for (.{ f16, f32, f64, f80, f128 }) |F| {
         const pos = @as(F, 1) / @as(F, 0);

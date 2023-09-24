@@ -691,8 +691,9 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
 ///
-/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
-pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+/// Note: Self-referential structs are supported (e.g. things like std.SinglyLinkedList)
+/// but may cause infinite recursion or stack overflow when a container has a pointer to itself.
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) error{TestExpectedEqual}!void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,

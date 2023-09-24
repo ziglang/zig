@@ -1707,6 +1707,15 @@ pub const Dependency = struct {
             panic("unable to find module '{s}'", .{name});
         };
     }
+
+    pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
+        return .{
+            .dependency = .{
+                .dependency = d,
+                .sub_path = sub_path,
+            },
+        };
+    }
 };
 
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
@@ -1724,7 +1733,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
-            return dependencyInner(b, name, pkg.build_root, pkg.build_zig, pkg.deps, args);
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
         }
     }
 
@@ -1801,7 +1810,7 @@ pub fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
-    comptime build_zig: type,
+    comptime build_zig: ?type,
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
@@ -1821,11 +1830,14 @@ pub fn dependencyInner(
             process.exit(1);
         },
     };
-    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
-    sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
-    if (sub_builder.validateUserInputDidItFail()) {
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
+    if (build_zig) |bz| {
+        sub_builder.runBuild(bz) catch @panic("unhandled error");
+
+        if (sub_builder.validateUserInputDidItFail()) {
+            std.debug.dumpCurrentStackTrace(@returnAddress());
+        }
     }
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
@@ -1892,6 +1904,11 @@ pub const LazyPath = union(enum) {
     /// Use of this tag indicates a dependency on the host system.
     cwd_relative: []const u8,
 
+    dependency: struct {
+        dependency: *Dependency,
+        sub_path: []const u8,
+    },
+
     /// Returns a new file source that will have a relative path to the build root guaranteed.
     /// Asserts the parameter is not an absolute path.
     pub fn relative(path: []const u8) LazyPath {
@@ -1905,13 +1922,14 @@ pub const LazyPath = union(enum) {
         return switch (self) {
             .path, .cwd_relative => self.path,
             .generated => "generated",
+            .dependency => "dependency",
         };
     }
 
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path, .cwd_relative => {},
+            .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
         }
     }
@@ -1937,6 +1955,12 @@ pub const LazyPath = union(enum) {
                 dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
             },
+            .dependency => |dep| {
+                return dep.dependency.builder.pathJoin(&[_][]const u8{
+                    dep.dependency.builder.build_root.path.?,
+                    dep.sub_path,
+                });
+            },
         }
     }
 
@@ -1946,6 +1970,7 @@ pub const LazyPath = union(enum) {
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
+            .dependency => |dep| .{ .dependency = dep },
         };
     }
 };

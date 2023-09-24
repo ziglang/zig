@@ -47,7 +47,8 @@ gpa: Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
-win32_resource_table: std.AutoArrayHashMapUnmanaged(*Win32Resource, void) = .{},
+win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
+    if (build_options.only_core_functionality) {} else .{},
 /// This is a pointer to a local variable inside `update()`.
 whole_cache_manifest: ?*Cache.Manifest = null,
 whole_cache_manifest_mutex: std.Thread.Mutex = .{},
@@ -64,7 +65,7 @@ c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 
 /// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
 /// gets linked with the Compilation.
-win32_resource_work_queue: std.fifo.LinearFifo(*Win32Resource, .Dynamic),
+win32_resource_work_queue: if (build_options.only_core_functionality) void else std.fifo.LinearFifo(*Win32Resource, .Dynamic),
 
 /// These jobs are to tokenize, parse, and astgen files, which may be outdated
 /// since the last compilation, as well as scan for `@import` and queue up
@@ -81,7 +82,8 @@ failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .
 
 /// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_win32_resources: std.AutoArrayHashMapUnmanaged(*Win32Resource, ErrorBundle) = .{},
+failed_win32_resources: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, ErrorBundle) =
+    if (build_options.only_core_functionality) {} else .{},
 
 /// Miscellaneous things that can fail.
 misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
@@ -1671,7 +1673,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
-            .win32_resource_work_queue = std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
+            .win32_resource_work_queue = if (build_options.only_core_functionality) {} else std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
@@ -1731,16 +1733,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     }
 
     // Add a `Win32Resource` for each `rc_source_files`.
-    try comp.win32_resource_table.ensureTotalCapacity(gpa, options.rc_source_files.len);
-    for (options.rc_source_files) |rc_source_file| {
-        const win32_resource = try gpa.create(Win32Resource);
-        errdefer gpa.destroy(win32_resource);
+    if (!build_options.only_core_functionality) {
+        try comp.win32_resource_table.ensureTotalCapacity(gpa, options.rc_source_files.len);
+        for (options.rc_source_files) |rc_source_file| {
+            const win32_resource = try gpa.create(Win32Resource);
+            errdefer gpa.destroy(win32_resource);
 
-        win32_resource.* = .{
-            .status = .{ .new = {} },
-            .src = rc_source_file,
-        };
-        comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
+            win32_resource.* = .{
+                .status = .{ .new = {} },
+                .src = rc_source_file,
+            };
+            comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
+        }
     }
 
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
@@ -1900,7 +1904,9 @@ pub fn destroy(self: *Compilation) void {
     self.work_queue.deinit();
     self.anon_work_queue.deinit();
     self.c_object_work_queue.deinit();
-    self.win32_resource_work_queue.deinit();
+    if (!build_options.only_core_functionality) {
+        self.win32_resource_work_queue.deinit();
+    }
     self.astgen_work_queue.deinit();
     self.embed_file_work_queue.deinit();
 
@@ -1949,15 +1955,17 @@ pub fn destroy(self: *Compilation) void {
     }
     self.failed_c_objects.deinit(gpa);
 
-    for (self.win32_resource_table.keys()) |key| {
-        key.destroy(gpa);
-    }
-    self.win32_resource_table.deinit(gpa);
+    if (!build_options.only_core_functionality) {
+        for (self.win32_resource_table.keys()) |key| {
+            key.destroy(gpa);
+        }
+        self.win32_resource_table.deinit(gpa);
 
-    for (self.failed_win32_resources.values()) |*value| {
-        value.deinit(gpa);
+        for (self.failed_win32_resources.values()) |*value| {
+            value.deinit(gpa);
+        }
+        self.failed_win32_resources.deinit(gpa);
     }
-    self.failed_win32_resources.deinit(gpa);
 
     for (self.lld_errors.items) |*lld_error| {
         lld_error.deinit(gpa);
@@ -2123,9 +2131,11 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
     // For compiling Win32 resources, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each Win32 resource file.
-    try comp.win32_resource_work_queue.ensureUnusedCapacity(comp.win32_resource_table.count());
-    for (comp.win32_resource_table.keys()) |key| {
-        comp.win32_resource_work_queue.writeItemAssumeCapacity(key);
+    if (!build_options.only_core_functionality) {
+        try comp.win32_resource_work_queue.ensureUnusedCapacity(comp.win32_resource_table.count());
+        for (comp.win32_resource_table.keys()) |key| {
+            comp.win32_resource_work_queue.writeItemAssumeCapacity(key);
+        }
     }
 
     if (comp.bin_file.options.module) |module| {
@@ -2450,9 +2460,11 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addListOfBytes(key.src.extra_flags);
     }
 
-    for (comp.win32_resource_table.keys()) |key| {
-        _ = try man.addFile(key.src.src_path, null);
-        man.hash.addListOfBytes(key.src.extra_flags);
+    if (!build_options.only_core_functionality) {
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.src.src_path, null);
+            man.hash.addListOfBytes(key.src.extra_flags);
+        }
     }
 
     man.hash.addListOfBytes(comp.rc_include_dir_list);
@@ -2697,8 +2709,10 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         @intFromBool(self.alloc_failure_occurred) +
         self.lld_errors.items.len;
 
-    for (self.failed_win32_resources.values()) |errs| {
-        total += errs.errorMessageCount();
+    if (!build_options.only_core_functionality) {
+        for (self.failed_win32_resources.values()) |errs| {
+            total += errs.errorMessageCount();
+        }
     }
 
     if (self.bin_file.options.module) |module| {
@@ -2791,7 +2805,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }
     }
 
-    {
+    if (!build_options.only_core_functionality) {
         var it = self.failed_win32_resources.iterator();
         while (it.next()) |entry| {
             try bundle.addBundleAsRoots(entry.value_ptr.*);
@@ -3268,11 +3282,13 @@ pub fn performAllTheWork(
             });
         }
 
-        while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-            comp.work_queue_wait_group.start();
-            try comp.thread_pool.spawn(workerUpdateWin32Resource, .{
-                comp, win32_resource, &win32_resource_prog_node, &comp.work_queue_wait_group,
-            });
+        if (!build_options.only_core_functionality) {
+            while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
+                comp.work_queue_wait_group.start();
+                try comp.thread_pool.spawn(workerUpdateWin32Resource, .{
+                    comp, win32_resource, &win32_resource_prog_node, &comp.work_queue_wait_group,
+                });
+            }
         }
     }
 
@@ -4056,9 +4072,26 @@ fn reportRetryableWin32ResourceError(
 ) error{OutOfMemory}!void {
     win32_resource.status = .failure_retryable;
 
-    // TODO: something
-    _ = comp;
-    _ = @errorName(err);
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(comp.gpa);
+    errdefer bundle.deinit();
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.printString("{s}", .{@errorName(err)}),
+        .src_loc = try bundle.addSourceLocation(.{
+            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .line = 0,
+            .column = 0,
+            .span_start = 0,
+            .span_main = 0,
+            .span_end = 0,
+        }),
+    });
+    const finished_bundle = try bundle.toOwnedBundle("");
+    {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
+    }
 }
 
 fn reportRetryableAstGenError(

@@ -84,7 +84,7 @@ pub const File = union(enum) {
 
     pub fn markLive(file: File, elf_file: *Elf) void {
         switch (file) {
-            .zig_module, .linker_defined => unreachable,
+            .linker_defined => unreachable,
             inline else => |x| x.markLive(elf_file),
         }
     }

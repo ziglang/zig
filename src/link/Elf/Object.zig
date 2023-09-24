@@ -272,9 +272,9 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
         sym_ptr.atom_index = if (sym.st_shndx == elf.SHN_ABS) 0 else self.atoms.items[sym.st_shndx];
         sym_ptr.file_index = self.index;
         sym_ptr.output_section_index = if (sym_ptr.atom(elf_file)) |atom_ptr|
-            atom_ptr.output_section_index
+            atom_ptr.outputShndx().?
         else
-            0;
+            elf.SHN_UNDEF;
     }
 
     for (self.symtab[first_global..]) |sym| {
@@ -440,9 +440,9 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
                 else => self.atoms.items[esym.st_shndx],
             };
             const output_section_index = if (elf_file.atom(atom_index)) |atom|
-                atom.output_section_index
+                atom.outputShndx().?
             else
-                0;
+                elf.SHN_UNDEF;
             global.value = esym.st_value;
             global.atom_index = atom_index;
             global.esym_index = esym_index;
