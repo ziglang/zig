@@ -54,9 +54,7 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ) = .{},
 
-/// TODO: after https://github.com/ziglang/zig/issues/10618 is solved,
-/// change store_hash to false.
-const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), true);
+const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
 const builtin = @import("builtin");
 const std = @import("std");
