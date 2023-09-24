@@ -17,7 +17,7 @@ alignment: Alignment = .@"1",
 input_section_index: Index = 0,
 
 /// Index of the output section.
-output_section_index: Index = 0,
+output_section_index: u16 = 0,
 
 /// Index of the input section containing this atom's relocs.
 relocs_section_index: Index = 0,
@@ -51,6 +51,11 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
     const object = elf_file.file(self.file_index).?.object;
     return object.shdrs.items[self.input_section_index];
+}
+
+pub fn outputShndx(self: Atom) ?u16 {
+    if (self.output_section_index == 0) return null;
+    return self.output_section_index;
 }
 
 pub fn codeInObject(self: Atom, elf_file: *Elf) error{Overflow}![]const u8 {
@@ -109,8 +114,8 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
-    const shdr = &elf_file.shdrs.items[self.output_section_index];
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
+    const shdr = &elf_file.shdrs.items[self.outputShndx().?];
+    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.outputShndx().?).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
@@ -179,7 +184,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         true;
     if (expand_section) {
         const needed_size = (self.value + self.size) - shdr.sh_addr;
-        try elf_file.growAllocSection(self.output_section_index, needed_size);
+        try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
         if (elf_file.dwarf) |_| {
@@ -234,7 +239,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 
     const gpa = elf_file.base.allocator;
     const zig_module = elf_file.file(self.file_index).?.zig_module;
-    const shndx = self.output_section_index;
+    const shndx = self.outputShndx().?;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;

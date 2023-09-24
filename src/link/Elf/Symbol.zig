@@ -33,8 +33,13 @@ extra_index: u32 = 0,
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     // if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
-    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.output_section_index == 0 and
+    return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.outputShndx() == null and
         file_ptr != .linker_defined;
+}
+
+pub fn outputShndx(symbol: Symbol) ?u16 {
+    if (symbol.output_section_index == 0) return null;
+    return symbol.output_section_index;
 }
 
 pub fn isLocal(symbol: Symbol) bool {
@@ -183,7 +188,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
             break :blk elf.SHN_ABS;
-        break :blk symbol.output_section_index;
+        break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
     };
     const st_value = blk: {
         // if (symbol.flags.copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -276,8 +281,8 @@ fn format2(
             } else {
                 try writer.writeAll(" : absolute");
             }
-        } else if (symbol.output_section_index != 0) {
-            try writer.print(" : sect({d})", .{symbol.output_section_index});
+        } else if (symbol.outputShndx()) |shndx| {
+            try writer.print(" : sect({d})", .{shndx});
         }
         if (symbol.atom(ctx.elf_file)) |atom_ptr| {
             try writer.print(" : atom({d})", .{atom_ptr.atom_index});
