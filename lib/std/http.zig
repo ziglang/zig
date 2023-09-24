@@ -285,6 +285,7 @@ pub const TransferEncoding = enum {
 };
 
 pub const ContentEncoding = enum {
+    identity,
     compress,
     deflate,
     gzip,
