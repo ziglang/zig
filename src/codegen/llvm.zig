@@ -6192,7 +6192,6 @@ pub const FuncGen = struct {
     fn airStructFieldVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
-        const ip = &mod.intern_pool;
         const inst = body_tail[0];
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
@@ -6208,7 +6207,7 @@ pub const FuncGen = struct {
                 .Struct => switch (struct_ty.containerLayout(mod)) {
                     .Packed => {
                         const struct_type = mod.typeToStruct(struct_ty).?;
-                        const bit_offset = struct_type.fieldBitOffset(ip, field_index);
+                        const bit_offset = mod.structPackedFieldBitOffset(struct_type, field_index);
                         const containing_int = struct_llvm_val;
                         const shift_amt =
                             try o.builder.intValue(containing_int.typeOfWip(&self.wip), bit_offset);

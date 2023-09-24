@@ -3779,7 +3779,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => result: {
                 const packed_struct = mod.typeToPackedStruct(struct_ty).?;
-                const offset = packed_struct.fieldBitOffset(ip, field_index);
+                const offset = mod.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = packed_struct.backingIntType(ip).toType();
                 const wasm_bits = toWasmBits(backing_ty.intInfo(mod).bits) orelse {
                     return func.fail("TODO: airStructFieldVal for packed structs larger than 128 bits", .{});

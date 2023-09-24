@@ -630,8 +630,7 @@ fn lowerParentPtr(
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
     const mod = bin_file.options.module.?;
-    const ip = &mod.intern_pool;
-    const ptr = ip.indexToKey(parent_ptr).ptr;
+    const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
     assert(ptr.len == .none);
     return switch (ptr.addr) {
         .decl, .mut_decl => try lowerDeclRef(
@@ -657,7 +656,7 @@ fn lowerParentPtr(
             code,
             debug_output,
             reloc_info.offset(@as(u32, @intCast(errUnionPayloadOffset(
-                ip.typeOf(eu_payload).toType(),
+                mod.intern_pool.typeOf(eu_payload).toType(),
                 mod,
             )))),
         ),
@@ -676,17 +675,17 @@ fn lowerParentPtr(
             code,
             debug_output,
             reloc_info.offset(@as(u32, @intCast(elem.index *
-                ip.typeOf(elem.base).toType().elemType2(mod).abiSize(mod)))),
+                mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).abiSize(mod)))),
         ),
         .field => |field| {
-            const base_type = ip.indexToKey(ip.typeOf(field.base)).ptr_type.child;
+            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.child;
             return lowerParentPtr(
                 bin_file,
                 src_loc,
                 field.base,
                 code,
                 debug_output,
-                reloc_info.offset(switch (ip.indexToKey(base_type)) {
+                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_type)) {
                     .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {
@@ -704,9 +703,9 @@ fn lowerParentPtr(
                             mod,
                         )),
                         .Packed => if (mod.typeToStruct(base_type.toType())) |struct_type|
-                            math.divExact(u32, struct_type.fieldBitOffset(
-                                ip,
-                                field.index,
+                            math.divExact(u16, mod.structPackedFieldBitOffset(
+                                struct_type,
+                                @intCast(field.index),
                             ), 8) catch |err| switch (err) {
                                 error.UnexpectedRemainder => 0,
                                 error.DivisionByZero => unreachable,

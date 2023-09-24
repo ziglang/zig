@@ -21343,7 +21343,6 @@ fn reifyStruct(
 
         var fields_bit_sum: u64 = 0;
         for (0..struct_type.field_types.len) |i| {
-            struct_type.offsets.get(ip)[i] = @intCast(fields_bit_sum);
             const field_ty = struct_type.field_types.get(ip)[i].toType();
             fields_bit_sum += field_ty.bitSize(mod);
         }
@@ -34774,7 +34773,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
         var accumulator: u64 = 0;
         for (0..struct_type.field_types.len) |i| {
             const field_ty = struct_type.field_types.get(ip)[i].toType();
-            struct_type.offsets.get(ip)[i] = @intCast(accumulator);
             accumulator += try field_ty.bitSizeAdvanced(mod, &sema);
         }
         break :blk accumulator;

@@ -5593,7 +5593,6 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
-    const ip = &mod.intern_pool;
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
     const result: MCValue = result: {
@@ -5611,7 +5610,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => @intCast(container_ty.structFieldOffset(index, mod) * 8),
             .Packed => if (mod.typeToStruct(container_ty)) |struct_type|
-                struct_type.fieldBitOffset(ip, index)
+                mod.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
         };
@@ -11411,7 +11410,6 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
-    const ip = &mod.intern_pool;
     const result_ty = self.typeOfIndex(inst);
     const len: usize = @intCast(result_ty.arrayLen(mod));
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -11442,7 +11440,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         }
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = struct_type.fieldBitOffset(ip, elem_i);
+                        const elem_off = mod.structPackedFieldBitOffset(struct_type, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try self.resolveInst(elem);
