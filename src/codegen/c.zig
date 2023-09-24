@@ -1840,20 +1840,24 @@ pub const DeclGen = struct {
 
     fn renderFwdDecl(dg: *DeclGen, decl_index: Decl.Index, variable: InternPool.Key.Variable) !void {
         const decl = dg.module.declPtr(decl_index);
-        const fwd_decl_writer = dg.fwd_decl.writer();
+        const fwd = dg.fwd_decl.writer();
         const is_global = dg.declIsGlobal(.{ .ty = decl.ty, .val = decl.val }) or variable.is_extern;
-        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-        if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
-        if (variable.is_weak_linkage) try fwd_decl_writer.writeAll("zig_weak_linkage ");
+        try fwd.writeAll(if (is_global) "zig_extern " else "static ");
+        const export_weak_linkage = if (dg.module.decl_exports.get(decl_index)) |exports|
+            exports.items[0].opts.linkage == .Weak
+        else
+            false;
+        if (variable.is_weak_linkage or export_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
+        if (variable.is_threadlocal) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
-            fwd_decl_writer,
+            fwd,
             decl.ty,
             .{ .decl = decl_index },
             CQualifiers.init(.{ .@"const" = variable.is_const }),
             decl.alignment,
             .complete,
         );
-        try fwd_decl_writer.writeAll(";\n");
+        try fwd.writeAll(";\n");
     }
 
     fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: Decl.Index, export_index: u32) !void {
@@ -2489,16 +2493,50 @@ fn genExports(o: *Object) !void {
 
     const mod = o.dg.module;
     const ip = &mod.intern_pool;
-    const fwd_decl_writer = o.dg.fwd_decl.writer();
-    if (mod.decl_exports.get(o.dg.decl_index.unwrap().?)) |exports| {
-        for (exports.items[1..], 1..) |@"export", i| {
-            try fwd_decl_writer.writeAll("zig_export(");
-            try o.dg.renderFunctionSignature(fwd_decl_writer, o.dg.decl_index.unwrap().?, .forward, .{ .export_index = @as(u32, @intCast(i)) });
-            try fwd_decl_writer.print(", {s}, {s});\n", .{
-                fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
-                fmtStringLiteral(ip.stringToSlice(@"export".opts.name), null),
-            });
-        }
+    const decl = o.dg.decl.?;
+    const decl_index = o.dg.decl_index.unwrap().?;
+    const tv: TypedValue = .{ .ty = decl.ty, .val = (try decl.internValue(mod)).toValue() };
+    const fwd = o.dg.fwd_decl.writer();
+
+    const exports = mod.decl_exports.get(decl_index) orelse return;
+    if (exports.items.len < 2) return;
+
+    switch (ip.indexToKey(tv.val.toIntern())) {
+        .func => {
+            for (exports.items[1..], 1..) |@"export", i| {
+                try fwd.writeAll("zig_export(");
+                if (exports.items[i].opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage_fn ");
+                try o.dg.renderFunctionSignature(fwd, decl_index, .forward, .{ .export_index = @as(u32, @intCast(i)) });
+                try fwd.print(", {s}, {s});\n", .{
+                    fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                    fmtStringLiteral(ip.stringToSlice(@"export".opts.name), null),
+                });
+            }
+        },
+        .extern_func => {
+            // TODO: when sema allows re-exporting extern decls
+            unreachable;
+        },
+        .variable => |variable| {
+            for (exports.items[1..], 1..) |@"export", i| {
+                try fwd.writeAll("zig_export(");
+                if (exports.items[i].opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage ");
+                const alias = ip.stringToSlice(@"export".opts.name);
+                try o.dg.renderTypeAndName(
+                    fwd,
+                    decl.ty,
+                    .{ .identifier = alias },
+                    CQualifiers.init(.{ .@"const" = variable.is_const }),
+                    decl.alignment,
+                    .complete,
+                );
+                try fwd.print(", {s}, {s});\n", .{
+                    fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                    fmtStringLiteral(alias, null),
+                });
+            }
+        },
+        else => {},
     }
 }
 
@@ -2593,6 +2631,7 @@ pub fn genFunc(f: *Function) !void {
     defer tracy.end();
 
     const o = &f.object;
+    const mod = o.dg.module;
     const gpa = o.dg.gpa;
     const decl_index = o.dg.decl_index.unwrap().?;
     const tv: TypedValue = .{
@@ -2606,6 +2645,8 @@ pub fn genFunc(f: *Function) !void {
     const is_global = o.dg.declIsGlobal(tv);
     const fwd_decl_writer = o.dg.fwd_decl.writer();
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
+    if (mod.decl_exports.get(decl_index)) |exports|
+        if (exports.items[0].opts.linkage == .Weak) try fwd_decl_writer.writeAll("zig_weak_linkage_fn ");
     try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
     try fwd_decl_writer.writeAll(";\n");
     try genExports(o);
@@ -2698,8 +2739,8 @@ pub fn genDecl(o: *Object) !void {
         const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
-        if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
+        if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
         try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.alignment, .complete);
