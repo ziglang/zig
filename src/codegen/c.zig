@@ -5429,7 +5429,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
                 const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
 
-                const bit_offset = mod.structPackedFieldBitOffset(struct_type, extra.field_index);
+                const bit_offset = struct_type.fieldBitOffset(ip, extra.field_index);
                 const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
 
                 const field_int_signedness = if (inst_ty.isAbiInt(mod))

@@ -3021,27 +3021,16 @@ pub const Type = struct {
         };
     }
 
-    pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
+    pub fn packedStructFieldBitOffset(ty: Type, field_index: usize, mod: *Module) u32 {
         const ip = &mod.intern_pool;
         const struct_type = ip.indexToKey(ty.toIntern()).struct_type;
         assert(struct_type.layout == .Packed);
-        comptime assert(Type.packed_struct_layout_version == 2);
+        assert(struct_type.haveLayout(ip));
+        return struct_type.offsets.get(ip)[field_index];
+    }
 
-        var bit_offset: u16 = undefined;
-        var elem_size_bits: u16 = undefined;
-        var running_bits: u16 = 0;
-        for (struct_type.field_types.get(ip), 0..) |field_ty, i| {
-            if (!field_ty.toType().hasRuntimeBits(mod)) continue;
-
-            const field_bits: u16 = @intCast(field_ty.toType().bitSize(mod));
-            if (i == field_index) {
-                bit_offset = running_bits;
-                elem_size_bits = field_bits;
-            }
-            running_bits += field_bits;
-        }
-        const byte_offset = bit_offset / 8;
-        return byte_offset;
+    pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
+        return packedStructFieldBitOffset(ty, field_index, mod) / 8;
     }
 
     pub const FieldOffset = struct {

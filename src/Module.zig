@@ -6649,26 +6649,3 @@ pub fn structFieldAlignmentExtern(mod: *Module, field_ty: Type) Alignment {
 
     return ty_abi_align;
 }
-
-/// TODO: avoid linear search by storing these in trailing data of packed struct types
-/// then packedStructFieldByteOffset can be expressed in terms of bits / 8, fixing
-/// that one too.
-/// https://github.com/ziglang/zig/issues/17178
-pub fn structPackedFieldBitOffset(
-    mod: *Module,
-    struct_type: InternPool.Key.StructType,
-    field_index: u32,
-) u16 {
-    const ip = &mod.intern_pool;
-    assert(struct_type.layout == .Packed);
-    assert(struct_type.haveLayout(ip));
-    var bit_sum: u64 = 0;
-    for (0..struct_type.field_types.len) |i| {
-        if (i == field_index) {
-            return @intCast(bit_sum);
-        }
-        const field_ty = struct_type.field_types.get(ip)[i].toType();
-        bit_sum += field_ty.bitSize(mod);
-    }
-    unreachable; // index out of bounds
-}
