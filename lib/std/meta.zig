@@ -1098,7 +1098,7 @@ pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
         if (!@hasDecl(root, name))
             break :blk null;
         break :blk @as(T, @field(root, name));
-    }
+    };
 }
 
 /// Returns whether `error_union` contains an error.
