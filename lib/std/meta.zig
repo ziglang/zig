@@ -1091,11 +1091,14 @@ test "ArgsTuple forwarding" {
     }
 }
 
-/// TODO: https://github.com/ziglang/zig/issues/425
+/// Returns the optional value of the declaration `name` in the root source file, casts it to type `T`.
+/// This function should only be called at compile time.
 pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
-    if (!@hasDecl(root, name))
-        return null;
-    return @as(T, @field(root, name));
+    coptime {
+        if (!@hasDecl(root, name))
+            return null;
+        return @as(T, @field(root, name));
+    }
 }
 
 /// Returns whether `error_union` contains an error.
