@@ -18,6 +18,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :12:25: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(tmp.get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'
-// :12:25: note: cannot convert error union to payload type
-// :12:25: note: consider using 'try', 'catch', or 'if'
+// :12:15: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(tmp.get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'
+// :12:15: note: cannot convert error union to payload type
+// :12:15: note: consider using 'try', 'catch', or 'if'

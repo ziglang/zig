@@ -16,7 +16,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :7:14: error: runtime-known argument passed to parameter of comptime-only type
-// :9:12: note: declared here
-// :4:16: note: struct requires comptime because of this field
-// :4:16: note: types are not available at runtime
+// :7:25: error: unable to resolve comptime value
+// :7:25: note: initializer of comptime only struct must be comptime-known

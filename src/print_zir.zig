@@ -130,6 +130,63 @@ const Writer = struct {
     recurse_decls: bool,
     recurse_blocks: bool,
 
+    /// Using `std.zig.findLineColumn` whenever we need to resolve a source location makes ZIR
+    /// printing O(N^2), which can have drastic effects - taking a ZIR dump from a few seconds to
+    /// many minutes. Since we're usually resolving source locations close to one another,
+    /// preserving state across source location resolutions speeds things up a lot.
+    line_col_cursor: struct {
+        line: usize = 0,
+        column: usize = 0,
+        line_start: usize = 0,
+        off: usize = 0,
+
+        fn find(cur: *@This(), source: []const u8, want_offset: usize) std.zig.Loc {
+            if (want_offset < cur.off) {
+                // Go back to the start of this line
+                cur.off = cur.line_start;
+                cur.column = 0;
+
+                while (want_offset < cur.off) {
+                    // Go back to the newline
+                    cur.off -= 1;
+
+                    // Seek to the start of the previous line
+                    while (cur.off > 0 and source[cur.off - 1] != '\n') {
+                        cur.off -= 1;
+                    }
+                    cur.line_start = cur.off;
+                    cur.line -= 1;
+                }
+            }
+
+            // The cursor is now positioned before `want_offset`.
+            // Seek forward as in `std.zig.findLineColumn`.
+
+            while (cur.off < want_offset) : (cur.off += 1) {
+                switch (source[cur.off]) {
+                    '\n' => {
+                        cur.line += 1;
+                        cur.column = 0;
+                        cur.line_start = cur.off + 1;
+                    },
+                    else => {
+                        cur.column += 1;
+                    },
+                }
+            }
+
+            while (cur.off < source.len and source[cur.off] != '\n') {
+                cur.off += 1;
+            }
+
+            return .{
+                .line = cur.line,
+                .column = cur.column,
+                .source_line = source[cur.line_start..cur.off],
+            };
+        }
+    } = .{},
+
     fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
         return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node))));
     }
@@ -147,8 +204,6 @@ const Writer = struct {
             .store,
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
-
-            .elem_type_index => try self.writeElemTypeIndex(stream, inst),
 
             .alloc,
             .alloc_mut,
@@ -184,7 +239,6 @@ const Writer = struct {
             .is_non_err_ptr,
             .ret_is_non_err,
             .typeof,
-            .struct_init_empty,
             .type_info,
             .size_of,
             .bit_size_of,
@@ -224,18 +278,16 @@ const Writer = struct {
             .bit_reverse,
             .@"resume",
             .@"await",
-            .array_base_ptr,
-            .field_base_ptr,
-            .validate_struct_init_ty,
             .make_ptr_const,
             .validate_deref,
             .check_comptime_control_flow,
-            .opt_eu_base_ty,
+            .opt_eu_base_ptr_init,
             => try self.writeUnNode(stream, inst),
 
             .ref,
             .ret_implicit,
             .closure_capture,
+            .validate_ref_ty,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
@@ -243,7 +295,6 @@ const Writer = struct {
             => try self.writeBoolBr(stream, inst),
 
             .validate_destructure => try self.writeValidateDestructure(stream, inst),
-            .validate_array_init_ty => try self.writeValidateArrayInitTy(stream, inst),
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
@@ -259,12 +310,6 @@ const Writer = struct {
             .@"break",
             .break_inline,
             => try self.writeBreak(stream, inst),
-            .array_init,
-            .array_init_ref,
-            => try self.writeArrayInit(stream, inst),
-            .array_init_anon,
-            .array_init_anon_ref,
-            => try self.writeArrayInitAnon(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
@@ -273,9 +318,43 @@ const Writer = struct {
 
             .union_init => try self.writeUnionInit(stream, inst),
 
+            // Struct inits
+
+            .struct_init_empty,
+            .struct_init_empty_result,
+            .struct_init_empty_ref_result,
+            => try self.writeUnNode(stream, inst),
+
+            .struct_init_anon => try self.writeStructInitAnon(stream, inst),
+
             .struct_init,
             .struct_init_ref,
             => try self.writeStructInit(stream, inst),
+
+            .validate_struct_init_ty,
+            .validate_struct_init_result_ty,
+            => try self.writeUnNode(stream, inst),
+
+            .validate_ptr_struct_init => try self.writeBlock(stream, inst),
+            .struct_init_field_type => try self.writeStructInitFieldType(stream, inst),
+            .struct_init_field_ptr => try self.writePlNodeField(stream, inst),
+
+            // Array inits
+
+            .array_init_anon => try self.writeArrayInitAnon(stream, inst),
+
+            .array_init,
+            .array_init_ref,
+            => try self.writeArrayInit(stream, inst),
+
+            .validate_array_init_ty,
+            .validate_array_init_result_ty,
+            => try self.writeValidateArrayInitTy(stream, inst),
+
+            .validate_array_init_ref_ty => try self.writeValidateArrayInitRefTy(stream, inst),
+            .validate_ptr_array_init => try self.writeBlock(stream, inst),
+            .array_init_elem_type => try self.writeArrayInitElemType(stream, inst),
+            .array_init_elem_ptr => try self.writeArrayInitElemPtr(stream, inst),
 
             .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
@@ -285,11 +364,6 @@ const Writer = struct {
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
 
-            .struct_init_anon,
-            .struct_init_anon_ref,
-            => try self.writeStructInitAnon(stream, inst),
-
-            .field_type => try self.writeFieldType(stream, inst),
             .field_type_ref => try self.writeFieldTypeRef(stream, inst),
 
             .add,
@@ -352,15 +426,13 @@ const Writer = struct {
             .elem_val_node,
             .elem_ptr,
             .elem_val,
-            .coerce_result_ptr,
             .array_type,
+            .coerce_ptr_elem_ty,
             => try self.writePlNodeBin(stream, inst),
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
 
             .elem_val_imm => try self.writeElemValImm(stream, inst),
-
-            .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
@@ -373,8 +445,6 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .validate_struct_init,
-            .validate_array_init,
             .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
@@ -395,9 +465,8 @@ const Writer = struct {
             .switch_block_ref,
             => try self.writeSwitchBlock(stream, inst),
 
-            .field_ptr,
-            .field_ptr_init,
             .field_val,
+            .field_ptr,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,
@@ -560,7 +629,7 @@ const Writer = struct {
         try stream.writeByte(')');
     }
 
-    fn writeElemTypeIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+    fn writeArrayInitElemType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].bin;
         try self.writeInstRef(stream, inst_data.lhs);
         try stream.print(", {d})", .{@intFromEnum(inst_data.rhs)});
@@ -915,7 +984,7 @@ const Writer = struct {
         try stream.print(", {d})", .{inst_data.idx});
     }
 
-    fn writeElemPtrImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+    fn writeArrayInitElemPtr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
 
@@ -944,6 +1013,16 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeValidateArrayInitRefTy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayInitRefTy, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.ptr_ty);
+        try stream.writeAll(", ");
+        try stream.print(", {}) ", .{extra.elem_count});
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -1077,7 +1156,7 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeFieldType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+    fn writeStructInitFieldType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.FieldType, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.container_type);
@@ -2590,8 +2669,8 @@ const Writer = struct {
                 .lazy = src,
             };
             const src_span = src_loc.span(self.gpa) catch unreachable;
-            const start = std.zig.findLineColumn(tree.source, src_span.start);
-            const end = std.zig.findLineColumn(tree.source, src_span.end);
+            const start = self.line_col_cursor.find(tree.source, src_span.start);
+            const end = self.line_col_cursor.find(tree.source, src_span.end);
             try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
                 @tagName(src), start.line + 1, start.column + 1,
                 end.line + 1,  end.column + 1,

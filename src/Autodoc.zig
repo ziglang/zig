@@ -45,6 +45,14 @@ ref_paths_pending_on_types: std.AutoHashMapUnmanaged(
     std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
 
+/// A set of ZIR instruction refs which have a meaning other than the
+/// instruction they refer to. For instance, during analysis of the arguments to
+/// a `call`, the index of the `call` itself is repurposed to refer to the
+/// parameter type.
+/// TODO: there should be some kind of proper handling for these instructions;
+/// currently we just ignore them!
+repurposed_insts: std.AutoHashMapUnmanaged(Zir.Inst.Index, void) = .{},
+
 const RefPathResumeInfo = struct {
     file: *File,
     ref_path: []DocData.Expr,
@@ -953,6 +961,11 @@ fn walkInstruction(
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
+
+    if (self.repurposed_insts.contains(@intCast(inst_index))) {
+        // TODO: better handling here
+        return .{ .expr = .{ .comptimeExpr = 0 } };
+    }
 
     // We assume that the topmost ast_node entry corresponds to our decl
     const self_ast_node_index = self.ast_nodes.items.len - 1;
@@ -2378,34 +2391,6 @@ fn walkInstruction(
                 .expr = .{ .@"&" = expr_index },
             };
         },
-        .array_init_anon_ref => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
-            const array_data = try self.arena.alloc(usize, operands.len);
-
-            for (operands, 0..) |op, idx| {
-                const wr = try self.walkRef(
-                    file,
-                    parent_scope,
-                    parent_src,
-                    op,
-                    false,
-                    call_ctx,
-                );
-                const expr_index = self.exprs.items.len;
-                try self.exprs.append(self.arena, wr.expr);
-                array_data[idx] = expr_index;
-            }
-
-            const expr_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .array = array_data });
-
-            return DocData.WalkResult{
-                .typeRef = null,
-                .expr = .{ .@"&" = expr_index },
-            };
-        },
         .float => {
             const float = data[inst_index].float;
             return DocData.WalkResult{
@@ -2696,9 +2681,7 @@ fn walkInstruction(
                 .expr = .{ .declRef = decl_status },
             };
         },
-        .field_val, .field_ptr, .field_type => {
-            // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
-            // same layout as Zir.Inst.Field :^)
+        .field_val, .field_ptr => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
@@ -2717,8 +2700,7 @@ fn walkInstruction(
                     };
 
                     if (tags[lhs] != .field_val and
-                        tags[lhs] != .field_ptr and
-                        tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
+                        tags[lhs] != .field_ptr) break :blk lhs_extra.data.lhs;
 
                     lhs_extra = file.zir.extraData(
                         Zir.Inst.Field,
@@ -2857,7 +2839,7 @@ fn walkInstruction(
 
                 const field_name = blk: {
                     const field_inst_index = init_extra.data.field_type;
-                    if (tags[field_inst_index] != .field_type) unreachable;
+                    if (tags[field_inst_index] != .struct_init_field_type) unreachable;
                     const field_pl_node = data[field_inst_index].pl_node;
                     const field_extra = file.zir.extraData(
                         Zir.Inst.FieldType,
@@ -3021,6 +3003,9 @@ fn walkInstruction(
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
             const body = file.zir.extra[extra.end..];
+
+            try self.repurposed_insts.put(self.arena, @intCast(inst_index), {});
+            defer _ = self.repurposed_insts.remove(@intCast(inst_index));
 
             var i: usize = 0;
             while (i < args_len) : (i += 1) {

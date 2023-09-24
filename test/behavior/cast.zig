@@ -2493,3 +2493,29 @@ test "@as does not corrupt values with incompatible representations" {
     });
     try std.testing.expectApproxEqAbs(@as(f32, 1.23), x, 0.001);
 }
+
+test "result information is preserved through many nested structures" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            const E = error{Foo};
+            const T = *const ?E!struct { x: ?*const E!?u8 };
+
+            var val: T = &.{ .x = &@truncate(0x1234) };
+
+            const struct_val = val.*.? catch unreachable;
+            const int_val = (struct_val.x.?.* catch unreachable).?;
+
+            try expect(int_val == 0x34);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}

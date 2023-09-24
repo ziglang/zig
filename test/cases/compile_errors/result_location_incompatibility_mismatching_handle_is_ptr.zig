@@ -15,6 +15,6 @@ pub const Container = struct {
 // backend=stage2
 // target=native
 //
-// :3:36: error: expected type 'i32', found '?i32'
-// :3:36: note: cannot convert optional to payload type
-// :3:36: note: consider using '.?', 'orelse', or 'if'
+// :3:23: error: expected type 'i32', found '?i32'
+// :3:23: note: cannot convert optional to payload type
+// :3:23: note: consider using '.?', 'orelse', or 'if'

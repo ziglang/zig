@@ -548,3 +548,21 @@ test "pointer to array has explicit alignment" {
     const casted = S.func(&bases);
     try expect(casted[0].a == 2);
 }
+
+test "result type preserved through multiple references" {
+    const S = struct { x: u32 };
+    var my_u64: u64 = 12345;
+    const foo: *const *const *const S = &&&.{
+        .x = @intCast(my_u64),
+    };
+    try expect(foo.*.*.*.x == 12345);
+}
+
+test "result type found through optional pointer" {
+    const ptr1: ?*const u32 = &@intCast(123);
+    const ptr2: ?[]const u8 = &.{ @intCast(123), @truncate(0xABCD) };
+    try expect(ptr1.?.* == 123);
+    try expect(ptr2.?.len == 2);
+    try expect(ptr2.?[0] == 123);
+    try expect(ptr2.?[1] == 0xCD);
+}

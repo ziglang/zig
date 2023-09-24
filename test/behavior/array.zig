@@ -780,3 +780,37 @@ test "runtime side-effects in comptime-known array init" {
     try expectEqual([4]u4{ 1, 2, 4, 8 }, init);
     try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
 }
+
+test "slice initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    const foo: []const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
+}
+
+test "pointer to array initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    const foo: *const [4]u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
+}
+
+test "tuple initialized through reference to anonymous array init provides result types" {
+    const Tuple = struct { u64, *const u32 };
+    const foo: *const Tuple = &.{
+        @intCast(12345),
+        @ptrFromInt(0x1000),
+    };
+    try expect(foo[0] == 12345);
+    try expect(@intFromPtr(foo[1]) == 0x1000);
+}
