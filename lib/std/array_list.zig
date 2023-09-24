@@ -223,6 +223,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This operation is O(N).
         /// This preserves item order. Use `swapRemove` if order preservation is not important.
         pub fn orderedRemove(self: *Self, i: usize) T {
+            assert(self.items.len != 0);
             const newlen = self.items.len - 1;
             if (newlen == i) return self.pop();
 
@@ -485,6 +486,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts the list has at least one item.
         /// Invalidates pointers to the removed element.
         pub fn pop(self: *Self) T {
+            assert(self.items.len != 0);
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
             return val;
@@ -516,6 +518,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Return the last element from the list.
         /// Asserts the list has at least one item.
         pub fn getLast(self: Self) T {
+            assert(self.items.len != 0);
             const val = self.items[self.items.len - 1];
             return val;
         }
@@ -704,6 +707,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// last element.
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
+            assert(self.items.len != 0);
             const newlen = self.items.len - 1;
             if (newlen == i) return self.pop();
 
@@ -996,6 +1000,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Asserts the list has at least one item.
         /// Invalidates pointers to last element.
         pub fn pop(self: *Self) T {
+            assert(self.items.len != 0);
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
             return val;
@@ -1026,6 +1031,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Return the last element from the list.
         /// Asserts the list has at least one item.
         pub fn getLast(self: Self) T {
+            assert(self.items.len != 0);
             const val = self.items[self.items.len - 1];
             return val;
         }
