@@ -1244,6 +1244,7 @@ pub const Type = struct {
 
                 .array_type => |array_type| {
                     const len = array_type.len + @intFromBool(array_type.sentinel != .none);
+                    if (len == 0) return .{ .scalar = 0 };
                     switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
                         .scalar => |elem_size| return .{ .scalar = len * elem_size },
                         .val => switch (strat) {
