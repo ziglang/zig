@@ -190,10 +190,13 @@ typedef char bool;
 
 #if zig_has_attribute(weak) || defined(zig_gnuc)
 #define zig_weak_linkage __attribute__((weak))
+#define zig_weak_linkage_fn __attribute__((weak))
 #elif _MSC_VER
 #define zig_weak_linkage __declspec(selectany)
+#define zig_weak_linkage_fn
 #else
 #define zig_weak_linkage zig_weak_linkage_unavailable
+#define zig_weak_linkage_fn zig_weak_linkage_unavailable
 #endif
 
 #if zig_has_builtin(trap)
