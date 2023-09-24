@@ -150,7 +150,7 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
         std.debug.assert(reader.get().? == '/');
         std.debug.assert(reader.get().? == '/');
 
-        var authority = reader.readUntil(isAuthoritySeparator);
+        const authority = reader.readUntil(isAuthoritySeparator);
         if (authority.len == 0) {
             if (reader.peekPrefix("/")) break :a else return error.InvalidFormat;
         }

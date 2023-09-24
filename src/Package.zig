@@ -245,8 +245,6 @@ pub fn fetchAndAddDependencies(
         error.FileNotFound => {
             // Handle the same as no dependencies.
             if (this_hash) |hash| {
-                const pkg_dir_sub_path = "p" ++ fs.path.sep_str ++ hash[0..hex_multihash_len];
-                const build_root = try global_cache_directory.join(arena, &.{pkg_dir_sub_path});
                 try dependencies_source.writer().print(
                     \\    pub const {} = struct {{
                     \\        pub const build_root = "{}";
@@ -256,7 +254,7 @@ pub fn fetchAndAddDependencies(
                     \\
                 , .{
                     std.zig.fmtId(hash),
-                    std.zig.fmtEscapes(build_root),
+                    std.zig.fmtEscapes(pkg.root_src_directory.path.?),
                     std.zig.fmtEscapes(hash),
                 });
             } else {
@@ -312,19 +310,15 @@ pub fn fetchAndAddDependencies(
         try dependencies_source.writer().writeAll("pub const packages = struct {\n");
     }
 
-    const deps_list = manifest.dependencies.values();
-    for (manifest.dependencies.keys(), 0..) |name, i| {
-        const dep = deps_list[i];
-
-        const sub_pkg = try getCachedPackage(
-            http_client.allocator,
+    for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, *dep| {
+        const sub_mod, const found_existing = try getCachedPackage(
+            arena,
             global_cache_directory,
-            dep,
-            report,
+            dep.*,
             all_modules,
             root_prog_node,
-        ) orelse m: {
-            const mod = try fetchAndUnpack(
+        ) orelse .{
+            try fetchAndUnpack(
                 thread_pool,
                 http_client,
                 directory,
@@ -334,39 +328,58 @@ pub fn fetchAndAddDependencies(
                 all_modules,
                 root_prog_node,
                 name,
-            );
-
-            try mod.fetchAndAddDependencies(
-                deps_pkg,
-                arena,
-                thread_pool,
-                http_client,
-                mod.root_src_directory,
-                global_cache_directory,
-                local_cache_directory,
-                dependencies_source,
-                error_bundle,
-                all_modules,
-                root_prog_node,
-                dep.hash.?,
-            );
-
-            break :m mod;
+            ),
+            false,
         };
 
-        try pkg.add(gpa, name, sub_pkg);
-        if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
-            // This should be the same package (and hence module) since it's the same hash
-            // TODO: dedup multiple versions of the same package
-            assert(other_sub == sub_pkg);
-        } else {
-            try deps_pkg.add(gpa, dep.hash.?, sub_pkg);
+        assert(dep.hash != null);
+
+        switch (sub_mod) {
+            .zig_pkg => |sub_pkg| {
+                if (!found_existing) {
+                    try sub_pkg.fetchAndAddDependencies(
+                        deps_pkg,
+                        arena,
+                        thread_pool,
+                        http_client,
+                        sub_pkg.root_src_directory,
+                        global_cache_directory,
+                        local_cache_directory,
+                        dependencies_source,
+                        error_bundle,
+                        all_modules,
+                        root_prog_node,
+                        dep.hash.?,
+                    );
+                }
+
+                try pkg.add(gpa, name, sub_pkg);
+                if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
+                    // This should be the same package (and hence module) since it's the same hash
+                    // TODO: dedup multiple versions of the same package
+                    assert(other_sub == sub_pkg);
+                } else {
+                    try deps_pkg.add(gpa, dep.hash.?, sub_pkg);
+                }
+            },
+            .non_zig_pkg => |sub_pkg| {
+                if (!found_existing) {
+                    try dependencies_source.writer().print(
+                        \\    pub const {} = struct {{
+                        \\        pub const build_root = "{}";
+                        \\        pub const deps: []const struct {{ []const u8, []const u8 }} = &.{{}};
+                        \\    }};
+                        \\
+                    , .{
+                        std.zig.fmtId(dep.hash.?),
+                        std.zig.fmtEscapes(sub_pkg.root_src_directory.path.?),
+                    });
+                }
+            },
         }
     }
 
     if (this_hash) |hash| {
-        const pkg_dir_sub_path = "p" ++ fs.path.sep_str ++ hash[0..hex_multihash_len];
-        const build_root = try global_cache_directory.join(arena, &.{pkg_dir_sub_path});
         try dependencies_source.writer().print(
             \\    pub const {} = struct {{
             \\        pub const build_root = "{}";
@@ -375,7 +388,7 @@ pub fn fetchAndAddDependencies(
             \\
         , .{
             std.zig.fmtId(hash),
-            std.zig.fmtEscapes(build_root),
+            std.zig.fmtEscapes(pkg.root_src_directory.path.?),
             std.zig.fmtEscapes(hash),
         });
         for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
@@ -485,44 +498,40 @@ const Report = struct {
     }
 };
 
-const FetchLocation = union(SourceType) {
+const FetchLocation = union(enum) {
     /// The absolute path to a file or directory.
     /// This may be a file that requires unpacking (such as a .tar.gz),
     /// or the path to the root directory of a package.
     file: []const u8,
     http_request: std.Uri,
 
-    pub fn init(gpa: Allocator, uri: std.Uri, directory: Compilation.Directory, dep: Manifest.Dependency, report: Report) !FetchLocation {
-        const source_type = getPackageSourceType(uri) catch
-            return report.fail(dep.location_tok, "Unknown scheme: {s}", .{uri.scheme});
-
-        return switch (source_type) {
-            .file => f: {
-                const path = if (builtin.os.tag == .windows) p: {
-                    var uri_str = std.ArrayList(u8).init(gpa);
-                    defer uri_str.deinit();
-                    try uri.format("+/", .{}, uri_str.writer());
-                    const uri_str_z = try gpa.dupeZ(u8, uri_str.items);
-                    defer gpa.free(uri_str_z);
-
-                    var buf: [std.os.windows.MAX_PATH:0]u8 = undefined;
-                    var buf_len: std.os.windows.DWORD = std.os.windows.MAX_PATH;
-                    const result = std.os.windows.shlwapi.PathCreateFromUrlA(uri_str_z, &buf, &buf_len, 0);
-
-                    if (result != std.os.windows.S_OK) return report.fail(dep.location_tok, "Invalid URI", .{});
-
-                    break :p try gpa.dupe(u8, buf[0..buf_len]);
-                } else try std.Uri.unescapeString(gpa, uri.path);
-                defer gpa.free(path);
-
-                const new_path = try fs.path.resolve(gpa, &.{ directory.path.?, path });
-
-                break :f .{ .file = new_path };
+    pub fn init(gpa: Allocator, directory: Compilation.Directory, dep: Manifest.Dependency, report: Report) !FetchLocation {
+        switch (dep.location) {
+            .url => |url| {
+                const uri = std.Uri.parse(url) catch |err| switch (err) {
+                    error.UnexpectedCharacter => return report.fail(dep.location_tok, "failed to parse dependency location as URI", .{}),
+                    else => return err,
+                };
+                if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
+                    return report.fail(dep.location_tok, "'file' scheme is not allowed for URLs. Use '.path' instead", .{});
+                }
+                return .{ .http_request = uri };
             },
-            .http_request => r: {
-                break :r .{ .http_request = uri };
+            .path => |path| {
+                const unescaped = try std.Uri.unescapeString(gpa, path);
+                defer gpa.free(unescaped);
+                const unnormalized_path = try unnormalizePath(gpa, unescaped);
+                defer gpa.free(unnormalized_path);
+
+                if (fs.path.isAbsolute(unnormalized_path)) {
+                    return report.fail(dep.location_tok, "Absolute paths are not allowed. Use a relative path instead", .{});
+                }
+
+                const new_path = try fs.path.resolve(gpa, &.{ directory.path.?, unnormalized_path });
+
+                return .{ .file = new_path };
             },
-        };
+        }
     }
 
     pub fn deinit(f: *FetchLocation, gpa: Allocator) void {
@@ -531,41 +540,6 @@ const FetchLocation = union(SourceType) {
             .http_request => {},
         }
         f.* = undefined;
-    }
-
-    const SourceType = enum {
-        file,
-        http_request,
-    };
-
-    fn getPackageSourceType(uri: std.Uri) error{UnknownScheme}!SourceType {
-        const package_source_map = std.ComptimeStringMap(
-            SourceType,
-            .{
-                .{ "file", .file },
-                .{ "http", .http_request },
-                .{ "https", .http_request },
-            },
-        );
-        return package_source_map.get(uri.scheme) orelse error.UnknownScheme;
-    }
-
-    pub fn isDirectory(path: []const u8, root_dir: Compilation.Directory) !bool {
-        return if (mem.endsWith(u8, path, std.fs.path.sep_str))
-            true
-        else if (std.fs.path.extension(path).len > 0)
-            false
-        else d: {
-            // It's common to write directories without a trailing '/'.
-            // This is some special casing logic to detect directories if
-            // the file type cannot be determined from the extension.
-            var dir = root_dir.handle.openDir(path, .{}) catch |err| switch (err) {
-                error.NotDir => break :d false,
-                else => break :d err,
-            };
-            defer dir.close();
-            break :d true;
-        };
     }
 
     pub fn fetch(
@@ -578,25 +552,28 @@ const FetchLocation = union(SourceType) {
     ) !ReadableResource {
         switch (f) {
             .file => |file| {
-                const is_dir = isDirectory(file, root_dir) catch
-                    return report.fail(dep.location_tok, "File not found: {s}", .{file});
+                const is_dir = isDirectory(root_dir, file) catch |err| switch (err) {
+                    error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{file}),
+                    else => return err,
+                };
 
-                return if (is_dir)
-                    .{
-                        .path = try gpa.dupe(u8, file),
-                        .resource = .{ .directory = try fs.openIterableDirAbsolute(file, .{}) },
-                    }
-                else
-                    .{
-                        .path = try gpa.dupe(u8, file),
-                        .resource = .{ .file = try fs.openFileAbsolute(file, .{}) },
-                    };
+                const owned_path = try gpa.dupe(u8, file);
+                errdefer gpa.free(owned_path);
+
+                return .{
+                    .path = owned_path,
+                    .resource = if (is_dir)
+                        .{ .directory = try fs.openIterableDirAbsolute(file, .{}) }
+                    else
+                        .{ .file = try fs.openFileAbsolute(file, .{}) },
+                };
             },
             .http_request => |uri| {
                 var h = std.http.Headers{ .allocator = gpa };
                 defer h.deinit();
 
                 var req = try http_client.request(.GET, uri, h, .{});
+                errdefer req.deinit();
 
                 try req.start(.{});
                 try req.wait();
@@ -638,10 +615,9 @@ const ReadableResource = struct {
         pkg_prog_node: *std.Progress.Node,
     ) !PackageLocation {
         switch (rr.resource) {
-            .directory => |dir| {
-                const actual_hash = try computePackageHash(thread_pool, dir);
+            .directory => {
                 return .{
-                    .hash = actual_hash,
+                    .hash = computePathHash(rr.path),
                     .dir_path = try allocator.dupe(u8, rr.path),
                 };
             },
@@ -739,11 +715,7 @@ const ReadableResource = struct {
     pub fn getFileType(rr: ReadableResource, dep: Manifest.Dependency, report: Report) !FileType {
         switch (rr.resource) {
             .file => {
-                return if (mem.endsWith(u8, rr.path, ".tar.gz"))
-                    .@"tar.gz"
-                else if (mem.endsWith(u8, rr.path, ".tar.xz"))
-                    .@"tar.xz"
-                else
+                return fileTypeFromPath(rr.path) orelse
                     return report.fail(dep.location_tok, "Unknown file type", .{});
             },
             .directory => return error.IsDir,
@@ -764,14 +736,38 @@ const ReadableResource = struct {
                     // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
                     const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
                         return report.fail(dep.location_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
-                    if (mem.startsWith(u8, content_disposition, "attachment;") and
-                        mem.endsWith(u8, content_disposition, ".tar.gz\""))
-                    {
-                        break :ty .@"tar.gz";
-                    } else return report.fail(dep.location_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
+                    break :ty getAttachmentType(content_disposition) orelse
+                        return report.fail(dep.location_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
                 } else return report.fail(dep.location_tok, "Unrecognized value for 'Content-Type' header: {s}", .{content_type});
             },
         }
+    }
+
+    fn fileTypeFromPath(file_path: []const u8) ?FileType {
+        return if (ascii.endsWithIgnoreCase(file_path, ".tar.gz"))
+            .@"tar.gz"
+        else if (ascii.endsWithIgnoreCase(file_path, ".tar.xz"))
+            .@"tar.xz"
+        else
+            null;
+    }
+
+    fn getAttachmentType(content_disposition: []const u8) ?FileType {
+        const disposition_type_end = ascii.indexOfIgnoreCase(content_disposition, "attachment;") orelse return null;
+
+        var value_start = ascii.indexOfIgnoreCasePos(content_disposition, disposition_type_end + 1, "filename") orelse return null;
+        value_start += "filename".len;
+        if (content_disposition[value_start] == '*') {
+            value_start += 1;
+        }
+        if (content_disposition[value_start] != '=') return null;
+        value_start += 1;
+
+        var value_end = mem.indexOfPos(u8, content_disposition, value_start, ";") orelse content_disposition.len;
+        if (content_disposition[value_end - 1] == '\"') {
+            value_end -= 1;
+        }
+        return fileTypeFromPath(content_disposition[value_start..value_end]);
     }
 
     pub fn deinit(rr: *ReadableResource, gpa: Allocator) void {
@@ -786,6 +782,8 @@ const ReadableResource = struct {
 };
 
 pub const PackageLocation = struct {
+    /// For packages that require unpacking, this is the hash of the package contents.
+    /// For directories, this is the hash of the absolute file path.
     hash: [Manifest.Hash.digest_length]u8,
     dir_path: []const u8,
 
@@ -797,13 +795,15 @@ pub const PackageLocation = struct {
 
 const hex_multihash_len = 2 * Manifest.multihash_len;
 const MultiHashHexDigest = [hex_multihash_len]u8;
+
+const DependencyModule = union(enum) {
+    zig_pkg: *Package,
+    non_zig_pkg: *Package,
+};
 /// This is to avoid creating multiple modules for the same build.zig file.
 /// If the value is `null`, the package is a known dependency, but has not yet
 /// been fetched.
-pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, ?union(enum) {
-    zig_pkg: *Package,
-    non_zig_pkg: void,
-});
+pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, ?DependencyModule);
 
 fn ProgressReader(comptime ReaderType: type) type {
     return struct {
@@ -847,15 +847,18 @@ fn ProgressReader(comptime ReaderType: type) type {
     };
 }
 
+/// Get a cached package if it exists.
+/// Returns `null` if the package has not been cached
+/// If the package exists in the cache, returns a pointer to the package and a
+/// boolean indicating whether this package has already been seen in the build
+/// (i.e. whether or not its transitive dependencies have been fetched).
 fn getCachedPackage(
     gpa: Allocator,
     global_cache_directory: Compilation.Directory,
     dep: Manifest.Dependency,
-    report: Report,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
-) !?*Package {
-    _ = report;
+) !?struct { DependencyModule, bool } {
     const s = fs.path.sep_str;
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
@@ -874,27 +877,21 @@ fn getCachedPackage(
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
             if (gop.value_ptr.*) |mod| {
-                return mod;
+                return .{ mod, true };
             }
         }
 
-        pkg_dir.access(build_zig_basename, .{}) catch {
-            gop.value_ptr.* = .non_zig_pkg;
-            return .{
-                .mod = null,
-                .found_existing = false,
-            };
-        };
+        root_prog_node.completeOne();
+
+        const is_zig_mod = if (pkg_dir.access(build_zig_basename, .{})) |_| true else |_| false;
 
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
 
-        root_prog_node.completeOne();
-
         const ptr = try gpa.create(Package);
         errdefer gpa.destroy(ptr);
 
-        const owned_src_path = try gpa.dupe(u8, build_zig_basename);
+        const owned_src_path = if (is_zig_mod) try gpa.dupe(u8, build_zig_basename) else "";
         errdefer gpa.free(owned_src_path);
 
         ptr.* = .{
@@ -906,8 +903,12 @@ fn getCachedPackage(
             .root_src_path = owned_src_path,
         };
 
-        gop.value_ptr.* = ptr;
-        return ptr;
+        gop.value_ptr.* = if (is_zig_mod)
+            .{ .zig_pkg = ptr }
+        else
+            .{ .non_zig_pkg = ptr };
+
+        return .{ gop.value_ptr.*.?, false };
     }
 
     return null;
@@ -918,14 +919,14 @@ fn fetchAndUnpack(
     http_client: *std.http.Client,
     directory: Compilation.Directory,
     global_cache_directory: Compilation.Directory,
-    dep: Manifest.Dependency,
+    dep: *Manifest.Dependency,
     report: Report,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
     /// This does not have to be any form of canonical or fully-qualified name: it
     /// is only intended to be human-readable for progress reporting.
     name_for_prog: []const u8,
-) !*Package {
+) !DependencyModule {
     const gpa = http_client.allocator;
 
     var pkg_prog_node = root_prog_node.start(name_for_prog, 0);
@@ -933,66 +934,65 @@ fn fetchAndUnpack(
     pkg_prog_node.activate();
     pkg_prog_node.context.refresh();
 
-    const uri = switch (dep.location) {
-        .url => |url| std.Uri.parse(url) catch |err| switch (err) {
-            error.UnexpectedCharacter => return report.fail(dep.location_tok, "failed to parse dependency location as URI.", .{}),
-            else => return err,
-        },
-        .path => |path| std.Uri{
-            .scheme = "file",
-            .user = null,
-            .password = null,
-            .host = null,
-            .port = null,
-            .path = path,
-            .query = null,
-            .fragment = null,
-        },
-    };
-
-    var fetch_location = try FetchLocation.init(gpa, uri, directory, dep, report);
+    var fetch_location = try FetchLocation.init(gpa, directory, dep.*, report);
     defer fetch_location.deinit(gpa);
 
-    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep, report);
+    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep.*, report);
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(gpa, thread_pool, global_cache_directory, dep, report, &pkg_prog_node);
+    var package_location = try readable_resource.unpack(gpa, thread_pool, global_cache_directory, dep.*, report, &pkg_prog_node);
     defer package_location.deinit(gpa);
 
     const actual_hex = Manifest.hexDigest(package_location.hash);
-    if (dep.hash) |h| {
-        if (!mem.eql(u8, h, &actual_hex)) {
-            return report.fail(dep.hash_tok, "hash mismatch: expected: {s}, found: {s}", .{
-                h, actual_hex,
+    if (readable_resource.resource != .directory) {
+        if (dep.hash) |h| {
+            if (!mem.eql(u8, h, &actual_hex)) {
+                return report.fail(dep.hash_tok, "hash mismatch: expected: {s}, found: {s}", .{
+                    h, actual_hex,
+                });
+            }
+        } else {
+            const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+            defer gpa.free(file_path);
+
+            const eb = report.error_bundle;
+            const notes_len = 1;
+            try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
+                .tok = dep.location_tok,
+                .off = 0,
+                .msg = "dependency is missing hash field",
             });
+            const notes_start = try eb.reserveNotes(notes_len);
+            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+                .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
+            }));
+            return error.PackageFetchFailed;
         }
     } else {
-        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-        defer gpa.free(file_path);
-
-        const eb = report.error_bundle;
-        const notes_len = 1;
-        try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
-            .tok = dep.location_tok,
-            .off = 0,
-            .msg = "dependency is missing hash field",
-        });
-        const notes_start = try eb.reserveNotes(notes_len);
-        eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-            .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
-        }));
-        return error.PackageFetchFailed;
+        if (dep.hash != null) {
+            return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
+        }
+        // Since directory dependencies don't provide a hash in build.zig.zon,
+        // set the hash here to be the hash of the absolute path to the dependency.
+        dep.hash = try gpa.dupe(u8, &actual_hex);
     }
 
-    const gop = try all_modules.getOrPut(gpa, actual_hex);
+    const build_zig_path = try std.fs.path.join(gpa, &.{ package_location.dir_path, build_zig_basename });
+    defer gpa.free(build_zig_path);
+    assert(fs.path.isAbsolute(build_zig_path));
 
-    if (gop.found_existing and gop.value_ptr.* != null) {
-        return gop.value_ptr.*.?;
-    } else {
-        const module = try create(gpa, package_location.dir_path, build_zig_basename);
-        gop.value_ptr.* = module;
-        return module;
-    }
+    global_cache_directory.handle.access(build_zig_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            const module = try create(gpa, package_location.dir_path, "");
+            try all_modules.put(gpa, actual_hex, .{ .non_zig_pkg = module });
+            return .{ .non_zig_pkg = module };
+        },
+        else => return err,
+    };
+
+    const module = try create(gpa, package_location.dir_path, build_zig_basename);
+    try all_modules.put(gpa, actual_hex, .{ .zig_pkg = module });
+    return .{ .zig_pkg = module };
 }
 
 fn unpackTarball(
@@ -1092,6 +1092,22 @@ fn computePackageHash(
     return hasher.finalResult();
 }
 
+/// Compute the hash of a file path.
+fn computePathHash(path: []const u8) [Manifest.Hash.digest_length]u8 {
+    var hasher = Manifest.Hash.init(.{});
+    hasher.update(path);
+    return hasher.finalResult();
+}
+
+fn isDirectory(root_dir: Compilation.Directory, path: []const u8) !bool {
+    var dir = root_dir.handle.openDir(path, .{}) catch |err| switch (err) {
+        error.NotDir => return false,
+        else => return err,
+    };
+    defer dir.close();
+    return true;
+}
+
 /// Make a file system path identical independently of operating system path inconsistencies.
 /// This converts backslashes into forward slashes.
 fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
@@ -1108,6 +1124,25 @@ fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
         }
     }
     return normalized;
+}
+
+/// Make a OS-specific file system path
+/// This performs the inverse operation of normalizePath,
+/// converting forward slashes into backslashes on Windows
+fn unnormalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
+    const canonical_sep = '/';
+
+    const unnormalized = try arena.dupe(u8, fs_path);
+    if (fs.path.sep == canonical_sep)
+        return unnormalized;
+
+    for (unnormalized) |*byte| {
+        switch (byte.*) {
+            canonical_sep => byte.* = fs.path.sep,
+            else => continue,
+        }
+    }
+    return unnormalized;
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
@@ -1172,36 +1207,18 @@ fn renameTmpIntoCache(
     }
 }
 
-fn isTarAttachment(content_disposition: []const u8) bool {
-    const disposition_type_end = ascii.indexOfIgnoreCase(content_disposition, "attachment;") orelse return false;
+test "getAttachmentType" {
+    try std.testing.expectEqual(@as(?ReadableResource.FileType, .@"tar.gz"), ReadableResource.getAttachmentType("attaChment; FILENAME=\"stuff.tar.gz\"; size=42"));
+    try std.testing.expectEqual(@as(?ReadableResource.FileType, .@"tar.gz"), ReadableResource.getAttachmentType("attachment; filename*=\"stuff.tar.gz\""));
+    try std.testing.expectEqual(@as(?ReadableResource.FileType, .@"tar.xz"), ReadableResource.getAttachmentType("ATTACHMENT; filename=\"stuff.tar.xz\""));
+    try std.testing.expectEqual(@as(?ReadableResource.FileType, .@"tar.xz"), ReadableResource.getAttachmentType("attachment; FileName=\"stuff.tar.xz\""));
+    try std.testing.expectEqual(@as(?ReadableResource.FileType, .@"tar.gz"), ReadableResource.getAttachmentType("attachment; FileName*=UTF-8\'\'xyz%2Fstuff.tar.gz"));
 
-    var value_start = ascii.indexOfIgnoreCasePos(content_disposition, disposition_type_end + 1, "filename") orelse return false;
-    value_start += "filename".len;
-    if (content_disposition[value_start] == '*') {
-        value_start += 1;
-    }
-    if (content_disposition[value_start] != '=') return false;
-    value_start += 1;
-
-    var value_end = mem.indexOfPos(u8, content_disposition, value_start, ";") orelse content_disposition.len;
-    if (content_disposition[value_end - 1] == '\"') {
-        value_end -= 1;
-    }
-    return ascii.endsWithIgnoreCase(content_disposition[value_start..value_end], ".tar.gz");
-}
-
-test "isTarAttachment" {
-    try std.testing.expect(isTarAttachment("attaChment; FILENAME=\"stuff.tar.gz\"; size=42"));
-    try std.testing.expect(isTarAttachment("attachment; filename*=\"stuff.tar.gz\""));
-    try std.testing.expect(isTarAttachment("ATTACHMENT; filename=\"stuff.tar.gz\""));
-    try std.testing.expect(isTarAttachment("attachment; FileName=\"stuff.tar.gz\""));
-    try std.testing.expect(isTarAttachment("attachment; FileName*=UTF-8\'\'xyz%2Fstuff.tar.gz"));
-
-    try std.testing.expect(!isTarAttachment("attachment FileName=\"stuff.tar.gz\""));
-    try std.testing.expect(!isTarAttachment("attachment; FileName=\"stuff.tar\""));
-    try std.testing.expect(!isTarAttachment("attachment; FileName\"stuff.gz\""));
-    try std.testing.expect(!isTarAttachment("attachment; size=42"));
-    try std.testing.expect(!isTarAttachment("inline; size=42"));
-    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\"; attachment;"));
-    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\";"));
+    try std.testing.expect(ReadableResource.getAttachmentType("attachment FileName=\"stuff.tar.gz\"") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("attachment; FileName=\"stuff.tar\"") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("attachment; FileName\"stuff.gz\"") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("attachment; size=42") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("inline; size=42") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("FileName=\"stuff.tar.gz\"; attachment;") == null);
+    try std.testing.expect(ReadableResource.getAttachmentType("FileName=\"stuff.tar.gz\";") == null);
 }
