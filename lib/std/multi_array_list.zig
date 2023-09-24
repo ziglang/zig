@@ -901,3 +901,52 @@ test "sorting a span" {
         c += 1;
     }
 }
+
+test "0 sized struct field" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+        b: f32,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{}, list.items(.b));
+
+    try list.append(ally, .{ .a = 0, .b = 42.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{42.0}, list.items(.b));
+
+    try list.insert(ally, 0, .{ .a = 0, .b = -1.0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{ -1.0, 42.0 }, list.items(.b));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+    try testing.expectEqualSlices(f32, &[_]f32{-1.0}, list.items(.b));
+}
+
+test "0 sized struct" {
+    const ally = testing.allocator;
+
+    const Foo = struct {
+        a: u0,
+    };
+
+    var list = MultiArrayList(Foo){};
+    defer list.deinit(ally);
+
+    try testing.expectEqualSlices(u0, &[_]u0{}, list.items(.a));
+
+    try list.append(ally, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+
+    try list.insert(ally, 0, .{ .a = 0 });
+    try testing.expectEqualSlices(u0, &[_]u0{ 0, 0 }, list.items(.a));
+
+    list.swapRemove(list.len - 1);
+    try testing.expectEqualSlices(u0, &[_]u0{0}, list.items(.a));
+}
