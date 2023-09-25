@@ -3075,6 +3075,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
         .decl => |decl_index| {
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
+        .anon_decl => @panic("TODO"),
         .mut_decl => |mut_decl| {
             const decl_index = mut_decl.decl;
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);

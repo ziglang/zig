@@ -655,6 +655,7 @@ fn lowerParentPtr(
             debug_output,
             reloc_info,
         ),
+        .anon_decl => @panic("TODO"),
         .int => |int| try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
             .val = int.toValue(),

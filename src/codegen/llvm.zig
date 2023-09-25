@@ -810,6 +810,8 @@ pub const Object = struct {
     /// * it works for functions not all globals.
     /// Therefore, this table keeps track of the mapping.
     decl_map: std.AutoHashMapUnmanaged(Module.Decl.Index, Builder.Global.Index),
+    /// Same deal as `decl_map` but for anonymous declarations, which are always global constants.
+    anon_decl_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Global.Index),
     /// Serves the same purpose as `decl_map` but only used for the `is_named_enum_value` instruction.
     named_enum_map: std.AutoHashMapUnmanaged(Module.Decl.Index, Builder.Function.Index),
     /// Maps Zig types to LLVM types. The table memory is backed by the GPA of
@@ -993,6 +995,7 @@ pub const Object = struct {
             .target_data = target_data,
             .target = options.target,
             .decl_map = .{},
+            .anon_decl_map = .{},
             .named_enum_map = .{},
             .type_map = .{},
             .di_type_map = .{},
@@ -1011,6 +1014,7 @@ pub const Object = struct {
             self.target_machine.dispose();
         }
         self.decl_map.deinit(gpa);
+        self.anon_decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
         self.extern_collisions.deinit(gpa);
@@ -3038,6 +3042,31 @@ pub const Object = struct {
         }
     }
 
+    fn resolveGlobalAnonDecl(
+        o: *Object,
+        decl_val: InternPool.Index,
+        llvm_addr_space: Builder.AddrSpace,
+    ) Error!Builder.Variable.Index {
+        const gop = try o.anon_decl_map.getOrPut(o.gpa, decl_val);
+        if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
+        errdefer assert(o.anon_decl_map.remove(decl_val));
+
+        const mod = o.module;
+        const decl_ty = mod.intern_pool.typeOf(decl_val);
+
+        const variable_index = try o.builder.addVariable(
+            try o.builder.fmt("__anon_{d}", .{@intFromEnum(decl_val)}),
+            try o.lowerType(decl_ty.toType()),
+            llvm_addr_space,
+        );
+        gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
+
+        try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
+        variable_index.setLinkage(.internal, &o.builder);
+        variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+        return variable_index;
+    }
+
     fn resolveGlobalDecl(
         o: *Object,
         decl_index: Module.Decl.Index,
@@ -3764,6 +3793,7 @@ pub const Object = struct {
                 const ptr_val = switch (ptr.addr) {
                     .decl => |decl| try o.lowerDeclRefValue(ptr_ty, decl),
                     .mut_decl => |mut_decl| try o.lowerDeclRefValue(ptr_ty, mut_decl.decl),
+                    .anon_decl => |anon_decl| try o.lowerAnonDeclRef(ptr_ty, anon_decl),
                     .int => |int| try o.lowerIntAsPtr(int),
                     .eu_payload,
                     .opt_payload,
@@ -4216,10 +4246,12 @@ pub const Object = struct {
         return o.builder.bigIntConst(try o.builder.intType(ty.intInfo(mod).bits), bigint);
     }
 
-    const ParentPtr = struct {
-        ty: Type,
-        llvm_ptr: Builder.Value,
-    };
+    fn lowerParentPtrAnonDecl(o: *Object, decl_val: InternPool.Index) Error!Builder.Constant {
+        const mod = o.module;
+        const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
+        const ptr_ty = try mod.singleMutPtrType(decl_ty);
+        return o.lowerAnonDeclRef(ptr_ty, decl_val);
+    }
 
     fn lowerParentPtrDecl(o: *Object, decl_index: Module.Decl.Index) Allocator.Error!Builder.Constant {
         const mod = o.module;
@@ -4229,13 +4261,14 @@ pub const Object = struct {
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
 
-    fn lowerParentPtr(o: *Object, ptr_val: Value) Allocator.Error!Builder.Constant {
+    fn lowerParentPtr(o: *Object, ptr_val: Value) Error!Builder.Constant {
         const mod = o.module;
         const ip = &mod.intern_pool;
         const ptr = ip.indexToKey(ptr_val.toIntern()).ptr;
         return switch (ptr.addr) {
-            .decl => |decl| o.lowerParentPtrDecl(decl),
-            .mut_decl => |mut_decl| o.lowerParentPtrDecl(mut_decl.decl),
+            .decl => |decl| try o.lowerParentPtrDecl(decl),
+            .mut_decl => |mut_decl| try o.lowerParentPtrDecl(mut_decl.decl),
+            .anon_decl => |anon_decl| try o.lowerParentPtrAnonDecl(anon_decl),
             .int => |int| try o.lowerIntAsPtr(int),
             .eu_payload => |eu_ptr| {
                 const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue());
@@ -4347,6 +4380,49 @@ pub const Object = struct {
                 }
             },
         };
+    }
+
+    /// This logic is very similar to `lowerDeclRefValue` but for anonymous declarations.
+    /// Maybe the logic could be unified.
+    fn lowerAnonDeclRef(
+        o: *Object,
+        ptr_ty: Type,
+        decl_val: InternPool.Index,
+    ) Error!Builder.Constant {
+        const mod = o.module;
+        const ip = &mod.intern_pool;
+        const decl_ty = ip.typeOf(decl_val).toType();
+        const target = mod.getTarget();
+
+        if (decl_val.toValue().getFunction(mod)) |func| {
+            _ = func;
+            @panic("TODO");
+        } else if (decl_val.toValue().getExternFunc(mod)) |func| {
+            _ = func;
+            @panic("TODO");
+        }
+
+        const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
+        if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
+            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ptr_ty);
+
+        if (is_fn_body)
+            @panic("TODO");
+
+        const addr_space = target_util.defaultAddressSpace(target, .global_constant);
+        const llvm_addr_space = toLlvmAddressSpace(addr_space, target);
+        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space)).ptrConst(&o.builder).global;
+
+        const llvm_val = try o.builder.convConst(
+            .unneeded,
+            llvm_global.toConst(),
+            try o.builder.ptrType(llvm_addr_space),
+        );
+
+        return o.builder.convConst(if (ptr_ty.isAbiInt(mod)) switch (ptr_ty.intInfo(mod).signedness) {
+            .signed => .signed,
+            .unsigned => .unsigned,
+        } else .unneeded, llvm_val, try o.lowerType(ptr_ty));
     }
 
     fn lowerDeclRefValue(o: *Object, ty: Type, decl_index: Module.Decl.Index) Allocator.Error!Builder.Constant {

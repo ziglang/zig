@@ -604,6 +604,7 @@ pub const DeclGen = struct {
                 },
                 location,
             ),
+            .anon_decl => @panic("TODO"),
             .int => |int| {
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_cty);
@@ -1155,6 +1156,7 @@ pub const DeclGen = struct {
                         },
                         ptr_location,
                     ),
+                    .anon_decl => @panic("TODO"),
                     .int => |int| {
                         try writer.writeAll("((");
                         try dg.renderType(writer, ptr_ty);
