@@ -29,7 +29,7 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
     addCSourceBytes(exe, "");
     exe.is_linking_libc = true;
 
-    const run = b.addRunArtifact(exe);
+    const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
@@ -49,7 +49,7 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
     );
     exe.is_linking_libc = true;
 
-    const run = b.addRunArtifact(exe);
+    const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
     test_step.dependOn(&run.step);
 
@@ -75,7 +75,7 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
         \\}
     );
 
-    const run = b.addRunArtifact(exe);
+    const run = addRunArtifact(exe);
     run.expectStdErrEqual("Hello World!\n");
     test_step.dependOn(&run.step);
 
@@ -118,6 +118,13 @@ fn addExecutable(b: *Build, opts: Options) *Compile {
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
+}
+
+fn addRunArtifact(comp: *Compile) *Run {
+    const b = comp.step.owner;
+    const run = b.addRunArtifact(comp);
+    run.skip_foreign_checks = true;
+    return run;
 }
 
 fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
