@@ -254,7 +254,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .default_sym_version = default_sym_version,
     };
     const use_llvm = options.use_llvm;
-    if (use_llvm) {
+    if (use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
