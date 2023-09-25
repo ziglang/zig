@@ -5709,13 +5709,12 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     _ = try sema.analyzeBodyBreak(&child_block, body);
 
     const mod = sema.mod;
-    const c_import_res = mod.comp.cImport(c_import_buf.items) catch |err|
+    var c_import_res = mod.comp.cImport(c_import_buf.items) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
+    defer c_import_res.deinit(mod.comp.gpa);
 
-    if (c_import_res.errors.len != 0) {
+    if (c_import_res.errors.errorMessageCount() != 0) {
         const msg = msg: {
-            defer @import("clang.zig").ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
-
             const msg = try sema.errMsg(&child_block, src, "C import failed", .{});
             errdefer msg.destroy(sema.gpa);
 
@@ -5724,47 +5723,8 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
             const gop = try mod.cimport_errors.getOrPut(sema.gpa, sema.owner_decl_index);
             if (!gop.found_existing) {
-                var errs = try std.ArrayListUnmanaged(Module.CImportError).initCapacity(sema.gpa, c_import_res.errors.len);
-                errdefer {
-                    for (errs.items) |err| err.deinit(sema.gpa);
-                    errs.deinit(sema.gpa);
-                }
-
-                for (c_import_res.errors) |c_error| {
-                    const path = if (c_error.filename_ptr) |some|
-                        try sema.gpa.dupeZ(u8, some[0..c_error.filename_len])
-                    else
-                        null;
-                    errdefer if (path) |some| sema.gpa.free(some);
-
-                    const c_msg = try sema.gpa.dupeZ(u8, c_error.msg_ptr[0..c_error.msg_len]);
-                    errdefer sema.gpa.free(c_msg);
-
-                    const line = line: {
-                        const source = c_error.source orelse break :line null;
-                        var start = c_error.offset;
-                        while (start > 0) : (start -= 1) {
-                            if (source[start - 1] == '\n') break;
-                        }
-                        var end = c_error.offset;
-                        while (true) : (end += 1) {
-                            if (source[end] == 0) break;
-                            if (source[end] == '\n') break;
-                        }
-                        break :line try sema.gpa.dupeZ(u8, source[start..end]);
-                    };
-                    errdefer if (line) |some| sema.gpa.free(some);
-
-                    errs.appendAssumeCapacity(.{
-                        .path = path orelse null,
-                        .source_line = line orelse null,
-                        .line = c_error.line,
-                        .column = c_error.column,
-                        .offset = c_error.offset,
-                        .msg = c_msg,
-                    });
-                }
-                gop.value_ptr.* = errs.items;
+                gop.value_ptr.* = c_import_res.errors;
+                c_import_res.errors = std.zig.ErrorBundle.empty;
             }
             break :msg msg;
         };
