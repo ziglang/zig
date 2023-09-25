@@ -11,12 +11,14 @@ pub fn build(b: *Build) void {
         .os_tag = .linux,
     };
 
-    elf_step.dependOn(testHelloStatic(b, .{ .target = target, .use_llvm = true }));
-    elf_step.dependOn(testHelloStatic(b, .{ .target = target, .use_llvm = false }));
+    elf_step.dependOn(testLinkingZigStatic(b, .{ .target = target, .use_llvm = true }));
+    elf_step.dependOn(testLinkingZigStatic(b, .{ .target = target, .use_llvm = false }));
+    elf_step.dependOn(testLinkingCStatic(b, .{ .target = target, .use_llvm = true }));
+    // elf_step.dependOn(testLinkingCStatic(b, .{ .target = target, .use_llvm = false })); // TODO arocc
 }
 
-fn testHelloStatic(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "hello-static", opts);
+fn testLinkingZigStatic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-zig-static", opts);
 
     const exe = addExecutable(b, opts);
     addZigSourceBytes(exe,
@@ -28,6 +30,36 @@ fn testHelloStatic(b: *Build, opts: Options) *Step {
 
     const run = b.addRunArtifact(exe);
     run.expectStdErrEqual("Hello World!\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("header");
+    check.checkExact("type EXEC");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkNotPresent("name .dynamic");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinkingCStatic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-c-static", opts);
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\int main() {
+        \\  printf("Hello World!\n");
+        \\  return 0;
+        \\}
+    );
+    exe.is_linking_libc = true;
+    exe.linkage = .static;
+
+    const run = b.addRunArtifact(exe);
+    run.expectStdOutEqual("Hello World!\n");
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
@@ -76,6 +108,12 @@ fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
     const file = WriteFile.create(b).add("a.zig", bytes);
     file.addStepDependencies(&comp.step);
     comp.root_src = file;
+}
+
+fn addCSourceBytes(comp: *Compile, bytes: []const u8) void {
+    const b = comp.step.owner;
+    const file = WriteFile.create(b).add("a.c", bytes);
+    comp.addCSourceFile(.{ .file = file, .flags = &.{} });
 }
 
 const std = @import("std");
