@@ -5303,7 +5303,9 @@ fn airUnaryMath(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                 .f80_type => "__" ++ @tagName(comptime_tag) ++ "x",
                 .f128_type => @tagName(comptime_tag) ++ "q",
                 .c_longdouble_type => @tagName(comptime_tag) ++ "l",
-                else => unreachable,
+                else => return self.fail("TODO implement airUnaryMath for {s} of {}", .{
+                    @tagName(tag), ty.toType().fmt(self.bin_file.options.module.?),
+                }),
             },
             else => unreachable,
         },
