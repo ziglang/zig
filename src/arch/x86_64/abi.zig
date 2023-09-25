@@ -444,7 +444,7 @@ pub const SysV = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
@@ -457,7 +457,7 @@ pub const Win64 = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 };
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
     pub const c_abi_int_return_regs = [_]Register{.rax};
