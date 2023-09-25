@@ -1557,7 +1557,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
-            .darwinSdkLayout = libc_dirs.darwinSdkLayout,
+            .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
@@ -5287,7 +5287,7 @@ fn detectWin32ResourceIncludeDirs(arena: Allocator, options: InitOptions) !LibCD
                 .libc_installation = null,
                 .libc_framework_dir_list = &.{},
                 .sysroot = null,
-                .darwinSdkLayout = .none,
+                .darwin_sdk_layout = null,
             },
         }
     }
@@ -5656,7 +5656,7 @@ const LibCDirs = struct {
     libc_installation: ?*const LibCInstallation,
     libc_framework_dir_list: []const []const u8,
     sysroot: ?[]const u8,
-    darwinSdkLayout: link.DarwinSdkLayout,
+    darwin_sdk_layout: ?link.DarwinSdkLayout,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8) !LibCDirs {
@@ -5672,7 +5672,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8)
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
-        .darwinSdkLayout = .vendored,
+        .darwin_sdk_layout = .vendored,
     };
 }
 
@@ -5690,7 +5690,7 @@ pub fn detectLibCIncludeDirs(
             .libc_installation = null,
             .libc_framework_dir_list = &.{},
             .sysroot = null,
-            .darwinSdkLayout = .none,
+            .darwin_sdk_layout = null,
         };
     }
 
@@ -5748,7 +5748,7 @@ pub fn detectLibCIncludeDirs(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
-        .darwinSdkLayout = .none,
+        .darwin_sdk_layout = null,
     };
 }
 
@@ -5803,7 +5803,7 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         .libc_installation = lci,
         .libc_framework_dir_list = framework_list.items,
         .sysroot = sysroot,
-        .darwinSdkLayout = if (sysroot == null) .none else .sdk,
+        .darwin_sdk_layout = if (sysroot == null) null else .sdk,
     };
 }
 
@@ -5865,7 +5865,7 @@ fn detectLibCFromBuilding(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
-        .darwinSdkLayout = .vendored,
+        .darwin_sdk_layout = .vendored,
     };
 }
 

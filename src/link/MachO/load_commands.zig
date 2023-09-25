@@ -474,19 +474,16 @@ pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVe
 
     const options = comp.bin_file.options;
 
-    const sdk_dir = switch (options.darwinSdkLayout) {
-        .none => unreachable,
+    const sdk_layout = options.darwin_sdk_layout.?;
+    const sdk_dir = switch (sdk_layout) {
         .sdk => options.sysroot.?,
         .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
     };
-
     if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {
         return parseSdkVersion(ver);
     } else |_| {
-        if (options.darwinSdkLayout == .vendored) {
-            // vendored layout does not have versioned pathname
-            return null;
-        }
+        // We control vendored and reading settings should always succeed.
+        if (sdk_layout == .vendored) @panic("zig installation bug: unable to parse SDK version");
     }
 
     // infer from pathname

@@ -652,8 +652,7 @@ pub fn resolveLibSystem(
             "libSystem",
         )) break :success;
 
-        switch (self.base.options.darwinSdkLayout) {
-            .none => unreachable,
+        switch (self.base.options.darwin_sdk_layout.?) {
             .sdk => {
                 const dir = try fs.path.join(tmp_arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
