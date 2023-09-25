@@ -965,6 +965,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const target = self.base.options.target;
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
@@ -993,22 +994,63 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try positionals.append(.{ .path = key.status.success.object_path });
     }
 
+    for (positionals.items) |obj| {
+        const in_file = try std.fs.cwd().openFile(obj.path, .{});
+        defer in_file.close();
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
+    var system_libs = std.ArrayList(SystemLib).init(arena);
+
+    // libc dep
+    self.error_flags.missing_libc = false;
+    if (self.base.options.link_libc) {
+        if (self.base.options.libc_installation != null) {
+            @panic("TODO explicit libc_installation");
+        } else if (target.isGnuLibC()) {
+            try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
+            for (glibc.libs) |lib| {
+                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                    comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                });
+                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+            }
+            system_libs.appendAssumeCapacity(.{
+                .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
+            });
+        } else if (target.isMusl()) {
+            const path = try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                .Static => "libc.a",
+                .Dynamic => "libc.so",
+            });
+            try system_libs.append(.{ .path = path });
+        } else {
+            self.error_flags.missing_libc = true;
+        }
+    }
+
+    for (system_libs.items) |lib| {
+        const in_file = try std.fs.cwd().openFile(lib.path, .{});
+        defer in_file.close();
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
+    }
+
+    // Finally, as the last input object add compiler_rt if any.
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
     if (compiler_rt_path) |path| {
-        try positionals.append(.{ .path = path });
-    }
-
-    for (positionals.items) |obj| {
-        const in_file = try std.fs.cwd().openFile(obj.path, .{});
+        const in_file = try std.fs.cwd().openFile(path, .{});
         defer in_file.close();
-
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(in_file, path, false, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(path, err, &parse_ctx);
     }
 
     // Handle any lazy symbols that were emitted by incremental compilation.
@@ -1347,28 +1389,22 @@ fn parsePositional(
     if (Object.isObject(in_file)) {
         try self.parseObject(in_file, path, ctx);
     } else {
-        try self.parseLibrary(in_file, path, .{
-            .path = null,
-            .needed = false,
-            .weak = false,
-        }, must_link, ctx);
+        try self.parseLibrary(in_file, .{ .path = path }, must_link, ctx);
     }
 }
 
 fn parseLibrary(
     self: *Elf,
     in_file: std.fs.File,
-    path: []const u8,
-    lib: link.SystemLib,
+    lib: SystemLib,
     must_link: bool,
     ctx: *ParseErrorCtx,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-    _ = lib;
 
     if (Archive.isArchive(in_file)) {
-        try self.parseArchive(in_file, path, must_link, ctx);
+        try self.parseArchive(in_file, lib.path, must_link, ctx);
     } else return error.UnknownFileType;
 }
 
@@ -4147,6 +4183,11 @@ pub const null_sym = elf.Elf64_Sym{
     .st_shndx = 0,
     .st_value = 0,
     .st_size = 0,
+};
+
+const SystemLib = struct {
+    needed: bool = false,
+    path: []const u8,
 };
 
 const std = @import("std");

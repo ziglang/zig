@@ -6,18 +6,19 @@ pub fn build(b: *Build) void {
     const elf_step = b.step("test-elf", "Run ELF tests");
     b.default_step = elf_step;
 
-    const target: CrossTarget = .{
+    const musl_target = CrossTarget{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
+        .abi = .musl,
     };
 
-    elf_step.dependOn(testLinkingZigStatic(b, .{ .target = target, .use_llvm = true }));
-    elf_step.dependOn(testLinkingZigStatic(b, .{ .target = target, .use_llvm = false }));
-    elf_step.dependOn(testLinkingCStatic(b, .{ .target = target, .use_llvm = true }));
-    // elf_step.dependOn(testLinkingCStatic(b, .{ .target = target, .use_llvm = false })); // TODO arocc
+    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = true }));
+    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
+    elf_step.dependOn(testLinkingC(b, .{ .target = musl_target, .use_llvm = true }));
+    // elf_step.dependOn(testLinkingC(b, .{ .target = musl_target, .use_llvm = false })); // TODO arocc
 }
 
-fn testLinkingZigStatic(b: *Build, opts: Options) *Step {
+fn testLinkingZig(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-zig-static", opts);
 
     const exe = addExecutable(b, opts);
@@ -26,7 +27,6 @@ fn testLinkingZigStatic(b: *Build, opts: Options) *Step {
         \\    @import("std").debug.print("Hello World!\n", .{});
         \\}
     );
-    exe.linkage = .static;
 
     const run = b.addRunArtifact(exe);
     run.expectStdErrEqual("Hello World!\n");
@@ -44,7 +44,7 @@ fn testLinkingZigStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testLinkingCStatic(b: *Build, opts: Options) *Step {
+fn testLinkingC(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-c-static", opts);
 
     const exe = addExecutable(b, opts);
@@ -56,7 +56,6 @@ fn testLinkingCStatic(b: *Build, opts: Options) *Step {
         \\}
     );
     exe.is_linking_libc = true;
-    exe.linkage = .static;
 
     const run = b.addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
@@ -75,7 +74,7 @@ fn testLinkingCStatic(b: *Build, opts: Options) *Step {
 }
 
 const Options = struct {
-    target: CrossTarget = .{ .os_tag = .linux },
+    target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
 };
