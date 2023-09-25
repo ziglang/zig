@@ -4195,7 +4195,7 @@ fn extraPackedStructType(ip: *const InternPool, extra_index: u32, inits: bool) K
             .len = fields_len,
         },
         .field_inits = if (inits) .{
-            .start = type_struct_packed.end + fields_len + fields_len,
+            .start = type_struct_packed.end + fields_len * 2,
             .len = fields_len,
         } else .{
             .start = 0,

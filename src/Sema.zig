@@ -21377,8 +21377,9 @@ fn reifyStruct(
         }
 
         var fields_bit_sum: u64 = 0;
-        for (struct_type.field_types.get(ip)) |field_ty| {
-            fields_bit_sum += field_ty.toType().bitSize(mod);
+        for (0..struct_type.field_types.len) |i| {
+            const field_ty = struct_type.field_types.get(ip)[i].toType();
+            fields_bit_sum += field_ty.bitSize(mod);
         }
 
         if (backing_int_val.optionalValue(mod)) |backing_int_ty_val| {
