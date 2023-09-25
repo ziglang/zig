@@ -2336,6 +2336,35 @@ test "sort" {
     }
 }
 
+test "0 sized key" {
+    var map = AutoArrayHashMap(u0, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try testing.expectEqual(map.get(0), null);
+
+    try map.put(0, 5);
+    try testing.expectEqual(map.get(0), 5);
+
+    try map.put(0, 10);
+    try testing.expectEqual(map.get(0), 10);
+
+    try testing.expectEqual(map.swapRemove(0), true);
+    try testing.expectEqual(map.get(0), null);
+}
+
+test "0 sized key and 0 sized value" {
+    var map = AutoArrayHashMap(u0, u0).init(std.testing.allocator);
+    defer map.deinit();
+
+    try testing.expectEqual(map.get(0), null);
+
+    try map.put(0, 0);
+    try testing.expectEqual(map.get(0), 0);
+
+    try testing.expectEqual(map.swapRemove(0), true);
+    try testing.expectEqual(map.get(0), null);
+}
+
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
     return struct {
         fn hash(ctx: Context, key: K) u32 {
