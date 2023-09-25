@@ -23,7 +23,6 @@ test "cmp f16" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
-    if (no_x86_64_hardware_f16_support) return error.SkipZigTest;
 
     try testCmp(f16);
     try comptime testCmp(f16);
@@ -115,7 +114,7 @@ test "different sized float comparisons" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (no_x86_64_hardware_f16_support) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try testDifferentSizedFloatComparisons();
     try comptime testDifferentSizedFloatComparisons();
