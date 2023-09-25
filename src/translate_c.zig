@@ -372,19 +372,54 @@ pub fn translate(
     gpa: mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    errors: *[]clang.ErrorMsg,
+    errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
-    // TODO stage2 bug
-    var tmp = errors;
+    var clang_errors: []clang.ErrorMsg = &.{};
+
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
-        &tmp.ptr,
-        &tmp.len,
+        &clang_errors.ptr,
+        &clang_errors.len,
         resources_path,
     ) orelse {
-        if (errors.len == 0) return error.ASTUnitFailure;
+        defer clang.ErrorMsg.delete(clang_errors.ptr, clang_errors.len);
+
+        var bundle: std.zig.ErrorBundle.Wip = undefined;
+        try bundle.init(gpa);
+        defer bundle.deinit();
+
+        for (clang_errors) |c_error| {
+            const line = line: {
+                const source = c_error.source orelse break :line 0;
+                var start = c_error.offset;
+                while (start > 0) : (start -= 1) {
+                    if (source[start - 1] == '\n') break;
+                }
+                var end = c_error.offset;
+                while (true) : (end += 1) {
+                    if (source[end] == 0) break;
+                    if (source[end] == '\n') break;
+                }
+                break :line try bundle.addString(source[start..end]);
+            };
+
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.addString(c_error.msg_ptr[0..c_error.msg_len]),
+                .src_loc = if (c_error.filename_ptr) |filename_ptr| try bundle.addSourceLocation(.{
+                    .src_path = try bundle.addString(filename_ptr[0..c_error.filename_len]),
+                    .span_start = c_error.offset,
+                    .span_main = c_error.offset,
+                    .span_end = c_error.offset + 1,
+                    .line = c_error.line,
+                    .column = c_error.column,
+                    .source_line = line,
+                }) else .none,
+            });
+        }
+        errors.* = try bundle.toOwnedBundle("");
+
         return error.SemanticAnalyzeFail;
     };
     defer ast_unit.delete();

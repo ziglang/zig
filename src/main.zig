@@ -21,7 +21,6 @@ const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const translate_c = @import("translate_c.zig");
-const clang = @import("clang.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
@@ -3697,11 +3696,16 @@ fn serve(
                     var arena_instance = std.heap.ArenaAllocator.init(gpa);
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
-                    var output: TranslateCOutput = undefined;
+                    var output: Compilation.CImportResult = undefined;
                     try cmdTranslateC(comp, arena, &output);
-                    try server.serveEmitBinPath(output.path, .{
-                        .flags = .{ .cache_hit = output.cache_hit },
-                    });
+                    defer output.deinit(gpa);
+                    if (output.errors.errorMessageCount() != 0) {
+                        try server.serveErrorBundle(output.errors);
+                    } else {
+                        try server.serveEmitBinPath(output.out_zig_path, .{
+                            .flags = .{ .cache_hit = output.cache_hit },
+                        });
+                    }
                     continue;
                 }
 
@@ -4168,12 +4172,7 @@ fn updateModule(comp: *Compilation) !void {
     }
 }
 
-const TranslateCOutput = struct {
-    path: []const u8,
-    cache_hit: bool,
-};
-
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*TranslateCOutput) !void {
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -4231,29 +4230,24 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Translate
             new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
         }
 
-        const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
-        const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
-        var clang_errors: []clang.ErrorMsg = &[0]clang.ErrorMsg{};
+        const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+        var errors = std.zig.ErrorBundle.empty;
         var tree = translate_c.translate(
             comp.gpa,
             new_argv.ptr,
             new_argv.ptr + new_argv.len,
-            &clang_errors,
+            &errors,
             c_headers_dir_path_z,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
             error.SemanticAnalyzeFail => {
-                // TODO convert these to zig errors
-                for (clang_errors) |clang_err| {
-                    std.debug.print("{s}:{d}:{d}: {s}\n", .{
-                        if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
-                        clang_err.line + 1,
-                        clang_err.column + 1,
-                        clang_err.msg_ptr[0..clang_err.msg_len],
-                    });
+                if (fancy_output) |p| {
+                    p.errors = errors;
+                    return;
+                } else {
+                    errors.renderToStdErr(renderOptions(comp.color));
+                    process.exit(1);
                 }
-                process.exit(1);
             },
         };
         defer tree.deinit(comp.gpa);
@@ -4290,10 +4284,10 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Translate
     };
 
     if (fancy_output) |p| {
-        const full_zig_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
+        p.out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
             "o", &digest, translated_zig_basename,
         });
-        p.path = full_zig_path;
+        p.errors = std.zig.ErrorBundle.empty;
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {

@@ -131,7 +131,7 @@ failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 /// If a decl failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, []CImportError) = .{},
+cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
 
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
@@ -2603,8 +2603,8 @@ pub fn deinit(mod: *Module) void {
     }
     mod.failed_exports.deinit(gpa);
 
-    for (mod.cimport_errors.values()) |errs| {
-        for (errs) |err| err.deinit(gpa);
+    for (mod.cimport_errors.values()) |*errs| {
+        errs.deinit(gpa);
     }
     mod.cimport_errors.deinit(gpa);
 
@@ -4583,7 +4583,8 @@ pub fn clearDecl(
         kv.value.destroy(gpa);
     }
     if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        for (kv.value) |err| err.deinit(gpa);
+        var errors = kv.value;
+        errors.deinit(gpa);
     }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
@@ -4965,7 +4966,8 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
         kv.value.destroy(mod.gpa);
     }
     if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        for (kv.value) |err| err.deinit(mod.gpa);
+        var errors = kv.value;
+        errors.deinit(mod.gpa);
     }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {

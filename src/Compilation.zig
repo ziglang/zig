@@ -33,7 +33,6 @@ const InternPool = @import("InternPool.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
-const clang = @import("clang.zig");
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
@@ -2743,7 +2742,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
             if (module.declFileScope(key).okToReportErrors()) {
                 total += 1;
                 if (module.cimport_errors.get(key)) |errors| {
-                    total += errors.len;
+                    total += errors.errorMessageCount();
                 }
             }
         }
@@ -2867,20 +2866,26 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 // We'll try again once parsing succeeds.
                 if (module.declFileScope(decl_index).okToReportErrors()) {
                     try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
-                    if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
-                        try bundle.addRootErrorMessage(.{
-                            .msg = try bundle.addString(std.mem.span(c_error.msg)),
-                            .src_loc = if (c_error.path) |some| try bundle.addSourceLocation(.{
-                                .src_path = try bundle.addString(std.mem.span(some)),
-                                .span_start = c_error.offset,
-                                .span_main = c_error.offset,
-                                .span_end = c_error.offset + 1,
-                                .line = c_error.line,
-                                .column = c_error.column,
-                                .source_line = if (c_error.source_line) |line| try bundle.addString(std.mem.span(line)) else 0,
-                            }) else .none,
-                        });
-                    };
+                    if (module.cimport_errors.get(entry.key_ptr.*)) |errors| {
+                        for (errors.getMessages()) |err_msg_index| {
+                            const err_msg = errors.getErrorMessage(err_msg_index);
+                            try bundle.addRootErrorMessage(.{
+                                .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
+                                .src_loc = if (err_msg.src_loc != .none) blk: {
+                                    const src_loc = errors.getSourceLocation(err_msg.src_loc);
+                                    break :blk try bundle.addSourceLocation(.{
+                                        .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
+                                        .span_start = src_loc.span_start,
+                                        .span_main = src_loc.span_main,
+                                        .span_end = src_loc.span_end,
+                                        .line = src_loc.line,
+                                        .column = src_loc.column,
+                                        .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
+                                    });
+                                } else .none,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -3831,9 +3836,15 @@ test "cImport" {
     _ = cImport;
 }
 
-const CImportResult = struct {
+pub const CImportResult = struct {
     out_zig_path: []u8,
-    errors: []clang.ErrorMsg,
+    cache_hit: bool,
+    errors: std.zig.ErrorBundle,
+
+    pub fn deinit(result: *CImportResult, gpa: std.mem.Allocator) void {
+        gpa.free(result.out_zig_path);
+        result.errors.deinit(gpa);
+    }
 };
 
 /// Caller owns returned memory.
@@ -3906,25 +3917,22 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
             new_argv[i] = try arena.dupeZ(u8, arg);
         }
 
-        const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
-        const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
-        var clang_errors: []clang.ErrorMsg = &[0]clang.ErrorMsg{};
+        const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+        var errors = std.zig.ErrorBundle.empty;
+        errdefer errors.deinit(comp.gpa);
         var tree = translate_c.translate(
             comp.gpa,
             new_argv.ptr,
             new_argv.ptr + new_argv.len,
-            &clang_errors,
+            &errors,
             c_headers_dir_path_z,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.ASTUnitFailure => {
-                log.warn("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{});
-                return error.ASTUnitFailure;
-            },
             error.SemanticAnalyzeFail => {
                 return CImportResult{
                     .out_zig_path = "",
-                    .errors = clang_errors,
+                    .cache_hit = actual_hit,
+                    .errors = errors,
                 };
             },
         };
@@ -3976,7 +3984,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     }
     return CImportResult{
         .out_zig_path = out_zig_path,
-        .errors = &[0]clang.ErrorMsg{},
+        .cache_hit = actual_hit,
+        .errors = std.zig.ErrorBundle.empty,
     };
 }
 
