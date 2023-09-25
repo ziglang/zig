@@ -29,6 +29,12 @@ pub const cases = [_]Case{
         .import = @import("link/glibc_compat/build.zig"),
     },
 
+    // Elf Cases
+    .{
+        .build_root = "test/link",
+        .import = @import("link/elf.zig"),
+    },
+
     // WASM Cases
     // https://github.com/ziglang/zig/issues/16938
     //.{
