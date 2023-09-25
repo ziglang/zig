@@ -692,9 +692,9 @@ endif()
 
 add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 if(ZIG_PIE)
-    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fPIC")
+    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fno-stack-protector -fPIC")
 else()
-    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS}")
+    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fno-stack-protector")
 endif()
 set_target_properties(zigcpp PROPERTIES COMPILE_FLAGS ${ZIGCPP_CXX_FLAGS})
 
