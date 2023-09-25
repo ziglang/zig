@@ -12,34 +12,26 @@ pub fn build(b: *Build) void {
         .abi = .musl,
     };
 
-    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = true }));
+    // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
-    elf_step.dependOn(testLinkingC(b, .{ .target = musl_target, .use_llvm = true }));
-    // elf_step.dependOn(testLinkingC(b, .{ .target = musl_target, .use_llvm = false })); // TODO arocc
+
+    // Exercise linker with LLVM backend
+    elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
+    elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
+    elf_step.dependOn(testLinkingZig(b, .{}));
 }
 
-fn testLinkingZig(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "linking-zig-static", opts);
+fn testEmptyObject(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "empty-object", opts);
 
     const exe = addExecutable(b, opts);
-    addZigSourceBytes(exe,
-        \\pub fn main() void {
-        \\    @import("std").debug.print("Hello World!\n", .{});
-        \\}
-    );
+    addCSourceBytes(exe, "int main() { return 0; }");
+    addCSourceBytes(exe, "");
+    exe.is_linking_libc = true;
 
     const run = b.addRunArtifact(exe);
-    run.expectStdErrEqual("Hello World!\n");
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
-
-    const check = exe.checkObject();
-    check.checkStart();
-    check.checkExact("header");
-    check.checkExact("type EXEC");
-    check.checkStart();
-    check.checkExact("section headers");
-    check.checkNotPresent("name .dynamic");
-    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -59,6 +51,32 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
 
     const run = b.addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("header");
+    check.checkExact("type EXEC");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkNotPresent("name .dynamic");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinkingZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-zig-static", opts);
+
+    const exe = addExecutable(b, opts);
+    addZigSourceBytes(exe,
+        \\pub fn main() void {
+        \\    @import("std").debug.print("Hello World!\n", .{});
+        \\}
+    );
+
+    const run = b.addRunArtifact(exe);
+    run.expectStdErrEqual("Hello World!\n");
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
