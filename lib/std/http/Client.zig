@@ -1063,6 +1063,7 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
 /// `uri` must remain alive during the entire request.
 /// `headers` is cloned and may be freed after this function returns.
 ///
+/// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
 pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: RequestOptions) RequestError!Request {
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
