@@ -426,7 +426,8 @@ pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}
     const addr = blk: {
         assert(self.phdr_table_load_index != null);
         const phdr = &self.phdrs.items[index - 1];
-        break :blk mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, opts.alignment);
+        const increased_size = padToIdeal(phdr.p_vaddr + phdr.p_memsz);
+        break :blk mem.alignForward(u64, increased_size, opts.alignment);
     };
     log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         index,
@@ -1185,10 +1186,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
-
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
-    }
 
     // Allocate atoms parsed from input object files, followed by allocating
     // linker-defined synthetic symbols.
