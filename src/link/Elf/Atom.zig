@@ -518,6 +518,9 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
             elf.R_X86_64_PC32,
             => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
 
+            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(G + GOT + A))),
+            elf.R_X86_64_GOT64 => try cwriter.writeIntLittle(u64, @as(u64, @intCast(G + GOT + A))),
+
             elf.R_X86_64_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P))),
             elf.R_X86_64_GOTPC32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(GOT + A - P))),
             elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A - P),

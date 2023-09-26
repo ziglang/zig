@@ -8223,11 +8223,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const sym = elf_file.symbol(sym_index);
                 sym.flags.needs_got = true;
                 _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-                const got_addr = sym.gotAddress(elf_file);
-                try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
-                    .base = .{ .reg = .ds },
-                    .disp = @intCast(got_addr),
-                }));
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = .direct_got_reloc,
+                    .data = .{ .reloc = .{
+                        .atom_index = try self.owner.getSymbolIndex(self),
+                        .sym_index = sym.esym_index,
+                    } },
+                });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForDecl(owner_decl);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -10290,12 +10293,24 @@ fn genLazySymbolRef(
         const sym = elf_file.symbol(sym_index);
         sym.flags.needs_got = true;
         _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-        const got_addr = sym.gotAddress(elf_file);
-        const got_mem =
-            Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(got_addr) });
+        const reloc = Mir.Reloc{
+            .atom_index = try self.owner.getSymbolIndex(self),
+            .sym_index = sym.esym_index,
+        };
         switch (tag) {
-            .lea, .mov => try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), got_mem),
-            .call => try self.asmMemory(.{ ._, .call }, got_mem),
+            .lea, .mov => _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = .direct_got_reloc,
+                .data = .{ .rx = .{
+                    .r1 = reg.to64(),
+                    .payload = try self.addExtra(reloc),
+                } },
+            }),
+            .call => _ = try self.addInst(.{
+                .tag = .call,
+                .ops = .direct_got_reloc,
+                .data = .{ .reloc = reloc },
+            }),
             else => unreachable,
         }
         switch (tag) {
