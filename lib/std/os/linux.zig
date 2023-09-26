@@ -3750,7 +3750,7 @@ pub const io_sqring_offsets = extern struct {
     array: u32,
 
     resv1: u32,
-    resv2: u64,
+    user_addr: u64,
 };
 
 // io_sqring_offsets.flags
@@ -3769,7 +3769,9 @@ pub const io_cqring_offsets = extern struct {
     ring_entries: u32,
     overflow: u32,
     cqes: u32,
-    resv: [2]u64,
+    flags: u32,
+    resv: u32,
+    user_addr: u64,
 };
 
 pub const io_uring_sqe = extern struct {
