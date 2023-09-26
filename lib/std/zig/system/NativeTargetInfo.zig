@@ -257,10 +257,12 @@ fn detectAbiAndDynamicLinker(
 ) DetectError!NativeTargetInfo {
     const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
     const is_linux = builtin.target.os.tag == .linux;
+    const is_solaris = builtin.target.os.tag == .solaris;
     const have_all_info = cross_target.dynamic_linker.get() != null and
         cross_target.abi != null and (!is_linux or cross_target.abi.?.isGnu());
     const os_is_non_native = cross_target.os_tag != null;
-    if (!native_target_has_ld or have_all_info or os_is_non_native) {
+    // The Solaris/illumos environment is always the same.
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solaris) {
         return defaultAbiAndDynamicLinker(cpu, os, cross_target);
     }
     if (cross_target.abi) |abi| {

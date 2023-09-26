@@ -526,7 +526,6 @@ pub const Target = struct {
                 .cloudabi,
                 .dragonfly,
                 .lv2,
-                .solaris,
                 .zos,
                 .minix,
                 .rtems,
@@ -569,6 +568,7 @@ pub const Target = struct {
                 .driverkit,
                 .shadermodel,
                 .liteos, // TODO: audit this
+                .solaris,
                 => return .none,
             }
         }
@@ -1575,7 +1575,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
-            .solaris => return copy(&result, "/lib/64/ld.so.1"),
+            .solaris => return copy(&result, "/usr/lib/amd64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .x86,
                 .sparc,
