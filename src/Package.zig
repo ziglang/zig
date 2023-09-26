@@ -499,13 +499,13 @@ const Report = struct {
 };
 
 const FetchLocation = union(enum) {
-    /// The absolute path to a file or directory.
+    /// The relative path to a file or directory.
     /// This may be a file that requires unpacking (such as a .tar.gz),
     /// or the path to the root directory of a package.
     file: []const u8,
     http_request: std.Uri,
 
-    pub fn init(gpa: Allocator, directory: Compilation.Directory, dep: Manifest.Dependency, report: Report) !FetchLocation {
+    pub fn init(gpa: Allocator, dep: Manifest.Dependency, report: Report) !FetchLocation {
         switch (dep.location) {
             .url => |url| {
                 const uri = std.Uri.parse(url) catch |err| switch (err) {
@@ -518,18 +518,11 @@ const FetchLocation = union(enum) {
                 return .{ .http_request = uri };
             },
             .path => |path| {
-                const unescaped = try std.Uri.unescapeString(gpa, path);
-                defer gpa.free(unescaped);
-                const unnormalized_path = try unnormalizePath(gpa, unescaped);
-                defer gpa.free(unnormalized_path);
-
-                if (fs.path.isAbsolute(unnormalized_path)) {
+                if (fs.path.isAbsolute(path)) {
                     return report.fail(dep.location_tok, "Absolute paths are not allowed. Use a relative path instead", .{});
                 }
 
-                const new_path = try fs.path.resolve(gpa, &.{ directory.path.?, unnormalized_path });
-
-                return .{ .file = new_path };
+                return .{ .file = try gpa.dupe(u8, path) };
             },
         }
     }
@@ -563,9 +556,9 @@ const FetchLocation = union(enum) {
                 return .{
                     .path = owned_path,
                     .resource = if (is_dir)
-                        .{ .directory = try fs.openIterableDirAbsolute(file, .{}) }
+                        .{ .directory = try root_dir.handle.openIterableDir(file, .{}) }
                     else
-                        .{ .file = try fs.openFileAbsolute(file, .{}) },
+                        .{ .file = try root_dir.handle.openFile(file, .{}) },
                 };
             },
             .http_request => |uri| {
@@ -609,6 +602,7 @@ const ReadableResource = struct {
         rr: *ReadableResource,
         allocator: Allocator,
         thread_pool: *ThreadPool,
+        root_dir: Compilation.Directory,
         global_cache_directory: Compilation.Directory,
         dep: Manifest.Dependency,
         report: Report,
@@ -618,7 +612,8 @@ const ReadableResource = struct {
             .directory => {
                 return .{
                     .hash = computePathHash(rr.path),
-                    .dir_path = try allocator.dupe(u8, rr.path),
+                    .root_src_dir_path = try allocator.dupe(u8, rr.path),
+                    .root_dir = root_dir,
                 };
             },
             inline .file, .http_request => |*r| {
@@ -684,15 +679,16 @@ const ReadableResource = struct {
 
                 const pkg_dir_sub_path = "p" ++ s ++ Manifest.hexDigest(actual_hash);
                 const unpacked_path = try global_cache_directory.join(allocator, &.{pkg_dir_sub_path});
-                errdefer allocator.free(unpacked_path);
+                defer allocator.free(unpacked_path);
 
                 const relative_unpacked_path = try fs.path.relative(allocator, global_cache_directory.path.?, unpacked_path);
-                defer allocator.free(relative_unpacked_path);
+                errdefer allocator.free(relative_unpacked_path);
                 try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, relative_unpacked_path);
 
                 return .{
                     .hash = actual_hash,
-                    .dir_path = unpacked_path,
+                    .root_src_dir_path = relative_unpacked_path,
+                    .root_dir = global_cache_directory,
                 };
             },
         }
@@ -785,10 +781,11 @@ pub const PackageLocation = struct {
     /// For packages that require unpacking, this is the hash of the package contents.
     /// For directories, this is the hash of the absolute file path.
     hash: [Manifest.Hash.digest_length]u8,
-    dir_path: []const u8,
+    root_src_dir_path: []const u8,
+    root_dir: Compilation.Directory,
 
     pub fn deinit(pl: *PackageLocation, allocator: Allocator) void {
-        allocator.free(pl.dir_path);
+        allocator.free(pl.root_src_dir_path);
         pl.* = undefined;
     }
 };
@@ -934,13 +931,13 @@ fn fetchAndUnpack(
     pkg_prog_node.activate();
     pkg_prog_node.context.refresh();
 
-    var fetch_location = try FetchLocation.init(gpa, directory, dep.*, report);
+    var fetch_location = try FetchLocation.init(gpa, dep.*, report);
     defer fetch_location.deinit(gpa);
 
     var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep.*, report);
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(gpa, thread_pool, global_cache_directory, dep.*, report, &pkg_prog_node);
+    var package_location = try readable_resource.unpack(gpa, thread_pool, directory, global_cache_directory, dep.*, report, &pkg_prog_node);
     defer package_location.deinit(gpa);
 
     const actual_hex = Manifest.hexDigest(package_location.hash);
@@ -973,24 +970,23 @@ fn fetchAndUnpack(
             return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
         }
         // Since directory dependencies don't provide a hash in build.zig.zon,
-        // set the hash here to be the hash of the absolute path to the dependency.
+        // set the hash here to be the hash of the path to the dependency.
         dep.hash = try gpa.dupe(u8, &actual_hex);
     }
 
-    const build_zig_path = try std.fs.path.join(gpa, &.{ package_location.dir_path, build_zig_basename });
+    const build_zig_path = try std.fs.path.join(gpa, &.{ package_location.root_src_dir_path, build_zig_basename });
     defer gpa.free(build_zig_path);
-    assert(fs.path.isAbsolute(build_zig_path));
 
-    global_cache_directory.handle.access(build_zig_path, .{}) catch |err| switch (err) {
+    package_location.root_dir.handle.access(build_zig_path, .{}) catch |err| switch (err) {
         error.FileNotFound => {
-            const module = try create(gpa, package_location.dir_path, "");
+            const module = try createWithDir(gpa, package_location.root_dir, package_location.root_src_dir_path, "");
             try all_modules.put(gpa, actual_hex, .{ .non_zig_pkg = module });
             return .{ .non_zig_pkg = module };
         },
         else => return err,
     };
 
-    const module = try create(gpa, package_location.dir_path, build_zig_basename);
+    const module = try createWithDir(gpa, package_location.root_dir, package_location.root_src_dir_path, build_zig_basename);
     try all_modules.put(gpa, actual_hex, .{ .zig_pkg = module });
     return .{ .zig_pkg = module };
 }
@@ -1124,25 +1120,6 @@ fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
         }
     }
     return normalized;
-}
-
-/// Make a OS-specific file system path
-/// This performs the inverse operation of normalizePath,
-/// converting forward slashes into backslashes on Windows
-fn unnormalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
-    const canonical_sep = '/';
-
-    const unnormalized = try arena.dupe(u8, fs_path);
-    if (fs.path.sep == canonical_sep)
-        return unnormalized;
-
-    for (unnormalized) |*byte| {
-        switch (byte.*) {
-            canonical_sep => byte.* = fs.path.sep,
-            else => continue,
-        }
-    }
-    return unnormalized;
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
