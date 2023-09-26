@@ -652,7 +652,7 @@ pub fn resolveLibSystem(
             "libSystem",
         )) break :success;
 
-        switch (self.base.options.darwin_sdk_layout.?) {
+        if (self.base.options.darwin_sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
                 const dir = try fs.path.join(tmp_arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
@@ -661,7 +661,7 @@ pub fn resolveLibSystem(
                 const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
                 if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
             },
-        }
+        };
 
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return;
