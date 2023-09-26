@@ -428,12 +428,6 @@ test "vector prefix scan" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_llvm) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     const int_base = @Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };
     const bool_base = @Vector(4, bool){ true, false, true, false };
