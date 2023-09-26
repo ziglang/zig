@@ -762,6 +762,7 @@ pub const Request = struct {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
                     if (req.response.transfer_compression) |tc| switch (tc) {
+                        .identity => req.response.compression = .none,
                         .compress => return error.CompressionNotSupported,
                         .deflate => req.response.compression = .{
                             .deflate = std.compress.zlib.decompressStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
