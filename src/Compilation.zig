@@ -4880,6 +4880,14 @@ pub fn addCCArgs(
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
+    if (target.os.tag == .windows) switch (ext) {
+        .c, .cpp, .m, .mm, .h, .cu, .assembly, .assembly_with_cpp => {
+            const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
+            try argv.append(try std.fmt.allocPrint(argv.allocator, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}));
+        },
+        else => {},
+    };
+
     switch (ext) {
         .c, .cpp, .m, .mm, .h, .cu, .rc => {
             try argv.appendSlice(&[_][]const u8{
