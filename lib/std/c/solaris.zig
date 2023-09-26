@@ -498,6 +498,7 @@ pub const NI = struct {
     pub const MAXSERV = 32;
 };
 
+pub const NAME_MAX = 255;
 pub const PATH_MAX = 1024;
 pub const IOV_MAX = 1024;
 

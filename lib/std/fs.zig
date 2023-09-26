@@ -59,10 +59,9 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
 /// (depending on the platform) this assumption may not hold for every configuration.
 /// The byte count does not include a null sentinel byte.
 pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly => os.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris => os.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => os.NAME_MAX - 1,
-    .solaris => os.system.MAXNAMLEN,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
