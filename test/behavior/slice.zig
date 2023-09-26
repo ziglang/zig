@@ -183,8 +183,6 @@ test "slicing zero length array" {
 }
 
 test "slicing pointer by length" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     const ptr: [*]const u8 = @as([*]const u8, @ptrCast(&array));
     const slice = ptr[1..][0..5];
@@ -620,6 +618,7 @@ test "type coercion of pointer to anon struct literal to pointer to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const U = union {

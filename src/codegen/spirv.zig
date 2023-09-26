@@ -789,7 +789,25 @@ pub const DeclGen = struct {
                 const size_ty_ref = try self.sizeType();
                 const index_id = try self.constInt(size_ty_ref, elem_ptr.index);
 
-                return try self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
+                const elem_ptr_id = try self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
+
+                // TODO: Can we consolidate this in ptrElemPtr?
+                const elem_ty = parent_ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
+                const elem_ty_ref = try self.resolveType(elem_ty, .direct);
+                const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(parent_ptr_ty.ptrAddressSpace(mod)));
+
+                if (elem_ptr_ty_ref == result_ty_ref) {
+                    return elem_ptr_id;
+                }
+                // This may happen when we have pointer-to-array and the result is
+                // another pointer-to-array instead of a pointer-to-element.
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = self.typeId(result_ty_ref),
+                    .id_result = result_id,
+                    .operand = elem_ptr_id,
+                });
+                return result_id;
             },
             .field => unreachable, // TODO
         }
