@@ -758,6 +758,9 @@ else()
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
     set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
+  # Solaris/illumos ld(1) does not provide a --stack-size option.
+  elseif(CMAKE_HOST_SOLARIS)
+    unset(ZIG2_LINK_FLAGS)
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
@@ -830,7 +833,7 @@ add_custom_command(
 add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
-  LINK_FLAGS ${ZIG2_LINK_FLAGS}
+  LINK_FLAGS "${ZIG2_LINK_FLAGS}"
 )
 target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/stage1")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
