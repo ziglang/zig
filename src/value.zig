@@ -330,7 +330,7 @@ pub const Value = struct {
                 return mod.intern(.{ .un = .{
                     .ty = ty.toIntern(),
                     .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
-                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
+                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod).?, mod),
                 } });
             },
         }
@@ -703,8 +703,21 @@ pub const Value = struct {
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @as(Int, @intCast(int)), endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
-                .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => return error.Unimplemented,
+                .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
+                .Extern => {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    if (val.unionTag(mod)) |union_tag| {
+                        const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
+                        const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
+                        const field_val = try val.fieldValue(mod, field_index);
+                        const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                        return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
+                    } else {
+                        const union_size = ty.abiSize(mod);
+                        const array_type = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..@as(usize, @intCast(union_size))]);
+                    }
+                },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
@@ -817,14 +830,18 @@ pub const Value = struct {
             .Union => {
                 const union_obj = mod.typeToUnion(ty).?;
                 switch (union_obj.getLayout(ip)) {
-                    .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                    .Extern => unreachable, // Handled in non-packed writeToMemory
+                    .Auto, .Extern => unreachable, // Handled in non-packed writeToMemory
                     .Packed => {
-                        const field_index = mod.unionTagFieldIndex(union_obj, val.unionTag(mod)).?;
-                        const field_type = union_obj.field_types.get(ip)[field_index].toType();
-                        const field_val = try val.fieldValue(mod, field_index);
-
-                        return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                        if (val.unionTag(mod)) |union_tag| {
+                            const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
+                            const field_type = union_obj.field_types.get(ip)[field_index].toType();
+                            const field_val = try val.fieldValue(mod, field_index);
+                            return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                        } else {
+                            const union_bits: u16 = @intCast(ty.bitSize(mod));
+                            const int_ty = try mod.intType(.unsigned, union_bits);
+                            return val.unionValue(mod).writeToPackedMemory(int_ty, mod, buffer, bit_offset);
+                        }
                     },
                 }
             },
@@ -856,7 +873,11 @@ pub const Value = struct {
         mod: *Module,
         buffer: []const u8,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        Unimplemented,
+        OutOfMemory,
+    }!Value {
         const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -966,6 +987,23 @@ pub const Value = struct {
                     .name = name,
                 } })).toValue();
             },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => {
+                    const union_size = ty.abiSize(mod);
+                    const array_ty = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                    const val = try (try readFromMemory(array_ty, mod, buffer, arena)).intern(array_ty, mod);
+                    return (try mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = .none,
+                        .val = val,
+                    } })).toValue();
+                },
+                .Packed => {
+                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+                },
+            },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
                 const int_val = try readFromMemory(Type.usize, mod, buffer, arena);
@@ -987,7 +1025,7 @@ pub const Value = struct {
                     },
                 } })).toValue();
             },
-            else => @panic("TODO implement readFromMemory for more types"),
+            else => return error.Unimplemented,
         }
     }
 
@@ -1001,7 +1039,10 @@ pub const Value = struct {
         buffer: []const u8,
         bit_offset: usize,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        OutOfMemory,
+    }!Value {
         const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -1097,6 +1138,20 @@ pub const Value = struct {
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = field_vals },
                 } })).toValue();
+            },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
+                .Packed => {
+                    const union_bits: u16 = @intCast(ty.bitSize(mod));
+                    assert(union_bits != 0);
+                    const int_ty = try mod.intType(.unsigned, union_bits);
+                    const val = (try readFromPackedMemory(int_ty, mod, buffer, bit_offset, arena)).toIntern();
+                    return (try mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = .none,
+                        .val = val,
+                    } })).toValue();
+                },
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
@@ -1704,11 +1759,19 @@ pub const Value = struct {
         };
     }
 
-    pub fn unionTag(val: Value, mod: *Module) Value {
+    pub fn unionTag(val: Value, mod: *Module) ?Value {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
-            .un => |un| un.tag.toValue(),
+            .un => |un| if (un.tag != .none) un.tag.toValue() else return null,
+            else => unreachable,
+        };
+    }
+
+    pub fn unionValue(val: Value, mod: *Module) Value {
+        if (val.ip_index == .none) return val.castTag(.@"union").?.data.val;
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .un => |un| un.val.toValue(),
             else => unreachable,
         };
     }

@@ -87,15 +87,20 @@ pub fn print(
                 const union_val = val.castTag(.@"union").?.data;
                 try writer.writeAll(".{ ");
 
-                try print(.{
-                    .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
-                    .val = union_val.tag,
-                }, writer, level - 1, mod);
-                try writer.writeAll(" = ");
-                try print(.{
-                    .ty = ty.unionFieldType(union_val.tag, mod),
-                    .val = union_val.val,
-                }, writer, level - 1, mod);
+                if (union_val.tag.toIntern() != .none) {
+                    try print(.{
+                        .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
+                        .val = union_val.tag,
+                    }, writer, level - 1, mod);
+                    try writer.writeAll(" = ");
+                    const field_ty = ty.unionFieldType(union_val.tag, mod).?;
+                    try print(.{
+                        .ty = field_ty,
+                        .val = union_val.val,
+                    }, writer, level - 1, mod);
+                } else {
+                    return writer.writeAll("(unknown tag)");
+                }
 
                 return writer.writeAll(" }");
             },
@@ -404,15 +409,20 @@ pub fn print(
             .un => |un| {
                 try writer.writeAll(".{ ");
                 if (level > 0) {
-                    try print(.{
-                        .ty = ty.unionTagTypeHypothetical(mod),
-                        .val = un.tag.toValue(),
-                    }, writer, level - 1, mod);
-                    try writer.writeAll(" = ");
-                    try print(.{
-                        .ty = ty.unionFieldType(un.tag.toValue(), mod),
-                        .val = un.val.toValue(),
-                    }, writer, level - 1, mod);
+                    if (un.tag != .none) {
+                        try print(.{
+                            .ty = ty.unionTagTypeHypothetical(mod),
+                            .val = un.tag.toValue(),
+                        }, writer, level - 1, mod);
+                        try writer.writeAll(" = ");
+                        const field_ty = ty.unionFieldType(un.tag.toValue(), mod).?;
+                        try print(.{
+                            .ty = field_ty,
+                            .val = un.val.toValue(),
+                        }, writer, level - 1, mod);
+                    } else {
+                        try writer.writeAll("(unknown tag)");
+                    }
                 } else try writer.writeAll("...");
                 return writer.writeAll(" }");
             },

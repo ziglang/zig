@@ -1103,7 +1103,10 @@ pub const Key = union(enum) {
     pub const Union = extern struct {
         /// This is the union type; not the field type.
         ty: Index,
-        /// Indicates the active field.
+        /// Indicates the active field. This could be `none`, which indicates the tag is not known. `none` is only a valid value for extern and packed unions.
+        /// In those cases, the type of `val` is:
+        ///   extern: a u8 array of the same byte length as the union
+        ///   packed: an unsigned integer with the same bit size as the union
         tag: Index,
         /// The value of the active field.
         val: Index,
@@ -5128,7 +5131,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .un => |un| {
             assert(un.ty != .none);
-            assert(un.tag != .none);
             assert(un.val != .none);
             ip.items.appendAssumeCapacity(.{
                 .tag = .union_value,

@@ -3861,7 +3861,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
                 const air_ptr_inst = Air.refToIndex(bin_op.lhs).?;
                 const tag_val = (try sema.resolveMaybeUndefVal(bin_op.rhs)).?;
                 const union_ty = sema.typeOf(bin_op.lhs).childType(mod);
-                const payload_ty = union_ty.unionFieldType(tag_val, mod);
+                const payload_ty = union_ty.unionFieldType(tag_val, mod).?;
                 if (try sema.typeHasOnePossibleValue(payload_ty)) |payload_val| {
                     const new_ptr = ptr_mapping.get(air_ptr_inst).?;
                     const store_val = try mod.unionValue(union_ty, tag_val, payload_val);
@@ -11998,7 +11998,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
         const analyze_body = if (union_originally) blk: {
             const item_val = sema.resolveConstLazyValue(block, .unneeded, item, undefined) catch unreachable;
-            const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+            const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
 
@@ -12124,7 +12124,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
                 const analyze_body = if (union_originally) blk: {
                     const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
-                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     break :blk field_ty.zigTypeTag(mod) != .NoReturn;
                 } else true;
 
@@ -12178,7 +12178,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             const analyze_body = if (union_originally)
                 for (items) |item| {
                     const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
-                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     if (field_ty.zigTypeTag(mod) != .NoReturn) break true;
                 } else false
             else
@@ -12330,7 +12330,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     const analyze_body = if (union_originally) blk: {
-                        const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
+                        const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                         break :blk field_ty.zigTypeTag(mod) != .NoReturn;
                     } else true;
 
@@ -16370,7 +16370,7 @@ fn analyzeCmpUnionTag(
 
     if (try sema.resolveMaybeUndefVal(coerced_tag)) |enum_val| {
         if (enum_val.isUndef(mod)) return mod.undefRef(Type.bool);
-        const field_ty = union_ty.unionFieldType(enum_val, mod);
+        const field_ty = union_ty.unionFieldType(enum_val, mod).?;
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
             return .bool_false;
         }
@@ -27207,7 +27207,11 @@ fn unionFieldVal(
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
-                    const old_ty = union_ty.unionFieldType(un.tag.toValue(), mod);
+                    const old_ty = if (un.tag == .none)
+                        ip.typeOf(un.val).toType()
+                    else
+                        union_ty.unionFieldType(un.tag.toValue(), mod).?;
+
                     if (try sema.bitCastVal(block, src, un.val.toValue(), old_ty, field_ty, 0)) |new_val| {
                         return Air.internedToRef(new_val.toIntern());
                     }
@@ -29733,10 +29737,15 @@ fn storePtrVal(
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ReinterpretDeclRef => unreachable,
                 error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
-                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{mut_kit.ty.fmt(mod)}),
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{operand_ty.fmt(mod)}),
             };
 
-            reinterpret.val_ptr.* = (try (try Value.readFromMemory(mut_kit.ty, mod, buffer, sema.arena)).intern(mut_kit.ty, mod)).toValue();
+            const val = Value.readFromMemory(mut_kit.ty, mod, buffer, sema.arena) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.IllDefinedMemoryLayout => unreachable,
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{mut_kit.ty.fmt(mod)}),
+            };
+            reinterpret.val_ptr.* = (try val.intern(mut_kit.ty, mod)).toValue();
         },
         .bad_decl_ty, .bad_ptr_ty => {
             // TODO show the decl declaration site in a note and explain whether the decl
@@ -30648,7 +30657,12 @@ fn bitCastVal(
         error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
         error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(mod)}),
     };
-    return try Value.readFromMemory(new_ty, mod, buffer[buffer_offset..], sema.arena);
+
+    return Value.readFromMemory(new_ty, mod, buffer[buffer_offset..], sema.arena) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.IllDefinedMemoryLayout => unreachable,
+        error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{new_ty.fmt(mod)}),
+    };
 }
 
 fn coerceArrayPtrToSlice(
@@ -32858,7 +32872,7 @@ fn unionToTag(
         return Air.internedToRef(opv.toIntern());
     }
     if (try sema.resolveMaybeUndefVal(un)) |un_val| {
-        return Air.internedToRef(un_val.unionTag(mod).toIntern());
+        return Air.internedToRef(un_val.unionTag(mod).?.toIntern());
     }
     try sema.requireRuntimeBlock(block, un_src, null);
     return block.addTyOp(.get_union_tag, enum_ty, un);

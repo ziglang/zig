@@ -1647,8 +1647,12 @@ pub const Type = struct {
             },
 
             .union_type => |union_type| {
-                if (opt_sema) |sema| try sema.resolveTypeFields(ty);
-                if (ty.containerLayout(mod) != .Packed) {
+                const is_packed = ty.containerLayout(mod) == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (!is_packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
                 }
                 const union_obj = ip.loadUnionType(union_type);
@@ -1659,6 +1663,7 @@ pub const Type = struct {
                     const field_ty = union_obj.field_types.get(ip)[field_index];
                     size = @max(size, try bitSizeAdvanced(field_ty.toType(), mod, opt_sema));
                 }
+
                 return size;
             },
             .opaque_type => unreachable,
@@ -1927,11 +1932,12 @@ pub const Type = struct {
         return union_obj.enum_tag_ty.toType();
     }
 
-    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
+    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) ?Type {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
-        const index = mod.unionTagFieldIndex(union_obj, enum_tag).?;
-        return union_obj.field_types.get(ip)[index].toType();
+        const union_fields = union_obj.field_types.get(ip);
+        const index = mod.unionTagFieldIndex(union_obj, enum_tag) orelse return null;
+        return union_fields[index].toType();
     }
 
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {

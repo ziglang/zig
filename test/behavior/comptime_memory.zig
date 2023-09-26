@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.cpu.arch.endian();
 const testing = @import("std").testing;
@@ -453,4 +454,55 @@ test "type pun null pointer-like optional" {
     const p: ?*u8 = null;
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
+}
+
+test "reinterpret extern union" {
+    {
+        const U = extern union {
+            a: u32,
+            b: u8 align(8),
+        };
+
+        comptime var u: U = undefined;
+        comptime @memset(std.mem.asBytes(&u), 42);
+        try comptime testing.expect(0x2a2a2a2a == u.a);
+        try comptime testing.expect(42 == u.b);
+        try testing.expectEqual(@as(u32, 0x2a2a2a2a), u.a);
+        try testing.expectEqual(42, u.b);
+    }
+}
+
+test "reinterpret packed union" {
+    {
+        const U = packed union {
+            a: u32,
+            b: u8 align(8),
+        };
+
+        comptime var u: U = undefined;
+        comptime @memset(std.mem.asBytes(&u), 42);
+        try comptime testing.expect(0x2a2a2a2a == u.a);
+        try comptime testing.expect(0x2a == u.b);
+        try testing.expectEqual(@as(u32, 0x2a2a2a2a), u.a);
+        try testing.expectEqual(0x2a, u.b);
+    }
+
+    {
+        const U = packed union {
+            a: u7,
+            b: u1,
+        };
+
+        const S = packed struct {
+            lsb: U,
+            msb: U,
+        };
+
+        comptime var s: S = undefined;
+        comptime @memset(std.mem.asBytes(&s), 0xaa);
+        try comptime testing.expectEqual(@as(u7, 0x2a), s.lsb.a);
+        try comptime testing.expectEqual(@as(u1, 0), s.lsb.b);
+        try comptime testing.expectEqual(@as(u7, 0x55), s.msb.a);
+        try comptime testing.expectEqual(@as(u1, 1), s.msb.b);
+    }
 }

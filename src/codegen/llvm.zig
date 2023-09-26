@@ -4108,25 +4108,28 @@ pub const Object = struct {
                 if (layout.payload_size == 0) return o.lowerValue(un.tag);
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                const container_layout = union_obj.getLayout(ip);
 
-                const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-                if (union_obj.getLayout(ip) == .Packed) {
-                    if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(union_ty, 0);
-                    const small_int_val = try o.builder.castConst(
-                        if (field_ty.isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
-                        try o.lowerValue(un.val),
-                        try o.builder.intType(@intCast(field_ty.bitSize(mod))),
-                    );
-                    return o.builder.convConst(.unsigned, small_int_val, union_ty);
-                }
+                var need_unnamed = false;
+                const payload = if (un.tag != .none) p: {
+                    const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                    const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+                    if (container_layout == .Packed) {
+                        if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(union_ty, 0);
+                        const small_int_val = try o.builder.castConst(
+                            if (field_ty.isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
+                            try o.lowerValue(un.val),
+                            try o.builder.intType(@intCast(field_ty.bitSize(mod))),
+                        );
+                        return o.builder.convConst(.unsigned, small_int_val, union_ty);
+                    }
 
-                // Sometimes we must make an unnamed struct because LLVM does
-                // not support bitcasting our payload struct to the true union payload type.
-                // Instead we use an unnamed struct and every reference to the global
-                // must pointer cast to the expected type before accessing the union.
-                var need_unnamed = layout.most_aligned_field != field_index;
-                const payload = p: {
+                    // Sometimes we must make an unnamed struct because LLVM does
+                    // not support bitcasting our payload struct to the true union payload type.
+                    // Instead we use an unnamed struct and every reference to the global
+                    // must pointer cast to the expected type before accessing the union.
+                    need_unnamed = layout.most_aligned_field != field_index;
+
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                         const padding_len = layout.payload_size;
                         break :p try o.builder.undefConst(try o.builder.arrayType(padding_len, .i8));
@@ -4144,9 +4147,23 @@ pub const Object = struct {
                         try o.builder.structType(.@"packed", &.{ payload_ty, padding_ty }),
                         &.{ payload, try o.builder.undefConst(padding_ty) },
                     );
-                };
-                const payload_ty = payload.typeOf(&o.builder);
+                } else p: {
+                    assert(layout.tag_size == 0);
+                    const union_val = try o.lowerValue(un.val);
+                    if (container_layout == .Packed) {
+                        const bitcast_val = try o.builder.castConst(
+                            .bitcast,
+                            union_val,
+                            try o.builder.intType(@intCast(ty.bitSize(mod))),
+                        );
+                        return o.builder.convConst(.unsigned, bitcast_val, union_ty);
+                    }
 
+                    need_unnamed = true;
+                    break :p union_val;
+                };
+
+                const payload_ty = payload.typeOf(&o.builder);
                 if (layout.tag_size == 0) return o.builder.structConst(if (need_unnamed)
                     try o.builder.structType(union_ty.structKind(&o.builder), &.{payload_ty})
                 else

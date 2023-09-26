@@ -5825,7 +5825,7 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
         .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
             try mod.markReferencedDeclsAlive(elem.toValue()),
         .un => |un| {
-            try mod.markReferencedDeclsAlive(un.tag.toValue());
+            if (un.tag != .none) try mod.markReferencedDeclsAlive(un.tag.toValue());
             try mod.markReferencedDeclsAlive(un.val.toValue());
         },
         else => {},
@@ -6609,6 +6609,7 @@ pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_in
 
 pub fn unionTagFieldIndex(mod: *Module, u: InternPool.UnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
+    if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
     const enum_type = ip.indexToKey(u.enum_tag_ty).enum_type;
     return enum_type.tagValueIndex(ip, enum_tag.toIntern());

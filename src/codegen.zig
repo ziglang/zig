@@ -583,22 +583,32 @@ pub fn generateSymbol(
             }
 
             const union_obj = mod.typeToUnion(typed_value.ty).?;
-            const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
-            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-            if (!field_ty.hasRuntimeBits(mod)) {
-                try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
+            if (un.tag != .none) {
+                const field_index = typed_value.ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
+                const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+                if (!field_ty.hasRuntimeBits(mod)) {
+                    try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
+                } else {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = field_ty,
+                        .val = un.val.toValue(),
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+
+                    const padding = math.cast(usize, layout.payload_size - field_ty.abiSize(mod)) orelse return error.Overflow;
+                    if (padding > 0) {
+                        try code.appendNTimes(0, padding);
+                    }
+                }
             } else {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = field_ty,
+                    .ty = ip.typeOf(un.val).toType(),
                     .val = un.val.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
-                }
-
-                const padding = math.cast(usize, layout.payload_size - field_ty.abiSize(mod)) orelse return error.Overflow;
-                if (padding > 0) {
-                    try code.appendNTimes(0, padding);
                 }
             }
 
