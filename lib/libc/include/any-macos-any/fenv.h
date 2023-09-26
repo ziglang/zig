@@ -249,6 +249,32 @@ extern const fenv_t _FE_DFL_DISABLE_SSE_DENORMS_ENV;
  *  the target platform, or if the platform does not have hardware floating-  *
  *  point support.                                                            *
  ******************************************************************************/
+
+#elif defined __riscv
+
+typedef struct {
+    unsigned int            __fpsr;
+    unsigned int            __fpcr;
+} fenv_t;
+
+typedef unsigned short fexcept_t;
+
+#define FE_INEXACT          (1)
+#define FE_UNDERFLOW        (1 << 1)
+#define FE_OVERFLOW         (1 << 2)
+#define FE_DIVBYZERO        (1 << 3)
+#define FE_INVALID          (1 << 4)
+
+#define FE_ALL_EXCEPT       (31)
+
+#define FE_TONEAREST                (0)
+#define FE_TOWARDZERO               (1 << 5)
+#define FE_DOWNWARD                 (2 << 5)
+#define FE_UPWARD                   (3 << 5)
+#define FE_TONEAREST_MAX_MAGNITUDE  (4 << 5)
+// Reserved: (5 << 5)
+// Reserved: (6 << 5)
+#define FE_DYNAMIC                  (7 << 5)
     
 #else /* Unknown architectures */
 
@@ -358,3 +384,4 @@ extern int feupdateenv(const fenv_t * /* envp */);
 #endif
 
 #endif /* __FENV_H__ */
+

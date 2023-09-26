@@ -34,6 +34,7 @@
 #endif
 
 DISPATCH_ASSUME_NONNULL_BEGIN
+DISPATCH_ASSUME_ABI_SINGLE_BEGIN
 
 #ifdef NSEC_PER_SEC
 #undef NSEC_PER_SEC
@@ -47,6 +48,10 @@ DISPATCH_ASSUME_NONNULL_BEGIN
 #ifdef NSEC_PER_MSEC
 #undef NSEC_PER_MSEC
 #endif
+#ifdef MSEC_PER_SEC
+#undef MSEC_PER_SEC
+#endif
+#define MSEC_PER_SEC 1000ull
 #define NSEC_PER_SEC 1000000000ull
 #define NSEC_PER_MSEC 1000000ull
 #define USEC_PER_SEC 1000000ull
@@ -100,6 +105,7 @@ enum {
  */
 API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_WARN_RESULT DISPATCH_NOTHROW
+DISPATCH_REFINED_FOR_SWIFT
 dispatch_time_t
 dispatch_time(dispatch_time_t when, int64_t delta);
 
@@ -126,11 +132,13 @@ dispatch_time(dispatch_time_t when, int64_t delta);
  */
 API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_WARN_RESULT DISPATCH_NOTHROW
+DISPATCH_REFINED_FOR_SWIFT
 dispatch_time_t
 dispatch_walltime(const struct timespec *_Nullable when, int64_t delta);
 
 __END_DECLS
 
+DISPATCH_ASSUME_ABI_SINGLE_END
 DISPATCH_ASSUME_NONNULL_END
 
 #endif

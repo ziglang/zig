@@ -774,7 +774,15 @@ enum {
 	kHFSBinaryCompare = 0xBC  /* binary compare (case-sensitive) */
 };
 
+#ifdef __cplusplus
+}
+#endif
+
 #include <uuid/uuid.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* JournalInfoBlock - Structure that describes where our journal lives */
 

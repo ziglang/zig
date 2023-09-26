@@ -387,6 +387,6 @@ struct  sigstack {
  * defined by <sys/signal.h>.
  */
 __BEGIN_DECLS
-    void(*signal(int, void (*)(int)))(int);
+void(*signal(int, void (*)(int)))(int);
 __END_DECLS
 #endif  /* !_SYS_SIGNAL_H_ */

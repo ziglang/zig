@@ -55,6 +55,9 @@
  * or iOS 6.0 deployment target.
  */
 
+#define OS_OBJECT_ASSUME_ABI_SINGLE_BEGIN	OS_ASSUME_PTR_ABI_SINGLE_BEGIN
+#define OS_OBJECT_ASSUME_ABI_SINGLE_END		OS_ASSUME_PTR_ABI_SINGLE_END
+
 #ifndef OS_OBJECT_HAVE_OBJC_SUPPORT
 #if !defined(__OBJC__) || defined(__OBJC_GC__)
 #  define OS_OBJECT_HAVE_OBJC_SUPPORT 0
@@ -191,12 +194,28 @@
 #define OS_OBJECT_USE_OBJC_RETAIN_RELEASE 0
 #endif
 #endif
+
+#if __has_attribute(__swift_attr__)
+#define OS_OBJECT_SWIFT_SENDABLE __attribute__((swift_attr("@Sendable")))
+#define OS_OBJECT_SWIFT_HAS_MISSING_DESIGNATED_INIT \
+		__attribute__((swift_attr("@_hasMissingDesignatedInitializers")))
+#else
+#define OS_OBJECT_SWIFT_SENDABLE
+#define OS_OBJECT_SWIFT_HAS_MISSING_DESIGNATED_INIT
+#endif // __has_attribute(__swift_attr__)
+
 #if OS_OBJECT_SWIFT3
 #define OS_OBJECT_DECL_SWIFT(name) \
 		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE \
 		OS_OBJECT_DECL_IMPL_CLASS(name, NSObject)
+#define OS_OBJECT_DECL_SENDABLE_SWIFT(name) \
+		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE OS_OBJECT_SWIFT_SENDABLE \
+		OS_OBJECT_DECL_IMPL_CLASS(name, NSObject)
 #define OS_OBJECT_DECL_SUBCLASS_SWIFT(name, super) \
 		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE \
+		OS_OBJECT_DECL_IMPL_CLASS(name, OS_OBJECT_CLASS(super))
+#define OS_OBJECT_DECL_SENDABLE_SUBCLASS_SWIFT(name, super) \
+		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE OS_OBJECT_SWIFT_SENDABLE \
 		OS_OBJECT_DECL_IMPL_CLASS(name, OS_OBJECT_CLASS(super))
 #endif // OS_OBJECT_SWIFT3
 OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE
@@ -218,11 +237,17 @@ OS_OBJECT_DECL_BASE(object, NSObject);
 #if OS_OBJECT_SWIFT3
 #define OS_OBJECT_DECL_CLASS(name) \
 		OS_OBJECT_DECL_SUBCLASS_SWIFT(name, object)
+#define OS_OBJECT_DECL_SENDABLE_CLASS(name) \
+		OS_OBJECT_DECL_SENDABLE_SUBCLASS_SWIFT(name, object)
 #elif OS_OBJECT_USE_OBJC
 #define OS_OBJECT_DECL_CLASS(name) \
 		OS_OBJECT_DECL(name)
+#define OS_OBJECT_DECL_SENDABLE_CLASS(name) \
+		OS_OBJECT_DECL(name)
 #else
 #define OS_OBJECT_DECL_CLASS(name) \
+		typedef struct name##_s *name##_t
+#define OS_OBJECT_DECL_SENDABLE_CLASS(name) \
 		typedef struct name##_s *name##_t
 #endif
 
@@ -250,6 +275,7 @@ OS_OBJECT_DECL_BASE(object, NSObject);
 #define OS_OBJECT_GLOBAL_OBJECT(type, object) ((OS_OBJECT_BRIDGE type)&(object))
 
 __BEGIN_DECLS
+OS_OBJECT_ASSUME_ABI_SINGLE_BEGIN
 
 /*!
  * @function os_retain
@@ -298,6 +324,7 @@ os_release(void *object);
 #define os_release(object) [object release]
 #endif
 
+OS_OBJECT_ASSUME_ABI_SINGLE_END
 __END_DECLS
 
 #endif

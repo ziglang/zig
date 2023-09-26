@@ -144,6 +144,8 @@
 #define SIOCSIFCAP       _IOW('i', 90, struct ifreq)    /* set IF features */
 #define SIOCGIFCAP      _IOWR('i', 91, struct ifreq)    /* get IF features */
 
+#define SIOCSIFMANAGEMENT       _IOWR('i', 92, struct ifreq)   /* set management interface */
+
 #define SIOCIFCREATE    _IOWR('i', 120, struct ifreq)   /* create clone if */
 #define SIOCIFDESTROY    _IOW('i', 121, struct ifreq)   /* destroy clone if */
 #define SIOCIFCREATE2   _IOWR('i', 122, struct ifreq)   /* create clone if with data */

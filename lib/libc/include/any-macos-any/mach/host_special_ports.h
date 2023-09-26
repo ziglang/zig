@@ -76,10 +76,10 @@
  */
 #define HOST_PORT                        1
 #define HOST_PRIV_PORT                   2
-#define HOST_IO_MASTER_PORT              3
+#define HOST_IO_MAIN_PORT                3
 #define HOST_MAX_SPECIAL_KERNEL_PORT     7 /* room to grow */
 
-#define HOST_LAST_SPECIAL_KERNEL_PORT    HOST_IO_MASTER_PORT
+#define HOST_LAST_SPECIAL_KERNEL_PORT    HOST_IO_MAIN_PORT
 
 /*
  * Not provided by kernel
@@ -109,8 +109,9 @@
 #define HOST_FILECOORDINATIOND_PORT     (23 + HOST_MAX_SPECIAL_KERNEL_PORT)
 #define HOST_FAIRPLAYD_PORT             (24 + HOST_MAX_SPECIAL_KERNEL_PORT)
 #define HOST_IOCOMPRESSIONSTATS_PORT    (25 + HOST_MAX_SPECIAL_KERNEL_PORT)
+#define HOST_MEMORY_ERROR_PORT          (26 + HOST_MAX_SPECIAL_KERNEL_PORT)
 
-#define HOST_MAX_SPECIAL_PORT           HOST_IOCOMPRESSIONSTATS_PORT
+#define HOST_MAX_SPECIAL_PORT           HOST_MEMORY_ERROR_PORT
 /* MAX = last since rdar://59872249 */
 
 /* obsolete name */
@@ -138,10 +139,10 @@
 	HOST_LOCAL_NODE, HOST_PRIV_PORT, (port)))
 #define host_set_host_priv_port(host, port) (KERN_INVALID_ARGUMENT)
 
-#define host_get_io_master_port(host, port)     \
+#define host_get_io_main_port(host, port)     \
 	(host_get_special_port((host),          \
-	HOST_LOCAL_NODE, HOST_IO_MASTER_PORT, (port)))
-#define host_set_io_master_port(host, port) (KERN_INVALID_ARGUMENT)
+	HOST_LOCAL_NODE, HOST_IO_MAIN_PORT, (port)))
+#define host_set_io_main_port(host, port) (KERN_INVALID_ARGUMENT)
 
 /*
  * User-settable special ports.
@@ -281,6 +282,11 @@
 #define host_set_iocompressionstats_port(host, port)     \
 	(host_set_special_port((host), HOST_IOCOMPRESSIONSTATS_PORT, (port)))
 
+#define host_get_memory_error_port(host, port)     \
+	(host_get_special_port((host),                  \
+	HOST_LOCAL_NODE, HOST_MEMORY_ERROR_PORT, (port)))
+#define host_set_memory_error_port(host, port)     \
+	(host_set_special_port((host), HOST_MEMORY_ERROR_PORT, (port)))
 
 /* HOST_RESOURCE_NOTIFY_PORT doesn't #defines these conveniences.
  *  All lookups go through send_resource_violation()

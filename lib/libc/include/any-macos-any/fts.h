@@ -104,6 +104,7 @@ typedef struct {
 
 #define	FTS_NAMEONLY	0x100		/* (private) child names only */
 #define	FTS_STOP	0x200		/* (private) unrecoverable error */
+#define	FTS_THREAD_FCHDIR	0x400	/* (private) use pthread_fchdir_np */
 #ifdef __BLOCKS__
 #define	FTS_BLOCK_COMPAR 0x80000000	/* fts_compar is a block */
 #endif /* __BLOCKS__ */
@@ -188,3 +189,4 @@ __END_DECLS
 
 #pragma clang diagnostic pop
 #endif /* !_FTS_H_ */
+

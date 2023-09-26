@@ -18,8 +18,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0, .patch = 0 } },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0, .patch = 0 } },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
@@ -72,9 +70,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 12, .minor = 0, .patch = 0 } },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 13, .minor = 0, .patch = 0 } },
+    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
 };
 
 pub fn libCGenericName(target: std.Target) [:0]const u8 {
@@ -153,7 +149,7 @@ pub fn canBuildLibC(target: std.Target) bool {
         if (target.cpu.arch == libc.arch and target.os.tag == libc.os and target.abi == libc.abi) {
             if (target.os.tag == .macos) {
                 const ver = target.os.version_range.semver;
-                if (ver.min.major != libc.os_ver.?.major) continue; // no match, keep going
+                return ver.min.order(libc.os_ver.?) != .lt;
             }
             return true;
         }
@@ -358,7 +354,7 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
 }
 
 pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
+    const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
 
     if (eqlIgnoreCase(ignore_case, name, "c"))
         return true;
@@ -366,7 +362,6 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
     if (target.isMinGW()) {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
-
         if (eqlIgnoreCase(ignore_case, name, "uuid"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "mingw32"))
@@ -379,7 +374,7 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         return false;
     }
 
-    if (target.abi.isGnu() or target.abi.isMusl() or target.os.tag.isDarwin()) {
+    if (target.abi.isGnu() or target.abi.isMusl()) {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "rt"))
@@ -396,13 +391,38 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
     }
 
-    if (target.abi.isMusl() or target.os.tag.isDarwin()) {
+    if (target.abi.isMusl()) {
         if (eqlIgnoreCase(ignore_case, name, "crypt"))
             return true;
     }
 
-    if (target.os.tag.isDarwin() and eqlIgnoreCase(ignore_case, name, "System"))
-        return true;
+    if (target.os.tag.isDarwin()) {
+        if (eqlIgnoreCase(ignore_case, name, "System"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "c"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dbm"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dl"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "info"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "m"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "poll"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "proc"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "pthread"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
+            return true;
+    }
+
+    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
+        if (eqlIgnoreCase(ignore_case, name, "mx"))
+            return true;
+    }
 
     return false;
 }

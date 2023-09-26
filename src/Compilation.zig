@@ -1557,6 +1557,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
             .link_libunwind = link_libunwind,
+            .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
@@ -5294,6 +5295,7 @@ fn detectWin32ResourceIncludeDirs(arena: Allocator, options: InitOptions) !LibCD
                 .libc_installation = null,
                 .libc_framework_dir_list = &.{},
                 .sysroot = null,
+                .darwin_sdk_layout = null,
             },
         }
     }
@@ -5662,38 +5664,23 @@ const LibCDirs = struct {
     libc_installation: ?*const LibCInstallation,
     libc_framework_dir_list: []const []const u8,
     sysroot: ?[]const u8,
+    darwin_sdk_layout: ?link.DarwinSdkLayout,
 };
 
-fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8, target: Target) !LibCDirs {
-    const arch_name = @tagName(target.cpu.arch);
-    const os_name = try std.fmt.allocPrint(arena, "{s}.{d}", .{
-        @tagName(target.os.tag),
-        target.os.version_range.semver.min.major,
-    });
+fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8) !LibCDirs {
     const s = std.fs.path.sep_str;
-    const list = try arena.alloc([]const u8, 3);
-
+    const list = try arena.alloc([]const u8, 1);
     list[0] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
-        .{ zig_lib_dir, arch_name, os_name },
-    );
-    list[1] = try std.fmt.allocPrint(
-        arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
-        .{ zig_lib_dir, os_name },
-    );
-    list[2] = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
         .{zig_lib_dir},
     );
-
     return LibCDirs{
         .libc_include_dir_list = list,
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .darwin_sdk_layout = .vendored,
     };
 }
 
@@ -5711,6 +5698,7 @@ pub fn detectLibCIncludeDirs(
             .libc_installation = null,
             .libc_framework_dir_list = &.{},
             .sysroot = null,
+            .darwin_sdk_layout = null,
         };
     }
 
@@ -5768,6 +5756,7 @@ pub fn detectLibCIncludeDirs(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .darwin_sdk_layout = null,
     };
 }
 
@@ -5822,6 +5811,7 @@ fn detectLibCFromLibCInstallation(arena: Allocator, target: Target, lci: *const 
         .libc_installation = lci,
         .libc_framework_dir_list = framework_list.items,
         .sysroot = sysroot,
+        .darwin_sdk_layout = if (sysroot == null) null else .sdk,
     };
 }
 
@@ -5831,7 +5821,7 @@ fn detectLibCFromBuilding(
     target: std.Target,
 ) !LibCDirs {
     if (target.isDarwin())
-        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir, target);
+        return getZigShippedLibCIncludeDirsDarwin(arena, zig_lib_dir);
 
     const generic_name = target_util.libCGenericName(target);
     // Some architectures are handled by the same set of headers.
@@ -5883,6 +5873,7 @@ fn detectLibCFromBuilding(
         .libc_installation = null,
         .libc_framework_dir_list = &.{},
         .sysroot = null,
+        .darwin_sdk_layout = .vendored,
     };
 }
 

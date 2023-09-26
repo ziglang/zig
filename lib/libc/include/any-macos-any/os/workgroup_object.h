@@ -29,6 +29,7 @@
 __BEGIN_DECLS
 
 OS_WORKGROUP_ASSUME_NONNULL_BEGIN
+OS_WORKGROUP_ASSUME_ABI_SINGLE_BEGIN
 
 /*!
  * @typedef os_workgroup_t
@@ -114,7 +115,7 @@ API_AVAILABLE(macos(11.0))
 API_UNAVAILABLE(ios, tvos, watchos)
 OS_SWIFT_NAME(WorkGroup.init(__name:port:)) OS_WORKGROUP_EXPORT OS_WORKGROUP_RETURNS_RETAINED
 os_workgroup_t _Nullable
-os_workgroup_create_with_port(const char *_Nullable name, mach_port_t mach_port);
+os_workgroup_create_with_port(const char *OS_WORKGROUP_UNSAFE_INDEXABLE _Nullable name, mach_port_t mach_port);
 
 /*!
  * @function os_workgroup_create_with_workgroup
@@ -135,7 +136,7 @@ os_workgroup_create_with_port(const char *_Nullable name, mach_port_t mach_port)
 API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
 OS_REFINED_FOR_SWIFT OS_WORKGROUP_EXPORT OS_WORKGROUP_RETURNS_RETAINED
 os_workgroup_t _Nullable
-os_workgroup_create_with_workgroup(const char * _Nullable name, os_workgroup_t wg);
+os_workgroup_create_with_workgroup(const char * OS_WORKGROUP_UNSAFE_INDEXABLE _Nullable name, os_workgroup_t wg);
 
 /*!
  * @typedef os_workgroup_join_token, os_workgroup_join_token_t
@@ -350,6 +351,7 @@ int
 os_workgroup_max_parallel_threads(os_workgroup_t wg, os_workgroup_mpt_attr_t
 		_Nullable attr);
 
+OS_WORKGROUP_ASSUME_ABI_SINGLE_END
 OS_WORKGROUP_ASSUME_NONNULL_END
 
 __END_DECLS

@@ -100,7 +100,10 @@ struct processor_basic_info {
 	cpu_subtype_t   cpu_subtype;    /* subtype of cpu */
 	boolean_t       running;        /* is processor running */
 	int             slot_num;       /* slot number */
-	boolean_t       is_master;      /* is this the master processor */
+	union {
+		boolean_t       is_master;  /* deprecated */
+		boolean_t       is_main;    /* is this the main processor */
+	};
 };
 
 typedef struct processor_basic_info     processor_basic_info_data_t;

@@ -137,6 +137,7 @@ pub const Options = struct {
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,
+    darwin_sdk_layout: ?DarwinSdkLayout,
     function_sections: bool,
     no_builtin: bool,
     eh_frame_hdr: bool,
@@ -281,6 +282,14 @@ pub const Options = struct {
 pub const HashStyle = enum { sysv, gnu, both };
 
 pub const CompressDebugSections = enum { none, zlib };
+
+/// The filesystem layout of darwin SDK elements.
+pub const DarwinSdkLayout = enum {
+    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
+    sdk,
+    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
+    vendored,
+};
 
 pub const File = struct {
     tag: Tag,

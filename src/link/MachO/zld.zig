@@ -235,6 +235,20 @@ pub fn linkWithZld(
                 }
             }
 
+            {
+                const platform = Platform.fromTarget(options.target);
+                try argv.append("-platform_version");
+                try argv.append(@tagName(platform.os_tag));
+                try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
+
+                const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
+                if (sdk_version) |ver| {
+                    try argv.append(try std.fmt.allocPrint(arena, "{d}.{d}", .{ ver.major, ver.minor }));
+                } else {
+                    try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
+                }
+            }
+
             if (options.sysroot) |syslibroot| {
                 try argv.append("-syslibroot");
                 try argv.append(syslibroot);
@@ -300,7 +314,6 @@ pub fn linkWithZld(
             try argv.append(full_out_path);
 
             try argv.append("-lSystem");
-            try argv.append("-lc");
 
             for (options.system_libs.keys()) |l_name| {
                 const info = options.system_libs.get(l_name).?;
@@ -561,10 +574,7 @@ pub fn linkWithZld(
         });
         {
             const platform = Platform.fromTarget(macho_file.base.options.target);
-            const sdk_version: ?std.SemanticVersion = if (macho_file.base.options.sysroot) |path|
-                load_commands.inferSdkVersionFromSdkPath(path)
-            else
-                null;
+            const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
             if (platform.isBuildVersionCompatible()) {
                 try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
             } else {
