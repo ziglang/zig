@@ -80,9 +80,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_got,
                 .linker_direct,
+                .linker_direct_got,
                 .linker_import,
                 .linker_tlv,
-                => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const r_type: u32 = switch (lowered_relocs[0].target) {
+                        .linker_direct_got => std.elf.R_X86_64_GOT32,
+                        else => unreachable,
+                    };
+                    const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                    try atom_ptr.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
+                        .r_addend = 0,
+                    });
+                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
