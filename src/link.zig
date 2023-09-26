@@ -456,9 +456,10 @@ pub const File = struct {
             .Exe => {},
         }
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9, .wasm => if (base.file) |f| {
+            .elf => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
-                if (base.intermediary_basename != null) {
+                const use_lld = build_options.have_llvm and base.options.use_lld;
+                if (base.intermediary_basename != null and use_lld) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
                     return;
@@ -471,6 +472,22 @@ pub const File = struct {
                         .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
+            },
+            .coff, .macho, .plan9, .wasm => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
+                if (base.intermediary_basename != null) {
+                    // The file we have open is not the final file that we want to
+                    // make executable, so we don't have to close it.
+                    return;
+                }
+                f.close();
+                base.file = null;
+
+                if (base.child_pid) |pid| {
+                    switch (builtin.os.tag) {
                         .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
