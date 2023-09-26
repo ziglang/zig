@@ -247,7 +247,10 @@ pub fn regBytes(
                 14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R14]),
                 15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R15]),
                 16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RIP]),
-                17...32 => |i| mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
+                17...32 => |i| if (builtin.os.tag == .solaris)
+                    mem.asBytes(&ucontext_ptr.mcontext.fpregs.chip_state.xmm[i - 17])
+                else
+                    mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
                 else => error.InvalidRegister,
             },
             .freebsd => switch (reg_number) {
