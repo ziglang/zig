@@ -53,17 +53,19 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
 
     const atom_index = try elf_file.addAtom();
+    const symbol_index = try elf_file.addSymbol();
+    const esym_index = try self.addLocalEsym(gpa);
+
     try self.atoms.putNoClobber(gpa, atom_index, {});
+    try self.local_symbols.append(gpa, symbol_index);
+
     const atom_ptr = elf_file.atom(atom_index).?;
     atom_ptr.file_index = self.index;
 
-    const symbol_index = try elf_file.addSymbol();
-    try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
 
-    const esym_index = try self.addLocalEsym(gpa);
     const esym = &self.local_esyms.items[esym_index];
     esym.st_shndx = atom_index;
     symbol_ptr.esym_index = esym_index;
@@ -86,7 +88,7 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
             const atom_index = esym.st_shndx;
             const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.alive) continue;
+            if (!atom.flags.alive) continue;
         }
 
         const global = elf_file.symbol(index);
@@ -141,7 +143,7 @@ pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
 pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.keys()) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.alive) continue;
+        if (!atom.flags.alive) continue;
         try atom.scanRelocs(elf_file, undefs);
     }
 }

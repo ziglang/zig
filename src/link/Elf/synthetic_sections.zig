@@ -169,6 +169,21 @@ pub const GotSection = struct {
         }
     }
 
+    pub fn writeAllEntries(got: GotSection, elf_file: *Elf, writer: anytype) !void {
+        assert(!got.dirty);
+        const entry_size: u16 = elf_file.archPtrWidthBytes();
+        const endian = elf_file.base.options.target.cpu.arch.endian();
+        for (got.entries.items) |entry| {
+            const value = elf_file.symbol(entry.symbol_index).value;
+            switch (entry_size) {
+                2 => try writer.writeInt(u16, @intCast(value), endian),
+                4 => try writer.writeInt(u32, @intCast(value), endian),
+                8 => try writer.writeInt(u64, @intCast(value), endian),
+                else => unreachable,
+            }
+        }
+    }
+
     // pub fn write(got: GotSection, elf_file: *Elf, writer: anytype) !void {
     //     const is_shared = elf_file.options.output_mode == .lib;
     //     const apply_relocs = elf_file.options.apply_dynamic_relocs;
