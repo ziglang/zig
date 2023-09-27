@@ -1296,9 +1296,8 @@ pub fn EnumIndexer(comptime E: type) type {
 
     const const_fields = std.meta.fields(E);
     var fields = const_fields[0..const_fields.len].*;
-    const min = fields[0].value;
-    const max = fields[fields.len - 1].value;
     const fields_len = fields.len;
+
     if (fields_len == 0) {
         return struct {
             pub const Key = E;
@@ -1313,6 +1312,9 @@ pub fn EnumIndexer(comptime E: type) type {
             }
         };
     }
+
+    const min = fields[0].value;
+    const max = fields[fields.len - 1].value;
 
     const SortContext = struct {
         fields: []EnumField,
