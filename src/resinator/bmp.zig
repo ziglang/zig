@@ -92,7 +92,7 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
     const id = std.mem.readIntNative(u16, file_header[0..2]);
     if (id != windows_format_id) return error.InvalidFileHeader;
 
-    bitmap_info.pixel_data_offset = std.mem.readIntNative(u32, file_header[10..14]);
+    bitmap_info.pixel_data_offset = std.mem.readIntLittle(u32, file_header[10..14]);
     if (bitmap_info.pixel_data_offset > max_size) return error.ImpossiblePixelDataOffset;
 
     bitmap_info.dib_header_size = reader.readIntLittle(u32) catch return error.UnexpectedEOF;

@@ -218,6 +218,7 @@ pub const ControlClass = enum(u16) {
 };
 
 pub const NameOrOrdinal = union(enum) {
+    // UTF-16 LE
     name: [:0]const u16,
     ordinal: u16,
 
@@ -245,9 +246,7 @@ pub const NameOrOrdinal = union(enum) {
     pub fn write(self: NameOrOrdinal, writer: anytype) !void {
         switch (self) {
             .name => |name| {
-                for (name[0 .. name.len + 1]) |code_unit| {
-                    try writer.writeIntLittle(u16, code_unit);
-                }
+                try writer.writeAll(std.mem.sliceAsBytes(name[0 .. name.len + 1]));
             },
             .ordinal => |ordinal| {
                 try writer.writeIntLittle(u16, 0xffff);
@@ -281,7 +280,7 @@ pub const NameOrOrdinal = union(enum) {
                 try buf.append(std.mem.nativeToLittle(u16, '�'));
             } else if (c < 0x7F) {
                 // ASCII chars in names are always converted to uppercase
-                try buf.append(std.ascii.toUpper(@intCast(c)));
+                try buf.append(std.mem.nativeToLittle(u16, std.ascii.toUpper(@intCast(c))));
             } else if (c < 0x10000) {
                 const short: u16 = @intCast(c);
                 try buf.append(std.mem.nativeToLittle(u16, short));
@@ -518,10 +517,10 @@ test "NameOrOrdinal" {
             var expected_u8_bytes = "00614982008907933748980730280674788429543776231864944218790698304852300002973622122844631429099469274282385299397783838528QFFL7SHNSIETG0QKLR1UYPBTUV1PMFQRRA0VJDG354GQEDJMUPGPP1W1EXVNTZVEIZ6K3IPQM1AWGEYALMEODYVEZGOD3MFMGEY8FNR4JUETTB1PZDEWSNDRGZUA8SNXP3NGO";
             var buf: [256:0]u16 = undefined;
             for (expected_u8_bytes, 0..) |byte, i| {
-                buf[i] = byte;
+                buf[i] = std.mem.nativeToLittle(u16, byte);
             }
             // surrogate pair that is now orphaned
-            buf[255] = 0xD801;
+            buf[255] = std.mem.nativeToLittle(u16, 0xD801);
             break :blk buf;
         };
         try expectNameOrOrdinal(
@@ -908,7 +907,7 @@ pub const ForcedOrdinal = struct {
         var result: u16 = 0;
         for (utf16) |code_unit| {
             if (result != 0) result *%= 10;
-            result +%= code_unit -% '0';
+            result +%= std.mem.littleToNative(u16, code_unit) -% '0';
         }
         return result;
     }
@@ -929,7 +928,7 @@ test "forced ordinal" {
     try std.testing.expectEqual(@as(u16, 0x4AF0), ForcedOrdinal.fromBytes(.{ .slice = "0\u{10100}", .code_page = .utf8 }));
 
     // From UTF-16
-    try std.testing.expectEqual(@as(u16, 0x122), ForcedOrdinal.fromUtf16Le(&[_:0]u16{ '0', 'Œ' }));
+    try std.testing.expectEqual(@as(u16, 0x122), ForcedOrdinal.fromUtf16Le(&[_:0]u16{ std.mem.nativeToLittle(u16, '0'), std.mem.nativeToLittle(u16, 'Œ') }));
     try std.testing.expectEqual(@as(u16, 0x4AF0), ForcedOrdinal.fromUtf16Le(std.unicode.utf8ToUtf16LeStringLiteral("0\u{10100}")));
 }
 

@@ -7,6 +7,7 @@ const res = @import("res.zig");
 const ico = @import("ico.zig");
 const bmp = @import("bmp.zig");
 const parse = @import("parse.zig");
+const lang = @import("lang.zig");
 const CodePage = @import("code_pages.zig").CodePage;
 
 pub const Diagnostics = struct {
@@ -558,8 +559,19 @@ pub const ErrorDetails = struct {
                 .hint => return,
             },
             .string_already_defined => switch (self.type) {
-                // TODO: better printing of language, using constant names from WinNT.h
-                .err, .warning => return writer.print("string with id {d} (0x{X}) already defined for language {d},{d}", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, self.extra.string_and_language.language.primary_language_id, self.extra.string_and_language.language.sublanguage_id }),
+                .err, .warning => {
+                    const language_id = self.extra.string_and_language.language.asInt();
+                    const language_name = language_name: {
+                        if (std.meta.intToEnum(lang.LanguageId, language_id)) |lang_enum_val| {
+                            break :language_name @tagName(lang_enum_val);
+                        } else |_| {}
+                        if (language_id == lang.LOCALE_CUSTOM_UNSPECIFIED) {
+                            break :language_name "LOCALE_CUSTOM_UNSPECIFIED";
+                        }
+                        break :language_name "<UNKNOWN>";
+                    };
+                    return writer.print("string with id {d} (0x{X}) already defined for language {s} (0x{X})", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, language_name, language_id });
+                },
                 .note => return writer.print("previous definition of string with id {d} (0x{X}) here", .{ self.extra.string_and_language.id, self.extra.string_and_language.id }),
                 .hint => return,
             },
