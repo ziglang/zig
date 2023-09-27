@@ -764,7 +764,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
 
     var i: usize = 0;
     var image_base: usize = undefined;
-    var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
+    var history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
 
     while (i < addresses.len) : (i += 1) {
         const current_regs = context.getRegs();

@@ -4104,7 +4104,7 @@ pub const EXCEPTION_ROUTINE = *const fn (
 pub const UNWIND_HISTORY_TABLE_SIZE = 12;
 pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
     ImageBase: ULONG64,
-    FunctionEntry: *Self.RUNTIME_FUNCTION,
+    FunctionEntry: ?*Self.RUNTIME_FUNCTION,
 };
 
 pub const UNWIND_HISTORY_TABLE = extern struct {
