@@ -413,6 +413,7 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
 const AllocateSegmentOpts = struct {
     size: u64,
     alignment: u64,
+    addr: ?u64 = null,
     flags: u32 = elf.PF_R,
 };
 
@@ -423,8 +424,8 @@ pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}
     // Memory is always allocated in sequence.
     // TODO is this correct? Or should we implement something similar to `findFreeSpace`?
     // How would that impact HCS?
-    const addr = blk: {
-        assert(self.phdr_table_load_index != null);
+    const addr = opts.addr orelse blk: {
+        assert(index >= 1);
         const phdr = &self.phdrs.items[index - 1];
         const increased_size = padToIdeal(phdr.p_vaddr + phdr.p_memsz);
         break :blk mem.alignForward(u64, increased_size, opts.alignment);
@@ -532,6 +533,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         .p64 => false,
     };
     const ptr_size: u8 = self.ptrWidthBytes();
+    const is_linux = self.base.options.target.os.tag == .linux;
     const image_base = self.calcImageBase();
 
     if (self.phdr_table_index == null) {
@@ -570,6 +572,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.phdr_load_re_index == null) {
         self.phdr_load_re_index = try self.allocateSegment(.{
+            .addr = self.defaultEntryAddress(),
             .size = self.base.options.program_code_size_hint,
             .alignment = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
@@ -578,10 +581,12 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_got_index == null) {
+        const addr: u64 = if (ptr_size >= 4) 0x4000000 else 0x8000;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
-        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_got_index = try self.allocateSegment(.{
+            .addr = addr,
             .size = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -589,9 +594,10 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_ro_index == null) {
-        // Same reason as for GOT
-        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const addr: u64 = if (ptr_size >= 4) 0xc000000 else 0xa000;
+        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_ro_index = try self.allocateSegment(.{
+            .addr = addr,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -599,9 +605,10 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_rw_index == null) {
-        // Same reason as for GOT
-        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const addr: u64 = if (ptr_size >= 4) 0x10000000 else 0xc000;
+        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_rw_index = try self.allocateSegment(.{
+            .addr = addr,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -609,8 +616,10 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_zerofill_index == null) {
-        const alignment = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+        const addr: u64 = if (ptr_size >= 4) 0x14000000 else 0xf000;
+        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_zerofill_index = try self.allocateSegment(.{
+            .addr = addr,
             .size = 0,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -3798,6 +3807,14 @@ pub fn calcImageBase(self: Elf) u64 {
     return self.base.options.image_base_override orelse switch (self.ptr_width) {
         .p32 => 0x1000,
         .p64 => 0x1000000,
+    };
+}
+
+pub fn defaultEntryAddress(self: Elf) u64 {
+    if (self.entry_addr) |addr| return addr;
+    return switch (self.base.options.target.cpu.arch) {
+        .spu_2 => 0,
+        else => default_entry_addr,
     };
 }
 
