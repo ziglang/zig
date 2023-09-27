@@ -790,7 +790,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.base.options.module) |module| {
-        if (self.zig_module_index == null) {
+        if (self.zig_module_index == null and !self.base.options.use_llvm) {
             const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
             self.files.set(index, .{ .zig_module = .{
                 .index = index,
@@ -905,14 +905,15 @@ fn growSegment(self: *Elf, shndx: u16, needed_size: u64) !void {
             const sym = self.symbol(sym_index);
             const atom_ptr = sym.atom(self) orelse continue;
             if (!atom_ptr.flags.alive or !atom_ptr.flags.allocated) continue;
-            if (atom_ptr.value >= end_addr) sym.value += diff;
+            if (sym.value >= end_addr) sym.value += diff;
         }
 
         for (file_ptr.globals()) |sym_index| {
             const sym = self.symbol(sym_index);
+            if (sym.file_index != index) continue;
             const atom_ptr = sym.atom(self) orelse continue;
             if (!atom_ptr.flags.alive or !atom_ptr.flags.allocated) continue;
-            if (atom_ptr.value >= end_addr) sym.value += diff;
+            if (sym.value >= end_addr) sym.value += diff;
         }
 
         for (file_ptr.atoms()) |atom_index| {
