@@ -3820,16 +3820,9 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollC
 /// or zero if no file descriptor became ready during the requested timeout milliseconds.
 pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
-        // TODO get rid of the @intCast
-        const rc = system.epoll_wait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout);
-        switch (errno(rc)) {
-            .SUCCESS => return @as(usize, @intCast(rc)),
-            .INTR => continue,
-            .BADF => unreachable,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            else => unreachable,
-        }
+        if (epoll_pwait(epfd, events, timeout, null)) |value| {
+            return value;
+        } else |_| {}
     }
 }
 
