@@ -398,7 +398,11 @@ pub const Value = struct {
             },
 
             .un => |un| Tag.@"union".create(arena, .{
-                .tag = un.tag.toValue(),
+                // toValue asserts that the value cannot be .none which is valid on unions.
+                .tag = .{
+                    .ip_index = un.tag,
+                    .legacy = undefined,
+                },
                 .val = un.val.toValue(),
             }),
 
