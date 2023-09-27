@@ -1662,3 +1662,16 @@ test "union with 128 bit integer" {
         }
     }
 }
+
+test "memset extern union at comptime" {
+    const U = extern union {
+        foo: u8,
+    };
+    const u = comptime blk: {
+        var u: U = undefined;
+        @memset(std.mem.asBytes(&u), 0);
+        u.foo = 0;
+        break :blk u;
+    };
+    try expect(u.foo == 0);
+}
