@@ -136,7 +136,7 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                 try self.comdat_groups.append(elf_file.base.allocator, comdat_group_index);
             },
 
-            elf.SHT_SYMTAB_SHNDX => @panic("TODO"),
+            elf.SHT_SYMTAB_SHNDX => @panic("TODO SHT_SYMTAB_SHNDX"),
 
             elf.SHT_NULL,
             elf.SHT_REL,
@@ -166,14 +166,20 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
     };
 }
 
-fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, elf_file: *Elf) !void {
+fn addAtom(
+    self: *Object,
+    shdr: elf.Elf64_Shdr,
+    shndx: u16,
+    name: [:0]const u8,
+    elf_file: *Elf,
+) error{ OutOfMemory, Overflow }!void {
     const atom_index = try elf_file.addAtom();
     const atom = elf_file.atom(atom_index).?;
     atom.atom_index = atom_index;
     atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
     atom.file_index = self.index;
     atom.input_section_index = shndx;
-    atom.output_section_index = self.getOutputSectionIndex(elf_file, shdr);
+    atom.output_section_index = try self.getOutputSectionIndex(elf_file, shdr);
     atom.alive = true;
     self.atoms.items[shndx] = atom_index;
 
@@ -188,7 +194,7 @@ fn addAtom(self: *Object, shdr: elf.Elf64_Shdr, shndx: u16, name: [:0]const u8, 
     }
 }
 
-fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) u16 {
+fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.strings.getAssumeExists(shdr.sh_name);
         // if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
@@ -223,10 +229,32 @@ fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) u1
             else => flags,
         };
     };
-    _ = flags;
-    const out_shndx = elf_file.sectionByName(name) orelse {
-        log.err("{}: output section {s} not found", .{ self.fmtPath(), name });
-        @panic("TODO: missing output section!");
+    const out_shndx = elf_file.sectionByName(name) orelse blk: {
+        const is_alloc = flags & elf.SHF_ALLOC != 0;
+        const is_write = flags & elf.SHF_WRITE != 0;
+        const is_exec = flags & elf.SHF_EXECINSTR != 0;
+        const is_tls = flags & elf.SHF_TLS != 0;
+        if (!is_alloc or is_tls) {
+            log.err("{}: output section {s} not found", .{ self.fmtPath(), name });
+            @panic("TODO: missing output section!");
+        }
+        var phdr_flags: u32 = elf.PF_R;
+        if (is_write) phdr_flags |= elf.PF_W;
+        if (is_exec) phdr_flags |= elf.PF_X;
+        const phdr_index = try elf_file.allocateSegment(.{
+            .size = Elf.padToIdeal(shdr.sh_size),
+            .alignment = if (is_tls) shdr.sh_addralign else elf_file.page_size,
+            .flags = phdr_flags,
+        });
+        const shndx = try elf_file.allocateAllocSection(.{
+            .name = name,
+            .phdr_index = phdr_index,
+            .alignment = shdr.sh_addralign,
+            .flags = flags,
+            .type = @"type",
+        });
+        try elf_file.last_atom_and_free_list_table.putNoClobber(elf_file.base.allocator, shndx, .{});
+        break :blk shndx;
     };
     return out_shndx;
 }

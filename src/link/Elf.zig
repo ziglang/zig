@@ -254,7 +254,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .default_sym_version = default_sym_version,
     };
     const use_llvm = options.use_llvm;
-    if (use_llvm) {
+    if (use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -409,16 +409,24 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
 }
 
 const AllocateSegmentOpts = struct {
-    addr: u64, // TODO find free VM space
     size: u64,
     alignment: u64,
+    addr: ?u64 = null, // TODO find free VM space
     flags: u32 = elf.PF_R,
 };
 
-fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
+pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
     const index = @as(u16, @intCast(self.phdrs.items.len));
     try self.phdrs.ensureUnusedCapacity(self.base.allocator, 1);
     const off = self.findFreeSpace(opts.size, opts.alignment);
+    // Memory is always allocated in sequence.
+    // TODO is this correct? Or should we implement something similar to `findFreeSpace`?
+    // How would that impact HCS?
+    const addr = opts.addr orelse blk: {
+        assert(self.phdr_table_load_index != null);
+        const phdr = &self.phdrs.items[index - 1];
+        break :blk mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, opts.alignment);
+    };
     log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         index,
         if (opts.flags & elf.PF_R != 0) @as(u8, 'R') else '_',
@@ -426,15 +434,15 @@ fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16
         if (opts.flags & elf.PF_X != 0) @as(u8, 'X') else '_',
         off,
         off + opts.size,
-        opts.addr,
-        opts.addr + opts.size,
+        addr,
+        addr + opts.size,
     });
     self.phdrs.appendAssumeCapacity(.{
         .p_type = elf.PT_LOAD,
         .p_offset = off,
         .p_filesz = opts.size,
-        .p_vaddr = opts.addr,
-        .p_paddr = opts.addr,
+        .p_vaddr = addr,
+        .p_paddr = addr,
         .p_memsz = opts.size,
         .p_align = opts.alignment,
         .p_flags = opts.flags,
@@ -446,12 +454,12 @@ fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16
 const AllocateAllocSectionOpts = struct {
     name: [:0]const u8,
     phdr_index: u16,
-    alignment: u16 = 1,
-    flags: u16 = elf.SHF_ALLOC,
+    alignment: u64 = 1,
+    flags: u64 = elf.SHF_ALLOC,
     type: u32 = elf.SHT_PROGBITS,
 };
 
-fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfMemory}!u16 {
+pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfMemory}!u16 {
     const gpa = self.base.allocator;
     const phdr = &self.phdrs.items[opts.phdr_index];
     const index = @as(u16, @intCast(self.shdrs.items.len));
@@ -622,6 +630,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         });
         const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
         phdr.p_offset = self.phdrs.items[self.phdr_load_rw_index.?].p_offset; // .bss overlaps .data
+        phdr.p_memsz = 1024;
     }
 
     if (self.shstrtab_section_index == null) {
@@ -965,6 +974,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const target = self.base.options.target;
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
 
@@ -993,19 +1003,77 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try positionals.append(.{ .path = key.status.success.object_path });
     }
 
+    // csu prelude
+    var csu = try CsuObjects.init(arena, self.base.options, comp);
+    if (csu.crt0) |v| try positionals.append(.{ .path = v });
+    if (csu.crti) |v| try positionals.append(.{ .path = v });
+    if (csu.crtbegin) |v| try positionals.append(.{ .path = v });
+
+    for (positionals.items) |obj| {
+        const in_file = try std.fs.cwd().openFile(obj.path, .{});
+        defer in_file.close();
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
+    var system_libs = std.ArrayList(SystemLib).init(arena);
+
+    // libc dep
+    self.error_flags.missing_libc = false;
+    if (self.base.options.link_libc) {
+        if (self.base.options.libc_installation != null) {
+            @panic("TODO explicit libc_installation");
+        } else if (target.isGnuLibC()) {
+            try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
+            for (glibc.libs) |lib| {
+                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                    comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                });
+                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+            }
+            system_libs.appendAssumeCapacity(.{
+                .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
+            });
+        } else if (target.isMusl()) {
+            const path = try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                .Static => "libc.a",
+                .Dynamic => "libc.so",
+            });
+            try system_libs.append(.{ .path = path });
+        } else {
+            self.error_flags.missing_libc = true;
+        }
+    }
+
+    for (system_libs.items) |lib| {
+        const in_file = try std.fs.cwd().openFile(lib.path, .{});
+        defer in_file.close();
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
+    }
+
+    // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
+    positionals.clearRetainingCapacity();
+
+    // compiler-rt. Since compiler_rt exports symbols like `memset`, it needs
+    // to be after the shared libraries, so they are picked up from the shared
+    // libraries, not libcompiler_rt.
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-    if (compiler_rt_path) |path| {
-        try positionals.append(.{ .path = path });
-    }
+    if (compiler_rt_path) |path| try positionals.append(.{ .path = path });
+
+    // csu postlude
+    if (csu.crtend) |v| try positionals.append(.{ .path = v });
+    if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     for (positionals.items) |obj| {
         const in_file = try std.fs.cwd().openFile(obj.path, .{});
         defer in_file.close();
-
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
@@ -1347,28 +1415,22 @@ fn parsePositional(
     if (Object.isObject(in_file)) {
         try self.parseObject(in_file, path, ctx);
     } else {
-        try self.parseLibrary(in_file, path, .{
-            .path = null,
-            .needed = false,
-            .weak = false,
-        }, must_link, ctx);
+        try self.parseLibrary(in_file, .{ .path = path }, must_link, ctx);
     }
 }
 
 fn parseLibrary(
     self: *Elf,
     in_file: std.fs.File,
-    path: []const u8,
-    lib: link.SystemLib,
+    lib: SystemLib,
     must_link: bool,
     ctx: *ParseErrorCtx,
 ) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-    _ = lib;
 
     if (Archive.isArchive(in_file)) {
-        try self.parseArchive(in_file, path, must_link, ctx);
+        try self.parseArchive(in_file, lib.path, must_link, ctx);
     } else return error.UnknownFileType;
 }
 
@@ -4148,6 +4210,11 @@ pub const null_sym = elf.Elf64_Sym{
     .st_shndx = 0,
     .st_value = 0,
     .st_size = 0,
+};
+
+const SystemLib = struct {
+    needed: bool = false,
+    path: []const u8,
 };
 
 const std = @import("std");
