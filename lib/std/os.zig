@@ -3815,6 +3815,7 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollC
 }
 
 /// Waits for an I/O event on an epoll file descriptor.
+/// Retries when interrupted by a signal.
 /// Returns the number of file descriptors ready for the requested I/O,
 /// or zero if no file descriptor became ready during the requested timeout milliseconds.
 pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
@@ -3829,6 +3830,23 @@ pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
             .INVAL => unreachable,
             else => unreachable,
         }
+    }
+}
+
+/// Waits for an I/O event on an epoll file descriptor.
+/// Returns an error if interrupted by a signal.
+/// Returns the number of file descriptors ready for the requested I/O,
+/// or zero if no file descriptor became ready during the requested timeout milliseconds.
+pub fn epoll_pwait(epfd: i32, events: []linux.epoll_event, timeout: i32, sigset: ?*const linux.sigset_t) !usize {
+    // TODO get rid of the @intCast
+    const rc = system.epoll_pwait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout, sigset);
+    switch (errno(rc)) {
+        .SUCCESS => return @as(usize, @intCast(rc)),
+        .INTR => return error.SignalInterrupt,
+        .BADF => unreachable,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        else => unreachable,
     }
 }
 
