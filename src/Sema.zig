@@ -37530,7 +37530,7 @@ fn float128IntPartToBigInt(
     float: f128,
 ) !std.math.big.int.Managed {
     const is_negative = std.math.signbit(float);
-    const floored = @floor(@abs(float));
+    const floored = @floor(@fabs(float));
 
     var rational = try std.math.big.Rational.init(arena);
     defer rational.q.deinit();

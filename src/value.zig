@@ -1989,7 +1989,7 @@ pub const Value = struct {
             return 1;
         }
 
-        const w_value = @abs(scalar);
+        const w_value = @fabs(scalar);
         return @divFloor(@as(std.math.big.Limb, @intFromFloat(std.math.log2(w_value))), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
@@ -3741,11 +3741,11 @@ pub const Value = struct {
             .ComptimeFloat, .Float => {
                 const target = mod.getTarget();
                 const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
-                    16 => .{ .f16 = @abs(val.toFloat(f16, mod)) },
-                    32 => .{ .f32 = @abs(val.toFloat(f32, mod)) },
-                    64 => .{ .f64 = @abs(val.toFloat(f64, mod)) },
-                    80 => .{ .f80 = @abs(val.toFloat(f80, mod)) },
-                    128 => .{ .f128 = @abs(val.toFloat(f128, mod)) },
+                    16 => .{ .f16 = @fabs(val.toFloat(f16, mod)) },
+                    32 => .{ .f32 = @fabs(val.toFloat(f32, mod)) },
+                    64 => .{ .f64 = @fabs(val.toFloat(f64, mod)) },
+                    80 => .{ .f80 = @fabs(val.toFloat(f80, mod)) },
+                    128 => .{ .f128 = @fabs(val.toFloat(f128, mod)) },
                     else => unreachable,
                 };
                 return (try mod.intern(.{ .float = .{
