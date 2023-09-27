@@ -395,7 +395,7 @@ pub fn parseQuotedString(
     while (try iterative_parser.next()) |parsed| {
         const c = parsed.codepoint;
         if (parsed.from_escaped_integer) {
-            try buf.append(@intCast(c));
+            try buf.append(std.mem.nativeToLittle(T, @intCast(c)));
         } else {
             switch (literal_type) {
                 .ascii => switch (options.output_code_page) {
@@ -658,7 +658,7 @@ test "parse quoted wide string" {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ 'h', 'e', 'l', 'l', 'o' }, try parseQuotedWideString(arena, .{
+    try std.testing.expectEqualSentinel(u16, 0, std.unicode.utf8ToUtf16LeStringLiteral("hello"), try parseQuotedWideString(arena, .{
         .slice =
         \\L"hello"
         ,
@@ -672,21 +672,21 @@ test "parse quoted wide string" {
         .code_page = .windows1252,
     }, .{}));
     // hex max of 4 digits
-    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ 0xFFFF, 'f' }, try parseQuotedWideString(arena, .{
+    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ std.mem.nativeToLittle(u16, 0xFFFF), std.mem.nativeToLittle(u16, 'f') }, try parseQuotedWideString(arena, .{
         .slice =
         \\L"\XfFfFf"
         ,
         .code_page = .windows1252,
     }, .{}));
     // octal max of 7 digits
-    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ 0x9493, '3', '3' }, try parseQuotedWideString(arena, .{
+    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ std.mem.nativeToLittle(u16, 0x9493), std.mem.nativeToLittle(u16, '3'), std.mem.nativeToLittle(u16, '3') }, try parseQuotedWideString(arena, .{
         .slice =
         \\L"\111222333"
         ,
         .code_page = .windows1252,
     }, .{}));
     // octal overflow
-    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{0xFF01}, try parseQuotedWideString(arena, .{
+    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{std.mem.nativeToLittle(u16, 0xFF01)}, try parseQuotedWideString(arena, .{
         .slice =
         \\L"\777401"
         ,
@@ -757,12 +757,12 @@ test "parse quoted ascii string as wide string" {
         .{},
     ));
     // Maximum escape sequence value is also determined by the L prefix
-    try std.testing.expectEqualSentinel(u16, 0, std.unicode.utf8ToUtf16LeStringLiteral("\x1234"), try parseQuotedStringAsWideString(
+    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{ std.mem.nativeToLittle(u16, 0x12), std.mem.nativeToLittle(u16, '3'), std.mem.nativeToLittle(u16, '4') }, try parseQuotedStringAsWideString(
         arena,
         .{ .slice = "\"\\x1234\"", .code_page = .windows1252 },
         .{},
     ));
-    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{0x1234}, try parseQuotedStringAsWideString(
+    try std.testing.expectEqualSentinel(u16, 0, &[_:0]u16{std.mem.nativeToLittle(u16, 0x1234)}, try parseQuotedStringAsWideString(
         arena,
         .{ .slice = "L\"\\x1234\"", .code_page = .windows1252 },
         .{},

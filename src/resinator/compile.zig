@@ -571,7 +571,7 @@ pub const Compiler = struct {
                         }
 
                         try file.seekTo(entry.data_offset_from_start_of_file);
-                        const header_bytes = file.reader().readBytesNoEof(16) catch {
+                        var header_bytes = file.reader().readBytesNoEof(16) catch {
                             return self.iconReadError(
                                 error.UnexpectedEOF,
                                 filename_utf8,
@@ -647,8 +647,11 @@ pub const Compiler = struct {
                                 },
                             },
                             .dib => {
-                                const bitmap_header: *const ico.BitmapHeader = @ptrCast(@alignCast(&header_bytes));
-                                const bitmap_version = ico.BitmapHeader.Version.get(std.mem.littleToNative(u32, bitmap_header.bcSize));
+                                var bitmap_header: *ico.BitmapHeader = @ptrCast(@alignCast(&header_bytes));
+                                if (builtin.cpu.arch.endian() == .Big) {
+                                    std.mem.byteSwapAllFields(ico.BitmapHeader, bitmap_header);
+                                }
+                                const bitmap_version = ico.BitmapHeader.Version.get(bitmap_header.bcSize);
 
                                 // The Win32 RC compiler only allows headers with
                                 // `bcSize == sizeof(BITMAPINFOHEADER)`, but it seems unlikely
@@ -684,15 +687,15 @@ pub const Compiler = struct {
                                     .icon => {
                                         // The values in the icon's BITMAPINFOHEADER always take precedence over
                                         // the values in the IconDir, but not in the LOCALHEADER (see above).
-                                        entry.type_specific_data.icon.color_planes = std.mem.littleToNative(u16, bitmap_header.bcPlanes);
-                                        entry.type_specific_data.icon.bits_per_pixel = std.mem.littleToNative(u16, bitmap_header.bcBitCount);
+                                        entry.type_specific_data.icon.color_planes = bitmap_header.bcPlanes;
+                                        entry.type_specific_data.icon.bits_per_pixel = bitmap_header.bcBitCount;
                                     },
                                     .cursor => {
                                         // Only cursors get the width/height from BITMAPINFOHEADER (icons don't)
                                         entry.width = @intCast(bitmap_header.bcWidth);
                                         entry.height = @intCast(bitmap_header.bcHeight);
-                                        entry.type_specific_data.cursor.hotspot_x = std.mem.littleToNative(u16, bitmap_header.bcPlanes);
-                                        entry.type_specific_data.cursor.hotspot_y = std.mem.littleToNative(u16, bitmap_header.bcBitCount);
+                                        entry.type_specific_data.cursor.hotspot_x = bitmap_header.bcPlanes;
+                                        entry.type_specific_data.cursor.hotspot_y = bitmap_header.bcBitCount;
                                     },
                                 }
                             },
@@ -826,9 +829,11 @@ pub const Compiler = struct {
                     }
                     if (bitmap_info.getExpectedPaletteByteLen() > 0) {
                         try writeResourceDataNoPadding(writer, file_reader, @intCast(bitmap_info.getActualPaletteByteLen()));
-                        const padding_bytes = bitmap_info.getMissingPaletteByteLen();
+                        // We know that the number of missing palette bytes is <= 4096
+                        // (see `bmp_too_many_missing_palette_bytes` error case above)
+                        const padding_bytes: usize = @intCast(bitmap_info.getMissingPaletteByteLen());
                         if (padding_bytes > 0) {
-                            try writer.writeByteNTimes(0, @intCast(padding_bytes));
+                            try writer.writeByteNTimes(0, padding_bytes);
                         }
                     }
                     try file.seekTo(bitmap_info.pixel_data_offset);
@@ -2855,7 +2860,7 @@ pub const SearchDir = struct {
 pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) type {
     return struct {
         child_reader: ReaderType,
-        bytes_read: u64 = 0,
+        bytes_read: usize = 0,
         slurped_header: [size]u8 = [_]u8{0x00} ** size,
 
         pub const Error = ReaderType.Error;
@@ -2866,10 +2871,9 @@ pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) 
             if (self.bytes_read < size) {
                 const bytes_to_add = @min(amt, size - self.bytes_read);
                 const end_index = self.bytes_read + bytes_to_add;
-                const dest = self.slurped_header[@intCast(self.bytes_read)..@intCast(end_index)];
-                std.mem.copy(u8, dest, buf[0..bytes_to_add]);
+                std.mem.copy(u8, self.slurped_header[self.bytes_read..end_index], buf[0..bytes_to_add]);
             }
-            self.bytes_read += amt;
+            self.bytes_read +|= amt;
             return amt;
         }
 
@@ -3196,9 +3200,7 @@ pub const StringTable = struct {
                 // We already trimmed any trailing NULs, so we know it will be a new addition to the string.
                 if (compiler.null_terminate_string_table_strings) string_len_in_utf16_code_units += 1;
                 try data_writer.writeIntLittle(u16, string_len_in_utf16_code_units);
-                for (trimmed_string) |wc| {
-                    try data_writer.writeIntLittle(u16, wc);
-                }
+                try data_writer.writeAll(std.mem.sliceAsBytes(trimmed_string));
                 if (compiler.null_terminate_string_table_strings) {
                     try data_writer.writeIntLittle(u16, 0);
                 }
