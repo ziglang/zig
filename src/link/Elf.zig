@@ -4016,10 +4016,14 @@ const ErrorWithNotes = struct {
 };
 
 fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(self.base.allocator, 1);
+    return self.addErrorWithNotesAssumeCapacity(note_count);
+}
+
+fn addErrorWithNotesAssumeCapacity(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
     const index = self.misc_errors.items.len;
-    const err = try self.misc_errors.addOne(gpa);
-    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
+    const err = self.misc_errors.addOneAssumeCapacity();
+    err.* = .{ .msg = undefined, .notes = try self.base.allocator.alloc(link.File.ErrorMsg, note_count) };
     return .{ .index = index };
 }
 
@@ -4033,33 +4037,22 @@ fn reportUndefined(self: *Elf, undefs: anytype) !void {
     while (it.next()) |entry| {
         const undef_index = entry.key_ptr.*;
         const atoms = entry.value_ptr.*.items;
-        const nnotes = @min(atoms.len, max_notes);
+        const natoms = @min(atoms.len, max_notes);
+        const nnotes = natoms + @intFromBool(atoms.len > max_notes);
 
-        var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, max_notes + 1);
-        defer notes.deinit();
+        var err = try self.addErrorWithNotesAssumeCapacity(nnotes);
+        try err.addMsg(self, "undefined symbol: {s}", .{self.symbol(undef_index).name(self)});
 
-        for (atoms[0..nnotes]) |atom_index| {
+        for (atoms[0..natoms]) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             const file_ptr = self.file(atom_ptr.file_index).?;
-            const note = try std.fmt.allocPrint(gpa, "referenced by {s}:{s}", .{
-                file_ptr.fmtPath(),
-                atom_ptr.name(self),
-            });
-            notes.appendAssumeCapacity(.{ .msg = note });
+            try err.addNote(self, "referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
         if (atoms.len > max_notes) {
             const remaining = atoms.len - max_notes;
-            const note = try std.fmt.allocPrint(gpa, "referenced {d} more times", .{remaining});
-            notes.appendAssumeCapacity(.{ .msg = note });
+            try err.addNote(self, "referenced {d} more times", .{remaining});
         }
-
-        var err_msg = link.File.ErrorMsg{
-            .msg = try std.fmt.allocPrint(gpa, "undefined symbol: {s}", .{self.symbol(undef_index).name(self)}),
-        };
-        err_msg.notes = try notes.toOwnedSlice();
-
-        self.misc_errors.appendAssumeCapacity(err_msg);
     }
 }
 
@@ -4095,15 +4088,9 @@ fn reportParseError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const gpa = self.base.allocator;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try gpa.alloc(link.File.ErrorMsg, 1);
-    errdefer gpa.free(notes);
-    notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{path}) };
-    self.misc_errors.appendAssumeCapacity(.{
-        .msg = try std.fmt.allocPrint(gpa, format, args),
-        .notes = notes,
-    });
+    var err = try self.addErrorWithNotes(1);
+    try err.addMsg(self, format, args);
+    try err.addNote(self, "while parsing {s}", .{path});
 }
 
 fn fmtShdrs(self: *Elf) std.fmt.Formatter(formatShdrs) {
