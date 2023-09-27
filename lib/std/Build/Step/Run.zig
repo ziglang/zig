@@ -992,10 +992,7 @@ fn spawnChildAndCollect(
     };
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
-    if (self.stdin != .none) {
-        assert(child.stdin_behavior != .Inherit);
-        child.stdin_behavior = .Pipe;
-    }
+    if (self.stdin != .none) child.stdin_behavior = .Pipe;
 
     try child.spawn();
     var timer = try std.time.Timer.start();
