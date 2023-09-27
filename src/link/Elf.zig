@@ -857,6 +857,17 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
             // TODO mark relocs dirty
         }
         try self.growSegment(shdr_index, needed_size);
+
+        if (self.zig_module_index != null) {
+            // TODO self-hosted backends cannot yet handle this condition correctly as the linker
+            // cannot update emitted virtual addresses of symbols already committed to the final file.
+            var err = try self.addErrorWithNotes(2);
+            try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
+                phdr_index,
+            });
+            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        }
     }
 
     shdr.sh_size = needed_size;
@@ -3970,6 +3981,46 @@ pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
 pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
     assert(index < self.comdat_groups_owners.items.len);
     return &self.comdat_groups_owners.items[index];
+}
+
+const ErrorWithNotes = struct {
+    /// Allocated index in misc_errors array.
+    index: usize,
+
+    /// Next available note slot.
+    note_slot: usize = 0,
+
+    pub fn addMsg(
+        err: ErrorWithNotes,
+        elf_file: *Elf,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{OutOfMemory}!void {
+        const gpa = elf_file.base.allocator;
+        const err_msg = &elf_file.misc_errors.items[err.index];
+        err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
+    }
+
+    pub fn addNote(
+        err: *ErrorWithNotes,
+        elf_file: *Elf,
+        comptime format: []const u8,
+        args: anytype,
+    ) error{OutOfMemory}!void {
+        const gpa = elf_file.base.allocator;
+        const err_msg = &elf_file.misc_errors.items[err.index];
+        assert(err.note_slot < err_msg.notes.len);
+        err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
+        err.note_slot += 1;
+    }
+};
+
+fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+    const gpa = self.base.allocator;
+    const index = self.misc_errors.items.len;
+    const err = try self.misc_errors.addOne(gpa);
+    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
+    return .{ .index = index };
 }
 
 fn reportUndefined(self: *Elf, undefs: anytype) !void {
