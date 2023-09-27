@@ -105,7 +105,7 @@ pub const Instruction = struct {
                         try writer.print("{s} ptr [rip", .{@tagName(rip.ptr_size)});
                         if (rip.disp != 0) try writer.print(" {c} 0x{x}", .{
                             @as(u8, if (rip.disp < 0) '-' else '+'),
-                            @abs(rip.disp),
+                            std.math.absCast(rip.disp),
                         });
                         try writer.writeByte(']');
                     },
@@ -140,7 +140,7 @@ pub const Instruction = struct {
                                 try writer.print(" {c} ", .{@as(u8, if (sib.disp < 0) '-' else '+')})
                             else if (sib.disp < 0)
                                 try writer.writeByte('-');
-                            try writer.print("0x{x}", .{@abs(sib.disp)});
+                            try writer.print("0x{x}", .{std.math.absCast(sib.disp)});
                             any = true;
                         }
 
