@@ -489,9 +489,7 @@ pub const Function = struct {
         f.blocks.deinit(gpa);
         f.value_map.deinit();
         f.lazy_fns.deinit(gpa);
-        f.object.code.deinit();
         f.object.dg.ctypes.deinit(gpa);
-        f.object.dg.fwd_decl.deinit();
     }
 
     fn typeOf(f: *Function, inst: Air.Inst.Ref) Type {
@@ -509,6 +507,7 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
+    /// This is a borrowed reference from `link.C`.
     code: std.ArrayList(u8),
     /// Goes before code. Initialized and deinitialized in `genFunc`.
     code_header: std.ArrayList(u8) = undefined,
@@ -525,6 +524,7 @@ pub const DeclGen = struct {
     module: *Module,
     decl: ?*Decl,
     decl_index: Decl.OptionalIndex,
+    /// This is a borrowed reference from `link.C`.
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
     ctypes: CType.Store,
