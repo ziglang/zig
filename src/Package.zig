@@ -311,19 +311,34 @@ pub fn fetchAndAddDependencies(
     }
 
     for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, *dep| {
+        var fetch_location = try FetchLocation.init(gpa, dep.*, directory, report);
+        defer fetch_location.deinit(gpa);
+
+        // Directories do not provide a hash in build.zig.zon.
+        // Hash the path to the module rather than its contents.
+        if (fetch_location == .directory) {
+            if (dep.hash != null) {
+                return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
+            }
+            const hex_digest = Manifest.hexDigest(try computePathHash(gpa, directory, fetch_location.directory));
+            dep.hash = try gpa.dupe(u8, &hex_digest);
+        }
+
         const sub_mod, const found_existing = try getCachedPackage(
             arena,
+            fetch_location,
             global_cache_directory,
             dep.*,
             all_modules,
             root_prog_node,
         ) orelse .{
             try fetchAndUnpack(
+                fetch_location,
                 thread_pool,
                 http_client,
                 directory,
                 global_cache_directory,
-                dep,
+                dep.*,
                 report,
                 all_modules,
                 root_prog_node,
@@ -503,9 +518,10 @@ const FetchLocation = union(enum) {
     /// This may be a file that requires unpacking (such as a .tar.gz),
     /// or the path to the root directory of a package.
     file: []const u8,
+    directory: []const u8,
     http_request: std.Uri,
 
-    pub fn init(gpa: Allocator, dep: Manifest.Dependency, report: Report) !FetchLocation {
+    pub fn init(gpa: Allocator, dep: Manifest.Dependency, root_dir: Compilation.Directory, report: Report) !FetchLocation {
         switch (dep.location) {
             .url => |url| {
                 const uri = std.Uri.parse(url) catch |err| switch (err) {
@@ -522,14 +538,22 @@ const FetchLocation = union(enum) {
                     return report.fail(dep.location_tok, "Absolute paths are not allowed. Use a relative path instead", .{});
                 }
 
-                return .{ .file = try gpa.dupe(u8, path) };
+                const is_dir = isDirectory(root_dir, path) catch |err| switch (err) {
+                    error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{path}),
+                    else => return err,
+                };
+
+                return if (is_dir)
+                    .{ .directory = try gpa.dupe(u8, path) }
+                else
+                    .{ .file = try gpa.dupe(u8, path) };
             },
         }
     }
 
     pub fn deinit(f: *FetchLocation, gpa: Allocator) void {
         switch (f.*) {
-            .file => |path| gpa.free(path),
+            inline .file, .directory => |path| gpa.free(path),
             .http_request => {},
         }
         f.* = undefined;
@@ -545,20 +569,19 @@ const FetchLocation = union(enum) {
     ) !ReadableResource {
         switch (f) {
             .file => |file| {
-                const is_dir = isDirectory(root_dir, file) catch |err| switch (err) {
-                    error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{file}),
-                    else => return err,
-                };
-
                 const owned_path = try gpa.dupe(u8, file);
                 errdefer gpa.free(owned_path);
-
                 return .{
                     .path = owned_path,
-                    .resource = if (is_dir)
-                        .{ .directory = try root_dir.handle.openIterableDir(file, .{}) }
-                    else
-                        .{ .file = try root_dir.handle.openFile(file, .{}) },
+                    .resource = .{ .file = try root_dir.handle.openFile(file, .{}) },
+                };
+            },
+            .directory => |dir| {
+                const owned_path = try gpa.dupe(u8, dir);
+                errdefer gpa.free(owned_path);
+                return .{
+                    .path = owned_path,
+                    .resource = .{ .directory = try root_dir.handle.openIterableDir(dir, .{}) },
                 };
             },
             .http_request => |uri| {
@@ -611,7 +634,7 @@ const ReadableResource = struct {
         switch (rr.resource) {
             .directory => {
                 return .{
-                    .hash = computePathHash(rr.path),
+                    .hash = try computePathHash(allocator, root_dir, rr.path),
                     .root_src_dir_path = try allocator.dupe(u8, rr.path),
                     .root_dir = root_dir,
                 };
@@ -851,11 +874,19 @@ fn ProgressReader(comptime ReaderType: type) type {
 /// (i.e. whether or not its transitive dependencies have been fetched).
 fn getCachedPackage(
     gpa: Allocator,
+    fetch_location: FetchLocation,
     global_cache_directory: Compilation.Directory,
     dep: Manifest.Dependency,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
 ) !?struct { DependencyModule, bool } {
+    // There is no fixed location to check for directory modules.
+    // Instead, check whether it is already listed in all_modules.
+    if (fetch_location == .directory) {
+        const hex_digest = dep.hash.?[0..hex_multihash_len];
+        return if (all_modules.get(hex_digest.*)) |mod| .{ mod.?, true } else null;
+    }
+
     const s = fs.path.sep_str;
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
@@ -912,11 +943,12 @@ fn getCachedPackage(
 }
 
 fn fetchAndUnpack(
+    fetch_location: FetchLocation,
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     directory: Compilation.Directory,
     global_cache_directory: Compilation.Directory,
-    dep: *Manifest.Dependency,
+    dep: Manifest.Dependency,
     report: Report,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
@@ -931,13 +963,10 @@ fn fetchAndUnpack(
     pkg_prog_node.activate();
     pkg_prog_node.context.refresh();
 
-    var fetch_location = try FetchLocation.init(gpa, dep.*, report);
-    defer fetch_location.deinit(gpa);
-
-    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep.*, report);
+    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep, report);
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(gpa, thread_pool, directory, global_cache_directory, dep.*, report, &pkg_prog_node);
+    var package_location = try readable_resource.unpack(gpa, thread_pool, directory, global_cache_directory, dep, report, &pkg_prog_node);
     defer package_location.deinit(gpa);
 
     const actual_hex = Manifest.hexDigest(package_location.hash);
@@ -965,13 +994,6 @@ fn fetchAndUnpack(
             }));
             return error.PackageFetchFailed;
         }
-    } else {
-        if (dep.hash != null) {
-            return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
-        }
-        // Since directory dependencies don't provide a hash in build.zig.zon,
-        // set the hash here to be the hash of the path to the dependency.
-        dep.hash = try gpa.dupe(u8, &actual_hex);
     }
 
     const build_zig_path = try std.fs.path.join(gpa, &.{ package_location.root_src_dir_path, build_zig_basename });
@@ -1089,9 +1111,11 @@ fn computePackageHash(
 }
 
 /// Compute the hash of a file path.
-fn computePathHash(path: []const u8) [Manifest.Hash.digest_length]u8 {
+fn computePathHash(gpa: Allocator, dir: Compilation.Directory, path: []const u8) ![Manifest.Hash.digest_length]u8 {
+    const resolved_path = try std.fs.path.resolve(gpa, &.{ dir.path.?, path });
+    defer gpa.free(resolved_path);
     var hasher = Manifest.Hash.init(.{});
-    hasher.update(path);
+    hasher.update(resolved_path);
     return hasher.finalResult();
 }
 
