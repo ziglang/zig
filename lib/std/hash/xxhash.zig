@@ -2,6 +2,9 @@ const std = @import("std");
 const mem = std.mem;
 const expectEqual = std.testing.expectEqual;
 
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const allocator = arena.allocator();
+
 const rotl = std.math.rotl;
 
 pub const XxHash64 = struct {
@@ -426,6 +429,279 @@ pub const XxHash32 = struct {
     }
 };
 
+pub const XxHash3 = struct {
+    const Block = @Vector(8, u64);
+    const secret: [192]u8 align(@alignOf(Block)) = [_]u8{
+        0xb8, 0xfe, 0x6c, 0x39, 0x23, 0xa4, 0x4b, 0xbe, 0x7c, 0x01, 0x81, 0x2c, 0xf7, 0x21, 0xad, 0x1c,
+        0xde, 0xd4, 0x6d, 0xe9, 0x83, 0x90, 0x97, 0xdb, 0x72, 0x40, 0xa4, 0xa4, 0xb7, 0xb3, 0x67, 0x1f,
+        0xcb, 0x79, 0xe6, 0x4e, 0xcc, 0xc0, 0xe5, 0x78, 0x82, 0x5a, 0xd0, 0x7d, 0xcc, 0xff, 0x72, 0x21,
+        0xb8, 0x08, 0x46, 0x74, 0xf7, 0x43, 0x24, 0x8e, 0xe0, 0x35, 0x90, 0xe6, 0x81, 0x3a, 0x26, 0x4c,
+        0x3c, 0x28, 0x52, 0xbb, 0x91, 0xc3, 0x00, 0xcb, 0x88, 0xd0, 0x65, 0x8b, 0x1b, 0x53, 0x2e, 0xa3,
+        0x71, 0x64, 0x48, 0x97, 0xa2, 0x0d, 0xf9, 0x4e, 0x38, 0x19, 0xef, 0x46, 0xa9, 0xde, 0xac, 0xd8,
+        0xa8, 0xfa, 0x76, 0x3f, 0xe3, 0x9c, 0x34, 0x3f, 0xf9, 0xdc, 0xbb, 0xc7, 0xc7, 0x0b, 0x4f, 0x1d,
+        0x8a, 0x51, 0xe0, 0x4b, 0xcd, 0xb4, 0x59, 0x31, 0xc8, 0x9f, 0x7e, 0xc9, 0xd9, 0x78, 0x73, 0x64,
+        0xea, 0xc5, 0xac, 0x83, 0x34, 0xd3, 0xeb, 0xc3, 0xc5, 0x81, 0xa0, 0xff, 0xfa, 0x13, 0x63, 0xeb,
+        0x17, 0x0d, 0xdd, 0x51, 0xb7, 0xf0, 0xda, 0x49, 0xd3, 0x16, 0x55, 0x26, 0x29, 0xd4, 0x68, 0x9e,
+        0x2b, 0x16, 0xbe, 0x58, 0x7d, 0x47, 0xa1, 0xfc, 0x8f, 0xf8, 0xb8, 0xd1, 0x7a, 0xd0, 0x31, 0xce,
+        0x45, 0xcb, 0x3a, 0x8f, 0x95, 0x16, 0x04, 0x28, 0xaf, 0xd7, 0xfb, 0xca, 0xbb, 0x4b, 0x40, 0x7e,
+    };
+
+    const primes32 = [_]u32{
+        0x9E3779B1,
+        0x85EBCA77,
+        0xC2B2AE3D,
+        0x27D4EB2F,
+        0x165667B1,
+    };
+    const primes64 = [_]u64{
+        0x9E3779B185EBCA87,
+        0xC2B2AE3D27D4EB4F,
+        0x165667B19E3779F9,
+        0x85EBCA77C2B2AE63,
+        0x27D4EB2F165667C5,
+    };
+
+    const primesMX = [_]u64{
+        0x165667919E3779F9,
+        0x9FB21C651E98DF25,
+    };
+
+    buf: std.ArrayList(u8),
+    buf_len: usize,
+    seed: u64,
+
+    inline fn read(comptime int: type, data: []const u8) int {
+        return std.mem.readIntLittle(int, data[0..@sizeOf(int)]);
+    }
+
+    inline fn fold(a: u64, b: u64) u64 {
+        const c = @as(u128, a) *% b;
+        return @as(u64, @truncate(c)) ^ @as(u64, @truncate(c >> 64));
+    }
+
+    inline fn mix16(in: []const u8, scrt: []const u8, seed: u64) u64 {
+        const lo = read(u64, in[0..]) ^ (read(u64, scrt[0..]) +% seed);
+        const hi = read(u64, in[8..]) ^ (read(u64, scrt[8..]) -% seed);
+        return fold(lo, hi);
+    }
+
+    fn avalanceH3(x0: u64) u64 {
+        const x1 = (x0 ^ (x0 >> 37)) *% primesMX[0];
+        return x1 ^ (x1 >> 32);
+    }
+
+    fn avalanceH64(x0: u64) u64 {
+        const x1 = (x0 ^ (x0 >> 33)) *% primes64[1];
+        const x2 = (x1 ^ (x1 >> 29)) *% primes64[2];
+        return x2 ^ (x2 >> 32);
+    }
+
+    fn avalanceRRMXMX(x0: u64, len: u64) u64 {
+        const x1 = (x0 ^ rotl(u64, x0, 49) ^ rotl(u64, x0, 24)) *% primesMX[1];
+        const x2 = (x1 ^ ((x1 >> 35) +% len)) *% primesMX[1];
+        return x2 ^ (x2 >> 28);
+    }
+
+    pub fn hash(seed: u64, input: anytype) u64 {
+        validateType(@TypeOf(input));
+
+        if (input.len <= 16) return hash16(seed, input[0..input.len]);
+        if (input.len <= 128) return hash128(seed, input[0..input.len]);
+        if (input.len <= 240) return hash240(seed, input[0..input.len]);
+
+        return hashLong(seed, input[0..input.len]);
+    }
+
+    inline fn hash16(seed: u64, in: []const u8) u64 {
+        std.debug.assert(in.len <= 16);
+
+        // 9 to 16
+        if (in.len > 8) {
+            const a = (read(u64, secret[24..]) ^ read(u64, secret[32..])) +% seed;
+            const b = (read(u64, secret[40..]) ^ read(u64, secret[48..])) -% seed;
+            const lo = a ^ read(u64, in);
+            const hi = b ^ read(u64, in[in.len - 8 ..]);
+
+            const x0 = fold(lo, hi) +% @byteSwap(lo) +% hi +% in.len;
+
+            return avalanceH3(x0);
+        }
+
+        // 4 to 8
+        if (in.len >= 4) {
+            const a = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
+            const b = (@as(u64, read(u32, in)) << 32) +% read(u32, in[in.len - 4 ..]);
+
+            const c1 = read(u64, secret[8..]);
+            const c2 = read(u64, secret[16..]);
+            const c = (c1 ^ c2) -% a;
+            const x0 = b ^ c;
+
+            return avalanceRRMXMX(x0, in.len);
+        }
+
+        // 1 to 3
+        if (in.len > 0) {
+            const a = (@as(u32, @truncate(in.len)) << 8) | in[in.len - 1];
+            const b = (@as(u32, in[0]) << 16) | (@as(u32, in[in.len >> 1]) << 24);
+            const c = seed +% (read(u32, secret[0..]) ^ read(u32, secret[4..]));
+
+            const x0 = (a | b) ^ c;
+
+            return avalanceH64(x0);
+        }
+
+        const x0 = seed ^ read(u64, secret[56..]) ^ read(u64, secret[64..]);
+        return avalanceH64(x0);
+    }
+
+    inline fn hash128(seed: u64, in: []const u8) u64 {
+        std.debug.assert(in.len <= 128);
+        std.debug.assert(in.len > 0);
+
+        var acc = primes64[0] *% in.len;
+
+        if (@import("builtin").mode == .ReleaseSmall) {
+            var i = @as(u32, @truncate(in.len - 1)) / 32;
+            while (true) {
+                acc +%= mix16(in[16 * i ..], secret[32 * i ..], seed);
+                acc +%= mix16(in[in.len - 16 * (i + 1) ..], secret[32 * i + 16 ..], seed);
+                i = std.math.sub(u32, i, 1) catch break;
+            }
+        } else {
+            if (in.len > 32) {
+                if (in.len > 64) {
+                    if (in.len > 96) {
+                        acc +%= mix16(in[48..], secret[96..], seed);
+                        acc +%= mix16(in[in.len - 64 ..], secret[112..], seed);
+                    }
+
+                    acc +%= mix16(in[32..], secret[64..], seed);
+                    acc +%= mix16(in[in.len - 48 ..], secret[80..], seed);
+                }
+
+                acc +%= mix16(in[16..], secret[32..], seed);
+                acc +%= mix16(in[in.len - 32 ..], secret[48..], seed);
+            }
+
+            acc +%= mix16(in[0..], secret[0..], seed);
+            acc +%= mix16(in[in.len - 16 ..], secret[16..], seed);
+        }
+
+        return avalanceH3(acc);
+    }
+
+    noinline fn hash240(seed: u64, in: []const u8) u64 {
+        std.debug.assert(in.len <= 240);
+        std.debug.assert(in.len > 0);
+
+        var acc = primes64[0] *% in.len;
+        for (0..8) |i| {
+            acc +%= mix16(in[16 * i ..], secret[16 * i ..], seed);
+        }
+        acc = avalanceH3(acc);
+
+        for (8..(in.len / 16)) |i| {
+            acc +%= mix16(in[16 * i ..], secret[16 * (i - 8) + 3 ..], seed);
+        }
+        acc +%= mix16(in[in.len - 16 ..], secret[119..], seed);
+
+        return avalanceH3(acc);
+    }
+
+    noinline fn hashLong(seed: u64, in: []const u8) u64 {
+        var scrt: *align(@alignOf(Block)) const [secret.len]u8 = &secret;
+        var custom_secret: [secret.len]u8 align(@alignOf(Block)) = undefined;
+
+        if (seed == 0) {
+            const apply: u128 = @bitCast([2]u64{ seed, @as(u64, 0) -% seed });
+            const scale: Block = @bitCast([_]u128{apply} ** 4);
+            scrt = &custom_secret;
+
+            const src: [3]Block = @bitCast(secret);
+            const dst: *[3]Block = @ptrCast(&custom_secret);
+            for (src, dst) |s, *d| d.* = s +% scale;
+        }
+
+        var acc: Block = @bitCast([8]u64{
+            primes32[2], primes64[0], primes64[1], primes64[2],
+            primes64[3], primes32[1], primes64[4], primes32[0],
+        });
+
+        const num_stripe_blocks = (scrt.len - @sizeOf(Block)) / 8;
+        const block_len = @sizeOf(Block) * num_stripe_blocks;
+        const num_blocks = (in.len - 1) / block_len;
+
+        for (0..num_blocks) |n| {
+            accumulate(&acc, in.ptr + (n * block_len), scrt, num_stripe_blocks);
+
+            acc ^= acc >> @splat(@as(u6, 47));
+            acc ^= @as(Block, @bitCast(scrt[scrt.len - @sizeOf(Block) ..][0..@sizeOf(Block)].*));
+            acc *%= @splat(@as(u64, primes32[0]));
+        }
+
+        const num_stripes = ((in.len - 1) - (block_len * num_blocks)) / @sizeOf(Block);
+        accumulate(&acc, in.ptr + (num_blocks * block_len), scrt, num_stripes);
+        accumulateBlock(&acc, in.ptr + (in.len - @sizeOf(Block)), @alignCast(scrt.ptr + 121));
+
+        const last: Block = @bitCast(scrt[11 .. 11 + @sizeOf(Block)].*);
+        acc ^= last;
+
+        var result64 = primes64[0] *% in.len;
+        for (@as([4][2]u64, @bitCast(acc))) |p| {
+            result64 +%= fold(p[0], p[1]);
+        }
+
+        return avalanceH3(result64);
+    }
+
+    inline fn accumulate(acc: *Block, in: [*]const u8, scrt: [*]const u8, num_stripes: usize) void {
+        for (0..num_stripes) |n| {
+            const in_block = in + (n * @sizeOf(Block));
+            @prefetch(in_block + 320, .{});
+            accumulateBlock(acc, in_block, scrt + (n * 8));
+        }
+    }
+
+    inline fn accumulateBlock(
+        noalias acc: *Block,
+        noalias in: [*]const u8,
+        noalias scrt: [*]const u8,
+    ) void {
+        const data: Block = @bitCast(in[0..@sizeOf(Block)].*);
+        const keys: Block = @bitCast(scrt[0..@sizeOf(Block)].*);
+
+        const flipped = keys ^ data;
+        const lo = flipped & @as(@Vector(8, u32), @splat(@as(u64, 0xffffffff)));
+        const hi = flipped >> @as(@Vector(8, u32), @splat(@as(u6, 32)));
+
+        const swapped = @shuffle(u64, data, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
+        acc.* +%= swapped +% (lo *% hi);
+    }
+
+    // Streaming
+    pub fn init(seed: u64) XxHash3 {
+        return XxHash3{
+            .buf = std.ArrayList(u8).init(allocator),
+            .seed = seed,
+            .buf_len = 0,
+        };
+    }
+
+    pub fn update(self: *XxHash3, input: anytype) void {
+        validateType(@TypeOf(input));
+
+        // This should be always safe.
+        _ = self.buf.appendSlice(input[0..input.len]) catch unreachable;
+        self.buf_len += input.len;
+    }
+
+    pub fn final(self: *XxHash3) u64 {
+        const buf = self.buf.items;
+        return XxHash3.hash(self.seed, buf);
+    }
+};
+
 fn validateType(comptime T: type) void {
     comptime {
         if (!((std.meta.trait.isSlice(T) or
@@ -441,15 +717,53 @@ fn validateType(comptime T: type) void {
 const verify = @import("verify.zig");
 
 fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
-    try expectEqual(expected, H.hash(0, input));
+    try expectEqual(expected, H.hash(seed, input));
 
     var hasher = H.init(seed);
     hasher.update(input);
     try expectEqual(expected, hasher.final());
 }
 
+test "xxhash3" {
+    const H = XxHash3;
+
+    std.debug.print("\n", .{});
+
+    try testExpect(H, 0, "", 0x2d06800538d394c2);
+    try testExpect(H, 0, "a", 0xe6c632b61e964e1f);
+    try testExpect(H, 0, "abc", 0x78af5f94892f3950);
+    try testExpect(H, 0, "message", 0x0b1ca9b8977554fa);
+    try testExpect(H, 0, "message digest", 0x160d8e9329be94f9);
+    try testExpect(H, 0, "abcdefghijklmnopqrstuvwxyz", 0x810f9ca067fbb90c);
+    try testExpect(H, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 0x643542bb51639cb2);
+    try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x7f58aa2520c681f9);
+}
+
+test "xxhash3 smhasher" {
+    const Test = struct {
+        fn do() !void {
+            try expectEqual(verify.smhasher(XxHash3.hash), 0xD677BC30);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(75000);
+    comptime try Test.do();
+}
+
+test "xxhash3 iterative api" {
+    const Test = struct {
+        fn do() !void {
+            try verify.iterativeApi(XxHash3);
+        }
+    };
+    try Test.do();
+    @setEvalBranchQuota(30000);
+    comptime try Test.do();
+}
+
 test "xxhash64" {
     const H = XxHash64;
+
     try testExpect(H, 0, "", 0xef46db3751d8e999);
     try testExpect(H, 0, "a", 0xd24ec4f1a98c6e5b);
     try testExpect(H, 0, "abc", 0x44bc2cf5ad770999);
