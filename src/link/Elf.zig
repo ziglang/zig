@@ -534,6 +534,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     };
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
+    const large_addrspace = self.base.options.target.ptrBitWidth() >= 32;
     const image_base = self.calcImageBase();
 
     if (self.phdr_table_index == null) {
@@ -581,7 +582,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_got_index == null) {
-        const addr: u64 = if (ptr_size >= 4) 0x4000000 else 0x8000;
+        const addr: u64 = if (large_addrspace) 0x4000000 else 0x8000;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
@@ -594,7 +595,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_ro_index == null) {
-        const addr: u64 = if (ptr_size >= 4) 0xc000000 else 0xa000;
+        const addr: u64 = if (large_addrspace) 0xc000000 else 0xa000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_ro_index = try self.allocateSegment(.{
             .addr = addr,
@@ -605,7 +606,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_rw_index == null) {
-        const addr: u64 = if (ptr_size >= 4) 0x10000000 else 0xc000;
+        const addr: u64 = if (large_addrspace) 0x10000000 else 0xc000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_rw_index = try self.allocateSegment(.{
             .addr = addr,
@@ -616,7 +617,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_zerofill_index == null) {
-        const addr: u64 = if (ptr_size >= 4) 0x14000000 else 0xf000;
+        const addr: u64 = if (large_addrspace) 0x14000000 else 0xf000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_zerofill_index = try self.allocateSegment(.{
             .addr = addr,
