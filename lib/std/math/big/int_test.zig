@@ -3105,3 +3105,36 @@ test "big.int sqr multi alias r with a" {
         try testing.expectEqual(@as(usize, 5), a.limbs.len);
     }
 }
+
+test "big.int eql zeroes #17296" {
+    var zero = try Managed.init(testing.allocator);
+    defer zero.deinit();
+    try zero.setString(10, "0");
+    try std.testing.expect(zero.eql(zero));
+
+    {
+        var sum = try Managed.init(testing.allocator);
+        defer sum.deinit();
+        try sum.add(&zero, &zero);
+        try std.testing.expect(zero.eql(sum));
+    }
+
+    {
+        var diff = try Managed.init(testing.allocator);
+        defer diff.deinit();
+        try diff.sub(&zero, &zero);
+        try std.testing.expect(zero.eql(diff));
+    }
+}
+
+test "big.int.Const.order 0 == -0" {
+    const a = std.math.big.int.Const{
+        .limbs = &.{0},
+        .positive = true,
+    };
+    const b = std.math.big.int.Const{
+        .limbs = &.{0},
+        .positive = false,
+    };
+    try std.testing.expectEqual(std.math.Order.eq, a.order(b));
+}
