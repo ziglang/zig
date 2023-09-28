@@ -6,6 +6,21 @@ const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
 
+/// Shared between managed and unmanaged versions of ArrayList. Called
+/// when memory growth is necessary. Returns a capacity larger than minimum
+/// that is better according to our growth policy.
+fn computeBetterCapacity(
+    current_capacity: usize,
+    minimum_capacity: usize,
+) usize {
+    var better_capacity = current_capacity;
+    while (true) {
+        better_capacity +|= better_capacity / 2 + 8;
+        if (better_capacity >= minimum_capacity)
+            return better_capacity;
+    }
+}
+
 /// A contiguous, growable list of items in memory.
 /// This is a wrapper around an array of T values. Initialize with `init`.
 ///
@@ -162,15 +177,92 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items[n] = item;
         }
 
+        /// Resize the array, adding `count` new elements at position `index`, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements. The returned pointer
+        /// becomes invalid when the list is resized. Resizes list if self.capacity is not large enough.
+        pub fn addManyAtIndex(
+            self: *Self,
+            index: usize,
+            count: usize,
+        ) Allocator.Error![]T {
+            const new_len = self.items.len + count;
+            const to_move = self.items[index..];
+
+            if (self.capacity >= new_len) {
+                //There is enough space
+                self.items.len = new_len;
+                mem.copyBackwards(
+                    T,
+                    self.items[index + count ..],
+                    to_move,
+                );
+                const result = self.items[index..][0..count];
+                @memset(result, undefined);
+                return result;
+            } else {
+                const better_capacity = computeBetterCapacity(self.capacity, new_len);
+
+                // Here we avoid copying allocated but unused bytes by
+                // attempting a resize in place, and falling back to allocating
+                // a new buffer and doing our own copy. With a realloc() call,
+                // the allocator implementation would pointlessly copy our
+                // extra capacity.
+                const old_memory = self.allocatedSlice();
+                if (self.allocator.resize(old_memory, better_capacity)) {
+                    self.capacity = better_capacity;
+                    self.items.len = new_len;
+                    mem.copyBackwards(
+                        T,
+                        self.items[index + count ..],
+                        to_move,
+                    );
+                    const result = self.items[index..][0..count];
+                    @memset(result, undefined);
+                    return result;
+                } else {
+                    // Need a new allocation. We don't call ensureTotalCapacity because there
+                    // would be an unnecessary check if the capacity is enough (we already
+                    // know it's not).
+                    const new_memory = try self.allocator.alignedAlloc(
+                        T,
+                        alignment,
+                        better_capacity,
+                    );
+                    @memcpy(
+                        new_memory[0..index],
+                        self.items[0..index],
+                    );
+
+                    // No need to mem.copyBackwards, as this is a new allocation.
+                    @memcpy(
+                        new_memory[index + count ..][0..to_move.len],
+                        to_move,
+                    );
+
+                    self.allocator.free(old_memory);
+                    self.items.ptr = new_memory.ptr;
+                    self.items.len = new_len;
+                    self.capacity = new_memory.len;
+                    const result = new_memory[index..][0..count];
+                    @memset(result, undefined);
+                    return result;
+                }
+            }
+        }
+
         /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
-        pub fn insertSlice(self: *Self, i: usize, items: []const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(items.len);
-            self.items.len += items.len;
-
-            mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
-            @memcpy(self.items[i..][0..items.len], items);
+        pub fn insertSlice(
+            self: *Self,
+            index: usize,
+            items: []const T,
+        ) Allocator.Error!void {
+            const dst = try self.addManyAtIndex(
+                index,
+                items.len,
+            );
+            @memcpy(dst, items);
         }
 
         /// Replace range of elements `list[start..][0..len]` with `new_items`.
@@ -370,12 +462,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
             if (self.capacity >= new_capacity) return;
 
-            var better_capacity = self.capacity;
-            while (true) {
-                better_capacity +|= better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
-            }
-
+            const better_capacity = computeBetterCapacity(self.capacity, new_capacity);
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
@@ -663,16 +750,35 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.items[n] = item;
         }
 
-        /// Insert slice `items` at index `i`. Moves `list[i .. list.len]` to
-        /// higher indicices make room.
+        /// Resize the array, adding `count` new elements at position `index`, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements. The returned pointer
+        /// becomes invalid when the list is resized. Resizes list if self.capacity is not large enough.
+        pub fn addManyAtIndex(
+            self: *Self,
+            allocator: Allocator,
+            index: usize,
+            count: usize,
+        ) Allocator.Error![]T {
+            var managed = self.toManaged(allocator);
+            defer self.* = managed.moveToUnmanaged();
+            return managed.addManyAtIndex(index, count);
+        }
+
+        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
-        pub fn insertSlice(self: *Self, allocator: Allocator, i: usize, items: []const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(allocator, items.len);
-            self.items.len += items.len;
-
-            mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
-            @memcpy(self.items[i..][0..items.len], items);
+        pub fn insertSlice(
+            self: *Self,
+            allocator: Allocator,
+            index: usize,
+            items: []const T,
+        ) Allocator.Error!void {
+            const dst = try self.addManyAtIndex(
+                allocator,
+                index,
+                items.len,
+            );
+            @memcpy(dst, items);
         }
 
         /// Replace range of elements `list[start..][0..len]` with `new_items`
@@ -681,8 +787,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Invalidates pointers if this ArrayList is resized.
         pub fn replaceRange(self: *Self, allocator: Allocator, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
             var managed = self.toManaged(allocator);
+            defer self.* = managed.moveToUnmanaged();
             try managed.replaceRange(start, len, new_items);
-            self.* = managed.moveToUnmanaged();
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
@@ -875,12 +981,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
 
-            var better_capacity = self.capacity;
-            while (true) {
-                better_capacity +|= better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
-            }
-
+            var better_capacity = computeBetterCapacity(self.capacity, new_capacity);
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
@@ -1647,6 +1748,40 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
         list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
 
         try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+    }
+}
+
+test "std.ArrayList/ArrayListUnmanaged growing memory preserves contents" {
+    const a = std.testing.allocator;
+    {
+        var list = ArrayList(u8).init(a);
+        defer list.deinit();
+        try list.ensureTotalCapacityPrecise(1);
+
+        (try list.addManyAsArray(4)).* = "abcd".*;
+        try list.ensureTotalCapacityPrecise(4);
+
+        try list.appendSlice("efgh");
+        try testing.expectEqualSlices(u8, list.items, "abcdefgh");
+        try list.ensureTotalCapacityPrecise(8);
+
+        try list.insertSlice(4, "ijkl");
+        try testing.expectEqualSlices(u8, list.items, "abcdijklefgh");
+    }
+    {
+        var list = ArrayListUnmanaged(u8){};
+        try list.ensureTotalCapacityPrecise(a, 1);
+        defer list.deinit(a);
+
+        (try list.addManyAsArray(a, 4)).* = "abcd".*;
+        try list.ensureTotalCapacityPrecise(a, 4);
+
+        try list.appendSlice(a, "efgh");
+        try testing.expectEqualSlices(u8, list.items, "abcdefgh");
+        try list.ensureTotalCapacityPrecise(a, 8);
+
+        try list.insertSlice(a, 4, "ijkl");
+        try testing.expectEqualSlices(u8, list.items, "abcdijklefgh");
     }
 }
 
