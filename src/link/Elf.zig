@@ -46,7 +46,9 @@ phdr_load_zerofill_index: ?u16 = null,
 /// The index into the program headers of the PT_TLS program header.
 phdr_tls_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with TLS data.
-phdr_load_tls_index: ?u16 = null,
+phdr_load_tls_data_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with TLS zerofill data.
+phdr_load_tls_zerofill_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 page_size: u32,
@@ -499,7 +501,7 @@ pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{Ou
         .sh_flags = opts.flags,
         .sh_addr = phdr.p_vaddr,
         .sh_offset = phdr.p_offset,
-        .sh_size = phdr.p_filesz,
+        .sh_size = phdr.p_memsz,
         .sh_link = 0,
         .sh_info = 0,
         .sh_addralign = opts.alignment,
@@ -631,24 +633,37 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (!self.base.options.single_threaded) {
-        if (self.phdr_load_tls_index == null) {
+        if (self.phdr_load_tls_data_index == null) {
             const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-            self.phdr_load_tls_index = try self.allocateSegment(.{
+            self.phdr_load_tls_data_index = try self.allocateSegment(.{
                 .size = 1024,
                 .alignment = alignment,
                 .flags = elf.PF_R | elf.PF_W,
             });
         }
 
+        if (self.phdr_load_tls_zerofill_index == null) {
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            self.phdr_load_tls_zerofill_index = try self.allocateSegment(.{
+                .size = 0,
+                .alignment = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+            const phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
+            phdr.p_offset = self.phdrs.items[self.phdr_load_tls_data_index.?].p_offset; // .tbss overlaps .tdata
+            phdr.p_memsz = 1024;
+        }
+
         if (self.phdr_tls_index == null) {
-            const phdr = &self.phdrs.items[self.phdr_load_tls_index.?];
+            const phdr_tdata = &self.phdrs.items[self.phdr_load_tls_data_index.?];
+            const phdr_tbss = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
             try self.phdrs.append(gpa, .{
                 .p_type = elf.PT_TLS,
-                .p_offset = phdr.p_offset,
-                .p_vaddr = phdr.p_vaddr,
-                .p_paddr = phdr.p_paddr,
-                .p_filesz = phdr.p_filesz,
-                .p_memsz = phdr.p_memsz,
+                .p_offset = phdr_tdata.p_offset,
+                .p_vaddr = phdr_tdata.p_vaddr,
+                .p_paddr = phdr_tdata.p_paddr,
+                .p_filesz = phdr_tdata.p_filesz,
+                .p_memsz = phdr_tbss.p_vaddr + phdr_tbss.p_memsz - phdr_tdata.p_vaddr,
                 .p_align = ptr_size,
                 .p_flags = elf.PF_R,
             });
@@ -722,6 +737,31 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .type = elf.SHT_NOBITS,
         });
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_section_index.?, .{});
+    }
+
+    if (self.phdr_load_tls_data_index) |phdr_index| {
+        if (self.tdata_section_index == null) {
+            self.tdata_section_index = try self.allocateAllocSection(.{
+                .name = ".tdata",
+                .phdr_index = phdr_index,
+                .alignment = ptr_size,
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
+            });
+            try self.last_atom_and_free_list_table.putNoClobber(gpa, self.tdata_section_index.?, .{});
+        }
+    }
+
+    if (self.phdr_load_tls_zerofill_index) |phdr_index| {
+        if (self.tbss_section_index == null) {
+            self.tbss_section_index = try self.allocateAllocSection(.{
+                .name = ".tbss",
+                .phdr_index = phdr_index,
+                .alignment = ptr_size,
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
+                .type = elf.SHT_NOBITS,
+            });
+            try self.last_atom_and_free_list_table.putNoClobber(gpa, self.tbss_section_index.?, .{});
+        }
     }
 
     if (self.symtab_section_index == null) {
@@ -1293,6 +1333,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
         self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
         self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
+    }
+
+    // Same treatment for .tbss section.
+    if (self.tdata_section_index) |tdata_shndx| blk: {
+        const tbss_shndx = self.tbss_section_index orelse break :blk;
+        self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
     }
 
     // Dump the state for easy debugging.
