@@ -653,7 +653,7 @@ fn fetchAndUnpack(
         var req = try http_client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         if (req.response.status != .ok) {

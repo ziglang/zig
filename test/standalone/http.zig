@@ -240,7 +240,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -265,7 +265,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192 * 1024);
@@ -289,7 +289,7 @@ pub fn main() !void {
         var req = try client.request(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -315,7 +315,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -340,7 +340,7 @@ pub fn main() !void {
         var req = try client.request(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -366,7 +366,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -395,7 +395,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .{ .content_length = 14 };
 
-        try req.start();
+        try req.start(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -425,7 +425,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -454,7 +454,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.start();
+        try req.start(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -482,7 +482,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -506,7 +506,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -530,7 +530,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -554,7 +554,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         req.wait() catch |err| switch (err) {
             error.TooManyHttpRedirects => {},
             else => return err,
@@ -576,7 +576,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         const result = req.wait();
 
         try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
@@ -623,7 +623,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
         try testing.expectEqual(http.Status.@"continue", req.response.status);
 
@@ -657,7 +657,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
         try testing.expectEqual(http.Status.expectation_failed, req.response.status);
     }
