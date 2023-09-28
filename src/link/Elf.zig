@@ -247,7 +247,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     else
         elf.VER_NDX_LOCAL;
 
-    var dwarf: ?Dwarf = if (!options.strip and options.module != null)
+    const use_llvm = options.use_llvm;
+    var dwarf: ?Dwarf = if (!options.strip and options.module != null and !use_llvm)
         Dwarf.init(gpa, &self.base, options.target)
     else
         null;
@@ -264,7 +265,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .page_size = page_size,
         .default_sym_version = default_sym_version,
     };
-    const use_llvm = options.use_llvm;
     if (use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -643,6 +643,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.phdr_load_tls_zerofill_index == null) {
+            // TODO .tbss doesn't need any physical or memory representation (aka a loadable segment)
+            // since the loader only cares about the PT_TLS to work out TLS size. However, when
+            // relocating we need to have .tdata and .tbss contiguously laid out so that we can
+            // work out correct offsets to the start/end of the TLS segment. I am thinking that
+            // perhaps it's possible to completely spoof it by having an abstracted mechanism
+            // for this that wouldn't require us to explicitly track .tbss. Anyhow, for now,
+            // we go the savage route of treating .tbss like .bss.
             const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
             self.phdr_load_tls_zerofill_index = try self.allocateSegment(.{
                 .size = 0,
@@ -655,6 +662,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
 
         if (self.phdr_tls_index == null) {
+            self.phdr_tls_index = @intCast(self.phdrs.items.len);
             const phdr_tdata = &self.phdrs.items[self.phdr_load_tls_data_index.?];
             const phdr_tbss = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
             try self.phdrs.append(gpa, .{
@@ -1280,6 +1288,36 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.allocateObjects();
     self.allocateLinkerDefinedSymbols();
 
+    // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
+    // get mapped by the loader
+    if (self.data_section_index) |data_shndx| blk: {
+        const bss_shndx = self.bss_section_index orelse break :blk;
+        const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
+        const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
+        self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
+        self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
+    }
+
+    // Same treatment for .tbss section.
+    if (self.tdata_section_index) |tdata_shndx| blk: {
+        const tbss_shndx = self.tbss_section_index orelse break :blk;
+        const tdata_phndx = self.phdr_to_shdr_table.get(tdata_shndx).?;
+        const tbss_phndx = self.phdr_to_shdr_table.get(tbss_shndx).?;
+        self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
+        self.phdrs.items[tbss_phndx].p_offset = self.phdrs.items[tdata_phndx].p_offset;
+    }
+
+    if (self.phdr_tls_index) |tls_index| {
+        const tdata_phdr = &self.phdrs.items[self.phdr_load_tls_data_index.?];
+        const tbss_phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
+        const phdr = &self.phdrs.items[tls_index];
+        phdr.p_offset = tdata_phdr.p_offset;
+        phdr.p_filesz = tdata_phdr.p_filesz;
+        phdr.p_vaddr = tdata_phdr.p_vaddr;
+        phdr.p_paddr = tdata_phdr.p_vaddr;
+        phdr.p_memsz = tbss_phdr.p_vaddr + tbss_phdr.p_memsz - tdata_phdr.p_vaddr;
+    }
+
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zig_module_index) |index| {
@@ -1324,22 +1362,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit the symbol table.
     try self.updateSymtabSize();
     try self.writeSymtab();
-
-    // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
-    // get mapped by the loader
-    if (self.data_section_index) |data_shndx| blk: {
-        const bss_shndx = self.bss_section_index orelse break :blk;
-        const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
-        const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
-        self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
-        self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
-    }
-
-    // Same treatment for .tbss section.
-    if (self.tdata_section_index) |tdata_shndx| blk: {
-        const tbss_shndx = self.tbss_section_index orelse break :blk;
-        self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
-    }
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -4064,6 +4086,22 @@ pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
 pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
     assert(index < self.comdat_groups_owners.items.len);
     return &self.comdat_groups_owners.items[index];
+}
+
+pub fn tpAddress(self: *Elf) u64 {
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align);
+}
+
+pub fn dtpAddress(self: *Elf) u64 {
+    return self.tlsAddress();
+}
+
+pub fn tlsAddress(self: *Elf) u64 {
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return phdr.p_vaddr;
 }
 
 const ErrorWithNotes = struct {

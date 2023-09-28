@@ -196,9 +196,9 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         //     if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
         //     break :blk 0;
         // }
-        // if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
-        // const shdr = &elf_file.sections.items(.shdr)[st_shndx];
-        // if (Elf.shdrIsTls(shdr)) break :blk symbol.value - elf_file.getTlsAddress();
+        if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
+        const shdr = &elf_file.shdrs.items[st_shndx];
+        if (shdr.sh_flags & elf.SHF_TLS != 0) break :blk symbol.value - elf_file.tlsAddress();
         break :blk symbol.value;
     };
     out.* = .{

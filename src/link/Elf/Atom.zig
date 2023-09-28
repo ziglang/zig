@@ -388,6 +388,12 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 
             elf.R_X86_64_PC32 => {},
 
+            elf.R_X86_64_TPOFF32,
+            elf.R_X86_64_TPOFF64,
+            => {
+                // if (is_shared) self.picError(symbol, rel, elf_file);
+            },
+
             else => {
                 var err = try elf_file.addErrorWithNotes(1);
                 try err.addMsg(elf_file, "fatal linker error: unhandled relocation type {}", .{
@@ -473,9 +479,9 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
         // Relative offset to the start of the global offset table.
         const G = @as(i64, @intCast(target.gotAddress(elf_file))) - GOT;
         // // Address of the thread pointer.
-        // const TP = @as(i64, @intCast(elf_file.getTpAddress()));
+        const TP = @as(i64, @intCast(elf_file.tpAddress()));
         // // Address of the dynamic thread pointer.
-        // const DTP = @as(i64, @intCast(elf_file.getDtpAddress()));
+        // const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
         relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ({s})", .{
             fmtRelocType(r_type),
@@ -521,6 +527,9 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
                 }
                 try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
             },
+
+            elf.R_X86_64_TPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A - TP))),
+            elf.R_X86_64_TPOFF64 => try cwriter.writeIntLittle(i64, S + A - TP),
 
             else => {},
         }
