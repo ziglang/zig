@@ -418,17 +418,26 @@ const AllocateSegmentOpts = struct {
 };
 
 pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
+    const gpa = self.base.allocator;
     const index = @as(u16, @intCast(self.phdrs.items.len));
-    try self.phdrs.ensureUnusedCapacity(self.base.allocator, 1);
+    try self.phdrs.ensureUnusedCapacity(gpa, 1);
     const off = self.findFreeSpace(opts.size, opts.alignment);
-    // Memory is always allocated in sequence.
-    // TODO is this correct? Or should we implement something similar to `findFreeSpace`?
-    // How would that impact HCS?
+    // Currently, we automatically allocate memory in sequence by finding the largest
+    // allocated virtual address and going from there.
+    // TODO we want to keep machine code segment in the furthest memory range among all
+    // segments as it is most likely to grow.
     const addr = opts.addr orelse blk: {
-        assert(index >= 1);
-        const phdr = &self.phdrs.items[index - 1];
-        const increased_size = padToIdeal(phdr.p_vaddr + phdr.p_memsz);
-        break :blk mem.alignForward(u64, increased_size, opts.alignment);
+        const reserved_capacity = self.calcImageBase() * 4;
+        // Calculate largest VM address
+        const count = self.phdrs.items.len;
+        var addresses = std.ArrayList(u64).init(gpa);
+        defer addresses.deinit();
+        try addresses.ensureTotalCapacityPrecise(count);
+        for (self.phdrs.items) |phdr| {
+            addresses.appendAssumeCapacity(phdr.p_vaddr + reserved_capacity);
+        }
+        mem.sort(u64, addresses.items, {}, std.sort.asc(u64));
+        break :blk mem.alignForward(u64, addresses.items[count - 1], opts.alignment);
     };
     log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         index,
