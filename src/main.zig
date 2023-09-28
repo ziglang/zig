@@ -594,6 +594,7 @@ const usage_build_generic =
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
+    \\  --debug-incremental          Enable experimental feature: incremental compilation
     \\
 ;
 
@@ -904,6 +905,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u32 = null;
     var wasi_exec_model: ?std.builtin.WasiExecModel = null;
     var enable_link_snapshots: bool = false;
+    var debug_incremental: bool = false;
     var install_name: ?[]const u8 = null;
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1272,6 +1274,8 @@ fn buildOutputType(
                         } else {
                             enable_link_snapshots = true;
                         }
+                    } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                        debug_incremental = true;
                     } else if (mem.eql(u8, arg, "--entitlements")) {
                         entitlements = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
@@ -3591,11 +3595,16 @@ fn buildOutputType(
     }
 
     updateModule(comp) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => if (listen == .none) process.exit(1),
+        error.SemanticAnalyzeFail => {
+            assert(listen == .none);
+            saveState(comp, debug_incremental);
+            process.exit(1);
+        },
         else => |e| return e,
     };
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
+    saveState(comp, debug_incremental);
 
     if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
         // Default to using `zig run` to execute the produced .c code from `zig test`.
@@ -3656,6 +3665,14 @@ fn buildOutputType(
 
     // Skip resource deallocation in release builds; let the OS do it.
     return cleanExit();
+}
+
+fn saveState(comp: *Compilation, debug_incremental: bool) void {
+    if (debug_incremental) {
+        comp.saveState() catch |err| {
+            warn("unable to save incremental compilation state: {s}", .{@errorName(err)});
+        };
+    }
 }
 
 fn serve(
