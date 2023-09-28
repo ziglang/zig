@@ -22,7 +22,8 @@ pub const Options = struct {
     /// from being installed.
     exclude_extensions: []const []const u8 = &.{},
     /// Only file paths which end in any of these suffixes will be included
-    /// in installation. `null` means all suffixes are valid for this option
+    /// in installation. `null` means all suffixes are valid for this option.
+    /// `exclude_extensions` take precedence over `include_extensions`
     include_extensions: ?[]const []const u8 = null,
     /// File paths which end in any of these suffixes will result in
     /// empty files being installed. This is mainly intended for large
