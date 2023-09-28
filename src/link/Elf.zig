@@ -429,15 +429,15 @@ pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}
     const addr = opts.addr orelse blk: {
         const reserved_capacity = self.calcImageBase() * 4;
         // Calculate largest VM address
-        const count = self.phdrs.items.len;
         var addresses = std.ArrayList(u64).init(gpa);
         defer addresses.deinit();
-        try addresses.ensureTotalCapacityPrecise(count);
+        try addresses.ensureTotalCapacityPrecise(self.phdrs.items.len);
         for (self.phdrs.items) |phdr| {
+            if (phdr.p_type != elf.PT_LOAD) continue;
             addresses.appendAssumeCapacity(phdr.p_vaddr + reserved_capacity);
         }
         mem.sort(u64, addresses.items, {}, std.sort.asc(u64));
-        break :blk mem.alignForward(u64, addresses.items[count - 1], opts.alignment);
+        break :blk mem.alignForward(u64, addresses.pop(), opts.alignment);
     };
     log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         index,
@@ -543,7 +543,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     };
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
-    const large_addrspace = self.base.options.target.ptrBitWidth() >= 32;
     const image_base = self.calcImageBase();
 
     if (self.phdr_table_index == null) {
@@ -566,23 +565,16 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_table_load_index == null) {
-        self.phdr_table_load_index = @intCast(self.phdrs.items.len);
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = 0,
-            .p_filesz = 0,
-            .p_vaddr = image_base,
-            .p_paddr = image_base,
-            .p_memsz = 0,
-            .p_align = self.page_size,
-            .p_flags = elf.PF_R,
+        self.phdr_table_load_index = try self.allocateSegment(.{
+            .addr = image_base,
+            .size = 0,
+            .alignment = self.page_size,
         });
         self.phdr_table_dirty = true;
     }
 
     if (self.phdr_load_re_index == null) {
         self.phdr_load_re_index = try self.allocateSegment(.{
-            .addr = self.defaultEntryAddress(),
             .size = self.base.options.program_code_size_hint,
             .alignment = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
@@ -591,12 +583,10 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_got_index == null) {
-        const addr: u64 = if (large_addrspace) 0x4000000 else 0x8000;
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_got_index = try self.allocateSegment(.{
-            .addr = addr,
             .size = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -604,10 +594,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_ro_index == null) {
-        const addr: u64 = if (large_addrspace) 0xc000000 else 0xa000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_ro_index = try self.allocateSegment(.{
-            .addr = addr,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -615,10 +603,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_rw_index == null) {
-        const addr: u64 = if (large_addrspace) 0x10000000 else 0xc000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_rw_index = try self.allocateSegment(.{
-            .addr = addr,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -626,10 +612,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.phdr_load_zerofill_index == null) {
-        const addr: u64 = if (large_addrspace) 0x14000000 else 0xf000;
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_zerofill_index = try self.allocateSegment(.{
-            .addr = addr,
             .size = 0,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -3817,14 +3801,6 @@ pub fn calcImageBase(self: Elf) u64 {
     return self.base.options.image_base_override orelse switch (self.ptr_width) {
         .p32 => 0x1000,
         .p64 => 0x1000000,
-    };
-}
-
-pub fn defaultEntryAddress(self: Elf) u64 {
-    if (self.entry_addr) |addr| return addr;
-    return switch (self.base.options.target.cpu.arch) {
-        .spu_2 => 0,
-        else => default_entry_addr,
     };
 }
 
