@@ -34,6 +34,9 @@ fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
 code_buf: std.ArrayListUnmanaged(u8) = .{},
+/// Optimization, `updateDecl` reuses this table rather than creating a new one
+/// with every call.
+scratch_anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// Optimization, `flush` reuses this buffer rather than creating a new
 /// one with every call.
 lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
@@ -51,7 +54,6 @@ const String = struct {
         .len = 0,
     };
 };
-
 /// Per-declaration data.
 const DeclBlock = struct {
     code: String = String.empty,
@@ -98,7 +100,7 @@ pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C
     var c_file = try gpa.create(C);
     errdefer gpa.destroy(c_file);
 
-    c_file.* = C{
+    c_file.* = .{
         .base = .{
             .tag = .c,
             .options = options,
@@ -121,6 +123,7 @@ pub fn deinit(self: *C) void {
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
     self.code_buf.deinit(gpa);
+    self.scratch_anon_decl_deps.deinit(gpa);
 }
 
 pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
@@ -131,10 +134,13 @@ pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
+pub fn updateFunc(
+    self: *C,
+    module: *Module,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) !void {
     const gpa = self.base.allocator;
 
     const func = module.funcInfo(func_index);
@@ -152,52 +158,57 @@ pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: 
     lazy_fns.clearRetainingCapacity();
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
+    self.scratch_anon_decl_deps.clearRetainingCapacity();
 
-    var function: codegen.Function = .{
-        .value_map = codegen.CValueMap.init(gpa),
-        .air = air,
-        .liveness = liveness,
-        .func_index = func_index,
-        .object = .{
-            .dg = .{
-                .gpa = gpa,
-                .module = module,
-                .error_msg = null,
-                .decl_index = decl_index.toOptional(),
-                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
-                .fwd_decl = fwd_decl.toManaged(gpa),
-                .ctypes = ctypes.*,
+    {
+        var function: codegen.Function = .{
+            .value_map = codegen.CValueMap.init(gpa),
+            .air = air,
+            .liveness = liveness,
+            .func_index = func_index,
+            .object = .{
+                .dg = .{
+                    .gpa = gpa,
+                    .module = module,
+                    .error_msg = null,
+                    .decl_index = decl_index.toOptional(),
+                    .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                    .fwd_decl = fwd_decl.toManaged(gpa),
+                    .ctypes = ctypes.*,
+                    .anon_decl_deps = self.scratch_anon_decl_deps,
+                },
+                .code = code.toManaged(gpa),
+                .indent_writer = undefined, // set later so we can get a pointer to object.code
             },
-            .code = code.toManaged(gpa),
-            .indent_writer = undefined, // set later so we can get a pointer to object.code
-        },
-        .lazy_fns = lazy_fns.*,
-    };
+            .lazy_fns = lazy_fns.*,
+        };
 
-    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-    defer {
-        fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
-        code.* = function.object.code.moveToUnmanaged();
-        function.deinit();
+        function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
+        defer {
+            self.scratch_anon_decl_deps = function.object.dg.anon_decl_deps;
+            fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
+            code.* = function.object.code.moveToUnmanaged();
+            function.deinit();
+        }
+
+        codegen.genFunc(&function) catch |err| switch (err) {
+            error.AnalysisFail => {
+                try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
+                return;
+            },
+            else => |e| return e,
+        };
+
+        ctypes.* = function.object.dg.ctypes.move();
+        lazy_fns.* = function.lazy_fns.move();
+
+        // Free excess allocated memory for this Decl.
+        ctypes.shrinkAndFree(gpa, ctypes.count());
+        lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
+
+        gop.value_ptr.code = try self.addString(function.object.code.items);
+        gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
     }
-
-    codegen.genFunc(&function) catch |err| switch (err) {
-        error.AnalysisFail => {
-            try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
-            return;
-        },
-        else => |e| return e,
-    };
-
-    ctypes.* = function.object.dg.ctypes.move();
-    lazy_fns.* = function.lazy_fns.move();
-
-    // Free excess allocated memory for this Decl.
-    ctypes.shrinkAndFree(gpa, ctypes.count());
-    lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
-
-    gop.value_ptr.code = try self.addString(function.object.code.items);
-    gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
 }
 
 pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -216,6 +227,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     ctypes.clearRetainingCapacity(gpa);
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
+    self.scratch_anon_decl_deps.clearRetainingCapacity();
 
     var object: codegen.Object = .{
         .dg = .{
@@ -226,12 +238,14 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
+            .anon_decl_deps = self.scratch_anon_decl_deps,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
+        self.scratch_anon_decl_deps = object.dg.anon_decl_deps;
         object.dg.ctypes.deinit(object.dg.gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -512,12 +526,16 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
+            .anon_decl_deps = .{},
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
+        // If this assert trips just handle the anon_decl_deps the same as
+        // `updateFunc()` does.
+        assert(object.dg.anon_decl_deps.count() == 0);
         object.dg.ctypes.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -531,7 +549,11 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
     ctypes.* = object.dg.ctypes.move();
 }
 
-fn flushLazyFn(self: *C, ctypes: *codegen.CType.Store, lazy_fn: codegen.LazyFnMap.Entry) FlushDeclError!void {
+fn flushLazyFn(
+    self: *C,
+    ctypes: *codegen.CType.Store,
+    lazy_fn: codegen.LazyFnMap.Entry,
+) FlushDeclError!void {
     const gpa = self.base.allocator;
 
     const fwd_decl = &self.lazy_fwd_decl_buf;
@@ -546,12 +568,16 @@ fn flushLazyFn(self: *C, ctypes: *codegen.CType.Store, lazy_fn: codegen.LazyFnMa
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
+            .anon_decl_deps = .{},
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
+        // If this assert trips just handle the anon_decl_deps the same as
+        // `updateFunc()` does.
+        assert(object.dg.anon_decl_deps.count() == 0);
         object.dg.ctypes.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();

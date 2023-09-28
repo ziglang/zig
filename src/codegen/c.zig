@@ -528,6 +528,9 @@ pub const DeclGen = struct {
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
     ctypes: CType.Store,
+    /// Keeps track of anonymous decls that need to be rendered before this
+    /// (named) Decl in the output C code.
+    anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
@@ -538,6 +541,57 @@ pub const DeclGen = struct {
         const src_loc = src.toSrcLoc(decl, mod);
         dg.error_msg = try Module.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
+    }
+
+    fn renderAnonDeclValue(
+        dg: *DeclGen,
+        writer: anytype,
+        ty: Type,
+        ptr_val: Value,
+        decl_val: InternPool.Index,
+        location: ValueRenderLocation,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        const mod = dg.module;
+        const ip = &mod.intern_pool;
+        const decl_ty = ip.typeOf(decl_val).toType();
+
+        // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
+        if (ty.isPtrAtRuntime(mod) and !decl_ty.isFnOrHasRuntimeBits(mod)) {
+            return dg.writeCValue(writer, .{ .undef = ty });
+        }
+
+        // Chase function values in order to be able to reference the original function.
+        if (decl_val.toValue().getFunction(mod)) |func| {
+            _ = func;
+            _ = ptr_val;
+            _ = location;
+            @panic("TODO");
+        }
+        if (decl_val.toValue().getExternFunc(mod)) |extern_func| {
+            _ = extern_func;
+            _ = ptr_val;
+            _ = location;
+            @panic("TODO");
+        }
+
+        assert(decl_val.toValue().getVariable(mod) == null);
+
+        // We shouldn't cast C function pointers as this is UB (when you call
+        // them).  The analysis until now should ensure that the C function
+        // pointers are compatible.  If they are not, then there is a bug
+        // somewhere and we should let the C compiler tell us about it.
+        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl_ty, mod);
+        if (need_typecast) {
+            try writer.writeAll("((");
+            try dg.renderType(writer, ty);
+            try writer.writeByte(')');
+        }
+        try writer.print("&__anon_{d}", .{@intFromEnum(decl_val)});
+        if (need_typecast) try writer.writeByte(')');
+
+        // Indicate that the anon decl should be rendered to the output so that
+        // our reference above is not undefined.
+        try dg.anon_decl_deps.put(dg.gpa, decl_val, {});
     }
 
     fn renderDeclValue(
@@ -593,18 +647,9 @@ pub const DeclGen = struct {
         const ptr_cty = try dg.typeToIndex(ptr_ty, .complete);
         const ptr = mod.intern_pool.indexToKey(ptr_val).ptr;
         switch (ptr.addr) {
-            .decl, .mut_decl => try dg.renderDeclValue(
-                writer,
-                ptr_ty,
-                ptr_val.toValue(),
-                switch (ptr.addr) {
-                    .decl => |decl| decl,
-                    .mut_decl => |mut_decl| mut_decl.decl,
-                    else => unreachable,
-                },
-                location,
-            ),
-            .anon_decl => @panic("TODO"),
+            .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), d, location),
+            .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), md.decl, location),
+            .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val.toValue(), decl_val, location),
             .int => |int| {
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_cty);
@@ -1145,18 +1190,9 @@ pub const DeclGen = struct {
                     else => val.slicePtr(mod),
                 };
                 switch (ptr.addr) {
-                    .decl, .mut_decl => try dg.renderDeclValue(
-                        writer,
-                        ptr_ty,
-                        ptr_val,
-                        switch (ptr.addr) {
-                            .decl => |decl| decl,
-                            .mut_decl => |mut_decl| mut_decl.decl,
-                            else => unreachable,
-                        },
-                        ptr_location,
-                    ),
-                    .anon_decl => @panic("TODO"),
+                    .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val, d, ptr_location),
+                    .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val, md.decl, ptr_location),
+                    .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val, decl_val, ptr_location),
                     .int => |int| {
                         try writer.writeAll("((");
                         try dg.renderType(writer, ptr_ty);
