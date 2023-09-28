@@ -312,6 +312,8 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
 
         if (rel.r_type() == elf.R_X86_64_NONE) continue;
 
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+
         const symbol_index = switch (file_ptr) {
             .zig_module => |x| x.symbol(rel.r_sym()),
             .object => |x| x.symbols.items[rel.r_sym()],
@@ -393,7 +395,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
             elf.R_X86_64_GOTTPOFF => {
                 const should_relax = blk: {
                     // if (!elf_file.options.relax or is_shared or symbol.flags.import) break :blk false;
-                    if (!x86_64.canRelaxGotTpOff(code.?[rel.r_offset - 3 ..])) break :blk false;
+                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
                     break :blk true;
                 };
                 if (!should_relax) {
@@ -409,7 +411,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
-                    rel.r_offset,
+                    r_offset,
                 });
             },
         }
@@ -569,7 +571,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
                     // const S_ = @as(i64, @intCast(target.gotTpAddress(elf_file)));
                     // try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
                 } else {
-                    x86_64.relaxGotTpOff(code[rel.r_offset - 3 ..]) catch unreachable;
+                    x86_64.relaxGotTpOff(code[r_offset - 3 ..]) catch unreachable;
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
                 }
             },
