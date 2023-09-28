@@ -24,13 +24,13 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 int __libcpp_clz(unsigned __x)           _NOEXCEPT { return __builtin_clz(__x); }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 int __libcpp_clz(unsigned long __x)      _NOEXCEPT { return __builtin_clzl(__x); }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 int __libcpp_clz(unsigned long long __x) _NOEXCEPT { return __builtin_clzll(__x); }
 
 #  ifndef _LIBCPP_HAS_NO_INT128
@@ -86,12 +86,12 @@ int __countl_zero(_Tp __t) _NOEXCEPT
 #if _LIBCPP_STD_VER >= 20
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countl_zero(_Tp __t) noexcept {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int countl_zero(_Tp __t) noexcept {
   return std::__countl_zero(__t);
 }
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countl_one(_Tp __t) noexcept {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int countl_one(_Tp __t) noexcept {
   return __t != numeric_limits<_Tp>::max() ? std::countl_zero(static_cast<_Tp>(~__t)) : numeric_limits<_Tp>::digits;
 }
 

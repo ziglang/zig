@@ -19,9 +19,12 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <semiregular _Sent>
 class _LIBCPP_TEMPLATE_VIS move_sentinel
@@ -44,7 +47,7 @@ public:
   move_sentinel& operator=(const move_sentinel<_S2>& __s)
     { __last_ = __s.base(); return *this; }
 
-  constexpr _Sent base() const { return __last_; }
+  _LIBCPP_HIDE_FROM_ABI constexpr _Sent base() const { return __last_; }
 
 private:
     _Sent __last_ = _Sent();
@@ -52,8 +55,10 @@ private:
 
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(move_sentinel);
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_MOVE_SENTINEL_H

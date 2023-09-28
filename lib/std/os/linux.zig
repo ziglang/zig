@@ -154,8 +154,22 @@ pub usingnamespace @import("linux/io_uring.zig");
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
-/// See `std.elf` for the constants.
-pub fn getauxval(index: usize) usize {
+pub usingnamespace if (switch (builtin.zig_backend) {
+    // Calling extern functions is not yet supported with these backends
+    .stage2_x86_64, .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    else => !builtin.link_libc,
+}) struct {
+    /// See `std.elf` for the constants.
+    /// This matches the libc getauxval function.
+    pub extern fn getauxval(index: usize) usize;
+    comptime {
+        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
+    }
+} else struct {
+    pub const getauxval = getauxvalImpl;
+};
+
+fn getauxvalImpl(index: usize) callconv(.C) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -3736,7 +3750,7 @@ pub const io_sqring_offsets = extern struct {
     array: u32,
 
     resv1: u32,
-    resv2: u64,
+    user_addr: u64,
 };
 
 // io_sqring_offsets.flags
@@ -3755,7 +3769,9 @@ pub const io_cqring_offsets = extern struct {
     ring_entries: u32,
     overflow: u32,
     cqes: u32,
-    resv: [2]u64,
+    flags: u32,
+    resv: u32,
+    user_addr: u64,
 };
 
 pub const io_uring_sqe = extern struct {

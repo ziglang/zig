@@ -4348,12 +4348,12 @@ test "zig fmt: invalid else branch statement" {
         \\    for ("") |_| {} else defer {}
         \\}
     , &[_]Error{
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
     });
 }
 
@@ -5251,8 +5251,8 @@ test "zig fmt: make single-line if no trailing comma, fmt: off" {
         \\    }
         \\}
         \\
-        \\const fn_no_comma = fn(i32, i32)void;
-        \\const fn_trailing_comma = fn(i32, i32,)void;
+        \\const fn_no_comma = fn (i32, i32) void;
+        \\const fn_trailing_comma = fn (i32, i32,) void;
         \\
         \\fn fn_calls() void {
         \\    fn add(x: i32, y: i32,) i32 { x + y };
@@ -6078,7 +6078,7 @@ test "recovery: missing for payload" {
     try testError(
         \\comptime {
         \\    const a = for(a) {};
-        \\    const a: for(a) blk: {};
+        \\    const a: for(a) blk: {} = {};
         \\    for(a) {}
         \\}
     , &[_]Error{

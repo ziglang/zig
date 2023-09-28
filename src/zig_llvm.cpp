@@ -35,7 +35,6 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
-#include <llvm/MC/SubtargetFeature.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -47,10 +46,8 @@
 #include <llvm/Object/COFFModuleDefinition.h>
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/CommandLine.h>
-#include <llvm/Support/Host.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Process.h>
-#include <llvm/Support/TargetParser.h>
 #include <llvm/Support/TimeProfiler.h>
 #include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
@@ -58,7 +55,6 @@
 #include <llvm/Target/CodeGenCWrappers.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
@@ -1103,6 +1099,24 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
     return false;
 }
 
+// The header file in LLD 16 exposed these functions. As of 17 they are only
+// exposed via a macro ("LLD_HAS_DRIVER") which I have copied and pasted the
+// body of here so that you don't have to wonder what it is doing.
+namespace lld {
+    namespace coff {
+        bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
+                llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
+    }
+    namespace elf {
+        bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
+                llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
+    }
+    namespace wasm {
+        bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
+                llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
+    }
+}
+
 bool ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::coff::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
@@ -1249,6 +1263,7 @@ static_assert((Triple::OSType)ZigLLVM_MacOSX == Triple::MacOSX, "");
 static_assert((Triple::OSType)ZigLLVM_NetBSD == Triple::NetBSD, "");
 static_assert((Triple::OSType)ZigLLVM_OpenBSD == Triple::OpenBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Solaris == Triple::Solaris, "");
+static_assert((Triple::OSType)ZigLLVM_UEFI == Triple::UEFI, "");
 static_assert((Triple::OSType)ZigLLVM_Win32 == Triple::Win32, "");
 static_assert((Triple::OSType)ZigLLVM_ZOS == Triple::ZOS, "");
 static_assert((Triple::OSType)ZigLLVM_Haiku == Triple::Haiku, "");
@@ -1270,6 +1285,8 @@ static_assert((Triple::OSType)ZigLLVM_HermitCore == Triple::HermitCore, "");
 static_assert((Triple::OSType)ZigLLVM_Hurd == Triple::Hurd, "");
 static_assert((Triple::OSType)ZigLLVM_WASI == Triple::WASI, "");
 static_assert((Triple::OSType)ZigLLVM_Emscripten == Triple::Emscripten, "");
+static_assert((Triple::OSType)ZigLLVM_ShaderModel == Triple::ShaderModel, "");
+static_assert((Triple::OSType)ZigLLVM_LiteOS == Triple::LiteOS, "");
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 
 static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");
@@ -1297,6 +1314,22 @@ static_assert((Triple::EnvironmentType)ZigLLVM_Cygnus == Triple::Cygnus, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CoreCLR == Triple::CoreCLR, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Simulator == Triple::Simulator, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_MacABI == Triple::MacABI, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Pixel == Triple::Pixel, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Vertex == Triple::Vertex, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Geometry == Triple::Geometry, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Hull == Triple::Hull, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Domain == Triple::Domain, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Compute == Triple::Compute, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Library == Triple::Library, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_RayGeneration == Triple::RayGeneration, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Intersection == Triple::Intersection, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_AnyHit == Triple::AnyHit, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_ClosestHit == Triple::ClosestHit, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Miss == Triple::Miss, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Callable == Triple::Callable, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Mesh == Triple::Mesh, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Amplification == Triple::Amplification, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_OpenHOS == Triple::OpenHOS, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
@@ -1334,8 +1367,8 @@ static_assert((CallingConv::ID)ZigLLVM_Intel_OCL_BI == llvm::CallingConv::Intel_
 static_assert((CallingConv::ID)ZigLLVM_X86_64_SysV == llvm::CallingConv::X86_64_SysV, "");
 static_assert((CallingConv::ID)ZigLLVM_Win64 == llvm::CallingConv::Win64, "");
 static_assert((CallingConv::ID)ZigLLVM_X86_VectorCall == llvm::CallingConv::X86_VectorCall, "");
-static_assert((CallingConv::ID)ZigLLVM_HHVM == llvm::CallingConv::HHVM, "");
-static_assert((CallingConv::ID)ZigLLVM_HHVM_C == llvm::CallingConv::HHVM_C, "");
+static_assert((CallingConv::ID)ZigLLVM_DUMMY_HHVM == llvm::CallingConv::DUMMY_HHVM, "");
+static_assert((CallingConv::ID)ZigLLVM_DUMMY_HHVM_C == llvm::CallingConv::DUMMY_HHVM_C, "");
 static_assert((CallingConv::ID)ZigLLVM_X86_INTR == llvm::CallingConv::X86_INTR, "");
 static_assert((CallingConv::ID)ZigLLVM_AVR_INTR == llvm::CallingConv::AVR_INTR, "");
 static_assert((CallingConv::ID)ZigLLVM_AVR_SIGNAL == llvm::CallingConv::AVR_SIGNAL, "");

@@ -124,9 +124,16 @@ endif()
 
 set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
 
-find_package(llvm 16)
-find_package(clang 16)
-find_package(lld 16)
+# Detect system libcxx name.
+if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
+    set(ZIG_SYSTEM_LIBCXX "c++" CACHE STRING "system libcxx name for build.zig")
+else()
+    set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
+endif()
+
+find_package(llvm 17)
+find_package(clang 17)
+find_package(lld 17)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -548,6 +555,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/CodeGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Disassembler.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Encoding.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Mir.zig"
@@ -577,6 +585,15 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/lld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Archive.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Atom.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/LinkerDefined.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/Symbol.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigModule.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/file.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/synthetic_sections.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Atom.zig"
@@ -588,7 +605,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/UnwindInfo.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/ZldAtom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Rebase.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dead_strip.zig"

@@ -316,12 +316,6 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage2_llvm) {
-        // Regressed in LLVM 14:
-        // https://github.com/llvm/llvm-project/issues/55522
-        return error.SkipZigTest;
-    }
-
     const C_struct = extern struct {
         x: u32,
         y: u32,
@@ -2948,18 +2942,18 @@ pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: Delimit
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) Allocator.Error![]u8 {
     return joinMaybeZ(allocator, separator, slices, false);
 }
 
 /// Naively combines a series of slices with a separator and null terminator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn joinZ(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
+pub fn joinZ(allocator: Allocator, separator: []const u8, slices: []const []const u8) Allocator.Error![:0]u8 {
     const out = try joinMaybeZ(allocator, separator, slices, true);
     return out[0 .. out.len - 1 :0];
 }
 
-fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
+fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []const u8, zero: bool) Allocator.Error![]u8 {
     if (slices.len == 0) return if (zero) try allocator.dupe(u8, &[1]u8{0}) else &[0]u8{};
 
     const total_len = blk: {
@@ -3038,18 +3032,18 @@ test "joinZ" {
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
-pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T) ![]T {
+pub fn concat(allocator: Allocator, comptime T: type, slices: []const []const T) Allocator.Error![]T {
     return concatMaybeSentinel(allocator, T, slices, null);
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
-pub fn concatWithSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: T) ![:s]T {
+pub fn concatWithSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: T) Allocator.Error![:s]T {
     const ret = try concatMaybeSentinel(allocator, T, slices, s);
     return ret[0 .. ret.len - 1 :s];
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements as well as the sentinel.
-pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: ?T) ![]T {
+pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []const []const T, comptime s: ?T) Allocator.Error![]T {
     if (slices.len == 0) return if (s) |sentinel| try allocator.dupe(T, &[1]T{sentinel}) else &[0]T{};
 
     const total_len = blk: {
@@ -4488,6 +4482,11 @@ test "read/write(Var)PackedInt" {
         // LLVM backend fails with "too many locals: locals exceed maximum"
         .wasm32, .wasm64 => return error.SkipZigTest,
         else => {},
+    }
+
+    if (builtin.cpu.arch == .powerpc) {
+        // https://github.com/ziglang/zig/issues/16951
+        return error.SkipZigTest;
     }
 
     const foreign_endian: Endian = if (native_endian == .Big) .Little else .Big;

@@ -22,6 +22,7 @@
 #include <__iterator/iterator_traits.h>
 #include <__iterator/iterator_with_data.h>
 #include <__iterator/segmented_iterator.h>
+#include <__memory/addressof.h>
 #include <__ranges/access.h>
 #include <__ranges/all.h>
 #include <__ranges/concepts.h>
@@ -29,10 +30,10 @@
 #include <__ranges/non_propagating_cache.h>
 #include <__ranges/range_adaptor.h>
 #include <__ranges/view_interface.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/maybe_const.h>
 #include <__utility/forward.h>
 #include <optional>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,7 +44,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Note: `join_view` is still marked experimental because there is an ABI-breaking change that affects `join_view` in
 // the pipeline (https://isocpp.org/files/papers/D2770R0.html).
 // TODO: make `join_view` non-experimental once D2770 is implemented.
-#if _LIBCPP_STD_VER > 17 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
+#if _LIBCPP_STD_VER >= 20 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
 
 namespace ranges {
   template<class>
@@ -394,8 +395,8 @@ inline namespace __cpo {
 template <class _JoinViewIterator>
   requires(_JoinViewIterator::__is_join_view_iterator &&
            ranges::common_range<typename _JoinViewIterator::_Parent> &&
-           __is_cpp17_random_access_iterator<typename _JoinViewIterator::_Outer>::value &&
-           __is_cpp17_random_access_iterator<typename _JoinViewIterator::_Inner>::value)
+           __has_random_access_iterator_category<typename _JoinViewIterator::_Outer>::value &&
+           __has_random_access_iterator_category<typename _JoinViewIterator::_Inner>::value)
 struct __segmented_iterator_traits<_JoinViewIterator> {
 
   using __segment_iterator =
@@ -435,7 +436,7 @@ struct __segmented_iterator_traits<_JoinViewIterator> {
   }
 };
 
-#endif // #if _LIBCPP_STD_VER > 17 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
+#endif // #if _LIBCPP_STD_VER >= 20 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
 
 _LIBCPP_END_NAMESPACE_STD
 

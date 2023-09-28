@@ -12,7 +12,6 @@
 
 #include <condition_variable>
 #include <thread>
-#include <system_error>
 
 #if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
 #  pragma comment(lib, "pthread")

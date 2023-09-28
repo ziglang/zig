@@ -1291,8 +1291,8 @@ pub const Symtab = struct {
 
     pub const Tag = enum {
         symbol,
-        func_def,
         debug_info,
+        func_def,
         weak_ext,
         file_def,
         sect_def,

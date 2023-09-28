@@ -397,14 +397,15 @@ _mm512_broadcastsd_pd(__m128d __A)
 static __inline __m512d __DEFAULT_FN_ATTRS512
 _mm512_castpd256_pd512(__m256d __a)
 {
-  return __builtin_shufflevector(__a, __a, 0, 1, 2, 3, -1, -1, -1, -1);
+  return __builtin_shufflevector(__a, __builtin_nondeterministic_value(__a), 0,
+                                 1, 2, 3, 4, 5, 6, 7);
 }
 
 static __inline __m512 __DEFAULT_FN_ATTRS512
 _mm512_castps256_ps512(__m256 __a)
 {
-  return __builtin_shufflevector(__a, __a, 0,  1,  2,  3,  4,  5,  6,  7,
-                                          -1, -1, -1, -1, -1, -1, -1, -1);
+  return __builtin_shufflevector(__a, __builtin_nondeterministic_value(__a), 0,
+                                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 }
 
 static __inline __m128d __DEFAULT_FN_ATTRS512
@@ -446,7 +447,10 @@ _mm512_castpd_si512 (__m512d __A)
 static __inline__ __m512d __DEFAULT_FN_ATTRS512
 _mm512_castpd128_pd512 (__m128d __A)
 {
-  return __builtin_shufflevector( __A, __A, 0, 1, -1, -1, -1, -1, -1, -1);
+  __m256d __B = __builtin_nondeterministic_value(__B);
+  return __builtin_shufflevector(
+      __builtin_shufflevector(__A, __builtin_nondeterministic_value(__A), 0, 1, 2, 3),
+      __B, 0, 1, 2, 3, 4, 5, 6, 7);
 }
 
 static __inline __m512d __DEFAULT_FN_ATTRS512
@@ -464,19 +468,25 @@ _mm512_castps_si512 (__m512 __A)
 static __inline__ __m512 __DEFAULT_FN_ATTRS512
 _mm512_castps128_ps512 (__m128 __A)
 {
-    return  __builtin_shufflevector( __A, __A, 0, 1, 2, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+  __m256 __B = __builtin_nondeterministic_value(__B);
+  return __builtin_shufflevector(
+      __builtin_shufflevector(__A, __builtin_nondeterministic_value(__A), 0, 1, 2, 3, 4, 5, 6, 7),
+      __B, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_castsi128_si512 (__m128i __A)
 {
-   return  __builtin_shufflevector( __A, __A, 0, 1, -1, -1, -1, -1, -1, -1);
+  __m256i __B = __builtin_nondeterministic_value(__B);
+  return __builtin_shufflevector(
+      __builtin_shufflevector(__A, __builtin_nondeterministic_value(__A), 0, 1, 2, 3),
+      __B, 0, 1, 2, 3, 4, 5, 6, 7);
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_castsi256_si512 (__m256i __A)
 {
-   return  __builtin_shufflevector( __A, __A, 0, 1, 2, 3, -1, -1, -1, -1);
+   return  __builtin_shufflevector( __A, __builtin_nondeterministic_value(__A), 0, 1, 2, 3, 4, 5, 6, 7);
 }
 
 static __inline __m512 __DEFAULT_FN_ATTRS512

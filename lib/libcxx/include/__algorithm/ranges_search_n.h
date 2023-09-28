@@ -31,14 +31,13 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __search_n {
 struct __fn {
-
   template <class _Iter1, class _Sent1, class _SizeT, class _Type, class _Pred, class _Proj>
   _LIBCPP_HIDE_FROM_ABI static constexpr subrange<_Iter1> __ranges_search_n_impl(
       _Iter1 __first, _Sent1 __last, _SizeT __count, const _Type& __value, _Pred& __pred, _Proj& __proj) {
@@ -59,36 +58,31 @@ struct __fn {
       }
     }
 
-    auto __ret = std::__search_n_forward_impl<_RangeAlgPolicy>(__first, __last,
-                                                               __count,
-                                                               __value,
-                                                               __pred,
-                                                               __proj);
+    auto __ret = std::__search_n_forward_impl<_RangeAlgPolicy>(__first, __last, __count, __value, __pred, __proj);
     return {std::move(__ret.first), std::move(__ret.second)};
   }
 
-  template <forward_iterator _Iter, sentinel_for<_Iter> _Sent,
+  template <forward_iterator _Iter,
+            sentinel_for<_Iter> _Sent,
             class _Type,
             class _Pred = ranges::equal_to,
             class _Proj = identity>
     requires indirectly_comparable<_Iter, const _Type*, _Pred, _Proj>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  subrange<_Iter> operator()(_Iter __first, _Sent __last,
-                             iter_difference_t<_Iter> __count,
-                             const _Type& __value,
-                             _Pred __pred = {},
-                             _Proj __proj = _Proj{}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
+  operator()(_Iter __first,
+             _Sent __last,
+             iter_difference_t<_Iter> __count,
+             const _Type& __value,
+             _Pred __pred = {},
+             _Proj __proj = _Proj{}) const {
     return __ranges_search_n_impl(__first, __last, __count, __value, __pred, __proj);
   }
 
   template <forward_range _Range, class _Type, class _Pred = ranges::equal_to, class _Proj = identity>
     requires indirectly_comparable<iterator_t<_Range>, const _Type*, _Pred, _Proj>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  borrowed_subrange_t<_Range> operator()(_Range&& __range,
-                                         range_difference_t<_Range> __count,
-                                         const _Type& __value,
-                                         _Pred __pred = {},
-                                         _Proj __proj = {}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range> operator()(
+      _Range&& __range, range_difference_t<_Range> __count, const _Type& __value, _Pred __pred = {}, _Proj __proj = {})
+      const {
     auto __first = ranges::begin(__range);
     if (__count <= 0)
       return {__first, __first};
@@ -106,12 +100,12 @@ struct __fn {
 } // namespace __search_n
 
 inline namespace __cpo {
-  inline constexpr auto search_n = __search_n::__fn{};
+inline constexpr auto search_n = __search_n::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_SEARCH_N_H

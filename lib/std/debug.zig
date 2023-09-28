@@ -514,7 +514,12 @@ pub const StackIterator = struct {
 
         return StackIterator{
             .first_address = first_address,
-            .fp = fp orelse @frameAddress(),
+            // TODO: this is a workaround for #16876
+            //.fp = fp orelse @frameAddress(),
+            .fp = fp orelse blk: {
+                const fa = @frameAddress();
+                break :blk fa;
+            },
         };
     }
 

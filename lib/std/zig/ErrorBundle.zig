@@ -421,7 +421,7 @@ pub const Wip = struct {
         _ = try addExtra(wip, rt);
     }
 
-    pub fn addBundle(wip: *Wip, other: ErrorBundle) !void {
+    pub fn addBundleAsNotes(wip: *Wip, other: ErrorBundle) !void {
         const gpa = wip.gpa;
 
         try wip.string_bytes.ensureUnusedCapacity(gpa, other.string_bytes.len);
@@ -433,6 +433,21 @@ pub const Wip = struct {
         const notes_start = wip.reserveNotes(@as(u32, @intCast(other_list.len))) catch unreachable;
         for (notes_start.., other_list) |note, message| {
             wip.extra.items[note] = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
+        }
+    }
+
+    pub fn addBundleAsRoots(wip: *Wip, other: ErrorBundle) !void {
+        const gpa = wip.gpa;
+
+        try wip.string_bytes.ensureUnusedCapacity(gpa, other.string_bytes.len);
+        try wip.extra.ensureUnusedCapacity(gpa, other.extra.len);
+
+        const other_list = other.getMessages();
+
+        try wip.root_list.ensureUnusedCapacity(gpa, other_list.len);
+        for (other_list) |other_msg| {
+            // The ensureUnusedCapacity calls above guarantees this.
+            wip.root_list.appendAssumeCapacity(wip.addOtherMessage(other, other_msg) catch unreachable);
         }
     }
 
@@ -474,7 +489,10 @@ pub const Wip = struct {
             .span_start = other_sl.span_start,
             .span_main = other_sl.span_main,
             .span_end = other_sl.span_end,
-            .source_line = try wip.addString(other.nullTerminatedString(other_sl.source_line)),
+            .source_line = if (other_sl.source_line != 0)
+                try wip.addString(other.nullTerminatedString(other_sl.source_line))
+            else
+                0,
             .reference_trace_len = other_sl.reference_trace_len,
         });
 

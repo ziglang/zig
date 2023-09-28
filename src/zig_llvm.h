@@ -13,7 +13,6 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Target.h>
-#include <llvm-c/Initialization.h>
 #include <llvm-c/TargetMachine.h>
 
 #ifdef __cplusplus
@@ -102,8 +101,8 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_X86_64_SysV = 78,
     ZigLLVM_Win64 = 79,
     ZigLLVM_X86_VectorCall = 80,
-    ZigLLVM_HHVM = 81,
-    ZigLLVM_HHVM_C = 82,
+    ZigLLVM_DUMMY_HHVM = 81,
+    ZigLLVM_DUMMY_HHVM_C = 82,
     ZigLLVM_X86_INTR = 83,
     ZigLLVM_AVR_INTR = 84,
     ZigLLVM_AVR_SIGNAL = 85,
@@ -402,6 +401,7 @@ enum ZigLLVM_OSType {
     ZigLLVM_NetBSD,
     ZigLLVM_OpenBSD,
     ZigLLVM_Solaris,
+    ZigLLVM_UEFI,
     ZigLLVM_Win32,
     ZigLLVM_ZOS,
     ZigLLVM_Haiku,
@@ -426,7 +426,8 @@ enum ZigLLVM_OSType {
     ZigLLVM_WASI,       // Experimental WebAssembly OS
     ZigLLVM_Emscripten,
     ZigLLVM_ShaderModel, // DirectX ShaderModel
-    ZigLLVM_LastOSType = ZigLLVM_ShaderModel
+    ZigLLVM_LiteOS,
+    ZigLLVM_LastOSType = ZigLLVM_LiteOS
 };
 
 // Synchronize with target.cpp::abi_list
@@ -474,8 +475,9 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Callable,
     ZigLLVM_Mesh,
     ZigLLVM_Amplification,
+    ZigLLVM_OpenHOS,
 
-    ZigLLVM_LastEnvironmentType = ZigLLVM_Amplification
+    ZigLLVM_LastEnvironmentType = ZigLLVM_OpenHOS
 };
 
 enum ZigLLVM_ObjectFormatType {

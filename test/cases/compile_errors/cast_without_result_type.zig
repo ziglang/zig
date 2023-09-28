@@ -13,6 +13,10 @@ export fn d() void {
     var x: f32 = 0;
     _ = x + @floatFromInt(123);
 }
+export fn e() void {
+    const x: u32, const y: u64 = @intCast(123);
+    _ = x + y;
+}
 
 // error
 // backend=stage2
@@ -26,3 +30,6 @@ export fn d() void {
 // :9:10: note: use @as to provide explicit result type
 // :14:13: error: @floatFromInt must have a known result type
 // :14:13: note: use @as to provide explicit result type
+// :17:34: error: @intCast must have a known result type
+// :17:32: note: destructure expressions do not provide a single result type
+// :17:34: note: use @as to provide explicit result type

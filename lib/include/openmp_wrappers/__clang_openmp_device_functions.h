@@ -40,7 +40,6 @@ extern "C" {
 
 // Import types which will be used by __clang_hip_libdevice_declares.h
 #ifndef __cplusplus
-#include <stdbool.h>
 #include <stdint.h>
 #endif
 

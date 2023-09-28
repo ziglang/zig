@@ -9,6 +9,7 @@
 #ifndef _LIBCPP___FWD_STRING_H
 #define _LIBCPP___FWD_STRING_H
 
+#include <__availability>
 #include <__config>
 #include <__fwd/memory_resource.h>
 
@@ -61,21 +62,20 @@ using u32string = basic_string<char32_t>;
 
 namespace pmr {
 template <class _CharT, class _Traits = char_traits<_CharT>>
-using basic_string = std::basic_string<_CharT, _Traits, polymorphic_allocator<_CharT>>;
+using basic_string _LIBCPP_AVAILABILITY_PMR = std::basic_string<_CharT, _Traits, polymorphic_allocator<_CharT>>;
 
-using string = basic_string<char>;
+using string _LIBCPP_AVAILABILITY_PMR = basic_string<char>;
 
 #  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-using wstring = basic_string<wchar_t>;
+using wstring _LIBCPP_AVAILABILITY_PMR = basic_string<wchar_t>;
 #  endif
 
 #  ifndef _LIBCPP_HAS_NO_CHAR8_T
-using u8string = basic_string<char8_t>;
+using u8string _LIBCPP_AVAILABILITY_PMR = basic_string<char8_t>;
 #  endif
 
-using u16string = basic_string<char16_t>;
-using u32string = basic_string<char32_t>;
-
+using u16string _LIBCPP_AVAILABILITY_PMR = basic_string<char16_t>;
+using u32string _LIBCPP_AVAILABILITY_PMR = basic_string<char32_t>;
 } // namespace pmr
 
 #endif // _LIBCPP_STD_VER >= 17

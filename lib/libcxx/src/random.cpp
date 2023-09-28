@@ -13,13 +13,9 @@
 #   define _CRT_RAND_S
 #endif // defined(_LIBCPP_USING_WIN32_RANDOM)
 
+#include <__system_error/system_error.h>
 #include <limits>
 #include <random>
-#include <system_error>
-
-#if defined(__sun__)
-#   define rename solaris_headers_are_broken
-#endif // defined(__sun__)
 
 #include <errno.h>
 #include <stdio.h>

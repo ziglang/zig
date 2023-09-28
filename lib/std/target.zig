@@ -28,6 +28,7 @@ pub const Target = struct {
             netbsd,
             openbsd,
             solaris,
+            uefi,
             windows,
             zos,
             haiku,
@@ -52,7 +53,7 @@ pub const Target = struct {
             wasi,
             emscripten,
             shadermodel,
-            uefi,
+            liteos,
             opencl,
             glsl450,
             vulkan,
@@ -259,6 +260,7 @@ pub const Target = struct {
                     .emscripten,
                     .driverkit,
                     .shadermodel,
+                    .liteos,
                     .uefi,
                     .opencl, // TODO: OpenCL versions
                     .glsl450, // TODO: GLSL versions
@@ -395,7 +397,7 @@ pub const Target = struct {
         /// On Darwin, we always link libSystem which contains libc.
         /// Similarly on FreeBSD and NetBSD we always link system libc
         /// since this is the stable syscall interface.
-        pub inline fn requiresLibC(os: Os) bool {
+        pub fn requiresLibC(os: Os) bool {
             return switch (os.tag) {
                 .freebsd,
                 .netbsd,
@@ -437,6 +439,7 @@ pub const Target = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
+                .liteos,
                 .uefi,
                 .opencl,
                 .glsl450,
@@ -565,6 +568,7 @@ pub const Target = struct {
                 .watchos,
                 .driverkit,
                 .shadermodel,
+                .liteos, // TODO: audit this
                 => return .none,
             }
         }
@@ -975,7 +979,7 @@ pub const Target = struct {
                 return error.UnknownCpuModel;
             }
 
-            pub inline fn toElfMachine(arch: Arch) std.elf.EM {
+            pub fn toElfMachine(arch: Arch) std.elf.EM {
                 return switch (arch) {
                     .avr => .AVR,
                     .msp430 => .MSP430,
@@ -1040,7 +1044,7 @@ pub const Target = struct {
                 };
             }
 
-            pub inline fn toCoffMachine(arch: Arch) std.coff.MachineType {
+            pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
                 return switch (arch) {
                     .avr => .Unknown,
                     .msp430 => .Unknown,
@@ -1105,7 +1109,7 @@ pub const Target = struct {
                 };
             }
 
-            pub inline fn endian(arch: Arch) std.builtin.Endian {
+            pub fn endian(arch: Arch) std.builtin.Endian {
                 return switch (arch) {
                     .avr,
                     .arm,
@@ -1176,7 +1180,7 @@ pub const Target = struct {
             }
 
             /// Returns whether this architecture supports the address space
-            pub inline fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
+            pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
                 const is_nvptx = arch == .nvptx or arch == .nvptx64;
                 const is_spirv = arch == .spirv32 or arch == .spirv64;
                 const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
@@ -1469,7 +1473,6 @@ pub const Target = struct {
     pub const FloatAbi = enum {
         hard,
         soft,
-        soft_fp,
     };
 
     pub inline fn getFloatAbi(self: Target) FloatAbi {
@@ -1714,6 +1717,7 @@ pub const Target = struct {
             .hurd,
             .driverkit,
             .shadermodel,
+            .liteos,
             => return result,
         }
     }
@@ -1742,7 +1746,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn maxIntAlignment(target: Target) u16 {
+    pub fn maxIntAlignment(target: Target) u16 {
         return switch (target.cpu.arch) {
             .avr => 1,
             .msp430 => 2,
@@ -1832,7 +1836,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn ptrBitWidth(target: Target) u16 {
+    pub fn ptrBitWidth(target: Target) u16 {
         switch (target.abi) {
             .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
             .gnuabi64 => return 64,
@@ -1909,7 +1913,7 @@ pub const Target = struct {
         }
     }
 
-    pub inline fn stackAlignment(target: Target) u16 {
+    pub fn stackAlignment(target: Target) u16 {
         return switch (target.cpu.arch) {
             .m68k => 2,
             .amdgcn => 4,
@@ -1954,7 +1958,7 @@ pub const Target = struct {
     /// Default signedness of `char` for the native C compiler for this target
     /// Note that char signedness is implementation-defined and many compilers provide
     /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-    pub inline fn charSignedness(target: Target) std.builtin.Signedness {
+    pub fn charSignedness(target: Target) std.builtin.Signedness {
         switch (target.cpu.arch) {
             .aarch64,
             .aarch64_32,
@@ -1993,7 +1997,7 @@ pub const Target = struct {
         longdouble,
     };
 
-    pub inline fn c_type_byte_size(t: Target, c_type: CType) u16 {
+    pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
         return switch (c_type) {
             .char,
             .short,
@@ -2019,7 +2023,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn c_type_bit_size(target: Target, c_type: CType) u16 {
+    pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
@@ -2329,11 +2333,12 @@ pub const Target = struct {
             .vulkan,
             .driverkit,
             .shadermodel,
+            .liteos,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }
 
-    pub inline fn c_type_alignment(target: Target, c_type: CType) u16 {
+    pub fn c_type_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .avr => return 1,
@@ -2440,7 +2445,7 @@ pub const Target = struct {
         );
     }
 
-    pub inline fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
+    pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {

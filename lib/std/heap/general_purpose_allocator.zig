@@ -1305,7 +1305,7 @@ test "realloc large object to larger alignment" {
 }
 
 test "large object shrinks to small but allocation fails during shrink" {
-    var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, 3);
+    var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();

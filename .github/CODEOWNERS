@@ -8,3 +8,6 @@
 
 # std.Thread
 /lib/std/Thread* @kprotty
+
+# resinator
+/src/resinator/* @squeek502

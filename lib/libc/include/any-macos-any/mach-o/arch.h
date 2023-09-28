@@ -32,6 +32,13 @@
 #include <stdint.h>
 #include <mach/machine.h>
 #include <architecture/byte_order.h>
+#include <Availability.h>
+#include <TargetConditionals.h>
+
+#ifndef __CCTOOLS_DEPRECATED
+    #define __CCTOOLS_DEPRECATED            __API_DEPRECATED("No longer supported", macos(10.0, 13.0), ios(1.0, 16.0), watchos(1.0, 8.0), tvos(1.0, 16.0))
+    #define __CCTOOLS_DEPRECATED_MSG(_msg)  __API_DEPRECATED_WITH_REPLACEMENT(_msg, macos(10.0, 13.0), ios(1.0, 16.0), watchos(1.0, 8.0), tvos(1.0, 16.0))
+#endif
 
 /* The NXArchInfo structs contain the architectures symbolic name
  * (such as "ppc"), its CPU type and CPU subtype as defined in
@@ -40,13 +47,15 @@
  * There will both be entries for specific CPUs (such as ppc604e) as
  * well as generic "family" entries (such as ppc).
  */
-typedef struct {
+
+struct NXArchInfo  {
     const char *name;
     cpu_type_t cputype;
     cpu_subtype_t cpusubtype;
     enum NXByteOrder byteorder;
     const char *description;
-} NXArchInfo;
+} __CCTOOLS_DEPRECATED;
+typedef struct NXArchInfo NXArchInfo __CCTOOLS_DEPRECATED;
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,12 +64,12 @@ extern "C" {
 /* NXGetAllArchInfos() returns a pointer to an array of all known
  * NXArchInfo structures.  The last NXArchInfo is marked by a NULL name.
  */
-extern const NXArchInfo *NXGetAllArchInfos(void);
+extern const NXArchInfo *NXGetAllArchInfos(void) __CCTOOLS_DEPRECATED;
 
 /* NXGetLocalArchInfo() returns the NXArchInfo for the local host, or NULL
  * if none is known. 
  */
-extern const NXArchInfo *NXGetLocalArchInfo(void);
+extern const NXArchInfo *NXGetLocalArchInfo(void) __CCTOOLS_DEPRECATED_MSG("use macho_arch_name_for_mach_header()");
 
 /* NXGetArchInfoFromName() and NXGetArchInfoFromCpuType() return the
  * NXArchInfo from the architecture's name or cputype/cpusubtype
@@ -68,9 +77,9 @@ extern const NXArchInfo *NXGetLocalArchInfo(void);
  * to request the most general NXArchInfo known for the given cputype.
  * NULL is returned if no matching NXArchInfo can be found.
  */
-extern const NXArchInfo *NXGetArchInfoFromName(const char *name);
+extern const NXArchInfo *NXGetArchInfoFromName(const char *name) __CCTOOLS_DEPRECATED_MSG("use macho_cpu_type_for_arch_name()");
 extern const NXArchInfo *NXGetArchInfoFromCpuType(cpu_type_t cputype,
-						  cpu_subtype_t cpusubtype);
+						  cpu_subtype_t cpusubtype) __CCTOOLS_DEPRECATED_MSG("use macho_arch_name_for_cpu_type()");
 
 /* The above interfaces that return pointers to NXArchInfo structs in normal
  * cases returns a pointer from the array returned in NXGetAllArchInfos().
@@ -82,7 +91,7 @@ extern const NXArchInfo *NXGetArchInfoFromCpuType(cpu_type_t cputype,
  * code below.  Going forward the above interfaces will only return pointers
  * from the array returned in NXGetAllArchInfos().
  */
-extern void NXFreeArchInfo(const NXArchInfo *x);
+extern void NXFreeArchInfo(const NXArchInfo *x) __CCTOOLS_DEPRECATED_MSG("NXArchInfo is deprecated");
 
 /* The code that can be used for NXFreeArchInfo() when it is not available is:
  *
@@ -114,7 +123,7 @@ extern void NXFreeArchInfo(const NXArchInfo *x);
 extern struct fat_arch *NXFindBestFatArch(cpu_type_t cputype,
 					  cpu_subtype_t cpusubtype,
 					  struct fat_arch *fat_archs,
-					  uint32_t nfat_archs);
+					  uint32_t nfat_archs) __CCTOOLS_DEPRECATED_MSG("use macho_best_slice()");
 
 /* NXFindBestFatArch_64() is passed a cputype and cpusubtype and a set of
  * fat_arch_64 structs and selects the best one that matches (if any) and
@@ -129,7 +138,7 @@ extern struct fat_arch *NXFindBestFatArch(cpu_type_t cputype,
 extern struct fat_arch_64 *NXFindBestFatArch_64(cpu_type_t cputype,
 					        cpu_subtype_t cpusubtype,
 					        struct fat_arch_64 *fat_archs64,
-					        uint32_t nfat_archs);
+					        uint32_t nfat_archs) __CCTOOLS_DEPRECATED_MSG("use macho_best_slice()");
 
 /* NXCombineCpuSubtypes() returns the resulting cpusubtype when combining two
  * different cpusubtypes for the specified cputype.  If the two cpusubtypes
@@ -141,7 +150,7 @@ extern struct fat_arch_64 *NXFindBestFatArch_64(cpu_type_t cputype,
  */
 extern cpu_subtype_t NXCombineCpuSubtypes(cpu_type_t cputype,
 					  cpu_subtype_t cpusubtype1,
-					  cpu_subtype_t cpusubtype2);
+					  cpu_subtype_t cpusubtype2) __CCTOOLS_DEPRECATED_MSG("cpu subtypes are no longer combinable");
 
 #ifdef __cplusplus
 }

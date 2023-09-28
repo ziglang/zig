@@ -12,8 +12,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // These two symbols are part of the v1 ABI but not part of the >=v2 ABI.
 #if _LIBCPP_ABI_VERSION == 1
-template _LIBCPP_FUNC_VIS valarray<size_t>::valarray(size_t);
-template _LIBCPP_FUNC_VIS valarray<size_t>::~valarray();
+template _LIBCPP_EXPORTED_FROM_ABI valarray<size_t>::valarray(size_t);
+template _LIBCPP_EXPORTED_FROM_ABI valarray<size_t>::~valarray();
 #endif
 
 template void valarray<size_t>::resize(size_t, size_t);

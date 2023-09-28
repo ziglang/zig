@@ -614,9 +614,9 @@ test "std.meta.FieldEnum" {
     const Tagged = union(enum) { a: u8, b: void, c: f32 };
     try testing.expectEqual(Tag(Tagged), FieldEnum(Tagged));
 
-    const Tag2 = enum { b, c, a };
+    const Tag2 = enum { a, b, c };
     const Tagged2 = union(Tag2) { a: u8, b: void, c: f32 };
-    try testing.expect(Tag(Tagged2) != FieldEnum(Tagged2));
+    try testing.expect(Tag(Tagged2) == FieldEnum(Tagged2));
 
     const Tag3 = enum(u8) { a, b, c = 7 };
     const Tagged3 = union(Tag3) { a: u8, b: void, c: f32 };
@@ -969,9 +969,9 @@ test "std.meta.Float" {
 /// correspond to the argument types.
 ///
 /// Examples:
-/// - `ArgsTuple(fn() void)` ⇒ `tuple { }`
-/// - `ArgsTuple(fn(a: u32) u32)` ⇒ `tuple { u32 }`
-/// - `ArgsTuple(fn(a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
+/// - `ArgsTuple(fn () void)` ⇒ `tuple { }`
+/// - `ArgsTuple(fn (a: u32) u32)` ⇒ `tuple { u32 }`
+/// - `ArgsTuple(fn (a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
 pub fn ArgsTuple(comptime Function: type) type {
     const info = @typeInfo(Function);
     if (info != .Fn)
@@ -1104,6 +1104,6 @@ pub fn isError(error_union: anytype) bool {
 }
 
 test "isError" {
-    try std.testing.expect(isError(math.absInt(@as(i8, -128))));
-    try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
+    try std.testing.expect(isError(math.divTrunc(u8, 5, 0)));
+    try std.testing.expect(!isError(math.divTrunc(u8, 5, 5)));
 }

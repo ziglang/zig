@@ -52,19 +52,19 @@ const simple_allocator = struct {
             abort();
         }
 
-        return @as([*]u8, @ptrCast(aligned_ptr));
+        return @ptrCast(aligned_ptr);
     }
 
     /// Resize a slice.
     pub fn reallocSlice(comptime T: type, slice: []T, len: usize) []T {
-        var c_ptr: *anyopaque = @as(*anyopaque, @ptrCast(slice.ptr));
+        var c_ptr: *anyopaque = @ptrCast(slice.ptr);
         var new_array: [*]T = @ptrCast(@alignCast(std.c.realloc(c_ptr, @sizeOf(T) * len) orelse abort()));
         return new_array[0..len];
     }
 
     /// Free a memory chunk allocated with simple_allocator.
     pub fn free(ptr: anytype) void {
-        std.c.free(@as(*anyopaque, @ptrCast(ptr)));
+        std.c.free(@ptrCast(ptr));
     }
 };
 
@@ -138,7 +138,7 @@ const ObjectArray = struct {
                 @memset(data[0..size], 0);
             }
 
-            self.slots[index] = @as(*anyopaque, @ptrCast(data));
+            self.slots[index] = @ptrCast(data);
         }
 
         return self.slots[index].?;
@@ -178,7 +178,7 @@ const current_thread_storage = struct {
 
     /// Set casted thread specific value.
     fn setspecific(new: ?*ObjectArray) void {
-        if (std.c.pthread_setspecific(current_thread_storage.key, @as(*anyopaque, @ptrCast(new))) != 0) {
+        if (std.c.pthread_setspecific(current_thread_storage.key, @ptrCast(new)) != 0) {
             abort();
         }
     }
@@ -278,7 +278,7 @@ const emutls_control = extern struct {
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
             .object = .{ .index = 0 },
-            .default_value = @as(?*const anyopaque, @ptrCast(default_value)),
+            .default_value = @ptrCast(default_value),
         };
     }
 

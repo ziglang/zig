@@ -241,6 +241,11 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
                 token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
+        .expected_expr_or_var_decl => {
+            return stream.print("expected expression or var decl, found '{s}'", .{
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
+            });
+        },
         .expected_fn => {
             return stream.print("expected function, found '{s}'", .{
                 token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
@@ -584,6 +589,13 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .error_union,
         => n = datas[n].lhs,
 
+        .assign_destructure => {
+            const extra_idx = datas[n].lhs;
+            const lhs_len = tree.extra_data[extra_idx];
+            assert(lhs_len > 0);
+            n = tree.extra_data[extra_idx + 1];
+        },
+
         .fn_decl,
         .fn_proto_simple,
         .fn_proto_multi,
@@ -816,6 +828,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .assign_add_sat,
         .assign_sub_sat,
         .assign,
+        .assign_destructure,
         .merge_error_sets,
         .mul,
         .div,
@@ -2846,6 +2859,7 @@ pub const Error = struct {
         expected_container_members,
         expected_expr,
         expected_expr_or_assignment,
+        expected_expr_or_var_decl,
         expected_fn,
         expected_inlinable,
         expected_labelable,
@@ -3006,6 +3020,20 @@ pub const Node = struct {
         assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
+        /// `a, b, ... = rhs`. main_token is op. lhs is index into `extra_data`
+        /// of an lhs elem count followed by an array of that many `Node.Index`,
+        /// with each node having one of the following types:
+        /// * `global_var_decl`
+        /// * `local_var_decl`
+        /// * `simple_var_decl`
+        /// * `aligned_var_decl`
+        /// * Any expression node
+        /// The first 3 types correspond to a `var` or `const` lhs node (note
+        /// that their `rhs` is always 0). An expression node corresponds to a
+        /// standard assignment LHS (which must be evaluated as an lvalue).
+        /// There may be a preceding `comptime` token, which does not create a
+        /// corresponding `comptime` node so must be manually detected.
+        assign_destructure,
         /// `lhs || rhs`. main_token is the `||`.
         merge_error_sets,
         /// `lhs * rhs`. main_token is the `*`.
@@ -3227,23 +3255,23 @@ pub const Node = struct {
         @"break",
         /// `return lhs`. lhs can be omitted. rhs is unused.
         @"return",
-        /// `fn(a: lhs) rhs`. lhs can be omitted.
+        /// `fn (a: lhs) rhs`. lhs can be omitted.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_simple,
-        /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
+        /// `fn (a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn(a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn(a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.

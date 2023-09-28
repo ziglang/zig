@@ -12,5 +12,5 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :7:29: error: unable to resolve comptime value
-// :7:29: note: initializer of comptime only struct must be comptime-known
+// :7:23: error: unable to resolve comptime value
+// :7:23: note: initializer of comptime only struct must be comptime-known

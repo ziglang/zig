@@ -15,6 +15,7 @@
 #include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
+#include <__string/constexpr_c_functions.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_always_bitcastable.h>
 #include <__type_traits/is_constant_evaluated.h>
@@ -61,7 +62,8 @@ template <class _In, class _Out>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_In*, _Out*>
 __copy_trivial_impl(_In* __first, _In* __last, _Out* __result) {
   const size_t __n = static_cast<size_t>(__last - __first);
-  ::__builtin_memmove(__result, __first, __n * sizeof(_Out));
+
+  std::__constexpr_memmove(__result, __first, __element_count(__n));
 
   return std::make_pair(__last, __result + __n);
 }
@@ -72,7 +74,7 @@ __copy_backward_trivial_impl(_In* __first, _In* __last, _Out* __result) {
   const size_t __n = static_cast<size_t>(__last - __first);
   __result -= __n;
 
-  ::__builtin_memmove(__result, __first, __n * sizeof(_Out));
+  std::__constexpr_memmove(__result, __first, __element_count(__n));
 
   return std::make_pair(__last, __result);
 }
@@ -119,16 +121,6 @@ __unwrap_and_dispatch(_InIter __first, _Sent __last, _OutIter __out_first) {
   return _Algorithm()(std::move(__first), std::move(__last), std::move(__out_first));
 }
 
-template <class _IterOps, class _InValue, class _OutIter, class = void>
-struct __can_copy_without_conversion : false_type {};
-
-template <class _IterOps, class _InValue, class _OutIter>
-struct __can_copy_without_conversion<
-    _IterOps,
-    _InValue,
-    _OutIter,
-    __enable_if_t<is_same<_InValue, typename _IterOps::template __value_type<_OutIter> >::value> > : true_type {};
-
 template <class _AlgPolicy,
           class _NaiveAlgorithm,
           class _OptimizedAlgorithm,
@@ -137,23 +129,6 @@ template <class _AlgPolicy,
           class _OutIter>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 pair<_InIter, _OutIter>
 __dispatch_copy_or_move(_InIter __first, _Sent __last, _OutIter __out_first) {
-#ifdef _LIBCPP_COMPILER_GCC
-  // GCC doesn't support `__builtin_memmove` during constant evaluation.
-  if (__libcpp_is_constant_evaluated()) {
-    return std::__unwrap_and_dispatch<_NaiveAlgorithm>(std::move(__first), std::move(__last), std::move(__out_first));
-  }
-#else
-  // In Clang, `__builtin_memmove` only supports fully trivially copyable types (just having trivial copy assignment is
-  // insufficient). Also, conversions are not supported.
-  if (__libcpp_is_constant_evaluated()) {
-    using _InValue = typename _IterOps<_AlgPolicy>::template __value_type<_InIter>;
-    if (!is_trivially_copyable<_InValue>::value ||
-        !__can_copy_without_conversion<_IterOps<_AlgPolicy>, _InValue, _OutIter>::value) {
-      return std::__unwrap_and_dispatch<_NaiveAlgorithm>(std::move(__first), std::move(__last), std::move(__out_first));
-    }
-  }
-#endif // _LIBCPP_COMPILER_GCC
-
   using _Algorithm = __overload<_NaiveAlgorithm, _OptimizedAlgorithm>;
   return std::__unwrap_and_dispatch<_Algorithm>(std::move(__first), std::move(__last), std::move(__out_first));
 }

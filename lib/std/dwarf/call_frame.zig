@@ -69,14 +69,7 @@ pub const Instruction = union(Opcode) {
         register: u8,
         offset: u64,
     },
-    offset_extended: struct {
-        register: u8,
-        offset: u64,
-    },
     restore: struct {
-        register: u8,
-    },
-    restore_extended: struct {
         register: u8,
     },
     nop: void,
@@ -91,6 +84,13 @@ pub const Instruction = union(Opcode) {
     },
     advance_loc4: struct {
         delta: u32,
+    },
+    offset_extended: struct {
+        register: u8,
+        offset: u64,
+    },
+    restore_extended: struct {
+        register: u8,
     },
     undefined: struct {
         register: u8,

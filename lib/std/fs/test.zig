@@ -569,6 +569,24 @@ test "readAllAlloc" {
     try testing.expectError(error.FileTooBig, file.readToEndAlloc(testing.allocator, write_buf.len - 1));
 }
 
+test "Dir.statFile" {
+    // TODO: Re-enable once https://github.com/ziglang/zig/issues/17034 is solved
+    if (builtin.os.tag == .linux and builtin.link_libc and builtin.abi == .gnu) return error.SkipZigTest;
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const test_file_name = try ctx.transformPath("test_file");
+
+            try testing.expectError(error.FileNotFound, ctx.dir.statFile(test_file_name));
+
+            try ctx.dir.writeFile(test_file_name, "");
+
+            const stat = try ctx.dir.statFile(test_file_name);
+            try testing.expectEqual(File.Kind.file, stat.kind);
+        }
+    }.impl);
+}
+
 test "directory operations on files" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -657,6 +675,12 @@ test "deleteDir" {
 test "Dir.rename files" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            // Rename on Windows can hit intermittent AccessDenied errors
+            // when certain conditions are true about the host system.
+            // For now, skip this test when the path type is UNC to avoid them.
+            // See https://github.com/ziglang/zig/issues/17134
+            if (ctx.path_type == .unc) return;
+
             const missing_file_path = try ctx.transformPath("missing_file_name");
             const something_else_path = try ctx.transformPath("something_else");
 
@@ -693,6 +717,12 @@ test "Dir.rename files" {
 test "Dir.rename directories" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            // Rename on Windows can hit intermittent AccessDenied errors
+            // when certain conditions are true about the host system.
+            // For now, skip this test when the path type is UNC to avoid them.
+            // See https://github.com/ziglang/zig/issues/17134
+            if (ctx.path_type == .unc) return;
+
             const test_dir_path = try ctx.transformPath("test_dir");
             const test_dir_renamed_path = try ctx.transformPath("test_dir_renamed");
 

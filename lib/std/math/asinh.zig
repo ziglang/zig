@@ -28,14 +28,9 @@ pub fn asinh(x: anytype) @TypeOf(x) {
 fn asinh32(x: f32) f32 {
     const u = @as(u32, @bitCast(x));
     const i = u & 0x7FFFFFFF;
-    const s = i >> 31;
+    const s = u >> 31;
 
     var rx = @as(f32, @bitCast(i)); // |x|
-
-    // TODO: Shouldn't need this explicit check.
-    if (math.isNegativeInf(x)) {
-        return x;
-    }
 
     // |x| >= 0x1p12 or inf or nan
     if (i >= 0x3F800000 + (12 << 23)) {
@@ -43,15 +38,15 @@ fn asinh32(x: f32) f32 {
     }
     // |x| >= 2
     else if (i >= 0x3F800000 + (1 << 23)) {
-        rx = @log(2 * x + 1 / (@sqrt(x * x + 1) + x));
+        rx = @log(2 * rx + 1 / (@sqrt(rx * rx + 1) + rx));
     }
     // |x| >= 0x1p-12, up to 1.6ulp error
     else if (i >= 0x3F800000 - (12 << 23)) {
-        rx = math.log1p(x + x * x / (@sqrt(x * x + 1) + 1));
+        rx = math.log1p(rx + rx * rx / (@sqrt(rx * rx + 1) + 1));
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        math.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -60,13 +55,9 @@ fn asinh32(x: f32) f32 {
 fn asinh64(x: f64) f64 {
     const u = @as(u64, @bitCast(x));
     const e = (u >> 52) & 0x7FF;
-    const s = e >> 63;
+    const s = u >> 63;
 
     var rx = @as(f64, @bitCast(u & (maxInt(u64) >> 1))); // |x|
-
-    if (math.isNegativeInf(x)) {
-        return x;
-    }
 
     // |x| >= 0x1p26 or inf or nan
     if (e >= 0x3FF + 26) {
@@ -74,15 +65,15 @@ fn asinh64(x: f64) f64 {
     }
     // |x| >= 2
     else if (e >= 0x3FF + 1) {
-        rx = @log(2 * x + 1 / (@sqrt(x * x + 1) + x));
+        rx = @log(2 * rx + 1 / (@sqrt(rx * rx + 1) + rx));
     }
     // |x| >= 0x1p-12, up to 1.6ulp error
     else if (e >= 0x3FF - 26) {
-        rx = math.log1p(x + x * x / (@sqrt(x * x + 1) + 1));
+        rx = math.log1p(rx + rx * rx / (@sqrt(rx * rx + 1) + 1));
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        math.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -121,7 +112,7 @@ test "math.asinh64" {
 
 test "math.asinh32.special" {
     try expect(asinh32(0.0) == 0.0);
-    try expect(asinh32(-0.0) == -0.0);
+    try expect(@as(u32, @bitCast(asinh32(-0.0))) == @as(u32, 0x80000000));
     try expect(math.isPositiveInf(asinh32(math.inf(f32))));
     try expect(math.isNegativeInf(asinh32(-math.inf(f32))));
     try expect(math.isNan(asinh32(math.nan(f32))));
@@ -129,7 +120,7 @@ test "math.asinh32.special" {
 
 test "math.asinh64.special" {
     try expect(asinh64(0.0) == 0.0);
-    try expect(asinh64(-0.0) == -0.0);
+    try expect(@as(u64, @bitCast(asinh64(-0.0))) == @as(u64, 0x8000000000000000));
     try expect(math.isPositiveInf(asinh64(math.inf(f64))));
     try expect(math.isNegativeInf(asinh64(-math.inf(f64))));
     try expect(math.isNan(asinh64(math.nan(f64))));

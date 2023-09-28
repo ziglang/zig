@@ -1118,7 +1118,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         },
     };
 
-    const required_alignment = tv.ty.abiAlignment(mod);
+    const required_alignment: u32 = @intCast(tv.ty.abiAlignment(mod).toByteUnits(0));
     const atom = self.getAtomPtr(atom_index);
     atom.size = @as(u32, @intCast(code.len));
     atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
@@ -1196,7 +1196,7 @@ fn updateLazySymbolAtom(
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
-    var required_alignment: u32 = undefined;
+    var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1240,7 +1240,7 @@ fn updateLazySymbolAtom(
     symbol.section_number = @as(coff.SectionNumber, @enumFromInt(section_index + 1));
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
-    const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
+    const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits(0)));
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
@@ -1322,7 +1322,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment: u32 = @intCast(decl.getAlignment(mod).toByteUnits(0));
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;

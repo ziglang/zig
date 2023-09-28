@@ -334,7 +334,6 @@ test "inline call preserves tail call" {
 test "inline call doesn't re-evaluate non generic struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(f: struct { a: u8, b: u8 }) !void {
@@ -490,4 +489,14 @@ test "argument to generic function has correct result type" {
 
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "call inline fn through pointer" {
+    const S = struct {
+        inline fn foo(x: u8) !void {
+            try expect(x == 123);
+        }
+    };
+    const f = &S.foo;
+    try f(123);
 }

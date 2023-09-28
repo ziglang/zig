@@ -23,6 +23,7 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const codegen = @import("../../codegen.zig");
+const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
@@ -53,7 +54,7 @@ ret_mcv: MCValue,
 fn_type: Type,
 arg_index: usize,
 src_loc: Module.SrcLoc,
-stack_align: u32,
+stack_align: Alignment,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -522,7 +523,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .log,
             .log2,
             .log10,
-            .fabs,
             .floor,
             .ceil,
             .round,
@@ -606,6 +606,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .clz             => try self.airClz(inst),
             .ctz             => try self.airCtz(inst),
             .popcount        => try self.airPopcount(inst),
+            .abs             => try self.airAbs(inst),
             .byte_swap       => try self.airByteSwap(inst),
             .bit_reverse     => try self.airBitReverse(inst),
             .tag_name        => try self.airTagName(inst),
@@ -788,11 +789,10 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     try table.ensureUnusedCapacity(self.gpa, additional_count);
 }
 
-fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
+fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: Alignment) !u32 {
+    self.stack_align = self.stack_align.max(abi_align);
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align);
+    const offset: u32 = @intCast(abi_align.forward(self.next_stack_offset));
     self.next_stack_offset = offset + abi_size;
     if (self.next_stack_offset > self.max_end_stack)
         self.max_end_stack = self.next_stack_offset;
@@ -822,8 +822,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     const abi_align = elem_ty.abiAlignment(mod);
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
+    self.stack_align = self.stack_align.max(abi_align);
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
@@ -1448,6 +1447,12 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airAbs for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airByteSwap for {}", .{self.target.cpu.arch});
@@ -1747,10 +1752,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (try self.air.value(callee, mod)) |func_value| {
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
-                    const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                    const atom = elf_file.getAtom(atom_index);
-                    _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-                    const got_addr = @as(u32, @intCast(atom.getOffsetTableAddress(elf_file)));
+                    const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                    const sym = elf_file.symbol(sym_index);
+                    _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                    const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
                     try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                     _ = try self.addInst(.{
                         .tag = .jalr,
@@ -2602,7 +2607,7 @@ const CallMCValues = struct {
     args: []MCValue,
     return_value: MCValue,
     stack_byte_count: u32,
-    stack_align: u32,
+    stack_align: Alignment,
 
     fn deinit(self: *CallMCValues, func: *Self) void {
         func.gpa.free(self.args);
@@ -2632,7 +2637,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             assert(result.args.len == 0);
             result.return_value = .{ .unreach = {} };
             result.stack_byte_count = 0;
-            result.stack_align = 1;
+            result.stack_align = .@"1";
             return result;
         },
         .Unspecified, .C => {
@@ -2671,7 +2676,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             result.stack_byte_count = next_stack_offset;
-            result.stack_align = 16;
+            result.stack_align = .@"16";
         },
         else => return self.fail("TODO implement function parameters for {} on riscv64", .{cc}),
     }

@@ -691,8 +691,8 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_Array, __num_element>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
-  void __set(size_t __index, _Tp __val) noexcept {
+  _LIBCPP_HIDE_FROM_ABI _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t __index, _Tp __val) noexcept {
     __storage_[__index] = __val;
   }
 };
@@ -708,8 +708,8 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_Scalar, 1>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return (&__storage_)[__index]; }
-  void __set(size_t __index, _Tp __val) noexcept {
+  _LIBCPP_HIDE_FROM_ABI _Tp __get(size_t __index) const noexcept { return (&__storage_)[__index]; }
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t __index, _Tp __val) noexcept {
     (&__storage_)[__index] = __val;
   }
 };
@@ -810,8 +810,8 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_VecExt, __num_element>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
-  void __set(size_t __index, _Tp __val) noexcept {
+  _LIBCPP_HIDE_FROM_ABI _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t __index, _Tp __val) noexcept {
     __storage_[__index] = __val;
   }
 };
@@ -831,79 +831,79 @@ class __simd_reference {
   __simd_storage<_Tp, _Abi>* __ptr_;
   size_t __index_;
 
-  __simd_reference(__simd_storage<_Tp, _Abi>* __ptr, size_t __index)
+  _LIBCPP_HIDE_FROM_ABI __simd_reference(__simd_storage<_Tp, _Abi>* __ptr, size_t __index)
       : __ptr_(__ptr), __index_(__index) {}
 
-  __simd_reference(const __simd_reference&) = default;
+  _LIBCPP_HIDE_FROM_ABI __simd_reference(const __simd_reference&) = default;
 
 public:
   __simd_reference() = delete;
   __simd_reference& operator=(const __simd_reference&) = delete;
 
-  operator _Vp() const { return __ptr_->__get(__index_); }
+  _LIBCPP_HIDE_FROM_ABI operator _Vp() const { return __ptr_->__get(__index_); }
 
-  __simd_reference operator=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator=(_Vp __value) && {
     __ptr_->__set(__index_, __value);
     return *this;
   }
 
-  __simd_reference operator++() && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator++() && {
     return std::move(*this) = __ptr_->__get(__index_) + 1;
   }
 
-  _Vp operator++(int) && {
+  _LIBCPP_HIDE_FROM_ABI _Vp operator++(int) && {
     auto __val = __ptr_->__get(__index_);
     __ptr_->__set(__index_, __val + 1);
     return __val;
   }
 
-  __simd_reference operator--() && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator--() && {
     return std::move(*this) = __ptr_->__get(__index_) - 1;
   }
 
-  _Vp operator--(int) && {
+  _LIBCPP_HIDE_FROM_ABI _Vp operator--(int) && {
     auto __val = __ptr_->__get(__index_);
     __ptr_->__set(__index_, __val - 1);
     return __val;
   }
 
-  __simd_reference operator+=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator+=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) + __value;
   }
 
-  __simd_reference operator-=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator-=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) - __value;
   }
 
-  __simd_reference operator*=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator*=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) * __value;
   }
 
-  __simd_reference operator/=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator/=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) / __value;
   }
 
-  __simd_reference operator%=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator%=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) % __value;
   }
 
-  __simd_reference operator>>=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator>>=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) >> __value;
   }
 
-  __simd_reference operator<<=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator<<=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) << __value;
   }
 
-  __simd_reference operator&=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator&=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) & __value;
   }
 
-  __simd_reference operator|=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator|=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) | __value;
   }
 
-  __simd_reference operator^=(_Vp __value) && {
+  _LIBCPP_HIDE_FROM_ABI __simd_reference operator^=(_Vp __value) && {
     return std::move(*this) = __ptr_->__get(__index_) ^ __value;
   }
 };
@@ -1350,11 +1350,11 @@ public:
   using mask_type = simd_mask<_Tp, _Abi>;
   using abi_type = _Abi;
 
-  simd() = default;
-  simd(const simd&) = default;
-  simd& operator=(const simd&) = default;
+  _LIBCPP_HIDE_FROM_ABI simd() = default;
+  _LIBCPP_HIDE_FROM_ABI simd(const simd&) = default;
+  _LIBCPP_HIDE_FROM_ABI simd& operator=(const simd&) = default;
 
-  static constexpr size_t size() noexcept {
+  static _LIBCPP_HIDE_FROM_ABI constexpr size_t size() noexcept {
     return simd_size<_Tp, _Abi>::value;
   }
 
@@ -1362,7 +1362,7 @@ private:
   __simd_storage<_Tp, _Abi> __s_;
 
   template <class _Up>
-  static constexpr bool __can_broadcast() {
+  static _LIBCPP_HIDE_FROM_ABI constexpr bool __can_broadcast() {
     return (std::is_arithmetic<_Up>::value &&
             __is_non_narrowing_arithmetic_convertible<_Up, _Tp>()) ||
            (!std::is_arithmetic<_Up>::value &&
@@ -1374,7 +1374,7 @@ private:
   }
 
   template <class _Generator, size_t... __indicies>
-  static constexpr decltype(
+  static _LIBCPP_HIDE_FROM_ABI constexpr decltype(
       std::forward_as_tuple(std::declval<_Generator>()(
           std::integral_constant<size_t, __indicies>())...),
       bool())
@@ -1385,12 +1385,12 @@ private:
   }
 
   template <class _Generator>
-  static bool __can_generate(...) {
+  static _LIBCPP_HIDE_FROM_ABI bool __can_generate(...) {
     return false;
   }
 
   template <class _Generator, size_t... __indicies>
-  void __generator_init(_Generator&& __g, std::index_sequence<__indicies...>) {
+  _LIBCPP_HIDE_FROM_ABI void __generator_init(_Generator&& __g, std::index_sequence<__indicies...>) {
     int __not_used[]{((*this)[__indicies] =
                           __g(std::integral_constant<size_t, __indicies>()),
                       0)...};
@@ -1403,7 +1403,7 @@ public:
             class = typename std::enable_if<
                 std::is_same<_Abi, simd_abi::fixed_size<size()>>::value &&
                 __is_non_narrowing_arithmetic_convertible<_Up, _Tp>()>::type>
-  simd(const simd<_Up, simd_abi::fixed_size<size()>>& __v) {
+  _LIBCPP_HIDE_FROM_ABI simd(const simd<_Up, simd_abi::fixed_size<size()>>& __v) {
     for (size_t __i = 0; __i < size(); __i++) {
       (*this)[__i] = static_cast<_Tp>(__v[__i]);
     }
@@ -1412,7 +1412,7 @@ public:
   // implicit broadcast constructor
   template <class _Up,
             class = typename std::enable_if<__can_broadcast<_Up>()>::type>
-  simd(_Up&& __rv) {
+  _LIBCPP_HIDE_FROM_ABI simd(_Up&& __rv) {
     auto __v = static_cast<_Tp>(__rv);
     for (size_t __i = 0; __i < size(); __i++) {
       (*this)[__i] = __v;
@@ -1424,7 +1424,7 @@ public:
             int = typename std::enable_if<
                 __can_generate<_Generator>(std::make_index_sequence<size()>()),
                 int>::type()>
-  explicit simd(_Generator&& __g) {
+  explicit _LIBCPP_HIDE_FROM_ABI simd(_Generator&& __g) {
     __generator_init(std::forward<_Generator>(__g),
                      std::make_index_sequence<size()>());
   }
@@ -1434,7 +1434,7 @@ public:
       class _Up, class _Flags,
       class = typename std::enable_if<__vectorizable<_Up>()>::type,
       class = typename std::enable_if<is_simd_flag_type<_Flags>::value>::type>
-  simd(const _Up* __buffer, _Flags) {
+  _LIBCPP_HIDE_FROM_ABI simd(const _Up* __buffer, _Flags) {
     // TODO: optimize for overaligned flags
     for (size_t __i = 0; __i < size(); __i++) {
       (*this)[__i] = static_cast<_Tp>(__buffer[__i]);
@@ -1445,7 +1445,7 @@ public:
   template <class _Up, class _Flags>
   typename std::enable_if<__vectorizable<_Up>() &&
                           is_simd_flag_type<_Flags>::value>::type
-  copy_from(const _Up* __buffer, _Flags) {
+  _LIBCPP_HIDE_FROM_ABI copy_from(const _Up* __buffer, _Flags) {
     *this = simd(__buffer, _Flags());
   }
 
@@ -1453,7 +1453,7 @@ public:
   template <class _Up, class _Flags>
   typename std::enable_if<__vectorizable<_Up>() &&
                           is_simd_flag_type<_Flags>::value>::type
-  copy_to(_Up* __buffer, _Flags) const {
+  _LIBCPP_HIDE_FROM_ABI copy_to(_Up* __buffer, _Flags) const {
     // TODO: optimize for overaligned flags
     for (size_t __i = 0; __i < size(); __i++) {
       __buffer[__i] = static_cast<_Up>((*this)[__i]);
@@ -1461,9 +1461,9 @@ public:
   }
 
   // scalar access [simd.subscr]
-  reference operator[](size_t __i) { return reference(&__s_, __i); }
+  _LIBCPP_HIDE_FROM_ABI reference operator[](size_t __i) { return reference(&__s_, __i); }
 
-  value_type operator[](size_t __i) const { return __s_.__get(__i); }
+  _LIBCPP_HIDE_FROM_ABI value_type operator[](size_t __i) const { return __s_.__get(__i); }
 
   // unary operators [simd.unary]
   simd& operator++();
@@ -1526,7 +1526,7 @@ public:
   using simd_type = simd<_Tp, _Abi>;
   using abi_type = _Abi;
   static constexpr size_t size() noexcept;
-  simd_mask() = default;
+  _LIBCPP_HIDE_FROM_ABI simd_mask() = default;
 
   // broadcast constructor
   explicit simd_mask(value_type) noexcept;

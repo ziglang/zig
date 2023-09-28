@@ -302,6 +302,20 @@ test "long object value" {
     try testing.expectEqualStrings(value, parsed.value.object.get("key").?.string);
 }
 
+test "ParseOptions.max_value_len" {
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const str = "\"0800fc577294c34e0b28ad2839435945\"";
+
+    const value = try std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), str, .{ .max_value_len = 32 });
+
+    try testing.expect(value == .string);
+    try testing.expect(value.string.len == 32);
+
+    try testing.expectError(error.ValueTooLong, std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), str, .{ .max_value_len = 31 }));
+}
+
 test "many object keys" {
     const doc =
         \\{

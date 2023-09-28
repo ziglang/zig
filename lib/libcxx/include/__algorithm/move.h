@@ -10,6 +10,7 @@
 #define _LIBCPP___ALGORITHM_MOVE_H
 
 #include <__algorithm/copy_move_common.h>
+#include <__algorithm/for_each_segment.h>
 #include <__algorithm/iterator_operations.h>
 #include <__algorithm/min.h>
 #include <__config>
@@ -45,36 +46,34 @@ struct __move_loop {
     return std::make_pair(std::move(__first), std::move(__result));
   }
 
+  template <class _InIter, class _OutIter>
+  struct _MoveSegment {
+    using _Traits = __segmented_iterator_traits<_InIter>;
+
+    _OutIter& __result_;
+
+    _LIBCPP_HIDE_FROM_ABI _MoveSegment(_OutIter& __result) : __result_(__result) {}
+
+    _LIBCPP_HIDE_FROM_ABI void
+    operator()(typename _Traits::__local_iterator __lfirst, typename _Traits::__local_iterator __llast) {
+      __result_ = std::__move<_AlgPolicy>(__lfirst, __llast, std::move(__result_)).second;
+    }
+  };
+
   template <class _InIter, class _OutIter, __enable_if_t<__is_segmented_iterator<_InIter>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
   operator()(_InIter __first, _InIter __last, _OutIter __result) const {
-    using _Traits = __segmented_iterator_traits<_InIter>;
-    auto __sfirst = _Traits::__segment(__first);
-    auto __slast  = _Traits::__segment(__last);
-    if (__sfirst == __slast) {
-      auto __iters = std::__move<_AlgPolicy>(_Traits::__local(__first), _Traits::__local(__last), std::move(__result));
-      return std::make_pair(__last, std::move(__iters.second));
-    }
-
-    __result = std::__move<_AlgPolicy>(_Traits::__local(__first), _Traits::__end(__sfirst), std::move(__result)).second;
-    ++__sfirst;
-    while (__sfirst != __slast) {
-      __result =
-          std::__move<_AlgPolicy>(_Traits::__begin(__sfirst), _Traits::__end(__sfirst), std::move(__result)).second;
-      ++__sfirst;
-    }
-    __result =
-        std::__move<_AlgPolicy>(_Traits::__begin(__sfirst), _Traits::__local(__last), std::move(__result)).second;
+    std::__for_each_segment(__first, __last, _MoveSegment<_InIter, _OutIter>(__result));
     return std::make_pair(__last, std::move(__result));
   }
 
   template <class _InIter,
             class _OutIter,
-            __enable_if_t<__is_cpp17_random_access_iterator<_InIter>::value &&
+            __enable_if_t<__has_random_access_iterator_category<_InIter>::value &&
                               !__is_segmented_iterator<_InIter>::value && __is_segmented_iterator<_OutIter>::value,
                           int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
-  operator()(_InIter __first, _InIter __last, _OutIter __result) {
+  operator()(_InIter __first, _InIter __last, _OutIter __result) const {
     using _Traits = __segmented_iterator_traits<_OutIter>;
     using _DiffT  = typename common_type<__iter_diff_t<_InIter>, __iter_diff_t<_OutIter> >::type;
 

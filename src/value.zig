@@ -268,6 +268,7 @@ pub const Value = struct {
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
+        const ip = &mod.intern_pool;
         switch (val.tag()) {
             .eu_payload => {
                 const pl = val.castTag(.eu_payload).?.data;
@@ -286,7 +287,7 @@ pub const Value = struct {
             .slice => {
                 const pl = val.castTag(.slice).?.data;
                 const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
-                var ptr_key = mod.intern_pool.indexToKey(ptr).ptr;
+                var ptr_key = ip.indexToKey(ptr).ptr;
                 assert(ptr_key.len == .none);
                 ptr_key.ty = ty.toIntern();
                 ptr_key.len = try pl.len.intern(Type.usize, mod);
@@ -311,11 +312,11 @@ pub const Value = struct {
                 const old_elems = val.castTag(.aggregate).?.data[0..len];
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
                 defer mod.gpa.free(new_elems);
-                const ty_key = mod.intern_pool.indexToKey(ty.toIntern());
+                const ty_key = ip.indexToKey(ty.toIntern());
                 for (new_elems, old_elems, 0..) |*new_elem, old_elem, field_i|
                     new_elem.* = try old_elem.intern(switch (ty_key) {
                         .struct_type => ty.structFieldType(field_i, mod),
-                        .anon_struct_type => |info| info.types[field_i].toType(),
+                        .anon_struct_type => |info| info.types.get(ip)[field_i].toType(),
                         inline .array_type, .vector_type => |info| info.child.toType(),
                         else => unreachable,
                     }, mod);
@@ -329,7 +330,7 @@ pub const Value = struct {
                 return mod.intern(.{ .un = .{
                     .ty = ty.toIntern(),
                     .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
-                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
+                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod).?, mod),
                 } });
             },
         }
@@ -397,7 +398,11 @@ pub const Value = struct {
             },
 
             .un => |un| Tag.@"union".create(arena, .{
-                .tag = un.tag.toValue(),
+                // toValue asserts that the value cannot be .none which is valid on unions.
+                .tag = .{
+                    .ip_index = un.tag,
+                    .legacy = undefined,
+                },
                 .val = un.val.toValue(),
             }),
 
@@ -461,7 +466,7 @@ pub const Value = struct {
                         if (opt_sema) |sema| try sema.resolveTypeLayout(ty.toType());
                         const x = switch (int.storage) {
                             else => unreachable,
-                            .lazy_align => ty.toType().abiAlignment(mod),
+                            .lazy_align => ty.toType().abiAlignment(mod).toByteUnits(0),
                             .lazy_size => ty.toType().abiSize(mod),
                         };
                         return BigIntMutable.init(&space.limbs, x).toConst();
@@ -522,9 +527,9 @@ pub const Value = struct {
                     .u64 => |x| x,
                     .i64 => |x| std.math.cast(u64, x),
                     .lazy_align => |ty| if (opt_sema) |sema|
-                        (try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar
+                        (try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0)
                     else
-                        ty.toType().abiAlignment(mod),
+                        ty.toType().abiAlignment(mod).toByteUnits(0),
                     .lazy_size => |ty| if (opt_sema) |sema|
                         (try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar
                     else
@@ -568,9 +573,9 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.to(i64) catch unreachable,
                     .i64 => |x| x,
-                    .u64 => |x| @as(i64, @intCast(x)),
-                    .lazy_align => |ty| @as(i64, @intCast(ty.toType().abiAlignment(mod))),
-                    .lazy_size => |ty| @as(i64, @intCast(ty.toType().abiSize(mod))),
+                    .u64 => |x| @intCast(x),
+                    .lazy_align => |ty| @intCast(ty.toType().abiAlignment(mod).toByteUnits(0)),
+                    .lazy_size => |ty| @intCast(ty.toType().abiSize(mod)),
                 },
                 else => unreachable,
             },
@@ -611,10 +616,11 @@ pub const Value = struct {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef(mod)) {
-            const size = @as(usize, @intCast(ty.abiSize(mod)));
+            const size: usize = @intCast(ty.abiSize(mod));
             @memset(buffer[0..size], 0xaa);
             return;
         }
+        const ip = &mod.intern_pool;
         switch (ty.zigTypeTag(mod)) {
             .Void => {},
             .Bool => {
@@ -655,40 +661,44 @@ pub const Value = struct {
                 const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
                 return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
-            .Struct => switch (ty.containerLayout(mod)) {
-                .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => for (ty.structFields(mod).values(), 0..) |field, i| {
-                    const off = @as(usize, @intCast(ty.structFieldOffset(i, mod)));
-                    const field_val = switch (val.ip_index) {
-                        .none => switch (val.tag()) {
-                            .bytes => {
-                                buffer[off] = val.castTag(.bytes).?.data[i];
-                                continue;
+            .Struct => {
+                const struct_type = mod.typeToStruct(ty) orelse return error.IllDefinedMemoryLayout;
+                switch (struct_type.layout) {
+                    .Auto => return error.IllDefinedMemoryLayout,
+                    .Extern => for (0..struct_type.field_types.len) |i| {
+                        const off: usize = @intCast(ty.structFieldOffset(i, mod));
+                        const field_val = switch (val.ip_index) {
+                            .none => switch (val.tag()) {
+                                .bytes => {
+                                    buffer[off] = val.castTag(.bytes).?.data[i];
+                                    continue;
+                                },
+                                .aggregate => val.castTag(.aggregate).?.data[i],
+                                .repeated => val.castTag(.repeated).?.data,
+                                else => unreachable,
                             },
-                            .aggregate => val.castTag(.aggregate).?.data[i],
-                            .repeated => val.castTag(.repeated).?.data,
-                            else => unreachable,
-                        },
-                        else => switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
-                            .bytes => |bytes| {
-                                buffer[off] = bytes[i];
-                                continue;
-                            },
-                            .elems => |elems| elems[i],
-                            .repeated_elem => |elem| elem,
-                        }.toValue(),
-                    };
-                    try writeToMemory(field_val, field.ty, mod, buffer[off..]);
-                },
-                .Packed => {
-                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
-                    return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
-                },
+                            else => switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                                .bytes => |bytes| {
+                                    buffer[off] = bytes[i];
+                                    continue;
+                                },
+                                .elems => |elems| elems[i],
+                                .repeated_elem => |elem| elem,
+                            }.toValue(),
+                        };
+                        const field_ty = struct_type.field_types.get(ip)[i].toType();
+                        try writeToMemory(field_val, field_ty, mod, buffer[off..]);
+                    },
+                    .Packed => {
+                        const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                        return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
+                    },
+                }
             },
             .ErrorSet => {
                 // TODO revisit this when we have the concept of the error tag type
                 const Int = u16;
-                const name = switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                const name = switch (ip.indexToKey(val.toIntern())) {
                     .err => |err| err.name,
                     .error_union => |error_union| error_union.val.err_name,
                     else => unreachable,
@@ -697,8 +707,21 @@ pub const Value = struct {
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @as(Int, @intCast(int)), endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
-                .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => return error.Unimplemented,
+                .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
+                .Extern => {
+                    const union_obj = mod.typeToUnion(ty).?;
+                    if (val.unionTag(mod)) |union_tag| {
+                        const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
+                        const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
+                        const field_val = try val.fieldValue(mod, field_index);
+                        const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                        return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
+                    } else {
+                        const union_size = ty.abiSize(mod);
+                        const array_type = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..@as(usize, @intCast(union_size))]);
+                    }
+                },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
@@ -734,6 +757,7 @@ pub const Value = struct {
         buffer: []u8,
         bit_offset: usize,
     ) error{ ReinterpretDeclRef, OutOfMemory }!void {
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef(mod)) {
@@ -759,7 +783,7 @@ pub const Value = struct {
                 const bits = ty.intInfo(mod).bits;
                 if (bits == 0) return;
 
-                switch (mod.intern_pool.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
+                switch (ip.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
                     inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                     .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
                     else => unreachable,
@@ -788,35 +812,42 @@ pub const Value = struct {
                     bits += elem_bit_size;
                 }
             },
-            .Struct => switch (ty.containerLayout(mod)) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .Extern => unreachable, // Handled in non-packed writeToMemory
-                .Packed => {
-                    var bits: u16 = 0;
-                    const fields = ty.structFields(mod).values();
-                    const storage = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage;
-                    for (fields, 0..) |field, i| {
-                        const field_bits = @as(u16, @intCast(field.ty.bitSize(mod)));
-                        const field_val = switch (storage) {
-                            .bytes => unreachable,
-                            .elems => |elems| elems[i],
-                            .repeated_elem => |elem| elem,
-                        };
-                        try field_val.toValue().writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
-                        bits += field_bits;
-                    }
-                },
+            .Struct => {
+                const struct_type = ip.indexToKey(ty.toIntern()).struct_type;
+                // Sema is supposed to have emitted a compile error already in the case of Auto,
+                // and Extern is handled in non-packed writeToMemory.
+                assert(struct_type.layout == .Packed);
+                var bits: u16 = 0;
+                const storage = ip.indexToKey(val.toIntern()).aggregate.storage;
+                for (0..struct_type.field_types.len) |i| {
+                    const field_ty = struct_type.field_types.get(ip)[i].toType();
+                    const field_bits: u16 = @intCast(field_ty.bitSize(mod));
+                    const field_val = switch (storage) {
+                        .bytes => unreachable,
+                        .elems => |elems| elems[i],
+                        .repeated_elem => |elem| elem,
+                    };
+                    try field_val.toValue().writeToPackedMemory(field_ty, mod, buffer, bit_offset + bits);
+                    bits += field_bits;
+                }
             },
-            .Union => switch (ty.containerLayout(mod)) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .Extern => unreachable, // Handled in non-packed writeToMemory
-                .Packed => {
-                    const field_index = ty.unionTagFieldIndex(val.unionTag(mod), mod);
-                    const field_type = ty.unionFields(mod).values()[field_index.?].ty;
-                    const field_val = try val.fieldValue(mod, field_index.?);
-
-                    return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
-                },
+            .Union => {
+                const union_obj = mod.typeToUnion(ty).?;
+                switch (union_obj.getLayout(ip)) {
+                    .Auto, .Extern => unreachable, // Handled in non-packed writeToMemory
+                    .Packed => {
+                        if (val.unionTag(mod)) |union_tag| {
+                            const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
+                            const field_type = union_obj.field_types.get(ip)[field_index].toType();
+                            const field_val = try val.fieldValue(mod, field_index);
+                            return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                        } else {
+                            const union_bits: u16 = @intCast(ty.bitSize(mod));
+                            const int_ty = try mod.intType(.unsigned, union_bits);
+                            return val.unionValue(mod).writeToPackedMemory(int_ty, mod, buffer, bit_offset);
+                        }
+                    },
+                }
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
@@ -846,7 +877,12 @@ pub const Value = struct {
         mod: *Module,
         buffer: []const u8,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        Unimplemented,
+        OutOfMemory,
+    }!Value {
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         switch (ty.zigTypeTag(mod)) {
@@ -921,25 +957,29 @@ pub const Value = struct {
                 const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
                 return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
             },
-            .Struct => switch (ty.containerLayout(mod)) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .Extern => {
-                    const fields = ty.structFields(mod).values();
-                    const field_vals = try arena.alloc(InternPool.Index, fields.len);
-                    for (field_vals, fields, 0..) |*field_val, field, i| {
-                        const off = @as(usize, @intCast(ty.structFieldOffset(i, mod)));
-                        const sz = @as(usize, @intCast(field.ty.abiSize(mod)));
-                        field_val.* = try (try readFromMemory(field.ty, mod, buffer[off..(off + sz)], arena)).intern(field.ty, mod);
-                    }
-                    return (try mod.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .elems = field_vals },
-                    } })).toValue();
-                },
-                .Packed => {
-                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
-                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
-                },
+            .Struct => {
+                const struct_type = mod.typeToStruct(ty).?;
+                switch (struct_type.layout) {
+                    .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                    .Extern => {
+                        const field_types = struct_type.field_types;
+                        const field_vals = try arena.alloc(InternPool.Index, field_types.len);
+                        for (field_vals, 0..) |*field_val, i| {
+                            const field_ty = field_types.get(ip)[i].toType();
+                            const off: usize = @intCast(ty.structFieldOffset(i, mod));
+                            const sz: usize = @intCast(field_ty.abiSize(mod));
+                            field_val.* = try (try readFromMemory(field_ty, mod, buffer[off..(off + sz)], arena)).intern(field_ty, mod);
+                        }
+                        return (try mod.intern(.{ .aggregate = .{
+                            .ty = ty.toIntern(),
+                            .storage = .{ .elems = field_vals },
+                        } })).toValue();
+                    },
+                    .Packed => {
+                        const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                        return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+                    },
+                }
             },
             .ErrorSet => {
                 // TODO revisit this when we have the concept of the error tag type
@@ -950,6 +990,23 @@ pub const Value = struct {
                     .ty = ty.toIntern(),
                     .name = name,
                 } })).toValue();
+            },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => {
+                    const union_size = ty.abiSize(mod);
+                    const array_ty = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
+                    const val = try (try readFromMemory(array_ty, mod, buffer, arena)).intern(array_ty, mod);
+                    return (try mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = .none,
+                        .val = val,
+                    } })).toValue();
+                },
+                .Packed => {
+                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+                },
             },
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
@@ -972,7 +1029,7 @@ pub const Value = struct {
                     },
                 } })).toValue();
             },
-            else => @panic("TODO implement readFromMemory for more types"),
+            else => return error.Unimplemented,
         }
     }
 
@@ -986,7 +1043,11 @@ pub const Value = struct {
         buffer: []const u8,
         bit_offset: usize,
         arena: Allocator,
-    ) Allocator.Error!Value {
+    ) error{
+        IllDefinedMemoryLayout,
+        OutOfMemory,
+    }!Value {
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         switch (ty.zigTypeTag(mod)) {
@@ -1065,21 +1126,34 @@ pub const Value = struct {
                     .storage = .{ .elems = elems },
                 } })).toValue();
             },
-            .Struct => switch (ty.containerLayout(mod)) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .Extern => unreachable, // Handled by non-packed readFromMemory
+            .Struct => {
+                // Sema is supposed to have emitted a compile error already for Auto layout structs,
+                // and Extern is handled by non-packed readFromMemory.
+                const struct_type = mod.typeToPackedStruct(ty).?;
+                var bits: u16 = 0;
+                const field_vals = try arena.alloc(InternPool.Index, struct_type.field_types.len);
+                for (field_vals, 0..) |*field_val, i| {
+                    const field_ty = struct_type.field_types.get(ip)[i].toType();
+                    const field_bits: u16 = @intCast(field_ty.bitSize(mod));
+                    field_val.* = try (try readFromPackedMemory(field_ty, mod, buffer, bit_offset + bits, arena)).intern(field_ty, mod);
+                    bits += field_bits;
+                }
+                return (try mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = field_vals },
+                } })).toValue();
+            },
+            .Union => switch (ty.containerLayout(mod)) {
+                .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
-                    var bits: u16 = 0;
-                    const fields = ty.structFields(mod).values();
-                    const field_vals = try arena.alloc(InternPool.Index, fields.len);
-                    for (fields, 0..) |field, i| {
-                        const field_bits = @as(u16, @intCast(field.ty.bitSize(mod)));
-                        field_vals[i] = try (try readFromPackedMemory(field.ty, mod, buffer, bit_offset + bits, arena)).intern(field.ty, mod);
-                        bits += field_bits;
-                    }
-                    return (try mod.intern(.{ .aggregate = .{
+                    const union_bits: u16 = @intCast(ty.bitSize(mod));
+                    assert(union_bits != 0);
+                    const int_ty = try mod.intType(.unsigned, union_bits);
+                    const val = (try readFromPackedMemory(int_ty, mod, buffer, bit_offset, arena)).toIntern();
+                    return (try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
-                        .storage = .{ .elems = field_vals },
+                        .tag = .none,
+                        .val = val,
                     } })).toValue();
                 },
             },
@@ -1100,18 +1174,18 @@ pub const Value = struct {
     pub fn toFloat(val: Value, comptime T: type, mod: *Module) T {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
-                .big_int => |big_int| @as(T, @floatCast(bigIntToFloat(big_int.limbs, big_int.positive))),
+                .big_int => |big_int| @floatCast(bigIntToFloat(big_int.limbs, big_int.positive)),
                 inline .u64, .i64 => |x| {
                     if (T == f80) {
                         @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
                     }
-                    return @as(T, @floatFromInt(x));
+                    return @floatFromInt(x);
                 },
-                .lazy_align => |ty| @as(T, @floatFromInt(ty.toType().abiAlignment(mod))),
-                .lazy_size => |ty| @as(T, @floatFromInt(ty.toType().abiSize(mod))),
+                .lazy_align => |ty| @floatFromInt(ty.toType().abiAlignment(mod).toByteUnits(0)),
+                .lazy_size => |ty| @floatFromInt(ty.toType().abiSize(mod)),
             },
             .float => |float| switch (float.storage) {
-                inline else => |x| @as(T, @floatCast(x)),
+                inline else => |x| @floatCast(x),
             },
             else => unreachable,
         };
@@ -1250,7 +1324,8 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.orderAgainstScalar(0),
                     inline .u64, .i64 => |x| std.math.order(x, 0),
-                    .lazy_align, .lazy_size => |ty| return if (ty.toType().hasRuntimeBitsAdvanced(
+                    .lazy_align => .gt, // alignment is never 0
+                    .lazy_size => |ty| return if (ty.toType().hasRuntimeBitsAdvanced(
                         mod,
                         false,
                         if (opt_sema) |sema| .{ .sema = sema } else .eager,
@@ -1505,33 +1580,38 @@ pub const Value = struct {
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
+        return (try val.maybeElemValue(mod, index)).?;
+    }
+
+    /// Like `elemValue`, but returns `null` instead of asserting on failure.
+    pub fn maybeElemValue(val: Value, mod: *Module, index: usize) Allocator.Error!?Value {
         return switch (val.ip_index) {
             .none => switch (val.tag()) {
                 .bytes => try mod.intValue(Type.u8, val.castTag(.bytes).?.data[index]),
                 .repeated => val.castTag(.repeated).?.data,
                 .aggregate => val.castTag(.aggregate).?.data[index],
-                .slice => val.castTag(.slice).?.data.ptr.elemValue(mod, index),
-                else => unreachable,
+                .slice => val.castTag(.slice).?.data.ptr.maybeElemValue(mod, index),
+                else => null,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .undef => |ty| (try mod.intern(.{
                     .undef = ty.toType().elemType2(mod).toIntern(),
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
+                    .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
-                        .toValue().elemValue(mod, index),
-                    .int, .eu_payload => unreachable,
-                    .opt_payload => |base| base.toValue().elemValue(mod, index),
-                    .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
-                    .elem => |elem| elem.base.toValue().elemValue(mod, index + @as(usize, @intCast(elem.index))),
+                        .toValue().maybeElemValue(mod, index),
+                    .int, .eu_payload => null,
+                    .opt_payload => |base| base.toValue().maybeElemValue(mod, index),
+                    .comptime_field => |field_val| field_val.toValue().maybeElemValue(mod, index),
+                    .elem => |elem| elem.base.toValue().maybeElemValue(mod, index + @as(usize, @intCast(elem.index))),
                     .field => |field| if (field.base.toValue().pointerDecl(mod)) |decl_index| {
                         const base_decl = mod.declPtr(decl_index);
                         const field_val = try base_decl.val.fieldValue(mod, @as(usize, @intCast(field.index)));
-                        return field_val.elemValue(mod, index);
-                    } else unreachable,
+                        return field_val.maybeElemValue(mod, index);
+                    } else null,
                 },
-                .opt => |opt| opt.val.toValue().elemValue(mod, index),
+                .opt => |opt| opt.val.toValue().maybeElemValue(mod, index),
                 .aggregate => |aggregate| {
                     const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
                     if (index < len) return switch (aggregate.storage) {
@@ -1545,7 +1625,7 @@ pub const Value = struct {
                     assert(index == len);
                     return mod.intern_pool.indexToKey(aggregate.ty).array_type.sentinel.toValue();
                 },
-                else => unreachable,
+                else => null,
             },
         };
     }
@@ -1683,11 +1763,19 @@ pub const Value = struct {
         };
     }
 
-    pub fn unionTag(val: Value, mod: *Module) Value {
+    pub fn unionTag(val: Value, mod: *Module) ?Value {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
-            .un => |un| un.tag.toValue(),
+            .un => |un| if (un.tag != .none) un.tag.toValue() else return null,
+            else => unreachable,
+        };
+    }
+
+    pub fn unionValue(val: Value, mod: *Module) Value {
+        if (val.ip_index == .none) return val.castTag(.@"union").?.data.val;
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .un => |un| un.val.toValue(),
             else => unreachable,
         };
     }
@@ -1862,7 +1950,7 @@ pub const Value = struct {
 
     pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
+            .undef => try mod.undefValue(float_ty),
             .int => |int| switch (int.storage) {
                 .big_int => |big_int| {
                     const float = bigIntToFloat(big_int.limbs, big_int.positive);
@@ -1870,9 +1958,9 @@ pub const Value = struct {
                 },
                 inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
                 .lazy_align => |ty| if (opt_sema) |sema| {
-                    return floatFromIntInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0), float_ty, mod);
                 } else {
-                    return floatFromIntInner(ty.toType().abiAlignment(mod), float_ty, mod);
+                    return floatFromIntInner(ty.toType().abiAlignment(mod).toByteUnits(0), float_ty, mod);
                 },
                 .lazy_size => |ty| if (opt_sema) |sema| {
                     return floatFromIntInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
@@ -1887,11 +1975,11 @@ pub const Value = struct {
     fn floatFromIntInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (dest_ty.floatBits(target)) {
-            16 => .{ .f16 = @as(f16, @floatFromInt(x)) },
-            32 => .{ .f32 = @as(f32, @floatFromInt(x)) },
-            64 => .{ .f64 = @as(f64, @floatFromInt(x)) },
-            80 => .{ .f80 = @as(f80, @floatFromInt(x)) },
-            128 => .{ .f128 = @as(f128, @floatFromInt(x)) },
+            16 => .{ .f16 = @floatFromInt(x) },
+            32 => .{ .f32 = @floatFromInt(x) },
+            64 => .{ .f64 = @floatFromInt(x) },
+            80 => .{ .f80 = @floatFromInt(x) },
+            128 => .{ .f128 = @floatFromInt(x) },
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
@@ -1905,7 +1993,7 @@ pub const Value = struct {
             return 1;
         }
 
-        const w_value = @fabs(scalar);
+        const w_value = @abs(scalar);
         return @divFloor(@as(std.math.big.Limb, @intFromFloat(std.math.log2(w_value))), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
@@ -3622,36 +3710,55 @@ pub const Value = struct {
         } })).toValue();
     }
 
-    pub fn fabs(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
-            const scalar_ty = float_type.scalarType(mod);
+    pub fn abs(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
+        if (ty.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try (try fabsScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
+                scalar.* = try (try absScalar(elem_val, scalar_ty, mod, arena)).intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
-                .ty = float_type.toIntern(),
+                .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
             } })).toValue();
         }
-        return fabsScalar(val, float_type, mod);
+        return absScalar(val, ty, mod, arena);
     }
 
-    pub fn fabsScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
-        const target = mod.getTarget();
-        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
-            16 => .{ .f16 = @fabs(val.toFloat(f16, mod)) },
-            32 => .{ .f32 = @fabs(val.toFloat(f32, mod)) },
-            64 => .{ .f64 = @fabs(val.toFloat(f64, mod)) },
-            80 => .{ .f80 = @fabs(val.toFloat(f80, mod)) },
-            128 => .{ .f128 = @fabs(val.toFloat(f128, mod)) },
+    pub fn absScalar(val: Value, ty: Type, mod: *Module, arena: Allocator) Allocator.Error!Value {
+        switch (ty.zigTypeTag(mod)) {
+            .Int => {
+                var buffer: Value.BigIntSpace = undefined;
+                var operand_bigint = try val.toBigInt(&buffer, mod).toManaged(arena);
+                operand_bigint.abs();
+
+                return mod.intValue_big(try ty.toUnsigned(mod), operand_bigint.toConst());
+            },
+            .ComptimeInt => {
+                var buffer: Value.BigIntSpace = undefined;
+                var operand_bigint = try val.toBigInt(&buffer, mod).toManaged(arena);
+                operand_bigint.abs();
+
+                return mod.intValue_big(ty, operand_bigint.toConst());
+            },
+            .ComptimeFloat, .Float => {
+                const target = mod.getTarget();
+                const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
+                    16 => .{ .f16 = @abs(val.toFloat(f16, mod)) },
+                    32 => .{ .f32 = @abs(val.toFloat(f32, mod)) },
+                    64 => .{ .f64 = @abs(val.toFloat(f64, mod)) },
+                    80 => .{ .f80 = @abs(val.toFloat(f80, mod)) },
+                    128 => .{ .f128 = @abs(val.toFloat(f128, mod)) },
+                    else => unreachable,
+                };
+                return (try mod.intern(.{ .float = .{
+                    .ty = ty.toIntern(),
+                    .storage = storage,
+                } })).toValue();
+            },
             else => unreachable,
-        };
-        return (try mod.intern(.{ .float = .{
-            .ty = float_type.toIntern(),
-            .storage = storage,
-        } })).toValue();
+        }
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {

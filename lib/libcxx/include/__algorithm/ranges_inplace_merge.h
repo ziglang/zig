@@ -31,55 +31,49 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __inplace_merge {
 
-  struct __fn {
-    template <class _Iter, class _Sent, class _Comp, class _Proj>
-    _LIBCPP_HIDE_FROM_ABI static constexpr auto
-    __inplace_merge_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp&& __comp, _Proj&& __proj) {
-      auto __last_iter = ranges::next(__middle, __last);
-      std::__inplace_merge<_RangeAlgPolicy>(
-          std::move(__first), std::move(__middle), __last_iter, std::__make_projected(__comp, __proj));
-      return __last_iter;
-    }
+struct __fn {
+  template <class _Iter, class _Sent, class _Comp, class _Proj>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto
+  __inplace_merge_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp&& __comp, _Proj&& __proj) {
+    auto __last_iter = ranges::next(__middle, __last);
+    std::__inplace_merge<_RangeAlgPolicy>(
+        std::move(__first), std::move(__middle), __last_iter, std::__make_projected(__comp, __proj));
+    return __last_iter;
+  }
 
-    template <
-        bidirectional_iterator _Iter,
-        sentinel_for<_Iter> _Sent,
-        class _Comp = ranges::less,
-        class _Proj = identity>
-      requires sortable<_Iter, _Comp, _Proj>
-    _LIBCPP_HIDE_FROM_ABI _Iter
-    operator()(_Iter __first, _Iter __middle, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
-      return __inplace_merge_impl(
-          std::move(__first), std::move(__middle), std::move(__last), std::move(__comp), std::move(__proj));
-    }
+  template <bidirectional_iterator _Iter, sentinel_for<_Iter> _Sent, class _Comp = ranges::less, class _Proj = identity>
+    requires sortable<_Iter, _Comp, _Proj>
+  _LIBCPP_HIDE_FROM_ABI _Iter
+  operator()(_Iter __first, _Iter __middle, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
+    return __inplace_merge_impl(
+        std::move(__first), std::move(__middle), std::move(__last), std::move(__comp), std::move(__proj));
+  }
 
-    template <bidirectional_range _Range, class _Comp = ranges::less, class _Proj = identity>
-      requires sortable<
-          iterator_t<_Range>,
-          _Comp,
-          _Proj> _LIBCPP_HIDE_FROM_ABI borrowed_iterator_t<_Range>
-      operator()(_Range&& __range, iterator_t<_Range> __middle, _Comp __comp = {}, _Proj __proj = {}) const {
-      return __inplace_merge_impl(
-          ranges::begin(__range), std::move(__middle), ranges::end(__range), std::move(__comp), std::move(__proj));
-    }
-  };
+  template <bidirectional_range _Range, class _Comp = ranges::less, class _Proj = identity>
+    requires sortable<iterator_t<_Range>, _Comp, _Proj>
+  _LIBCPP_HIDE_FROM_ABI borrowed_iterator_t<_Range>
+  operator()(_Range&& __range, iterator_t<_Range> __middle, _Comp __comp = {}, _Proj __proj = {}) const {
+    return __inplace_merge_impl(
+        ranges::begin(__range), std::move(__middle), ranges::end(__range), std::move(__comp), std::move(__proj));
+  }
+};
 
 } // namespace __inplace_merge
 
 inline namespace __cpo {
-  inline constexpr auto inplace_merge = __inplace_merge::__fn{};
+inline constexpr auto inplace_merge = __inplace_merge::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_INPLACE_MERGE_H

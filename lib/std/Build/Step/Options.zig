@@ -314,6 +314,7 @@ test Options {
         .{ .path = "test", .handle = std.fs.cwd() },
         host,
         &cache,
+        &.{},
     );
     defer builder.destroy();
 

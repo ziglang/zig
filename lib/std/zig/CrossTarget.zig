@@ -132,6 +132,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .emscripten,
         .driverkit,
         .shadermodel,
+        .liteos,
         .uefi,
         .opencl,
         .glsl450,
@@ -734,6 +735,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .plan9,
         .driverkit,
         .shadermodel,
+        .liteos,
         .other,
         => return error.InvalidOperatingSystemVersion,
 

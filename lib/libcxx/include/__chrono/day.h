@@ -18,7 +18,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -29,7 +29,7 @@ class day {
 private:
     unsigned char __d_;
 public:
-    _LIBCPP_HIDE_FROM_ABI day() = default;
+    day() = default;
     _LIBCPP_HIDE_FROM_ABI explicit inline constexpr day(unsigned __val) noexcept : __d_(static_cast<unsigned char>(__val)) {}
     _LIBCPP_HIDE_FROM_ABI inline constexpr day& operator++()    noexcept { ++__d_; return *this; }
     _LIBCPP_HIDE_FROM_ABI inline constexpr day  operator++(int) noexcept { day __tmp = *this; ++(*this); return __tmp; }
@@ -79,6 +79,6 @@ day& day::operator-=(const days& __dd) noexcept
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_DAY_H

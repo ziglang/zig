@@ -39,4 +39,6 @@ export fn entry() void {
 // :8:25: note: type 'i32' here
 // :16:16: error: expected type 'tmp.h.T', found 'void'
 // :15:15: note: struct declared here
-// :22:9: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:13: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:25: note: type 'void' here
+// :24:13: note: type 'tmp.k.T' here

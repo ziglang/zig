@@ -27,6 +27,10 @@ export fn entry7() void {
     _ = f;
 }
 const Opaque = opaque {};
+export fn entry8() void {
+    var e: Opaque = undefined;
+    _ = &e;
+}
 
 // error
 // backend=stage2
@@ -39,7 +43,7 @@ const Opaque = opaque {};
 // :14:9: error: variable of type 'comptime_float' must be const or comptime
 // :14:9: note: to modify this variable at runtime, it must be given an explicit fixed-size number type
 // :18:9: error: variable of type '@TypeOf(null)' must be const or comptime
-// :22:20: error: values of type 'tmp.Opaque' must be comptime-known, but operand value is runtime-known
-// :22:20: note: opaque type 'tmp.Opaque' has undefined size
+// :22:20: error: cannot load opaque type 'tmp.Opaque'
 // :26:9: error: variable of type 'type' must be const or comptime
 // :26:9: note: types are not available at runtime
+// :31:12: error: non-extern variable with opaque type 'tmp.Opaque'

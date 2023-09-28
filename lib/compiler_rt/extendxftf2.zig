@@ -39,12 +39,12 @@ fn __extendxftf2(a: f80) callconv(.C) f128 {
         // renormalize the significand and clear the leading bit and integer part,
         // then insert the correct adjusted exponent in the destination type.
         const scale: u32 = @clz(a_rep.fraction);
-        abs_result = @as(u128, a_rep.fraction) << @as(u7, @intCast(dst_sig_bits - src_sig_bits + scale + 1));
+        abs_result = @as(u128, a_rep.fraction) << @intCast(dst_sig_bits - src_sig_bits + scale + 1);
         abs_result ^= dst_min_normal;
         abs_result |= @as(u128, scale + 1) << dst_sig_bits;
     }
 
     // Apply the signbit to (dst_t)abs(a).
     const result: u128 align(@alignOf(f128)) = abs_result | @as(u128, sign) << (dst_bits - 16);
-    return @as(f128, @bitCast(result));
+    return @bitCast(result);
 }

@@ -1,19 +1,33 @@
 const std = @import("../std.zig");
 const mem = std.mem;
 
+pub const Config = struct {
+    /// The number of successful allocations you can expect from this allocator.
+    /// The next allocation will fail. For example, with `fail_index` equal to
+    /// 2, the following test will pass:
+    ///
+    /// var a = try failing_alloc.create(i32);
+    /// var b = try failing_alloc.create(i32);
+    /// testing.expectError(error.OutOfMemory, failing_alloc.create(i32));
+    fail_index: usize = std.math.maxInt(usize),
+
+    /// Number of successful resizes to expect from this allocator. The next resize will fail.
+    resize_fail_index: usize = std.math.maxInt(usize),
+};
+
 /// Allocator that fails after N allocations, useful for making sure out of
 /// memory conditions are handled correctly.
 ///
 /// To use this, first initialize it and get an allocator with
 ///
 /// `const failing_allocator = &FailingAllocator.init(<allocator>,
-///                                                   <fail_index>).allocator;`
+///                                                   <config>).allocator;`
 ///
 /// Then use `failing_allocator` anywhere you would have used a
 /// different allocator.
 pub const FailingAllocator = struct {
-    index: usize,
-    fail_index: usize,
+    alloc_index: usize,
+    resize_index: usize,
     internal_allocator: mem.Allocator,
     allocated_bytes: usize,
     freed_bytes: usize,
@@ -21,28 +35,24 @@ pub const FailingAllocator = struct {
     deallocations: usize,
     stack_addresses: [num_stack_frames]usize,
     has_induced_failure: bool,
+    fail_index: usize,
+    resize_fail_index: usize,
 
     const num_stack_frames = if (std.debug.sys_can_stack_trace) 16 else 0;
 
-    /// `fail_index` is the number of successful allocations you can
-    /// expect from this allocator. The next allocation will fail.
-    /// For example, if this is called with `fail_index` equal to 2,
-    /// the following test will pass:
-    ///
-    /// var a = try failing_alloc.create(i32);
-    /// var b = try failing_alloc.create(i32);
-    /// testing.expectError(error.OutOfMemory, failing_alloc.create(i32));
-    pub fn init(internal_allocator: mem.Allocator, fail_index: usize) FailingAllocator {
+    pub fn init(internal_allocator: mem.Allocator, config: Config) FailingAllocator {
         return FailingAllocator{
             .internal_allocator = internal_allocator,
-            .fail_index = fail_index,
-            .index = 0,
+            .alloc_index = 0,
+            .resize_index = 0,
             .allocated_bytes = 0,
             .freed_bytes = 0,
             .allocations = 0,
             .deallocations = 0,
             .stack_addresses = undefined,
             .has_induced_failure = false,
+            .fail_index = config.fail_index,
+            .resize_fail_index = config.resize_fail_index,
         };
     }
 
@@ -64,7 +74,7 @@ pub const FailingAllocator = struct {
         return_address: usize,
     ) ?[*]u8 {
         const self: *FailingAllocator = @ptrCast(@alignCast(ctx));
-        if (self.index == self.fail_index) {
+        if (self.alloc_index == self.fail_index) {
             if (!self.has_induced_failure) {
                 @memset(&self.stack_addresses, 0);
                 var stack_trace = std.builtin.StackTrace{
@@ -80,7 +90,7 @@ pub const FailingAllocator = struct {
             return null;
         self.allocated_bytes += len;
         self.allocations += 1;
-        self.index += 1;
+        self.alloc_index += 1;
         return result;
     }
 
@@ -92,6 +102,8 @@ pub const FailingAllocator = struct {
         ra: usize,
     ) bool {
         const self: *FailingAllocator = @ptrCast(@alignCast(ctx));
+        if (self.resize_index == self.resize_fail_index)
+            return false;
         if (!self.internal_allocator.rawResize(old_mem, log2_old_align, new_len, ra))
             return false;
         if (new_len < old_mem.len) {
@@ -99,6 +111,7 @@ pub const FailingAllocator = struct {
         } else {
             self.allocated_bytes += new_len - old_mem.len;
         }
+        self.resize_index += 1;
         return true;
     }
 

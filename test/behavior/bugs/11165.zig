@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 
 test "bytes" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -24,7 +23,6 @@ test "bytes" {
 
 test "aggregate" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,

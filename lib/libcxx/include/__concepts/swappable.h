@@ -28,94 +28,96 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [concept.swappable]
 
 namespace ranges {
 namespace __swap {
 
-  template<class _Tp>
-  void swap(_Tp&, _Tp&) = delete;
+template <class _Tp>
+void swap(_Tp&, _Tp&) = delete;
 
-  template<class _Tp, class _Up>
-  concept __unqualified_swappable_with =
+// clang-format off
+template <class _Tp, class _Up>
+concept __unqualified_swappable_with =
     (__class_or_enum<remove_cvref_t<_Tp>> || __class_or_enum<remove_cvref_t<_Up>>) &&
     requires(_Tp&& __t, _Up&& __u) {
-      swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
+        swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
     };
+// clang-format on
 
-  struct __fn;
+struct __fn;
 
-  template<class _Tp, class _Up, size_t _Size>
-  concept __swappable_arrays =
-    !__unqualified_swappable_with<_Tp(&)[_Size], _Up(&)[_Size]> &&
+// clang-format off
+template <class _Tp, class _Up, size_t _Size>
+concept __swappable_arrays =
+    !__unqualified_swappable_with<_Tp (&)[_Size], _Up (&)[_Size]> &&
     extent_v<_Tp> == extent_v<_Up> &&
-    requires(_Tp(& __t)[_Size], _Up(& __u)[_Size], const __fn& __swap) {
-      __swap(__t[0], __u[0]);
+    requires(_Tp (&__t)[_Size], _Up (&__u)[_Size], const __fn& __swap) {
+        __swap(__t[0], __u[0]);
     };
+// clang-format on
 
-  template<class _Tp>
-  concept __exchangeable =
-    !__unqualified_swappable_with<_Tp&, _Tp&> &&
-    move_constructible<_Tp> &&
-    assignable_from<_Tp&, _Tp>;
+template <class _Tp>
+concept __exchangeable =
+    !__unqualified_swappable_with<_Tp&, _Tp&> && move_constructible<_Tp> && assignable_from<_Tp&, _Tp>;
 
-  struct __fn {
-    // 2.1   `S` is `(void)swap(E1, E2)`* if `E1` or `E2` has class or enumeration type and...
-    // *The name `swap` is used here unqualified.
-    template<class _Tp, class _Up>
-      requires __unqualified_swappable_with<_Tp, _Up>
-    constexpr void operator()(_Tp&& __t, _Up&& __u) const
-      noexcept(noexcept(swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-    {
-      swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
+struct __fn {
+  // 2.1   `S` is `(void)swap(E1, E2)`* if `E1` or `E2` has class or enumeration type and...
+  // *The name `swap` is used here unqualified.
+  template <class _Tp, class _Up>
+    requires __unqualified_swappable_with<_Tp, _Up>
+  _LIBCPP_HIDE_FROM_ABI constexpr void operator()(_Tp&& __t, _Up&& __u) const
+      noexcept(noexcept(swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))) {
+    swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
+  }
+
+  // 2.2   Otherwise, if `E1` and `E2` are lvalues of array types with equal extent and...
+  template <class _Tp, class _Up, size_t _Size>
+    requires __swappable_arrays<_Tp, _Up, _Size>
+  _LIBCPP_HIDE_FROM_ABI constexpr void operator()(_Tp (&__t)[_Size], _Up (&__u)[_Size]) const
+      noexcept(noexcept((*this)(*__t, *__u))) {
+    // TODO(cjdb): replace with `ranges::swap_ranges`.
+    for (size_t __i = 0; __i < _Size; ++__i) {
+      (*this)(__t[__i], __u[__i]);
     }
+  }
 
-    // 2.2   Otherwise, if `E1` and `E2` are lvalues of array types with equal extent and...
-    template<class _Tp, class _Up, size_t _Size>
-      requires __swappable_arrays<_Tp, _Up, _Size>
-    constexpr void operator()(_Tp(& __t)[_Size], _Up(& __u)[_Size]) const
-      noexcept(noexcept((*this)(*__t, *__u)))
-    {
-      // TODO(cjdb): replace with `ranges::swap_ranges`.
-      for (size_t __i = 0; __i < _Size; ++__i) {
-        (*this)(__t[__i], __u[__i]);
-      }
-    }
-
-    // 2.3   Otherwise, if `E1` and `E2` are lvalues of the same type `T` that models...
-    template<__exchangeable _Tp>
-    constexpr void operator()(_Tp& __x, _Tp& __y) const
-      noexcept(is_nothrow_move_constructible_v<_Tp> && is_nothrow_move_assignable_v<_Tp>)
-    {
-      __y = _VSTD::exchange(__x, _VSTD::move(__y));
-    }
-  };
+  // 2.3   Otherwise, if `E1` and `E2` are lvalues of the same type `T` that models...
+  template <__exchangeable _Tp>
+  _LIBCPP_HIDE_FROM_ABI constexpr void operator()(_Tp& __x, _Tp& __y) const
+      noexcept(is_nothrow_move_constructible_v<_Tp>&& is_nothrow_move_assignable_v<_Tp>) {
+    __y = _VSTD::exchange(__x, _VSTD::move(__y));
+  }
+};
 } // namespace __swap
 
 inline namespace __cpo {
-  inline constexpr auto swap = __swap::__fn{};
+inline constexpr auto swap = __swap::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
-template<class _Tp>
+template <class _Tp>
 concept swappable = requires(_Tp& __a, _Tp& __b) { ranges::swap(__a, __b); };
 
-template<class _Tp, class _Up>
-concept swappable_with =
-  common_reference_with<_Tp, _Up> &&
-  requires(_Tp&& __t, _Up&& __u) {
-    ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Tp>(__t));
-    ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Up>(__u));
-    ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
-    ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Tp>(__t));
-  };
+template <class _Tp, class _Up>
+concept swappable_with = common_reference_with<_Tp, _Up> && requires(_Tp&& __t, _Up&& __u) {
+  ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Tp>(__t));
+  ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Up>(__u));
+  ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
+  ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Tp>(__t));
+};
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___CONCEPTS_SWAPPABLE_H

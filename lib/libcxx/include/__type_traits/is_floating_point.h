@@ -19,15 +19,17 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+// clang-format off
 template <class _Tp> struct __libcpp_is_floating_point              : public false_type {};
 template <>          struct __libcpp_is_floating_point<float>       : public true_type {};
 template <>          struct __libcpp_is_floating_point<double>      : public true_type {};
 template <>          struct __libcpp_is_floating_point<long double> : public true_type {};
+// clang-format on
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_floating_point
-    : public __libcpp_is_floating_point<__remove_cv_t<_Tp> > {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_floating_point : public __libcpp_is_floating_point<__remove_cv_t<_Tp> > {};
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_floating_point_v = is_floating_point<_Tp>::value;
 #endif

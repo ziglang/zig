@@ -42,7 +42,10 @@
 #include <sys/_types.h>         /* __offsetof() */
 #include <sys/_types/_uid_t.h>  /* uid_t */
 #include <sys/_types/_gid_t.h>     /* gid_t */
+#include <sys/_types/_guid_t.h>
 #include <sys/syslimits.h>      /* NGROUPS_MAX */
+
+__BEGIN_DECLS
 
 #ifdef __APPLE_API_EVOLVING
 
@@ -52,8 +55,6 @@
 
 #define KAUTH_UID_NONE  (~(uid_t)0 - 100)       /* not a valid UID */
 #define KAUTH_GID_NONE  (~(gid_t)0 - 100)       /* not a valid GID */
-
-#include <sys/_types/_guid_t.h>
 
 /* NT Security Identifier, structure as defined by Microsoft */
 #pragma pack(1)    /* push packing of 1 byte */
@@ -143,12 +144,9 @@ struct kauth_cache_sizes {
 
 #define IDENTITYSVC_ENTITLEMENT         "com.apple.private.identitysvc"
 
-
-
-/*
- * Generic Access Control Lists.
- */
 #if defined(KERNEL) || defined (_SYS_ACL_H)
+#pragma mark - kauth
+#pragma mark kauth: Generic Access Control Lists.
 
 typedef u_int32_t kauth_ace_rights_t;
 
@@ -281,8 +279,6 @@ typedef struct kauth_filesec *kauth_filesec_t;
 
 #endif /* KERNEL || <sys/acl.h> */
 
-
-
 /* Actions, also rights bits in an ACE */
 
 #if defined(KERNEL) || defined (_SYS_ACL_H)
@@ -407,4 +403,7 @@ typedef struct kauth_filesec *kauth_filesec_t;
 
 
 #endif /* __APPLE_API_EVOLVING */
+
+__END_DECLS
+
 #endif /* _SYS_KAUTH_H */

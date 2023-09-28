@@ -18,9 +18,12 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 template <class _InputIterator, class _OutputIterator, class _Tp, class _BinaryOp>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
@@ -46,8 +49,10 @@ exclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __
   return _VSTD::exclusive_scan(__first, __last, __result, __init, _VSTD::plus<>());
 }
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___NUMERIC_EXCLUSIVE_SCAN_H

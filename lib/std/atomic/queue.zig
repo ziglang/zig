@@ -14,7 +14,7 @@ pub fn Queue(comptime T: type) type {
         mutex: std.Thread.Mutex,
 
         pub const Self = @This();
-        pub const Node = std.TailQueue(T).Node;
+        pub const Node = std.DoublyLinkedList(T).Node;
 
         /// Initializes a new queue. The queue does not provide a `deinit()`
         /// function, so the user must take care of cleaning up the queue elements.

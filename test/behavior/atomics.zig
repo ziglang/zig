@@ -243,6 +243,11 @@ test "atomicrmw with ints" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
+        // https://github.com/ziglang/zig/issues/16846
+        return error.SkipZigTest;
+    }
+
     try testAtomicRmwInts();
     try comptime testAtomicRmwInts();
 }

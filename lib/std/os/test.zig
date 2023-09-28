@@ -660,6 +660,11 @@ test "mmap" {
 }
 
 test "getenv" {
+    if (native_os == .wasi and !builtin.link_libc) {
+        // std.os.getenv is not supported on WASI due to the need of allocation
+        return error.SkipZigTest;
+    }
+
     if (native_os == .windows) {
         try expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {

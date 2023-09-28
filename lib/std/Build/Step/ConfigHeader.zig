@@ -539,7 +539,7 @@ fn replace_variables(
                 .int => |i| {
                     const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
                     const isNegative = i < 0;
-                    const digits = (if (0 < i) std.math.log10(std.math.absCast(i)) else 0) + 1;
+                    const digits = (if (0 < i) std.math.log10(@abs(i)) else 0) + 1;
                     last_index = start_index + @intFromBool(isNegative) + digits + 1;
 
                     allocator.free(content_buf);

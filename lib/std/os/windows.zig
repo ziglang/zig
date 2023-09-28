@@ -992,8 +992,9 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
     // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
     // us INVALID_PARAMETER.
+    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
     var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -1009,6 +1010,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             .FileDispositionInformationEx,
         );
         switch (rc) {
+            .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
             .INVALID_PARAMETER => {},
             // For all other statuses, fall down to the switch below to handle them.
@@ -2856,8 +2858,29 @@ const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
 const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
 const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
+// FILE_RENAME_INFORMATION.Flags
+pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
+pub const FILE_RENAME_POSIX_SEMANTICS = 0x00000002;
+pub const FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE = 0x00000004;
+pub const FILE_RENAME_SUPPRESS_STORAGE_RESERVE_INHERITANCE = 0x00000008;
+pub const FILE_RENAME_NO_INCREASE_AVAILABLE_SPACE = 0x00000010;
+pub const FILE_RENAME_NO_DECREASE_AVAILABLE_SPACE = 0x00000020;
+pub const FILE_RENAME_PRESERVE_AVAILABLE_SPACE = 0x00000030;
+pub const FILE_RENAME_IGNORE_READONLY_ATTRIBUTE = 0x00000040;
+pub const FILE_RENAME_FORCE_RESIZE_TARGET_SR = 0x00000080;
+pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
+pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
+
 pub const FILE_RENAME_INFORMATION = extern struct {
-    ReplaceIfExists: BOOLEAN,
+    Flags: BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
+// FileRenameInformationEx (since .win10_rs1)
+pub const FILE_RENAME_INFORMATION_EX = extern struct {
+    Flags: ULONG,
     RootDirectory: ?HANDLE,
     FileNameLength: ULONG,
     FileName: [1]WCHAR,

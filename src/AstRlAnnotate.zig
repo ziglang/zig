@@ -203,6 +203,16 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 else => unreachable,
             }
         },
+        .assign_destructure => {
+            const lhs_count = tree.extra_data[node_datas[node].lhs];
+            const all_lhs = tree.extra_data[node_datas[node].lhs + 1 ..][0..lhs_count];
+            for (all_lhs) |lhs| {
+                _ = try astrl.expr(lhs, block, ResultInfo.none);
+            }
+            // We don't need to gather any meaningful data here, because destructures always use RLS
+            _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.none);
+            return false;
+        },
         .assign => {
             _ = try astrl.expr(node_datas[node].lhs, block, ResultInfo.none);
             _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.typed_ptr);
@@ -659,17 +669,21 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullArrayInit(&buf, node).?;
-            const have_type = if (full.ast.type_expr != 0) have_type: {
+
+            if (full.ast.type_expr != 0) {
+                // Explicitly typed init does not participate in RLS
                 _ = try astrl.expr(full.ast.type_expr, block, ResultInfo.none);
-                break :have_type true;
-            } else ri.have_type;
-            if (have_type) {
-                const elem_ri: ResultInfo = .{
-                    .have_type = true,
-                    .have_ptr = ri.have_ptr,
-                };
                 for (full.ast.elements) |elem_init| {
-                    _ = try astrl.expr(elem_init, block, elem_ri);
+                    _ = try astrl.expr(elem_init, block, ResultInfo.type_only);
+                }
+                return false;
+            }
+
+            if (ri.have_type) {
+                // Always forward type information
+                // If we have a result pointer, we use and forward it
+                for (full.ast.elements) |elem_init| {
+                    _ = try astrl.expr(elem_init, block, ri);
                 }
                 return ri.have_ptr;
             } else {
@@ -692,17 +706,21 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const full = tree.fullStructInit(&buf, node).?;
-            const have_type = if (full.ast.type_expr != 0) have_type: {
+
+            if (full.ast.type_expr != 0) {
+                // Explicitly typed init does not participate in RLS
                 _ = try astrl.expr(full.ast.type_expr, block, ResultInfo.none);
-                break :have_type true;
-            } else ri.have_type;
-            if (have_type) {
-                const elem_ri: ResultInfo = .{
-                    .have_type = true,
-                    .have_ptr = ri.have_ptr,
-                };
                 for (full.ast.fields) |field_init| {
-                    _ = try astrl.expr(field_init, block, elem_ri);
+                    _ = try astrl.expr(field_init, block, ResultInfo.type_only);
+                }
+                return false;
+            }
+
+            if (ri.have_type) {
+                // Always forward type information
+                // If we have a result pointer, we use and forward it
+                for (full.ast.fields) |field_init| {
+                    _ = try astrl.expr(field_init, block, ri);
                 }
                 return ri.have_ptr;
             } else {
@@ -800,6 +818,8 @@ fn blockExpr(astrl: *AstRlAnnotate, parent_block: ?*Block, ri: ResultInfo, node:
 }
 
 fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.Node.Index, args: []const Ast.Node.Index) !bool {
+    _ = ri; // Currently, no builtin consumes its result location.
+
     const tree = astrl.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const builtin_token = main_tokens[node];
@@ -818,11 +838,8 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         },
         .as => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
-            const rhs_consumes_rl = try astrl.expr(args[1], block, ri);
-            if (rhs_consumes_rl) {
-                try astrl.nodes_need_rl.putNoClobber(astrl.gpa, node, {});
-            }
-            return rhs_consumes_rl;
+            _ = try astrl.expr(args[1], block, ResultInfo.type_only);
+            return false;
         },
         .bit_cast => {
             _ = try astrl.expr(args[0], block, ResultInfo.none);
@@ -912,7 +929,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .log,
         .log2,
         .log10,
-        .fabs,
+        .abs,
         .floor,
         .ceil,
         .trunc,

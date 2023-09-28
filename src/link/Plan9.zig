@@ -1106,7 +1106,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
-    var required_alignment: u32 = undefined;
+    var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 

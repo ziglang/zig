@@ -224,7 +224,8 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
         p &= ~0xfULL;
         // CFA is the bottom of the current stack frame.
         for (; p < cfa; p += 16) {
-          __asm__ __volatile__(".arch_extension memtag\n"
+          __asm__ __volatile__(".arch armv8.5-a\n"
+                               ".arch_extension memtag\n"
                                "stg %[Ptr], [%[Ptr]]\n"
                                :
                                : [Ptr] "r"(p)

@@ -5,7 +5,7 @@ const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
 const TableHeader = uefi.tables.TableHeader;
-const DevicePathProtocol = uefi.protocols.DevicePathProtocol;
+const DevicePathProtocol = uefi.protocol.DevicePath;
 const cc = uefi.cc;
 
 /// Boot services are services provided by the system's firmware until the operating system takes

@@ -69,6 +69,7 @@ pub const Context = enum { ret, arg, other };
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
+    const ip = &mod.intern_pool;
     const target = mod.getTarget();
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
@@ -209,8 +210,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
+            const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            if (struct_type.layout == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
                 if (ty_size > 64) result[1] = .integer;
@@ -221,15 +223,13 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
 
             var result_i: usize = 0; // out of 8
             var byte_i: usize = 0; // out of 8
-            const fields = ty.structFields(mod);
-            for (fields.values()) |field| {
-                if (field.abi_align != .none) {
-                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
-                        return memory_class;
-                    }
-                }
-                const field_size = field.ty.abiSize(mod);
-                const field_class_array = classifySystemV(field.ty, mod, .other);
+            for (struct_type.field_types.get(ip), 0..) |field_ty_ip, i| {
+                const field_ty = field_ty_ip.toType();
+                const field_align = struct_type.fieldAlign(ip, i);
+                if (field_align != .none and field_align.compare(.lt, field_ty.abiAlignment(mod)))
+                    return memory_class;
+                const field_size = field_ty.abiSize(mod);
+                const field_class_array = classifySystemV(field_ty, mod, .other);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -328,8 +328,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            const union_obj = mod.typeToUnion(ty).?;
+            const ty_size = mod.unionAbiSize(union_obj);
+            if (union_obj.getLayout(ip) == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
                 if (ty_size > 64) result[1] = .integer;
@@ -338,15 +339,15 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             if (ty_size > 64)
                 return memory_class;
 
-            const fields = ty.unionFields(mod);
-            for (fields.values()) |field| {
-                if (field.abi_align != .none) {
-                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
-                        return memory_class;
-                    }
+            for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
+                const field_align = union_obj.fieldAlign(ip, @intCast(field_index));
+                if (field_align != .none and
+                    field_align.compare(.lt, field_ty.toType().abiAlignment(mod)))
+                {
+                    return memory_class;
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field.ty, mod, .other);
+                const field_class = classifySystemV(field_ty.toType(), mod, .other);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
@@ -532,13 +533,3 @@ const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../value.zig").Value;
-
-fn _field(comptime tag: Type.Tag, offset: u32) Module.Struct.Field {
-    return .{
-        .ty = Type.initTag(tag),
-        .default_val = Value.initTag(.unreachable_value),
-        .abi_align = 0,
-        .offset = offset,
-        .is_comptime = false,
-    };
-}

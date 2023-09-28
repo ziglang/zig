@@ -805,3 +805,4 @@ SysBreakFunc(ConstStr255Param debuggerMsg)                    __OSX_AVAILABLE_BU
 #endif
 
 #endif /* __MACTYPES__ */
+

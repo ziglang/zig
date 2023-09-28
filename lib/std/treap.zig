@@ -7,7 +7,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
     return struct {
         const Self = @This();
 
-        // Allow for compareFn to be fn(anytype, anytype) anytype
+        // Allow for compareFn to be fn (anytype, anytype) anytype
         // which allows the convenient use of std.math.order.
         fn compare(a: Key, b: Key) Order {
             return compareFn(a, b);

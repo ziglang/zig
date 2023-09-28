@@ -27,7 +27,7 @@ __to_underlying(_Tp __val) noexcept {
 }
 #endif // !_LIBCPP_CXX03_LANG
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
 template <class _Tp>
 _LIBCPP_NODISCARD_EXT _LIBCPP_INLINE_VISIBILITY constexpr underlying_type_t<_Tp>
 to_underlying(_Tp __val) noexcept {

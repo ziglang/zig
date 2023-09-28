@@ -19,16 +19,14 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [concept.derived]
 
-template<class _Dp, class _Bp>
-concept derived_from =
-  is_base_of_v<_Bp, _Dp> &&
-  is_convertible_v<const volatile _Dp*, const volatile _Bp*>;
+template <class _Dp, class _Bp>
+concept derived_from = is_base_of_v<_Bp, _Dp> && is_convertible_v<const volatile _Dp*, const volatile _Bp*>;
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

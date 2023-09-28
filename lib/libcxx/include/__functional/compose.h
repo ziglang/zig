@@ -13,8 +13,8 @@
 #include <__config>
 #include <__functional/invoke.h>
 #include <__functional/perfect_forward.h>
+#include <__type_traits/decay.h>
 #include <__utility/forward.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,7 +22,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 struct __compose_op {
     template<class _Fn1, class _Fn2, class ..._Args>
@@ -45,7 +45,7 @@ constexpr auto __compose(_Fn1&& __f1, _Fn2&& __f2)
     -> decltype(      __compose_t<decay_t<_Fn1>, decay_t<_Fn2>>(_VSTD::forward<_Fn1>(__f1), _VSTD::forward<_Fn2>(__f2)))
     { return          __compose_t<decay_t<_Fn1>, decay_t<_Fn2>>(_VSTD::forward<_Fn1>(__f1), _VSTD::forward<_Fn2>(__f2)); }
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

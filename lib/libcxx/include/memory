@@ -160,7 +160,7 @@ template <class T, class U>
 bool operator==(const allocator<T>&, const allocator<U>&) noexcept; // constexpr in C++20
 
 template <class T, class U>
-bool operator!=(const allocator<T>&, const allocator<U>&) noexcept; // constexpr in C++20
+bool operator!=(const allocator<T>&, const allocator<U>&) noexcept; // removed in C++20
 
 template <class OutputIterator, class T>
 class raw_storage_iterator // deprecated in C++17, removed in C++20
@@ -912,14 +912,12 @@ template<size_t N, class T>
 #  pragma GCC system_header
 #endif
 
-#if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
-#   include <__pstl_memory>
-#endif
-
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
 #  include <concepts>
 #  include <cstddef>
 #  include <cstdint>
+#  include <cstdlib>
 #  include <cstring>
 #  include <iosfwd>
 #  include <iterator>

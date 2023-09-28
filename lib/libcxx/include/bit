@@ -83,6 +83,7 @@ namespace std {
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <cstdlib>
 #  include <iosfwd>
 #  include <limits>
 #  include <type_traits>

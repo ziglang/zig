@@ -84,6 +84,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 /// here in compiler-rt.
 pub fn F16T(comptime other_type: type) type {
     return switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
+            switch (builtin.abi.floatAbi()) {
+                .soft => u16,
+                .hard => f16,
+            }
+        else
+            u16,
         .aarch64, .aarch64_be, .aarch64_32 => f16,
         .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
         .x86, .x86_64 => if (builtin.target.isDarwin()) switch (other_type) {
@@ -102,14 +109,14 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
         u16 => {
             // 16x16 --> 32 bit multiply
             const product = @as(u32, a) * @as(u32, b);
-            hi.* = @as(u16, @intCast(product >> 16));
-            lo.* = @as(u16, @truncate(product));
+            hi.* = @intCast(product >> 16);
+            lo.* = @truncate(product);
         },
         u32 => {
             // 32x32 --> 64 bit multiply
             const product = @as(u64, a) * @as(u64, b);
-            hi.* = @as(u32, @truncate(product >> 32));
-            lo.* = @as(u32, @truncate(product));
+            hi.* = @truncate(product >> 32);
+            lo.* = @truncate(product);
         },
         u64 => {
             const S = struct {
@@ -136,9 +143,9 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
             hi.* = S.hiWord(plohi) +% S.hiWord(philo) +% S.hiWord(r1) +% phihi;
         },
         u128 => {
-            const Word_LoMask = @as(u64, 0x00000000ffffffff);
-            const Word_HiMask = @as(u64, 0xffffffff00000000);
-            const Word_FullMask = @as(u64, 0xffffffffffffffff);
+            const Word_LoMask: u64 = 0x00000000ffffffff;
+            const Word_HiMask: u64 = 0xffffffff00000000;
+            const Word_FullMask: u64 = 0xffffffffffffffff;
             const S = struct {
                 fn Word_1(x: u128) u64 {
                     return @as(u32, @truncate(x >> 96));
@@ -229,7 +236,7 @@ pub inline fn fneg(a: anytype) @TypeOf(a) {
     } });
     const sign_bit_mask = @as(U, 1) << (bits - 1);
     const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
-    return @as(F, @bitCast(negated));
+    return @bitCast(negated);
 }
 
 /// Allows to access underlying bits as two equally sized lower and higher

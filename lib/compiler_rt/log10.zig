@@ -28,7 +28,7 @@ comptime {
 
 pub fn __log10h(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(log10f(a)));
+    return @floatCast(log10f(a));
 }
 
 pub fn log10f(x_: f32) callconv(.C) f32 {
@@ -42,7 +42,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     const Lg4: f32 = 0xf89e26.0p-26;
 
     var x = x_;
-    var u = @as(u32, @bitCast(x));
+    var u: u32 = @bitCast(x);
     var ix = u;
     var k: i32 = 0;
 
@@ -59,7 +59,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
 
         k -= 25;
         x *= 0x1.0p25;
-        ix = @as(u32, @bitCast(x));
+        ix = @bitCast(x);
     } else if (ix >= 0x7F800000) {
         return x;
     } else if (ix == 0x3F800000) {
@@ -70,7 +70,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     ix += 0x3F800000 - 0x3F3504F3;
     k += @as(i32, @intCast(ix >> 23)) - 0x7F;
     ix = (ix & 0x007FFFFF) + 0x3F3504F3;
-    x = @as(f32, @bitCast(ix));
+    x = @bitCast(ix);
 
     const f = x - 1.0;
     const s = f / (2.0 + f);
@@ -168,12 +168,12 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
 pub fn __log10x(a: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(log10q(a)));
+    return @floatCast(log10q(a));
 }
 
 pub fn log10q(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return log10(@as(f64, @floatCast(a)));
+    return log10(@floatCast(a));
 }
 
 pub fn log10l(x: c_longdouble) callconv(.C) c_longdouble {

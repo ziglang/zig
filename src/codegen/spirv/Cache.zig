@@ -462,11 +462,11 @@ fn emit(
     switch (key) {
         .void_type => {
             try section.emit(spv.gpa, .OpTypeVoid, .{ .id_result = result_id });
-            try spv.debugName(result_id, "void", .{});
+            try spv.debugName(result_id, "void");
         },
         .bool_type => {
             try section.emit(spv.gpa, .OpTypeBool, .{ .id_result = result_id });
-            try spv.debugName(result_id, "bool", .{});
+            try spv.debugName(result_id, "bool");
         },
         .int_type => |int| {
             try section.emit(spv.gpa, .OpTypeInt, .{
@@ -481,14 +481,14 @@ fn emit(
                 .unsigned => "u",
                 .signed => "i",
             };
-            try spv.debugName(result_id, "{s}{}", .{ ui, int.bits });
+            try spv.debugNameFmt(result_id, "{s}{}", .{ ui, int.bits });
         },
         .float_type => |float| {
             try section.emit(spv.gpa, .OpTypeFloat, .{
                 .id_result = result_id,
                 .width = float.bits,
             });
-            try spv.debugName(result_id, "f{}", .{float.bits});
+            try spv.debugNameFmt(result_id, "f{}", .{float.bits});
         },
         .vector_type => |vector| {
             try section.emit(spv.gpa, .OpTypeVector, .{
@@ -530,11 +530,11 @@ fn emit(
                 section.writeOperand(IdResult, self.resultId(member_type));
             }
             if (self.getString(struct_type.name)) |name| {
-                try spv.debugName(result_id, "{s}", .{name});
+                try spv.debugName(result_id, name);
             }
             for (struct_type.memberNames(), 0..) |member_name, i| {
                 if (self.getString(member_name)) |name| {
-                    try spv.memberDebugName(result_id, @as(u32, @intCast(i)), "{s}", .{name});
+                    try spv.memberDebugName(result_id, @as(u32, @intCast(i)), name);
                 }
             }
             // TODO: Decorations?

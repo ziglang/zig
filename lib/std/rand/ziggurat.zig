@@ -33,7 +33,7 @@ pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
         };
 
         const x = u * tables.x[i];
-        const test_x = if (tables.is_symmetric) @fabs(x) else x;
+        const test_x = if (tables.is_symmetric) @abs(x) else x;
 
         // equivalent to |u| < tables.x[i+1] / tables.x[i] (or u < tables.x[i+1] / tables.x[i])
         if (test_x < tables.x[i + 1]) {

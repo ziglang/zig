@@ -122,7 +122,9 @@ pub const Feature = enum {
     r4,
     ras,
     rclass,
-    read_tp_hard,
+    read_tp_tpidrprw,
+    read_tp_tpidruro,
+    read_tp_tpidrurw,
     reserve_r9,
     ret_addr_stack,
     sb,
@@ -949,9 +951,19 @@ pub const all_features = blk: {
         .description = "Is realtime profile ('R' series)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.read_tp_hard)] = .{
-        .llvm_name = "read-tp-hard",
-        .description = "Reading thread pointer from register",
+    result[@intFromEnum(Feature.read_tp_tpidrprw)] = .{
+        .llvm_name = "read-tp-tpidrprw",
+        .description = "Reading thread pointer from TPIDRPRW register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.read_tp_tpidruro)] = .{
+        .llvm_name = "read-tp-tpidruro",
+        .description = "Reading thread pointer from TPIDRURO register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.read_tp_tpidrurw)] = .{
+        .llvm_name = "read-tp-tpidrurw",
+        .description = "Reading thread pointer from TPIDRURW register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_r9)] = .{
