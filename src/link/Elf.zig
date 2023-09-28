@@ -1321,16 +1321,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zig_module_index) |index| {
-        for (self.file(index).?.zig_module.atoms.keys()) |atom_index| {
+        const zig_module = self.file(index).?.zig_module;
+        for (zig_module.atoms.keys()) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             if (!atom_ptr.flags.alive) continue;
+            const code = try zig_module.codeAlloc(self, atom_index);
+            defer gpa.free(code);
             const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, size);
-            defer gpa.free(code);
-            const amt = try self.base.file.?.preadAll(code, file_offset);
-            if (amt != code.len) return error.InputOutput;
             try atom_ptr.resolveRelocs(self, code);
             try self.base.file.?.pwriteAll(code, file_offset);
         }
@@ -1864,7 +1862,7 @@ fn writeObjects(self: *Elf) !void {
 
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
             log.debug("writing atom({d}) at 0x{x}", .{ atom_ptr.atom_index, file_offset });
-            const code = try atom_ptr.codeInObjectUncompressAlloc(self);
+            const code = try object.codeDecompressAlloc(self, atom_ptr.atom_index);
             defer gpa.free(code);
 
             try atom_ptr.resolveRelocs(self, code);
@@ -3903,6 +3901,10 @@ pub fn calcImageBase(self: Elf) u64 {
         .p32 => 0x1000,
         .p64 => 0x1000000,
     };
+}
+
+pub fn isStatic(self: Elf) bool {
+    return self.base.options.link_mode == .Static;
 }
 
 pub fn isDynLib(self: Elf) bool {

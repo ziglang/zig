@@ -327,10 +327,12 @@ pub const Flags = packed struct {
     has_dynamic: bool = false,
 
     /// Whether the symbol contains TLSGD indirection.
-    tlsgd: bool = false,
+    needs_tlsgd: bool = false,
+    has_tlsgd: bool = false,
 
     /// Whether the symbol contains GOTTP indirection.
-    gottp: bool = false,
+    needs_gottp: bool = false,
+    has_gottp: bool = false,
 
     /// Whether the symbol contains TLSDESC indirection.
     tlsdesc: bool = false,

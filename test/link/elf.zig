@@ -158,17 +158,23 @@ fn addRunArtifact(comp: *Compile) *Run {
     return run;
 }
 
-fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
+fn addZigSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.zig", bytes);
     file.addStepDependencies(&comp.step);
     comp.root_src = file;
 }
 
-fn addCSourceBytes(comp: *Compile, bytes: []const u8) void {
+fn addCSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.c", bytes);
     comp.addCSourceFile(.{ .file = file, .flags = &.{} });
+}
+
+fn addAsmSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+    const b = comp.step.owner;
+    const file = WriteFile.create(b).add("a.s", bytes ++ "\n");
+    comp.addAssemblyFile(file);
 }
 
 const std = @import("std");
