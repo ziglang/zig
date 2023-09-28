@@ -43,6 +43,10 @@ phdr_load_ro_index: ?u16 = null,
 phdr_load_rw_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with zerofill data.
 phdr_load_zerofill_index: ?u16 = null,
+/// The index into the program headers of the PT_TLS program header.
+phdr_tls_index: ?u16 = null,
+/// The index into the program headers of a PT_LOAD program header with TLS data.
+phdr_load_tls_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 page_size: u32,
@@ -56,10 +60,13 @@ strtab: StringTable(.strtab) = .{},
 /// Representation of the GOT table as committed to the file.
 got: GotSection = .{},
 
+/// Tracked section headers
 text_section_index: ?u16 = null,
 rodata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
+tdata_section_index: ?u16 = null,
+tbss_section_index: ?u16 = null,
 eh_frame_section_index: ?u16 = null,
 eh_frame_hdr_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
@@ -621,6 +628,32 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
         phdr.p_offset = self.phdrs.items[self.phdr_load_rw_index.?].p_offset; // .bss overlaps .data
         phdr.p_memsz = 1024;
+    }
+
+    if (!self.base.options.single_threaded) {
+        if (self.phdr_load_tls_index == null) {
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            self.phdr_load_tls_index = try self.allocateSegment(.{
+                .size = 1024,
+                .alignment = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
+
+        if (self.phdr_tls_index == null) {
+            const phdr = &self.phdrs.items[self.phdr_load_tls_index.?];
+            try self.phdrs.append(gpa, .{
+                .p_type = elf.PT_TLS,
+                .p_offset = phdr.p_offset,
+                .p_vaddr = phdr.p_vaddr,
+                .p_paddr = phdr.p_paddr,
+                .p_filesz = phdr.p_filesz,
+                .p_memsz = phdr.p_memsz,
+                .p_align = ptr_size,
+                .p_flags = elf.PF_R,
+            });
+            self.phdr_table_dirty = true;
+        }
     }
 
     if (self.shstrtab_section_index == null) {
