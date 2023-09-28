@@ -599,7 +599,7 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
 }
 
 /// Decl
-///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn expectTopLevelDecl(p: *Parse) !Node.Index {

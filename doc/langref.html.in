@@ -12384,7 +12384,7 @@ TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 ComptimeDecl <- KEYWORD_comptime Block
 
 Decl
-    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
