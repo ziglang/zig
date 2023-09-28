@@ -316,36 +316,30 @@ pub fn fetchAndAddDependencies(
 
         // Directories do not provide a hash in build.zig.zon.
         // Hash the path to the module rather than its contents.
-        if (fetch_location == .directory) {
-            if (dep.hash != null) {
-                return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
-            }
-            const hex_digest = Manifest.hexDigest(try computePathHash(gpa, directory, fetch_location.directory));
-            dep.hash = try gpa.dupe(u8, &hex_digest);
-        }
-
-        const sub_mod, const found_existing = try getCachedPackage(
-            arena,
-            fetch_location,
-            global_cache_directory,
-            dep.*,
-            all_modules,
-            root_prog_node,
-        ) orelse .{
-            try fetchAndUnpack(
-                fetch_location,
-                thread_pool,
-                http_client,
-                directory,
+        const sub_mod, const found_existing = if (fetch_location == .directory)
+            try getDirectoryModule(gpa, fetch_location, directory, all_modules, dep, report)
+        else
+            try getCachedPackage(
+                gpa,
                 global_cache_directory,
                 dep.*,
-                report,
                 all_modules,
                 root_prog_node,
-                name,
-            ),
-            false,
-        };
+            ) orelse .{
+                try fetchAndUnpack(
+                    fetch_location,
+                    thread_pool,
+                    http_client,
+                    directory,
+                    global_cache_directory,
+                    dep.*,
+                    report,
+                    all_modules,
+                    root_prog_node,
+                    name,
+                ),
+                false,
+            };
 
         assert(dep.hash != null);
 
@@ -576,14 +570,6 @@ const FetchLocation = union(enum) {
                     .resource = .{ .file = try root_dir.handle.openFile(file, .{}) },
                 };
             },
-            .directory => |dir| {
-                const owned_path = try gpa.dupe(u8, dir);
-                errdefer gpa.free(owned_path);
-                return .{
-                    .path = owned_path,
-                    .resource = .{ .directory = try root_dir.handle.openIterableDir(dir, .{}) },
-                };
-            },
             .http_request => |uri| {
                 var h = std.http.Headers{ .allocator = gpa };
                 defer h.deinit();
@@ -606,6 +592,7 @@ const FetchLocation = union(enum) {
                     .resource = .{ .http_request = req },
                 };
             },
+            .directory => unreachable, // Directories do not require fetching
         }
     }
 };
@@ -614,7 +601,6 @@ const ReadableResource = struct {
     path: []const u8,
     resource: union(enum) {
         file: fs.File,
-        directory: fs.IterableDir,
         http_request: std.http.Client.Request,
     },
 
@@ -625,20 +611,12 @@ const ReadableResource = struct {
         rr: *ReadableResource,
         allocator: Allocator,
         thread_pool: *ThreadPool,
-        root_dir: Compilation.Directory,
         global_cache_directory: Compilation.Directory,
         dep: Manifest.Dependency,
         report: Report,
         pkg_prog_node: *std.Progress.Node,
     ) !PackageLocation {
         switch (rr.resource) {
-            .directory => {
-                return .{
-                    .hash = try computePathHash(allocator, root_dir, rr.path),
-                    .root_src_dir_path = try allocator.dupe(u8, rr.path),
-                    .root_dir = root_dir,
-                };
-            },
             inline .file, .http_request => |*r| {
                 const s = fs.path.sep_str;
                 const rand_int = std.crypto.random.int(u64);
@@ -710,8 +688,7 @@ const ReadableResource = struct {
 
                 return .{
                     .hash = actual_hash,
-                    .root_src_dir_path = relative_unpacked_path,
-                    .root_dir = global_cache_directory,
+                    .relative_unpacked_path = relative_unpacked_path,
                 };
             },
         }
@@ -727,7 +704,6 @@ const ReadableResource = struct {
             // TODO: Handle case of chunked content-length
             .http_request => |req| return req.response.content_length,
             .file => |f| return (try f.metadata()).size(),
-            .directory => unreachable,
         }
     }
 
@@ -737,7 +713,6 @@ const ReadableResource = struct {
                 return fileTypeFromPath(rr.path) orelse
                     return report.fail(dep.location_tok, "Unknown file type", .{});
             },
-            .directory => return error.IsDir,
             .http_request => |req| {
                 const content_type = req.response.headers.getFirstValue("Content-Type") orelse
                     return report.fail(dep.location_tok, "Missing 'Content-Type' header", .{});
@@ -793,7 +768,6 @@ const ReadableResource = struct {
         gpa.free(rr.path);
         switch (rr.resource) {
             .file => |file| file.close(),
-            .directory => |*dir| dir.close(),
             .http_request => |*req| req.deinit(),
         }
         rr.* = undefined;
@@ -804,11 +778,10 @@ pub const PackageLocation = struct {
     /// For packages that require unpacking, this is the hash of the package contents.
     /// For directories, this is the hash of the absolute file path.
     hash: [Manifest.Hash.digest_length]u8,
-    root_src_dir_path: []const u8,
-    root_dir: Compilation.Directory,
+    relative_unpacked_path: []const u8,
 
     pub fn deinit(pl: *PackageLocation, allocator: Allocator) void {
-        allocator.free(pl.root_src_dir_path);
+        allocator.free(pl.relative_unpacked_path);
         pl.* = undefined;
     }
 };
@@ -874,19 +847,11 @@ fn ProgressReader(comptime ReaderType: type) type {
 /// (i.e. whether or not its transitive dependencies have been fetched).
 fn getCachedPackage(
     gpa: Allocator,
-    fetch_location: FetchLocation,
     global_cache_directory: Compilation.Directory,
     dep: Manifest.Dependency,
     all_modules: *AllModules,
     root_prog_node: *std.Progress.Node,
 ) !?struct { DependencyModule, bool } {
-    // There is no fixed location to check for directory modules.
-    // Instead, check whether it is already listed in all_modules.
-    if (fetch_location == .directory) {
-        const hex_digest = dep.hash.?[0..hex_multihash_len];
-        return if (all_modules.get(hex_digest.*)) |mod| .{ mod.?, true } else null;
-    }
-
     const s = fs.path.sep_str;
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
@@ -912,34 +877,60 @@ fn getCachedPackage(
         root_prog_node.completeOne();
 
         const is_zig_mod = if (pkg_dir.access(build_zig_basename, .{})) |_| true else |_| false;
+        const basename = if (is_zig_mod) build_zig_basename else "";
+        const pkg = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, basename);
 
-        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
-        errdefer gpa.free(build_root);
-
-        const ptr = try gpa.create(Package);
-        errdefer gpa.destroy(ptr);
-
-        const owned_src_path = if (is_zig_mod) try gpa.dupe(u8, build_zig_basename) else "";
-        errdefer gpa.free(owned_src_path);
-
-        ptr.* = .{
-            .root_src_directory = .{
-                .path = build_root,
-                .handle = pkg_dir,
-            },
-            .root_src_directory_owned = true,
-            .root_src_path = owned_src_path,
-        };
-
-        gop.value_ptr.* = if (is_zig_mod)
-            .{ .zig_pkg = ptr }
+        const module: DependencyModule = if (is_zig_mod)
+            .{ .zig_pkg = pkg }
         else
-            .{ .non_zig_pkg = ptr };
+            .{ .non_zig_pkg = pkg };
 
-        return .{ gop.value_ptr.*.?, false };
+        try all_modules.put(gpa, hex_digest.*, module);
+        return .{ module, false };
     }
 
     return null;
+}
+
+fn getDirectoryModule(
+    gpa: Allocator,
+    fetch_location: FetchLocation,
+    directory: Compilation.Directory,
+    all_modules: *AllModules,
+    dep: *Manifest.Dependency,
+    report: Report,
+) !struct { DependencyModule, bool } {
+    assert(fetch_location == .directory);
+
+    if (dep.hash != null) {
+        return report.fail(dep.hash_tok, "hash not allowed for directory package", .{});
+    }
+
+    const hash = try computePathHash(gpa, directory, fetch_location.directory);
+    const hex_digest = Manifest.hexDigest(hash);
+    dep.hash = try gpa.dupe(u8, &hex_digest);
+
+    // There is no fixed location to check for directory modules.
+    // Instead, check whether it is already listed in all_modules.
+    if (all_modules.get(hex_digest)) |mod| return .{ mod.?, true };
+
+    var pkg_dir = directory.handle.openDir(fetch_location.directory, .{}) catch |err| switch (err) {
+        error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{fetch_location.directory}),
+        else => |e| return e,
+    };
+    defer pkg_dir.close();
+
+    const is_zig_mod = if (pkg_dir.access(build_zig_basename, .{})) |_| true else |_| false;
+    const basename = if (is_zig_mod) build_zig_basename else "";
+
+    const pkg = try createWithDir(gpa, directory, fetch_location.directory, basename);
+    const module: DependencyModule = if (is_zig_mod)
+        .{ .zig_pkg = pkg }
+    else
+        .{ .non_zig_pkg = pkg };
+
+    try all_modules.put(gpa, hex_digest, module);
+    return .{ module, false };
 }
 
 fn fetchAndUnpack(
@@ -956,6 +947,8 @@ fn fetchAndUnpack(
     /// is only intended to be human-readable for progress reporting.
     name_for_prog: []const u8,
 ) !DependencyModule {
+    assert(fetch_location == .file or fetch_location == .http_request);
+
     const gpa = http_client.allocator;
 
     var pkg_prog_node = root_prog_node.start(name_for_prog, 0);
@@ -966,51 +959,47 @@ fn fetchAndUnpack(
     var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep, report);
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(gpa, thread_pool, directory, global_cache_directory, dep, report, &pkg_prog_node);
+    var package_location = try readable_resource.unpack(gpa, thread_pool, global_cache_directory, dep, report, &pkg_prog_node);
     defer package_location.deinit(gpa);
 
     const actual_hex = Manifest.hexDigest(package_location.hash);
-    if (readable_resource.resource != .directory) {
-        if (dep.hash) |h| {
-            if (!mem.eql(u8, h, &actual_hex)) {
-                return report.fail(dep.hash_tok, "hash mismatch: expected: {s}, found: {s}", .{
-                    h, actual_hex,
-                });
-            }
-        } else {
-            const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-            defer gpa.free(file_path);
-
-            const eb = report.error_bundle;
-            const notes_len = 1;
-            try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
-                .tok = dep.location_tok,
-                .off = 0,
-                .msg = "dependency is missing hash field",
+    if (dep.hash) |h| {
+        if (!mem.eql(u8, h, &actual_hex)) {
+            return report.fail(dep.hash_tok, "hash mismatch: expected: {s}, found: {s}", .{
+                h, actual_hex,
             });
-            const notes_start = try eb.reserveNotes(notes_len);
-            eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
-            }));
-            return error.PackageFetchFailed;
         }
+    } else {
+        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+        defer gpa.free(file_path);
+
+        const eb = report.error_bundle;
+        const notes_len = 1;
+        try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
+            .tok = dep.location_tok,
+            .off = 0,
+            .msg = "dependency is missing hash field",
+        });
+        const notes_start = try eb.reserveNotes(notes_len);
+        eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
+            .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
+        }));
+        return error.PackageFetchFailed;
     }
 
-    const build_zig_path = try std.fs.path.join(gpa, &.{ package_location.root_src_dir_path, build_zig_basename });
+    const build_zig_path = try fs.path.join(gpa, &.{ package_location.relative_unpacked_path, build_zig_basename });
     defer gpa.free(build_zig_path);
 
-    package_location.root_dir.handle.access(build_zig_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => {
-            const module = try createWithDir(gpa, package_location.root_dir, package_location.root_src_dir_path, "");
-            try all_modules.put(gpa, actual_hex, .{ .non_zig_pkg = module });
-            return .{ .non_zig_pkg = module };
-        },
-        else => return err,
-    };
+    const is_zig_mod = if (global_cache_directory.handle.access(build_zig_path, .{})) |_| true else |_| false;
+    const basename = if (is_zig_mod) build_zig_basename else "";
+    const pkg = try createWithDir(gpa, global_cache_directory, package_location.relative_unpacked_path, basename);
+    const module: DependencyModule = if (is_zig_mod)
+        .{ .zig_pkg = pkg }
+    else
+        .{ .non_zig_pkg = pkg };
 
-    const module = try createWithDir(gpa, package_location.root_dir, package_location.root_src_dir_path, build_zig_basename);
-    try all_modules.put(gpa, actual_hex, .{ .zig_pkg = module });
-    return .{ .zig_pkg = module };
+    try all_modules.put(gpa, actual_hex, module);
+    return module;
 }
 
 fn unpackTarball(
