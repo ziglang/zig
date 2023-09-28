@@ -233,8 +233,7 @@ fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) er
         const is_alloc = flags & elf.SHF_ALLOC != 0;
         const is_write = flags & elf.SHF_WRITE != 0;
         const is_exec = flags & elf.SHF_EXECINSTR != 0;
-        const is_tls = flags & elf.SHF_TLS != 0;
-        if (!is_alloc or is_tls) {
+        if (!is_alloc) {
             log.err("{}: output section {s} not found", .{ self.fmtPath(), name });
             @panic("TODO: missing output section!");
         }
@@ -243,7 +242,7 @@ fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) er
         if (is_exec) phdr_flags |= elf.PF_X;
         const phdr_index = try elf_file.allocateSegment(.{
             .size = Elf.padToIdeal(shdr.sh_size),
-            .alignment = if (is_tls) shdr.sh_addralign else elf_file.page_size,
+            .alignment = elf_file.page_size,
             .flags = phdr_flags,
         });
         const shndx = try elf_file.allocateAllocSection(.{

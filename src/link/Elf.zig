@@ -4098,7 +4098,7 @@ const ErrorWithNotes = struct {
     }
 };
 
-fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+pub fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
     try self.misc_errors.ensureUnusedCapacity(self.base.allocator, 1);
     return self.addErrorWithNotesAssumeCapacity(note_count);
 }

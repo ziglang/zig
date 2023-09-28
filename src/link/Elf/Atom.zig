@@ -388,7 +388,17 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 
             elf.R_X86_64_PC32 => {},
 
-            else => @panic("TODO"),
+            else => {
+                var err = try elf_file.addErrorWithNotes(1);
+                try err.addMsg(elf_file, "fatal linker error: unhandled relocation type {}", .{
+                    fmtRelocType(rel.r_type()),
+                });
+                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                    self.file(elf_file).?.fmtPath(),
+                    self.name(elf_file),
+                    rel.r_offset,
+                });
+            },
         }
     }
 }
@@ -512,10 +522,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
                 try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
             },
 
-            else => {
-                log.err("TODO: unhandled relocation type {}", .{fmtRelocType(rel.r_type())});
-                @panic("TODO unhandled relocation type");
-            },
+            else => {},
         }
     }
 }
