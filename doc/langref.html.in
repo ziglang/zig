@@ -12373,11 +12373,7 @@ Root <- skip container_doc_comment? ContainerMembers eof
 # *** Top level ***
 ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
 
-ContainerDeclarations
-    <- TestDecl ContainerDeclarations
-     / ComptimeDecl ContainerDeclarations
-     / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-     /
+ContainerDeclarations <- (TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl)*
 
 TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 

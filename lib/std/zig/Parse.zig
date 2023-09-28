@@ -207,11 +207,7 @@ pub fn parseZon(p: *Parse) !void {
 
 /// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
 ///
-/// ContainerDeclarations
-///     <- TestDecl ContainerDeclarations
-///      / ComptimeDecl ContainerDeclarations
-///      / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-///      /
+/// ContainerDeclarations <- (TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl)*
 ///
 /// ComptimeDecl <- KEYWORD_comptime Block
 fn parseContainerMembers(p: *Parse) !Members {
