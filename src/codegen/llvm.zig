@@ -4904,9 +4904,9 @@ pub const FuncGen = struct {
                 .set_err_return_trace        => try self.airSetErrReturnTrace(inst),
                 .save_err_return_trace_index => try self.airSaveErrReturnTraceIndex(inst),
 
-                .wrap_optional         => try self.airWrapOptional(inst),
-                .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
-                .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
+                .wrap_optional         => try self.airWrapOptional(body[i..]),
+                .wrap_errunion_payload => try self.airWrapErrUnionPayload(body[i..]),
+                .wrap_errunion_err     => try self.airWrapErrUnionErr(body[i..]),
 
                 .wasm_memory_size => try self.airWasmMemorySize(inst),
                 .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
@@ -5299,6 +5299,16 @@ pub const FuncGen = struct {
         if (self.ret_ptr != .none) {
             const operand = try self.resolveInst(un_op);
             const ptr_ty = try mod.singleMutPtrType(ret_ty);
+
+            const unwrapped_operand = operand.unwrap();
+            const unwrapped_ret = self.ret_ptr.unwrap();
+
+            // Return value was stored previously
+            if (unwrapped_operand == .instruction and unwrapped_ret == .instruction and unwrapped_operand.instruction == unwrapped_ret.instruction) {
+                _ = try self.wip.retVoid();
+                return .none;
+            }
+
             try self.store(self.ret_ptr, ptr_ty, operand, .none);
             _ = try self.wip.retVoid();
             return .none;
@@ -7179,9 +7189,33 @@ pub const FuncGen = struct {
         return self.load(field_ptr, field_ptr_ty);
     }
 
-    fn airWrapOptional(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    /// As an optimization, we want to avoid unnecessary copies of
+    /// error union/optional types when returning from a function.
+    /// Here, we scan forward in the current block, looking to see
+    /// if the next instruction is a return (ignoring debug instructions).
+    ///
+    /// The first instruction of `body_tail` is a wrap instruction.
+    fn isNextRet(
+        self: *FuncGen,
+        body_tail: []const Air.Inst.Index,
+    ) bool {
+        const air_tags = self.air.instructions.items(.tag);
+        for (body_tail[1..]) |body_inst| {
+            switch (air_tags[body_inst]) {
+                .ret => return true,
+                .dbg_block_begin, .dbg_stmt => continue,
+                else => return false,
+            }
+        }
+        // The only way to get here is to hit the end of a loop instruction
+        // (implicit repeat).
+        return false;
+    }
+
+    fn airWrapOptional(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
+        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.typeOf(ty_op.operand);
         const non_null_bit = try o.builder.intValue(.i8, 1);
@@ -7192,8 +7226,15 @@ pub const FuncGen = struct {
         if (optional_ty.optionalReprIsPayload(mod)) return operand;
         const llvm_optional_ty = try o.lowerType(optional_ty);
         if (isByRef(optional_ty, mod)) {
-            const alignment = optional_ty.abiAlignment(mod).toLlvm();
-            const optional_ptr = try self.buildAlloca(llvm_optional_ty, alignment);
+            const directReturn = self.isNextRet(body_tail);
+            const optional_ptr = if (directReturn)
+                self.ret_ptr
+            else brk: {
+                const alignment = optional_ty.abiAlignment(mod).toLlvm();
+                const optional_ptr = try self.buildAlloca(llvm_optional_ty, alignment);
+                break :brk optional_ptr;
+            };
+
             const payload_ptr = try self.wip.gepStruct(llvm_optional_ty, optional_ptr, 0, "");
             const payload_ptr_ty = try mod.singleMutPtrType(payload_ty);
             try self.store(payload_ptr, payload_ptr_ty, operand, .none);
@@ -7204,9 +7245,10 @@ pub const FuncGen = struct {
         return self.wip.buildAggregate(llvm_optional_ty, &.{ operand, non_null_bit }, "");
     }
 
-    fn airWrapErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airWrapErrUnionPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
+        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const err_un_ty = self.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
@@ -7220,8 +7262,15 @@ pub const FuncGen = struct {
         const payload_offset = errUnionPayloadOffset(payload_ty, mod);
         const error_offset = errUnionErrorOffset(payload_ty, mod);
         if (isByRef(err_un_ty, mod)) {
-            const alignment = err_un_ty.abiAlignment(mod).toLlvm();
-            const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
+            const directReturn = self.isNextRet(body_tail);
+            const result_ptr = if (directReturn)
+                self.ret_ptr
+            else brk: {
+                const alignment = err_un_ty.abiAlignment(mod).toLlvm();
+                const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
+                break :brk result_ptr;
+            };
+
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
             const error_alignment = Type.err_int.abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, ok_err_code, err_ptr, error_alignment);
@@ -7236,9 +7285,10 @@ pub const FuncGen = struct {
         return self.wip.buildAggregate(err_un_llvm_ty, &fields, "");
     }
 
-    fn airWrapErrUnionErr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airWrapErrUnionErr(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
+        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const err_un_ty = self.typeOfIndex(inst);
         const payload_ty = err_un_ty.errorUnionPayload(mod);
@@ -7249,8 +7299,15 @@ pub const FuncGen = struct {
         const payload_offset = errUnionPayloadOffset(payload_ty, mod);
         const error_offset = errUnionErrorOffset(payload_ty, mod);
         if (isByRef(err_un_ty, mod)) {
-            const alignment = err_un_ty.abiAlignment(mod).toLlvm();
-            const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
+            const directReturn = self.isNextRet(body_tail);
+            const result_ptr = if (directReturn)
+                self.ret_ptr
+            else brk: {
+                const alignment = err_un_ty.abiAlignment(mod).toLlvm();
+                const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
+                break :brk result_ptr;
+            };
+
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
             const error_alignment = Type.err_int.abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, operand, err_ptr, error_alignment);
