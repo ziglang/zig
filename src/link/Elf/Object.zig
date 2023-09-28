@@ -180,7 +180,7 @@ fn addAtom(
     atom.file_index = self.index;
     atom.input_section_index = shndx;
     atom.output_section_index = try self.getOutputSectionIndex(elf_file, shdr);
-    atom.alive = true;
+    atom.flags.alive = true;
     self.atoms.items[shndx] = atom_index;
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
@@ -424,7 +424,7 @@ fn filterRelocs(
 pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.alive) continue;
+        if (!atom.flags.alive) continue;
         const shdr = atom.inputShdr(elf_file);
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -458,7 +458,7 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
             const atom_index = self.atoms.items[esym.st_shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.alive) continue;
+            if (!atom.flags.alive) continue;
         }
 
         const global = elf_file.symbol(index);
@@ -553,7 +553,7 @@ pub fn checkDuplicates(self: *Object, elf_file: *Elf) void {
         if (this_sym.st_shndx != elf.SHN_ABS) {
             const atom_index = self.atoms.items[this_sym.st_shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.alive) continue;
+            if (!atom.flags.alive) continue;
         }
 
         elf_file.base.fatal("multiple definition: {}: {}: {s}", .{
@@ -628,7 +628,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
 pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
-        if (local.atom(elf_file)) |atom| if (!atom.alive) continue;
+        if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
         const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => continue,
@@ -641,7 +641,7 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     for (self.globals()) |global_index| {
         const global = elf_file.symbol(global_index);
         if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (global.atom(elf_file)) |atom| if (!atom.alive) continue;
+        if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
         global.flags.output_symtab = true;
         if (global.isLocal()) {
             self.output_symtab_size.nlocals += 1;

@@ -25,11 +25,8 @@ relocs_section_index: Index = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
-/// Specifies whether this atom is alive or has been garbage collected.
-alive: bool = false,
-
-/// Specifies if the atom has been visited during garbage collection.
-visited: bool = false,
+/// Flags we use for state tracking.
+flags: Flags = .{},
 
 /// Start index of FDEs referencing this atom.
 fde_start: u32 = 0,
@@ -48,8 +45,12 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     return elf_file.strtab.getAssumeExists(self.name_offset);
 }
 
+pub fn file(self: Atom, elf_file: *Elf) ?File {
+    return elf_file.file(self.file_index);
+}
+
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
-    const object = elf_file.file(self.file_index).?.object;
+    const object = self.file(elf_file).?.object;
     return object.shdrs.items[self.input_section_index];
 }
 
@@ -59,7 +60,7 @@ pub fn outputShndx(self: Atom) ?u16 {
 }
 
 pub fn codeInObject(self: Atom, elf_file: *Elf) error{Overflow}![]const u8 {
-    const object = elf_file.file(self.file_index).?.object;
+    const object = self.file(elf_file).?.object;
     return object.shdrContents(self.input_section_index);
 }
 
@@ -91,7 +92,7 @@ pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
 }
 
 pub fn priority(self: Atom, elf_file: *Elf) u64 {
-    const index = elf_file.file(self.file_index).?.index();
+    const index = self.file(elf_file).?.index();
     return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
 }
 
@@ -178,6 +179,13 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         }
     };
 
+    log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
+        self.atom_index,
+        self.name(elf_file),
+        self.value,
+        self.value + self.size,
+    });
+
     const expand_section = if (atom_placement) |placement_index|
         elf_file.atom(placement_index).?.next_index == 0
     else
@@ -222,6 +230,8 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     if (free_list_removal) |i| {
         _ = free_list.swapRemove(i);
     }
+
+    self.flags.allocated = true;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -238,7 +248,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
     const gpa = elf_file.base.allocator;
-    const zig_module = elf_file.file(self.file_index).?.zig_module;
+    const zig_module = self.file(elf_file).?.zig_module;
     const shndx = self.outputShndx().?;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
@@ -294,7 +304,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.Elf64_Rela {
-    return switch (elf_file.file(self.file_index).?) {
+    return switch (self.file(elf_file).?) {
         .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
         else => unreachable,
@@ -303,7 +313,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.E
 
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
     const gpa = elf_file.base.allocator;
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     assert(file_ptr == .zig_module);
     const zig_module = file_ptr.zig_module;
     const rels = &zig_module.relocs.items[self.relocs_section_index];
@@ -311,14 +321,14 @@ pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
 }
 
 pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     assert(file_ptr == .zig_module);
     const zig_module = file_ptr.zig_module;
     zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
 pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     const rels = try self.relocs(elf_file);
     var i: usize = 0;
     while (i < rels.len) : (i += 1) {
@@ -392,7 +402,7 @@ fn reportUndefined(
     rel: elf.Elf64_Rela,
     undefs: anytype,
 ) !void {
-    const rel_esym = switch (elf_file.file(self.file_index).?) {
+    const rel_esym = switch (self.file(elf_file).?) {
         .zig_module => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
         else => unreachable,
@@ -416,7 +426,7 @@ fn reportUndefined(
 pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
 
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();
 
@@ -619,7 +629,7 @@ fn format2(
     //     try writer.writeAll(" }");
     // }
     const gc_sections = if (elf_file.base.options.gc_sections) |gc_sections| gc_sections else false;
-    if (gc_sections and !atom.alive) {
+    if (gc_sections and !atom.flags.alive) {
         try writer.writeAll(" : [*]");
     }
 }
@@ -628,6 +638,17 @@ fn format2(
 // ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
 // future.
 pub const Index = u16;
+
+pub const Flags = packed struct {
+    /// Specifies whether this atom is alive or has been garbage collected.
+    alive: bool = false,
+
+    /// Specifies if the atom has been visited during garbage collection.
+    visited: bool = false,
+
+    /// Specifies whether this atom has been allocated in the output section.
+    allocated: bool = false,
+};
 
 const x86_64 = struct {
     pub fn relaxGotpcrelx(code: []u8) !void {
