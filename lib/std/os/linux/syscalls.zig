@@ -442,6 +442,7 @@ pub const X86 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const X64 = enum(usize) {
@@ -807,6 +808,7 @@ pub const X64 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const Arm = enum(usize) {
@@ -1215,6 +1217,7 @@ pub const Arm = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 
     breakpoint = arm_base + 1,
     cacheflush = arm_base + 2,
@@ -1607,6 +1610,7 @@ pub const Sparc64 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const Mips = enum(usize) {
@@ -2030,6 +2034,7 @@ pub const Mips = enum(usize) {
     process_mrelease = Linux + 448,
     futex_waitv = Linux + 449,
     set_mempolicy_home_node = Linux + 450,
+    cachestat = Linux + 451,
 };
 
 pub const Mips64 = enum(usize) {
@@ -2389,6 +2394,7 @@ pub const Mips64 = enum(usize) {
     process_mrelease = Linux + 448,
     futex_waitv = Linux + 449,
     set_mempolicy_home_node = Linux + 450,
+    cachestat = Linux + 451,
 };
 
 pub const PowerPC = enum(usize) {
@@ -2823,6 +2829,7 @@ pub const PowerPC = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const PowerPC64 = enum(usize) {
@@ -3229,6 +3236,7 @@ pub const PowerPC64 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const Arm64 = enum(usize) {
@@ -3538,6 +3546,7 @@ pub const Arm64 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 };
 
 pub const RiscV64 = enum(usize) {
@@ -3848,6 +3857,7 @@ pub const RiscV64 = enum(usize) {
     process_mrelease = 448,
     futex_waitv = 449,
     set_mempolicy_home_node = 450,
+    cachestat = 451,
 
     riscv_flush_icache = arch_specific_syscall + 15,
 };
