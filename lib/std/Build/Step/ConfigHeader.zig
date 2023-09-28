@@ -11,9 +11,7 @@ pub const Style = union(enum) {
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
-    blank: struct {
-        include_guard_override: ?[]const u8 = null,
-    },
+    blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
     nasm,
 
@@ -44,14 +42,16 @@ output_file: std.Build.GeneratedFile,
 style: Style,
 max_bytes: usize,
 include_path: []const u8,
+include_guard_override: ?[]const u8,
 
 pub const base_id: Step.Id = .config_header;
 
 pub const Options = struct {
-    style: Style = .{ .blank = .{} },
+    style: Style = .blank,
     max_bytes: usize = 2 * 1024 * 1024,
     include_path: ?[]const u8 = null,
     first_ret_addr: ?usize = null,
+    include_guard_override: ?[]const u8 = null,
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
@@ -93,6 +93,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
         .max_bytes = options.max_bytes,
         .include_path = include_path,
+        .include_guard_override = options.include_guard_override,
         .output_file = .{ .step = &self.step },
     };
 
@@ -201,9 +202,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
             try render_cmake(step, contents, &output, self.values, src_path);
         },
-        .blank => |blank| {
+        .blank => {
             try output.appendSlice(c_generated_line);
-            try render_blank(&output, self.values, self.include_path, blank.include_guard_override);
+            try render_blank(&output, self.values, self.include_path, self.include_guard_override);
         },
         .nasm => {
             try output.appendSlice(asm_generated_line);
