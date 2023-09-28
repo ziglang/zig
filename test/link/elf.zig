@@ -18,7 +18,8 @@ pub fn build(b: *Build) void {
     // Exercise linker with LLVM backend
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingZig(b, .{}));
+    elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+    elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 }
 
 fn testEmptyObject(b: *Build, opts: Options) *Step {
@@ -91,6 +92,37 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testTlsStatic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-static", opts);
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\_Thread_local int a = 10;
+        \\_Thread_local int b;
+        \\_Thread_local char c = 'a';
+        \\int main(int argc, char* argv[]) {
+        \\  printf("%d %d %c\n", a, b, c);
+        \\  a += 1;
+        \\  b += 1;
+        \\  c += 1;
+        \\  printf("%d %d %c\n", a, b, c);
+        \\  return 0;
+        \\}
+    );
+    exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual(
+        \\10 0 a
+        \\11 1 b
+        \\
+    );
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 const Options = struct {
     target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
     optimize: std.builtin.OptimizeMode = .Debug,
@@ -114,7 +146,6 @@ fn addExecutable(b: *Build, opts: Options) *Compile {
         .name = "test",
         .target = opts.target,
         .optimize = opts.optimize,
-        .single_threaded = true, // TODO temp until we teach linker how to handle TLS
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
