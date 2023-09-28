@@ -980,6 +980,17 @@ test "pure EnumSet fns" {
     try testing.expect(full.differenceWith(black).eql(red));
 }
 
+test "std.enums.EnumSet empty" {
+    const E = enum {};
+    const empty = EnumSet(E).initEmpty();
+    const full = EnumSet(E).initFull();
+
+    try std.testing.expect(empty.eql(full));
+    try std.testing.expect(empty.complement().eql(full));
+    try std.testing.expect(empty.complement().eql(full.complement()));
+    try std.testing.expect(empty.eql(full.complement()));
+}
+
 test "std.enums.EnumSet const iterator" {
     const Direction = enum { up, down, left, right };
     const diag_move = init: {
@@ -1296,9 +1307,8 @@ pub fn EnumIndexer(comptime E: type) type {
 
     const const_fields = std.meta.fields(E);
     var fields = const_fields[0..const_fields.len].*;
-    const min = fields[0].value;
-    const max = fields[fields.len - 1].value;
     const fields_len = fields.len;
+
     if (fields_len == 0) {
         return struct {
             pub const Key = E;
@@ -1313,6 +1323,9 @@ pub fn EnumIndexer(comptime E: type) type {
             }
         };
     }
+
+    const min = fields[0].value;
+    const max = fields[fields.len - 1].value;
 
     const SortContext = struct {
         fields: []EnumField,
@@ -1423,4 +1436,12 @@ test "std.enums.EnumIndexer sparse" {
     try testing.expectEqual(E.a, Indexer.keyForIndex(0));
     try testing.expectEqual(E.b, Indexer.keyForIndex(1));
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
+}
+
+test "std.enums.EnumIndexer empty" {
+    const E = enum {};
+    const Indexer = EnumIndexer(E);
+    ensureIndexer(Indexer);
+    try testing.expectEqual(E, Indexer.Key);
+    try testing.expectEqual(@as(usize, 0), Indexer.count);
 }
