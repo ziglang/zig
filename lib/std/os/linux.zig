@@ -1876,6 +1876,21 @@ pub fn ptrace(
     );
 }
 
+pub fn cachestat(
+    fd: fd_t,
+    cstat_range: *const cache_stat_range,
+    cstat: *cache_stat,
+    flags: u32,
+) usize {
+    return syscall4(
+        .cachestat,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(cstat_range),
+        @intFromPtr(cstat),
+        flags,
+    );
+}
+
 pub const E = switch (native_arch) {
     .mips, .mipsel => @import("linux/errno/mips.zig").E,
     .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
@@ -5828,4 +5843,17 @@ pub const PTRACE = struct {
     pub const SECCOMP_GET_FILTER = 0x420c;
     pub const SECCOMP_GET_METADATA = 0x420d;
     pub const GET_SYSCALL_INFO = 0x420e;
+};
+
+pub const cache_stat_range = extern struct {
+    off: u64,
+    len: u64,
+};
+
+pub const cache_stat = extern struct {
+    cache: u64,
+    dirty: u64,
+    writeback: u64,
+    evicted: u64,
+    recently_evicted: u64,
 };
