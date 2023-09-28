@@ -2702,6 +2702,72 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
     return self.bin_file.makeWritable();
 }
 
+const Header = extern struct {
+    intern_pool: extern struct {
+        items_len: u32,
+        extra_len: u32,
+        limbs_len: u32,
+        string_bytes_len: u32,
+    },
+};
+
+/// Note that all state that is included in the cache hash namespace is *not*
+/// saved, such as the target and most CLI flags. A cache hit will only occur
+/// when subsequent compiler invocations use the same set of flags.
+pub fn saveState(comp: *Compilation) !void {
+    var bufs_list: [6]std.os.iovec_const = undefined;
+    var bufs_len: usize = 0;
+
+    const emit = comp.bin_file.options.emit orelse return;
+
+    if (comp.bin_file.options.module) |mod| {
+        const ip = &mod.intern_pool;
+        const header: Header = .{
+            .intern_pool = .{
+                .items_len = @intCast(ip.items.len),
+                .extra_len = @intCast(ip.extra.items.len),
+                .limbs_len = @intCast(ip.limbs.items.len),
+                .string_bytes_len = @intCast(ip.string_bytes.items.len),
+            },
+        };
+        addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.limbs.items));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.extra.items));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
+        addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
+
+        // TODO: compilation errors
+        // TODO: files
+        // TODO: namespaces
+        // TODO: decls
+        // TODO: linker state
+    }
+    var basename_buf: [255]u8 = undefined;
+    const basename = std.fmt.bufPrint(&basename_buf, "{s}.zcs", .{
+        comp.bin_file.options.root_name,
+    }) catch o: {
+        basename_buf[basename_buf.len - 4 ..].* = ".zcs".*;
+        break :o &basename_buf;
+    };
+
+    // Using an atomic file prevents a crash or power failure from corrupting
+    // the previous incremental compilation state.
+    var af = try emit.directory.handle.atomicFile(basename, .{});
+    defer af.deinit();
+    try af.file.pwritevAll(bufs_list[0..bufs_len], 0);
+    try af.finish();
+}
+
+fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) void {
+    const i = bufs_len.*;
+    bufs_len.* = i + 1;
+    bufs_list[i] = .{
+        .iov_base = buf.ptr,
+        .iov_len = buf.len,
+    };
+}
+
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
     var total: usize = self.failed_c_objects.count() +
