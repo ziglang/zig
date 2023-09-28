@@ -523,7 +523,7 @@ fn testLog10WithVectors() !void {
     try expect(@log10(@as(f32, 0.4)) == result[3]);
 }
 
-test "@fabs" {
+test "@abs" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -533,24 +533,24 @@ test "@fabs" {
 }
 
 fn testFabs() !void {
-    try expect(@fabs(@as(f16, -2.5)) == 2.5);
-    try expect(@fabs(@as(f16, 2.5)) == 2.5);
-    try expect(@fabs(@as(f32, -2.5)) == 2.5);
-    try expect(@fabs(@as(f32, 2.5)) == 2.5);
-    try expect(@fabs(@as(f64, -2.5)) == 2.5);
-    try expect(@fabs(@as(f64, 2.5)) == 2.5);
+    try expect(@abs(@as(f16, -2.5)) == 2.5);
+    try expect(@abs(@as(f16, 2.5)) == 2.5);
+    try expect(@abs(@as(f32, -2.5)) == 2.5);
+    try expect(@abs(@as(f32, 2.5)) == 2.5);
+    try expect(@abs(@as(f64, -2.5)) == 2.5);
+    try expect(@abs(@as(f64, 2.5)) == 2.5);
 
     // TODO test f128, and c_longdouble
     // https://github.com/ziglang/zig/issues/4026
     // {
     //     var a: f80 = -2.5;
     //     var b: f80 = 2.5;
-    //     try expect(@fabs(a) == 2.5);
-    //     try expect(@fabs(b) == 2.5);
+    //     try expect(@abs(a) == 2.5);
+    //     try expect(@abs(b) == 2.5);
     // }
 }
 
-test "@fabs with vectors" {
+test "@abs with vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -562,14 +562,15 @@ test "@fabs with vectors" {
 
 fn testFabsWithVectors() !void {
     var v: @Vector(4, f32) = [_]f32{ 1.1, -2.2, 0.3, -0.4 };
-    var result = @fabs(v);
-    try expect(math.approxEqAbs(f32, @fabs(@as(f32, 1.1)), result[0], epsilon));
-    try expect(math.approxEqAbs(f32, @fabs(@as(f32, -2.2)), result[1], epsilon));
-    try expect(math.approxEqAbs(f32, @fabs(@as(f32, 0.3)), result[2], epsilon));
-    try expect(math.approxEqAbs(f32, @fabs(@as(f32, -0.4)), result[3], epsilon));
+    var result = @abs(v);
+    try expect(math.approxEqAbs(f32, @abs(@as(f32, 1.1)), result[0], epsilon));
+    try expect(math.approxEqAbs(f32, @abs(@as(f32, -2.2)), result[1], epsilon));
+    try expect(math.approxEqAbs(f32, @abs(@as(f32, 0.3)), result[2], epsilon));
+    try expect(math.approxEqAbs(f32, @abs(@as(f32, -0.4)), result[3], epsilon));
 }
 
-test "another, possibly redundant, @fabs test" {
+test "another, possibly redundant, @abs test" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -587,11 +588,12 @@ test "another, possibly redundant, @fabs test" {
 
     const x = 14.0;
     const y = -x;
-    const z = @fabs(y);
+    const z = @abs(y);
     try comptime std.testing.expectEqual(x, z);
 }
 
-test "@fabs f80" {
+test "@abs f80" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -604,11 +606,12 @@ test "@fabs f80" {
 
 fn testFabsLegacy(comptime T: type, x: T) !void {
     const y = -x;
-    const z = @fabs(y);
+    const z = @abs(y);
     try expect(x == z);
 }
 
-test "a third @fabs test, surely there should not be three fabs tests" {
+test "a third @abs test, surely there should not be three fabs tests" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -617,23 +620,23 @@ test "a third @fabs test, surely there should not be three fabs tests" {
 
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // normals
-        try expect(@fabs(@as(T, 1.0)) == 1.0);
-        try expect(@fabs(@as(T, -1.0)) == 1.0);
-        try expect(@fabs(math.floatMin(T)) == math.floatMin(T));
-        try expect(@fabs(-math.floatMin(T)) == math.floatMin(T));
-        try expect(@fabs(math.floatMax(T)) == math.floatMax(T));
-        try expect(@fabs(-math.floatMax(T)) == math.floatMax(T));
+        try expect(@abs(@as(T, 1.0)) == 1.0);
+        try expect(@abs(@as(T, -1.0)) == 1.0);
+        try expect(@abs(math.floatMin(T)) == math.floatMin(T));
+        try expect(@abs(-math.floatMin(T)) == math.floatMin(T));
+        try expect(@abs(math.floatMax(T)) == math.floatMax(T));
+        try expect(@abs(-math.floatMax(T)) == math.floatMax(T));
 
         // subnormals
-        try expect(@fabs(@as(T, 0.0)) == 0.0);
-        try expect(@fabs(@as(T, -0.0)) == 0.0);
-        try expect(@fabs(math.floatTrueMin(T)) == math.floatTrueMin(T));
-        try expect(@fabs(-math.floatTrueMin(T)) == math.floatTrueMin(T));
+        try expect(@abs(@as(T, 0.0)) == 0.0);
+        try expect(@abs(@as(T, -0.0)) == 0.0);
+        try expect(@abs(math.floatTrueMin(T)) == math.floatTrueMin(T));
+        try expect(@abs(-math.floatTrueMin(T)) == math.floatTrueMin(T));
 
         // non-finite numbers
-        try expect(math.isPositiveInf(@fabs(math.inf(T))));
-        try expect(math.isPositiveInf(@fabs(-math.inf(T))));
-        try expect(math.isNan(@fabs(math.nan(T))));
+        try expect(math.isPositiveInf(@abs(math.inf(T))));
+        try expect(math.isPositiveInf(@abs(-math.inf(T))));
+        try expect(math.isNan(@abs(math.nan(T))));
     }
 }
 

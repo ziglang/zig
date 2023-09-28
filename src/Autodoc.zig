@@ -1669,7 +1669,7 @@ fn walkInstruction(
         .log,
         .log2,
         .log10,
-        .fabs,
+        .abs,
         .floor,
         .ceil,
         .trunc,

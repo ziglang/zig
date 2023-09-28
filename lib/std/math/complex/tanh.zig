@@ -44,7 +44,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
 
     // x >= 11
     if (ix >= 0x41300000) {
-        const exp_mx = @exp(-@fabs(x));
+        const exp_mx = @exp(-@abs(x));
         return Complex(f32).init(math.copysign(@as(f32, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
     }
 
@@ -87,7 +87,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
 
     // x >= 22
     if (ix >= 0x40360000) {
-        const exp_mx = @exp(-@fabs(x));
+        const exp_mx = @exp(-@abs(x));
         return Complex(f64).init(math.copysign(@as(f64, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
     }
 
