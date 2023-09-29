@@ -2452,7 +2452,11 @@ pub const Const = struct {
     /// Returns `math.Order.lt`, `math.Order.eq`, `math.Order.gt` if `a < b`, `a == b` or `a > b` respectively.
     pub fn order(a: Const, b: Const) math.Order {
         if (a.positive != b.positive) {
-            return if (a.positive) .gt else .lt;
+            if (eqlZero(a) and eqlZero(b)) {
+                return .eq;
+            } else {
+                return if (a.positive) .gt else .lt;
+            }
         } else {
             const r = orderAbs(a, b);
             return if (a.positive) r else switch (r) {
