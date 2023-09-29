@@ -1028,21 +1028,15 @@ pub fn growNonAllocSection(
     const shdr = &self.shdrs.items[shdr_index];
 
     if (needed_size > self.allocatedSize(shdr.sh_offset)) {
-        const existing_size = if (self.symtab_section_index.? == shdr_index) blk: {
-            const sym_size: u64 = switch (self.ptr_width) {
-                .p32 => @sizeOf(elf.Elf32_Sym),
-                .p64 => @sizeOf(elf.Elf64_Sym),
-            };
-            break :blk @as(u64, shdr.sh_info) * sym_size;
-        } else shdr.sh_size;
+        const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
         // Move all the symbols to a new file location.
         const new_offset = self.findFreeSpace(needed_size, min_alignment);
 
-        log.debug("moving '{?s}' from 0x{x} to 0x{x}", .{
-            self.shstrtab.get(shdr.sh_name),
-            shdr.sh_offset,
+        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+            self.shstrtab.getAssumeExists(shdr.sh_name),
             new_offset,
+            new_offset + existing_size,
         });
 
         if (requires_file_copy) {
@@ -3505,6 +3499,7 @@ fn updateSymtabSize(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Sym),
     };
     const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
+    shdr.sh_size = needed_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
 }
 
