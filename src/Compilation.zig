@@ -535,6 +535,7 @@ pub const LinkObject = struct {
     //
     // Consistent with `withLOption` variable name in lld ELF driver.
     loption: bool = false,
+    //no_undefined_version: bool = false,
 };
 
 pub const InitOptions = struct {
@@ -632,6 +633,7 @@ pub const InitOptions = struct {
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     soname: ?[]const u8 = null,
+    linker_no_undefined_version: ?bool = null,
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
