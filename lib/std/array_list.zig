@@ -6,21 +6,6 @@ const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
 
-/// Shared between managed and unmanaged versions of ArrayList. Called
-/// when memory growth is necessary. Returns a capacity larger than minimum
-/// that is better according to our growth policy.
-fn computeBetterCapacity(
-    current_capacity: usize,
-    minimum_capacity: usize,
-) usize {
-    var better_capacity = current_capacity;
-    while (true) {
-        better_capacity +|= better_capacity / 2 + 8;
-        if (better_capacity >= minimum_capacity)
-            return better_capacity;
-    }
-}
-
 /// A contiguous, growable list of items in memory.
 /// This is a wrapper around an array of T values. Initialize with `init`.
 ///
@@ -177,91 +162,74 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items[n] = item;
         }
 
-        /// Resize the array, adding `count` new elements at position `index`, which have `undefined` values.
-        /// The return value is a slice pointing to the newly allocated elements. The returned pointer
-        /// becomes invalid when the list is resized. Resizes list if self.capacity is not large enough.
-        pub fn addManyAtIndex(
-            self: *Self,
-            index: usize,
-            count: usize,
-        ) Allocator.Error![]T {
+        /// Add `count` new elements at position `index`, which have
+        /// `undefined` values. Returns a slice pointing to the newly allocated
+        /// elements, which becomes invalid after various `ArrayList`
+        /// operations.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Invalidates all pre-existing element pointers if capacity must be
+        /// increased to accomodate the new elements.
+        pub fn addManyAt(self: *Self, index: usize, count: usize) Allocator.Error![]T {
             const new_len = self.items.len + count;
-            const to_move = self.items[index..];
 
-            if (self.capacity >= new_len) {
-                //There is enough space
-                self.items.len = new_len;
-                mem.copyBackwards(
-                    T,
-                    self.items[index + count ..],
-                    to_move,
-                );
-                const result = self.items[index..][0..count];
-                @memset(result, undefined);
-                return result;
-            } else {
-                const better_capacity = computeBetterCapacity(self.capacity, new_len);
+            if (self.capacity >= new_len)
+                return addManyAtAssumeCapacity(self, index, count);
 
-                // Here we avoid copying allocated but unused bytes by
-                // attempting a resize in place, and falling back to allocating
-                // a new buffer and doing our own copy. With a realloc() call,
-                // the allocator implementation would pointlessly copy our
-                // extra capacity.
-                const old_memory = self.allocatedSlice();
-                if (self.allocator.resize(old_memory, better_capacity)) {
-                    self.capacity = better_capacity;
-                    self.items.len = new_len;
-                    mem.copyBackwards(
-                        T,
-                        self.items[index + count ..],
-                        to_move,
-                    );
-                    const result = self.items[index..][0..count];
-                    @memset(result, undefined);
-                    return result;
-                } else {
-                    // Need a new allocation. We don't call ensureTotalCapacity because there
-                    // would be an unnecessary check if the capacity is enough (we already
-                    // know it's not).
-                    const new_memory = try self.allocator.alignedAlloc(
-                        T,
-                        alignment,
-                        better_capacity,
-                    );
-                    @memcpy(
-                        new_memory[0..index],
-                        self.items[0..index],
-                    );
-
-                    // No need to mem.copyBackwards, as this is a new allocation.
-                    @memcpy(
-                        new_memory[index + count ..][0..to_move.len],
-                        to_move,
-                    );
-
-                    self.allocator.free(old_memory);
-                    self.items.ptr = new_memory.ptr;
-                    self.items.len = new_len;
-                    self.capacity = new_memory.len;
-                    const result = new_memory[index..][0..count];
-                    @memset(result, undefined);
-                    return result;
-                }
+            // Here we avoid copying allocated but unused bytes by
+            // attempting a resize in place, and falling back to allocating
+            // a new buffer and doing our own copy. With a realloc() call,
+            // the allocator implementation would pointlessly copy our
+            // extra capacity.
+            const new_capacity = growCapacity(self.capacity, new_len);
+            const old_memory = self.allocatedSlice();
+            if (self.allocator.resize(old_memory, new_capacity)) {
+                self.capacity = new_capacity;
+                return addManyAtAssumeCapacity(self, index, count);
             }
+
+            // Make a new allocation, avoiding `ensureTotalCapacity` in order
+            // to avoid extra memory copies.
+            const new_memory = try self.allocator.alignedAlloc(T, alignment, new_capacity);
+            const to_move = self.items[index..];
+            @memcpy(new_memory[0..index], self.items[0..index]);
+            @memcpy(new_memory[index + count ..][0..to_move.len], to_move);
+            self.allocator.free(old_memory);
+            self.items = new_memory[0..new_len];
+            self.capacity = new_memory.len;
+            // The inserted elements at `new_memory[index..][0..count]` have
+            // already been set to `undefined` by memory allocation.
+            return new_memory[index..][0..count];
+        }
+
+        /// Add `count` new elements at position `index`, which have
+        /// `undefined` values. Returns a slice pointing to the newly allocated
+        /// elements, which becomes invalid after various `ArrayList`
+        /// operations.
+        /// Asserts that there is enough capacity for the new elements.
+        /// Invalidates pre-existing pointers to elements at and after `index`, but
+        /// does not invalidate any before that.
+        pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+            const new_len = self.items.len + count;
+            assert(self.capacity >= new_len);
+            const to_move = self.items[index..];
+            self.items.len = new_len;
+            mem.copyBackwards(T, self.items[index + count ..], to_move);
+            const result = self.items[index..][0..count];
+            @memset(result, undefined);
+            return result;
         }
 
         /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
-        /// Invalidates pointers if additional memory is needed.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Invalidates all pre-existing element pointers if capacity must be
+        /// increased to accomodate the new elements.
         pub fn insertSlice(
             self: *Self,
             index: usize,
             items: []const T,
         ) Allocator.Error!void {
-            const dst = try self.addManyAtIndex(
-                index,
-                items.len,
-            );
+            const dst = try self.addManyAt(index, items.len);
             @memcpy(dst, items);
         }
 
@@ -462,7 +430,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
             if (self.capacity >= new_capacity) return;
 
-            const better_capacity = computeBetterCapacity(self.capacity, new_capacity);
+            const better_capacity = growCapacity(self.capacity, new_capacity);
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
@@ -750,10 +718,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.items[n] = item;
         }
 
-        /// Resize the array, adding `count` new elements at position `index`, which have `undefined` values.
-        /// The return value is a slice pointing to the newly allocated elements. The returned pointer
-        /// becomes invalid when the list is resized. Resizes list if self.capacity is not large enough.
-        pub fn addManyAtIndex(
+        /// Add `count` new elements at position `index`, which have
+        /// `undefined` values. Returns a slice pointing to the newly allocated
+        /// elements, which becomes invalid after various `ArrayList`
+        /// operations.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Invalidates all pre-existing element pointers if capacity must be
+        /// increased to accomodate the new elements.
+        pub fn addManyAt(
             self: *Self,
             allocator: Allocator,
             index: usize,
@@ -761,19 +733,39 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         ) Allocator.Error![]T {
             var managed = self.toManaged(allocator);
             defer self.* = managed.moveToUnmanaged();
-            return managed.addManyAtIndex(index, count);
+            return managed.addManyAt(index, count);
+        }
+
+        /// Add `count` new elements at position `index`, which have
+        /// `undefined` values. Returns a slice pointing to the newly allocated
+        /// elements, which becomes invalid after various `ArrayList`
+        /// operations.
+        /// Asserts that there is enough capacity for the new elements.
+        /// Invalidates pre-existing pointers to elements at and after `index`, but
+        /// does not invalidate any before that.
+        pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+            const new_len = self.items.len + count;
+            assert(self.capacity >= new_len);
+            const to_move = self.items[index..];
+            self.items.len = new_len;
+            mem.copyBackwards(T, self.items[index + count ..], to_move);
+            const result = self.items[index..][0..count];
+            @memset(result, undefined);
+            return result;
         }
 
         /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
-        /// Invalidates pointers if additional memory is needed.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Invalidates all pre-existing element pointers if capacity must be
+        /// increased to accomodate the new elements.
         pub fn insertSlice(
             self: *Self,
             allocator: Allocator,
             index: usize,
             items: []const T,
         ) Allocator.Error!void {
-            const dst = try self.addManyAtIndex(
+            const dst = try self.addManyAt(
                 allocator,
                 index,
                 items.len,
@@ -785,7 +777,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`
         /// Invalidates pointers if this ArrayList is resized.
-        pub fn replaceRange(self: *Self, allocator: Allocator, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
+        pub fn replaceRange(
+            self: *Self,
+            allocator: Allocator,
+            start: usize,
+            len: usize,
+            new_items: []const T,
+        ) Allocator.Error!void {
             var managed = self.toManaged(allocator);
             defer self.* = managed.moveToUnmanaged();
             try managed.replaceRange(start, len, new_items);
@@ -981,7 +979,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
 
-            var better_capacity = computeBetterCapacity(self.capacity, new_capacity);
+            var better_capacity = growCapacity(self.capacity, new_capacity);
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
@@ -1138,6 +1136,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.getLast();
         }
     };
+}
+
+/// Called when memory growth is necessary. Returns a capacity larger than
+/// minimum that grows super-linearly.
+fn growCapacity(current: usize, minimum: usize) usize {
+    var new = current;
+    while (true) {
+        new +|= new / 2 + 8;
+        if (new >= minimum)
+            return new;
+    }
 }
 
 test "std.ArrayList/ArrayListUnmanaged.init" {
