@@ -367,10 +367,12 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         }
     }
 
-    for (self.shdrs.items) |section| {
-        const increased_size = padToIdeal(section.sh_size);
-        const test_end = section.sh_offset + increased_size;
-        if (end > section.sh_offset and start < test_end) {
+    for (self.shdrs.items) |shdr| {
+        // SHT_NOBITS takes no physical space in the output file so set its size to 0.
+        const sh_size = if (shdr.sh_type == elf.SHT_NOBITS) 0 else shdr.sh_size;
+        const increased_size = padToIdeal(sh_size);
+        const test_end = shdr.sh_offset + increased_size;
+        if (end > shdr.sh_offset and start < test_end) {
             return test_end;
         }
     }
