@@ -909,10 +909,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
         // Must move the entire section.
         const new_offset = self.findFreeSpace(needed_size, self.page_size);
-        const existing_size = if (self.last_atom_and_free_list_table.get(shdr_index)) |meta| blk: {
-            const last = self.atom(meta.last_atom_index) orelse break :blk 0;
-            break :blk (last.value + last.size) - phdr.p_vaddr;
-        } else shdr.sh_size;
+        const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
@@ -922,6 +919,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         });
 
         const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
+        // TODO figure out what to about this error condition - how to communicate it up.
         if (amt != existing_size) return error.InputOutput;
 
         shdr.sh_offset = new_offset;
