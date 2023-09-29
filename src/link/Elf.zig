@@ -926,6 +926,11 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         phdr.p_offset = new_offset;
     }
 
+    shdr.sh_size = needed_size;
+    if (!is_zerofill) {
+        phdr.p_filesz = needed_size;
+    }
+
     const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
     if (needed_size > mem_capacity) {
         // We are exceeding our allocated VM capacity so we need to shift everything in memory
@@ -952,12 +957,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         }
     }
 
-    shdr.sh_size = needed_size;
     phdr.p_memsz = needed_size;
-
-    if (!is_zerofill) {
-        phdr.p_filesz = needed_size;
-    }
 
     self.markDirty(shdr_index, phdr_index);
 }
