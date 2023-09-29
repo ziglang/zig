@@ -1319,9 +1319,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         for (zig_module.atoms.keys()) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             if (!atom_ptr.flags.alive) continue;
+            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
+            if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zig_module.codeAlloc(self, atom_index);
             defer gpa.free(code);
-            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
             try atom_ptr.resolveRelocs(self, code);
             try self.base.file.?.pwriteAll(code, file_offset);
@@ -2862,10 +2863,6 @@ fn updateDeclCode(
         try self.got.writeEntry(self, gop.index);
     }
 
-    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
-    const section_offset = sym.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.shdrs.items[shdr_index].sh_offset + section_offset;
-
     if (self.base.child_pid) |pid| {
         switch (builtin.os.tag) {
             .linux => {
@@ -2887,7 +2884,13 @@ fn updateDeclCode(
         }
     }
 
-    try self.base.file.?.pwriteAll(code, file_offset);
+    const shdr = self.shdrs.items[shdr_index];
+    if (shdr.sh_type != elf.SHT_NOBITS) {
+        const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
+        const section_offset = sym.value - self.phdrs.items[phdr_index].p_vaddr;
+        const file_offset = shdr.sh_offset + section_offset;
+        try self.base.file.?.pwriteAll(code, file_offset);
+    }
 }
 
 pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
