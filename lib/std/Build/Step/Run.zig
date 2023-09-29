@@ -993,7 +993,7 @@ fn spawnChildAndCollect(
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
     if (self.stdin != .none) {
-        assert(child.stdin_behavior != .Inherit);
+        assert(self.stdio != .inherit);
         child.stdin_behavior = .Pipe;
     }
 
