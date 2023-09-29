@@ -134,6 +134,7 @@ pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
     var reader = SliceReader{ .slice = text };
+
     var uri = Uri{
         .scheme = "",
         .user = null,
@@ -145,13 +146,14 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
         .fragment = null,
     };
 
-    if (reader.peekPrefix("//")) { // authority part
+    if (reader.peekPrefix("//")) a: { // authority part
         std.debug.assert(reader.get().? == '/');
         std.debug.assert(reader.get().? == '/');
 
         const authority = reader.readUntil(isAuthoritySeparator);
-        if (authority.len == 0)
-            return error.InvalidFormat;
+        if (authority.len == 0) {
+            if (reader.peekPrefix("/")) break :a else return error.InvalidFormat;
+        }
 
         var start_of_host: usize = 0;
         if (std.mem.indexOf(u8, authority, "@")) |index| {
@@ -224,7 +226,6 @@ pub fn format(
         try writer.writeAll(":");
         if (uri.host) |host| {
             try writer.writeAll("//");
-
             if (uri.user) |user| {
                 try writer.writeAll(user);
                 if (uri.password) |password| {
@@ -486,6 +487,23 @@ test "should fail gracefully" {
     try std.testing.expectEqual(@as(ParseError!Uri, error.InvalidFormat), parse("foobar://"));
 }
 
+test "file" {
+    const parsed = try parse("file:///");
+    try std.testing.expectEqualSlices(u8, "file", parsed.scheme);
+    try std.testing.expectEqual(@as(?[]const u8, null), parsed.host);
+    try std.testing.expectEqualSlices(u8, "/", parsed.path);
+
+    const parsed2 = try parse("file:///an/absolute/path/to/something");
+    try std.testing.expectEqualSlices(u8, "file", parsed2.scheme);
+    try std.testing.expectEqual(@as(?[]const u8, null), parsed2.host);
+    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/something", parsed2.path);
+
+    const parsed3 = try parse("file://localhost/an/absolute/path/to/another/thing/");
+    try std.testing.expectEqualSlices(u8, "file", parsed3.scheme);
+    try std.testing.expectEqualSlices(u8, "localhost", parsed3.host.?);
+    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/another/thing/", parsed3.path);
+}
+
 test "scheme" {
     try std.testing.expectEqualSlices(u8, "http", (try parse("http:_")).scheme);
     try std.testing.expectEqualSlices(u8, "scheme-mee", (try parse("scheme-mee:_")).scheme);
@@ -694,4 +712,21 @@ test "URI query escaping" {
     const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{}", .{parsed});
     defer std.testing.allocator.free(formatted_uri);
     try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
+}
+
+test "format" {
+    const uri = Uri{
+        .scheme = "file",
+        .user = null,
+        .password = null,
+        .host = null,
+        .port = null,
+        .path = "/foo/bar/baz",
+        .query = null,
+        .fragment = null,
+    };
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    try uri.format("+/", .{}, buf.writer());
+    try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }
