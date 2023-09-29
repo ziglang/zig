@@ -797,7 +797,8 @@ set(BUILD_ZIG2_ARGS
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --deps build_options
+  --mod "aro::deps/aro/lib.zig"
+  --deps build_options,aro
   -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
 

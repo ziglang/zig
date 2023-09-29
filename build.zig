@@ -580,6 +580,9 @@ fn addCompilerStep(
         .optimize = optimize,
     });
     exe.stack_size = stack_size;
+    exe.addAnonymousModule("aro", .{
+        .source_file = .{ .path = "deps/aro/lib.zig" },
+    });
     return exe;
 }
 
