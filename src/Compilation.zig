@@ -1033,6 +1033,7 @@ pub const CreateOptions = struct {
     link_emit_relocs: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
+    linker_allow_undefined_version: bool = false,
     soname: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
@@ -1572,6 +1573,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .stack_size = options.stack_size,
             .image_base = options.image_base,
             .version_script = options.version_script,
+            .allow_undefined_version = options.linker_allow_undefined_version,
             .gc_sections = options.linker_gc_sections,
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
@@ -2458,7 +2460,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 10;
+pub const link_hash_implementation_version = 11;
 
 fn addNonIncrementalStuffToCacheManifest(
     comp: *Compilation,
@@ -2467,7 +2469,7 @@ fn addNonIncrementalStuffToCacheManifest(
 ) !void {
     const gpa = comp.gpa;
 
-    comptime assert(link_hash_implementation_version == 10);
+    comptime assert(link_hash_implementation_version == 11);
 
     if (comp.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
@@ -2541,6 +2543,7 @@ fn addNonIncrementalStuffToCacheManifest(
 
     try man.addOptionalFile(opts.linker_script);
     try man.addOptionalFile(opts.version_script);
+    man.hash.add(opts.allow_undefined_version);
 
     man.hash.addOptional(opts.stack_size);
     man.hash.addOptional(opts.image_base);

@@ -110,6 +110,9 @@ linker_dynamicbase: bool = true,
 
 linker_allow_shlib_undefined: ?bool = null,
 
+/// Allow version scripts to refer to undefined symbols.
+linker_allow_undefined_version: ?bool = null,
+
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
 
@@ -1450,6 +1453,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.version_script) |version_script| {
         try zig_args.append("--version-script");
         try zig_args.append(version_script.getPath(b));
+    }
+    if (self.linker_allow_undefined_version) |x| {
+        try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
     }
 
     if (self.kind == .@"test") {

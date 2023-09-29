@@ -3547,7 +3547,7 @@ fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) lin
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 11);
 
         for (objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4633,7 +4633,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 11);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
