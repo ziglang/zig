@@ -198,7 +198,8 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         // }
         if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
         const shdr = &elf_file.shdrs.items[st_shndx];
-        if (shdr.sh_flags & elf.SHF_TLS != 0) break :blk symbol.value - elf_file.tlsAddress();
+        if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
+            break :blk symbol.value - elf_file.tlsAddress();
         break :blk symbol.value;
     };
     out.* = .{

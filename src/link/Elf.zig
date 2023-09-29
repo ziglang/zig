@@ -3433,9 +3433,14 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // _end
     {
         const end_symbol = self.symbol(self.end_index.?);
+        end_symbol.value = 0;
         for (self.shdrs.items, 0..) |*shdr, shndx| {
-            if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
-                end_symbol.value = shdr.sh_addr + shdr.sh_size;
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+            const phdr_index = self.phdr_to_shdr_table.get(@intCast(shndx)).?;
+            const phdr = self.phdrs.items[phdr_index];
+            const value = phdr.p_vaddr + phdr.p_memsz;
+            if (end_symbol.value < value) {
+                end_symbol.value = value;
                 end_symbol.output_section_index = @intCast(shndx);
             }
         }
