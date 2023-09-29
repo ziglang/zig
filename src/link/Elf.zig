@@ -1353,12 +1353,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.updateSymtabSize();
     try self.writeSymtab();
 
-    // Dump the state for easy debugging.
-    // State can be dumped via `--debug-log link_state`.
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
-    }
-
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
             try dw.writeDbgAbbrev();
@@ -1543,6 +1537,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         log.debug("flushing. no_entry_point_found = false", .{});
         self.error_flags.no_entry_point_found = false;
         try self.writeElfHeader();
+    }
+
+    // Dump the state for easy debugging.
+    // State can be dumped via `--debug-log link_state`.
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
     }
 
     // The point of flush() is to commit changes, so in theory, nothing should
