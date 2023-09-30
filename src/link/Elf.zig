@@ -2058,8 +2058,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--undefined-version");
         }
 
-        if (self.base.options.no_undefined_version) {
+        if (self.base.options.no_undefined_version) |b| {
+          if (b) {
             try argv.append("--no-undefined-version");
+          } else {
+            try argv.append("--undefined-version");          
+          };
         }
 
         if (gc_sections) {
