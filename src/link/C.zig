@@ -344,9 +344,9 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         assert(f.ctypes.count() == 0);
         try self.flushCTypes(&f, .none, f.lazy_ctypes);
 
-        var it = self.decl_table.iterator();
-        while (it.next()) |entry|
-            try self.flushCTypes(&f, entry.key_ptr.toOptional(), entry.value_ptr.ctypes);
+        for (self.decl_table.keys(), self.decl_table.values()) |decl_index, db| {
+            try self.flushCTypes(&f, decl_index.toOptional(), db.ctypes);
+        }
     }
 
     f.all_buffers.items[ctypes_index] = .{
