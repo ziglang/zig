@@ -632,6 +632,7 @@ pub const InitOptions = struct {
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     soname: ?[]const u8 = null,
+    linker_undefined_version: ?bool = null,
     linker_no_undefined_version: ?bool = null,
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
