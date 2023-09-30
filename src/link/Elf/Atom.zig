@@ -14,13 +14,13 @@ size: u64 = 0,
 alignment: Alignment = .@"1",
 
 /// Index of the input section.
-input_section_index: Index = 0,
+input_section_index: u16 = 0,
 
 /// Index of the output section.
 output_section_index: u16 = 0,
 
 /// Index of the input section containing this atom's relocs.
-relocs_section_index: Index = 0,
+relocs_section_index: u16 = 0,
 
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
@@ -216,7 +216,6 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
     const gpa = elf_file.base.allocator;
-    const zig_module = self.file(elf_file).?.zig_module;
     const shndx = self.outputShndx().?;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
@@ -267,7 +266,9 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 
     // TODO create relocs free list
     self.freeRelocs(elf_file);
-    assert(zig_module.atoms.swapRemove(self.atom_index));
+    // TODO figure out how to free input section mappind in ZigModule
+    // const zig_module = self.file(elf_file).?.zig_module;
+    // assert(zig_module.atoms.swapRemove(self.atom_index));
     self.* = .{};
 }
 
@@ -698,10 +699,7 @@ fn format2(
     }
 }
 
-// TODO this has to be u32 but for now, to avoid redesigning elfSym machinery for
-// ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
-// future.
-pub const Index = u16;
+pub const Index = u32;
 
 pub const Flags = packed struct {
     /// Specifies whether this atom is alive or has been garbage collected.

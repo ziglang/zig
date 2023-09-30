@@ -13,7 +13,7 @@ local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 
-atoms: std.AutoArrayHashMapUnmanaged(Atom.Index, void) = .{},
+atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
 output_symtab_size: Elf.SymtabSize = .{},
@@ -56,7 +56,8 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     const symbol_index = try elf_file.addSymbol();
     const esym_index = try self.addLocalEsym(gpa);
 
-    try self.atoms.putNoClobber(gpa, atom_index, {});
+    const shndx = @as(u16, @intCast(self.atoms.items.len));
+    try self.atoms.append(gpa, atom_index);
     try self.local_symbols.append(gpa, symbol_index);
 
     const atom_ptr = elf_file.atom(atom_index).?;
@@ -67,10 +68,10 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     symbol_ptr.atom_index = atom_index;
 
     const esym = &self.local_esyms.items[esym_index];
-    esym.st_shndx = atom_index;
+    esym.st_shndx = shndx;
     symbol_ptr.esym_index = esym_index;
 
-    const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
+    const relocs_index = @as(u16, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
     atom_ptr.relocs_section_index = relocs_index;
@@ -86,7 +87,7 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
-            const atom_index = esym.st_shndx;
+            const atom_index = self.atoms.items[esym.st_shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
         }
@@ -95,7 +96,7 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (self.asFile().symbolRank(esym, false) < global.symbolRank(elf_file)) {
             const atom_index = switch (esym.st_shndx) {
                 elf.SHN_ABS, elf.SHN_COMMON => 0,
-                else => esym.st_shndx,
+                else => self.atoms.items[esym.st_shndx],
             };
             const output_section_index = if (elf_file.atom(atom_index)) |atom|
                 atom.outputShndx().?
@@ -141,7 +142,7 @@ pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
 }
 
 pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
-    for (self.atoms.keys()) |atom_index| {
+    for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
         if (try atom.scanRelocsRequiresCode(elf_file)) {
@@ -324,7 +325,7 @@ fn formatAtoms(
     _ = unused_fmt_string;
     _ = options;
     try writer.writeAll("  atoms\n");
-    for (ctx.self.atoms.keys()) |atom_index| {
+    for (ctx.self.atoms.items) |atom_index| {
         const atom = ctx.elf_file.atom(atom_index) orelse continue;
         try writer.print("    {}\n", .{atom.fmt(ctx.elf_file)});
     }

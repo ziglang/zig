@@ -887,7 +887,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             } });
             self.zig_module_index = index;
             const zig_module = self.file(index).?.zig_module;
-
+            try zig_module.atoms.append(gpa, 0); // null input section
             const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_mod.root_src_path));
             const symbol_index = try self.addSymbol();
             try zig_module.local_symbols.append(gpa, symbol_index);
@@ -1319,7 +1319,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // the relocations, and commit objects to file.
     if (self.zig_module_index) |index| {
         const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.keys()) |atom_index| {
+        for (zig_module.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             if (!atom_ptr.flags.alive) continue;
             const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
@@ -3245,7 +3245,7 @@ pub fn updateDeclExports(
         };
         const esym = &zig_module.global_esyms.items[sym_index & 0x0fffffff];
         esym.st_value = decl_sym.value;
-        esym.st_shndx = decl_sym.atom_index;
+        esym.st_shndx = decl_esym.st_shndx;
         esym.st_info = (stb_bits << 4) | stt_bits;
         esym.st_name = name_off;
     }

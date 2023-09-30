@@ -92,7 +92,7 @@ pub const File = union(enum) {
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
             .linker_defined => unreachable,
-            .zig_module => |x| x.atoms.keys(),
+            .zig_module => |x| x.atoms.items,
             .object => |x| x.atoms.items,
         };
     }
