@@ -206,8 +206,8 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
 
     // Fast path. Check for and skip 8 bytes of ASCII characters per iteration.
     while (p.len >= 8) {
-        const first32 = @as(u32, p[0]) | @as(u32, p[1]) << 8 | @as(u32, p[2]) << 16 | @as(u32, p[3]) << 24;
-        const second32 = @as(u32, p[4]) | @as(u32, p[5]) << 8 | @as(u32, p[6]) << 16 | @as(u32, p[7]) << 24;
+        const first32 = mem.readIntLittle(u32, p[0..4]);
+        const second32 = mem.readIntLittle(u32, p[4..8]);
         if ((first32 | second32) & 0x80808080 != 0) {
             // Found a non ASCII byte
             break;
@@ -215,7 +215,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
         p = p[8..];
     }
 
-    const RuneSelf = 0x80;
+    const rune_self = 0x80;
     const locb = 0b10000000;
     const hicb = 0b10111111;
 
@@ -233,32 +233,19 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
     const s6 = 0x04; // accept 0, size 4
     const s7 = 0x44; // accept 4, size 4
 
-    const first = [256]u8{
-        //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x00-0x0F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x10-0x1F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x20-0x2F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x30-0x3F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x40-0x4F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x50-0x5F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x60-0x6F
-        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x70-0x7F
-        //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0x80-0x8F
-        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0x90-0x9F
-        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xA0-0xAF
-        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xB0-0xBF
-        xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, // 0xC0-0xCF
-        s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, // 0xD0-0xDF
-        s2, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s4, s3, s3, // 0xE0-0xEF
-        s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xF0-0xFF
+    // information about the first byte in a UTF-8 sequence.
+    const first = comptime ([_]u8{as} ** 128) ++ ([_]u8{xx} ** 64) ++ [_]u8{
+        xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
+        s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
+        s2, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s4, s3, s3,
+        s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx,
     };
 
     var n = p.len;
     var i: usize = 0;
     while (i < n) {
         const pi = p[i];
-        if (pi < RuneSelf) {
+        if (pi < rune_self) {
             i += 1;
             continue;
         }
@@ -288,25 +275,28 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
         if (c1 < accept_lo or accept_hi < c1) {
             return false;
         }
-        if (size == 2) {
-            i += size;
-            continue;
+        switch (size) {
+            2 => i += 2,
+            3 => {
+                const c2 = p[i + 2];
+                if (c2 < locb or hicb < c2) {
+                    return false;
+                }
+                i += 3;
+            },
+            4 => {
+                const c2 = p[i + 2];
+                if (c2 < locb or hicb < c2) {
+                    return false;
+                }
+                const c3 = p[i + 3];
+                if (c3 < locb or hicb < c3) {
+                    return false;
+                }
+                i += 4;
+            },
+            else => unreachable,
         }
-
-        const c2 = p[i + 2];
-        if (c2 < locb or hicb < c2) {
-            return false;
-        }
-        if (size == 3) {
-            i += size;
-            continue;
-        }
-
-        const c3 = p[i + 3];
-        if (c3 < locb or hicb < c3) {
-            return false;
-        }
-        i += size;
     }
 
     return true;
