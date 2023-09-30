@@ -196,22 +196,119 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
     return len;
 }
 
-pub fn utf8ValidateSlice(s: []const u8) bool {
-    var i: usize = 0;
-    while (i < s.len) {
-        if (utf8ByteSequenceLength(s[i])) |cp_len| {
-            if (i + cp_len > s.len) {
-                return false;
-            }
+// Ported from go, which is licensed under a BSD-3 license.
+// https://golang.org/LICENSE
+//
+// https://golang.org/src/unicode/utf8/utf8.go
+/// Returns true if the input consists entirely of UTF-8 runes
+pub fn utf8ValidateSlice(input: []const u8) bool {
+    var p = input;
 
-            if (std.meta.isError(utf8Decode(s[i .. i + cp_len]))) {
-                return false;
-            }
-            i += cp_len;
-        } else |_| {
+    // Fast path. Check for and skip 8 bytes of ASCII characters per iteration.
+    while (p.len >= 8) {
+        const first32 = @as(u32, p[0]) | @as(u32, p[1])<<8 | @as(u32, p[2])<<16 | @as(u32, p[3])<<24;
+        const second32 = @as(u32, p[4]) | @as(u32, p[5])<<8 | @as(u32, p[6])<<16 | @as(u32, p[7])<<24;
+        if ((first32|second32)&0x80808080 != 0) {
+            // Found a non ASCII byte
+            break;
+        }
+        p = p[8..];
+    }
+
+    const RuneSelf = 0x80;
+    const locb = 0b10000000;
+    const hicb = 0b10111111;
+
+    // These names of these constants are chosen to give nice alignment in the
+    // table below. The first nibble is an index into acceptRanges or F for
+    // special one-byte cases. The second nibble is the Rune length or the
+    // Status for the special one-byte case.
+    const xx = 0xF1; // invalid: size 1
+    const as = 0xF0; // ASCII: size 1
+    const s1 = 0x02; // accept 0, size 2
+    const s2 = 0x13; // accept 1, size 3
+    const s3 = 0x03; // accept 0, size 3
+    const s4 = 0x23; // accept 2, size 3
+    const s5 = 0x34; // accept 3, size 4
+    const s6 = 0x04; // accept 0, size 4
+    const s7 = 0x44; // accept 4, size 4
+
+    const first = [256]u8{
+        //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x00-0x0F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x10-0x1F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x20-0x2F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x30-0x3F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x40-0x4F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x50-0x5F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x60-0x6F
+        as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, as, // 0x70-0x7F
+        //   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0x80-0x8F
+        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0x90-0x9F
+        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xA0-0xAF
+        xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xB0-0xBF
+        xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, // 0xC0-0xCF
+        s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, // 0xD0-0xDF
+        s2, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s3, s4, s3, s3, // 0xE0-0xEF
+        s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, // 0xF0-0xFF
+    };
+
+    var n = p.len;
+    var i: usize = 0;
+    while (i < n) {
+        const pi = p[i];
+        if (pi < RuneSelf) {
+            i += 1;
+            continue;
+        }
+
+        const x = first[pi];
+        if (x == xx) {
+            return false; // Illegal starter byte.
+        }
+
+        const size = x & 7;
+        if (i+size > n) {
+            return false; // Short or invalid.
+        }
+
+        var accept_lo: u8 = locb;
+        var accept_hi: u8 = hicb;
+        switch (x>>4) {
+            0 => {},
+            1 => accept_lo = 0xA0,
+            2 => accept_hi = 0x9F,
+            3 => accept_lo = 0x90,
+            4 => accept_hi = 0x8F,
+            else => unreachable,
+        }
+
+        const c1 = p[i+1];
+        if (c1 < accept_lo or accept_hi < c1) {
             return false;
         }
+        if (size == 2) {
+            i += size;
+            continue;
+        }
+
+        const c2 = p[i+2];
+        if (c2 < locb or hicb < c2) {
+            return false;
+        }
+        if (size == 3) {
+            i += size;
+            continue;
+        }
+
+        const c3 = p[i+3];
+        if (c3 < locb or hicb < c3) {
+            return false;
+        }
+        i += size;
     }
+
     return true;
 }
 
@@ -502,15 +599,37 @@ fn testUtf8ViewOk() !void {
     try testing.expect(it2.nextCodepoint() == null);
 }
 
-test "bad utf8 slice" {
-    try comptime testBadUtf8Slice();
-    try testBadUtf8Slice();
+test "validate slice" {
+    try comptime testValidateSlice();
+    try testValidateSlice();
 }
-fn testBadUtf8Slice() !void {
+fn testValidateSlice() !void {
     try testing.expect(utf8ValidateSlice("abc"));
+    try testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
+    try testing.expect(utf8ValidateSlice(""));
+    try testing.expect(utf8ValidateSlice("a"));
+    try testing.expect(utf8ValidateSlice("abc"));
+    try testing.expect(utf8ValidateSlice("Ж"));
+    try testing.expect(utf8ValidateSlice("ЖЖ"));
+    try testing.expect(utf8ValidateSlice("брэд-ЛГТМ"));
+    try testing.expect(utf8ValidateSlice("☺☻☹"));
+    try testing.expect(utf8ValidateSlice("a\u{fffdb}"));
+    try testing.expect(utf8ValidateSlice("\xf4\x8f\xbf\xbf"));
+    try testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
+
     try testing.expect(!utf8ValidateSlice("abc\xc0"));
     try testing.expect(!utf8ValidateSlice("abc\xc0abc"));
-    try testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
+    try testing.expect(!utf8ValidateSlice("aa\xe2"));
+    try testing.expect(!utf8ValidateSlice("\x42\xfa"));
+    try testing.expect(!utf8ValidateSlice("\x42\xfa\x43"));
+    try testing.expect(!utf8ValidateSlice("abc\xc0"));
+    try testing.expect(!utf8ValidateSlice("abc\xc0abc"));
+    try testing.expect(!utf8ValidateSlice("\xf4\x90\x80\x80"));
+    try testing.expect(!utf8ValidateSlice("\xf7\xbf\xbf\xbf"));
+    try testing.expect(!utf8ValidateSlice("\xfb\xbf\xbf\xbf\xbf"));
+    try testing.expect(!utf8ValidateSlice("\xc0\x80"));
+    try testing.expect(!utf8ValidateSlice("\xed\xa0\x80"));
+    try testing.expect(!utf8ValidateSlice("\xed\xbf\xbf"));
 }
 
 test "valid utf8" {
