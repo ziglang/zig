@@ -254,7 +254,7 @@ pub fn zeroes(comptime T: type) T {
                 var structure: T = undefined;
                 inline for (struct_info.fields) |field| {
                     if (!field.is_comptime) {
-                        @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                        @field(structure, field.name) = zeroes(field.type);
                     }
                 }
                 return structure;
@@ -292,12 +292,11 @@ pub fn zeroes(comptime T: type) T {
             return @splat(zeroes(info.child));
         },
         .Union => |info| {
-            if (comptime meta.containerLayout(T) == .Extern) {
-                // The C language specification states that (global) unions
-                // should be zero initialized to the first named member.
-                return @unionInit(T, info.fields[0].name, zeroes(info.fields[0].type));
+            if (info.layout == .Extern) {
+                var item: T = undefined;
+                @memset(asBytes(&item), 0);
+                return item;
             }
-
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
         .ErrorUnion,
@@ -318,10 +317,14 @@ pub fn zeroes(comptime T: type) T {
 test "zeroes" {
     const C_struct = extern struct {
         x: u32,
-        y: u32,
+        y: u32 align(128),
     };
 
     var a = zeroes(C_struct);
+
+    // Extern structs should have padding zeroed out.
+    try testing.expectEqualSlices(u8, &[_]u8{0} ** @sizeOf(@TypeOf(a)), asBytes(&a));
+
     a.y += 10;
 
     try testing.expect(a.x == 0);
@@ -402,9 +405,11 @@ test "zeroes" {
 
     var c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
+    try testing.expectEqual(@as(u32, 0), c.b);
 
     comptime var comptime_union = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
+    try testing.expectEqual(@as(u32, 0), comptime_union.b);
 
     // Ensure zero sized struct with fields is initialized correctly.
     _ = zeroes(struct { handle: void });
