@@ -647,7 +647,6 @@ pub const InitOptions = struct {
     linker_shared_memory: bool = false,
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
-    linker_undefined_version: ?bool = null,
     linker_no_undefined_version: ?bool = null,
     linker_print_gc_sections: bool = false,
     linker_print_icf_sections: bool = false,
