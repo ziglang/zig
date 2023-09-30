@@ -1590,7 +1590,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .shared_memory = options.linker_shared_memory,
             .global_base = options.linker_global_base,
             .export_symbol_names = options.linker_export_symbol_names,
-            .undefined_version = options.linker_undefined_version,
             .no_undefined_version = options.linker.no_undefined_version,
             .print_gc_sections = options.linker_print_gc_sections,
             .print_icf_sections = options.linker_print_icf_sections,
