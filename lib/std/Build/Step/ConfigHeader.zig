@@ -42,6 +42,7 @@ output_file: std.Build.GeneratedFile,
 style: Style,
 max_bytes: usize,
 include_path: []const u8,
+include_guard_override: ?[]const u8,
 
 pub const base_id: Step.Id = .config_header;
 
@@ -50,6 +51,7 @@ pub const Options = struct {
     max_bytes: usize = 2 * 1024 * 1024,
     include_path: ?[]const u8 = null,
     first_ret_addr: ?usize = null,
+    include_guard_override: ?[]const u8 = null,
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
@@ -91,6 +93,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
         .max_bytes = options.max_bytes,
         .include_path = include_path,
+        .include_guard_override = options.include_guard_override,
         .output_file = .{ .step = &self.step },
     };
 
@@ -201,7 +204,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         .blank => {
             try output.appendSlice(c_generated_line);
-            try render_blank(&output, self.values, self.include_path);
+            try render_blank(&output, self.values, self.include_path, self.include_guard_override);
         },
         .nasm => {
             try output.appendSlice(asm_generated_line);
@@ -415,15 +418,19 @@ fn render_blank(
     output: *std.ArrayList(u8),
     defines: std.StringArrayHashMap(Value),
     include_path: []const u8,
+    include_guard_override: ?[]const u8,
 ) !void {
-    const include_guard_name = try output.allocator.dupe(u8, include_path);
-    for (include_guard_name) |*byte| {
-        switch (byte.*) {
-            'a'...'z' => byte.* = byte.* - 'a' + 'A',
-            'A'...'Z', '0'...'9' => continue,
-            else => byte.* = '_',
+    const include_guard_name = include_guard_override orelse blk: {
+        const name = try output.allocator.dupe(u8, include_path);
+        for (name) |*byte| {
+            switch (byte.*) {
+                'a'...'z' => byte.* = byte.* - 'a' + 'A',
+                'A'...'Z', '0'...'9' => continue,
+                else => byte.* = '_',
+            }
         }
-    }
+        break :blk name;
+    };
 
     try output.appendSlice("#ifndef ");
     try output.appendSlice(include_guard_name);
