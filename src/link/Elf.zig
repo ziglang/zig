@@ -1320,7 +1320,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (self.zig_module_index) |index| {
         const zig_module = self.file(index).?.zig_module;
         for (zig_module.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
+            const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
