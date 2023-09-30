@@ -206,9 +206,9 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
 
     // Fast path. Check for and skip 8 bytes of ASCII characters per iteration.
     while (p.len >= 8) {
-        const first32 = @as(u32, p[0]) | @as(u32, p[1])<<8 | @as(u32, p[2])<<16 | @as(u32, p[3])<<24;
-        const second32 = @as(u32, p[4]) | @as(u32, p[5])<<8 | @as(u32, p[6])<<16 | @as(u32, p[7])<<24;
-        if ((first32|second32)&0x80808080 != 0) {
+        const first32 = @as(u32, p[0]) | @as(u32, p[1]) << 8 | @as(u32, p[2]) << 16 | @as(u32, p[3]) << 24;
+        const second32 = @as(u32, p[4]) | @as(u32, p[5]) << 8 | @as(u32, p[6]) << 16 | @as(u32, p[7]) << 24;
+        if ((first32 | second32) & 0x80808080 != 0) {
             // Found a non ASCII byte
             break;
         }
@@ -269,13 +269,13 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
         }
 
         const size = x & 7;
-        if (i+size > n) {
+        if (i + size > n) {
             return false; // Short or invalid.
         }
 
         var accept_lo: u8 = locb;
         var accept_hi: u8 = hicb;
-        switch (x>>4) {
+        switch (x >> 4) {
             0 => {},
             1 => accept_lo = 0xA0,
             2 => accept_hi = 0x9F,
@@ -284,7 +284,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
             else => unreachable,
         }
 
-        const c1 = p[i+1];
+        const c1 = p[i + 1];
         if (c1 < accept_lo or accept_hi < c1) {
             return false;
         }
@@ -293,7 +293,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
             continue;
         }
 
-        const c2 = p[i+2];
+        const c2 = p[i + 2];
         if (c2 < locb or hicb < c2) {
             return false;
         }
@@ -302,7 +302,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
             continue;
         }
 
-        const c3 = p[i+3];
+        const c3 = p[i + 3];
         if (c3 < locb or hicb < c3) {
             return false;
         }
