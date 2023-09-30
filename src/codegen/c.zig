@@ -522,8 +522,8 @@ pub const Object = struct {
 pub const DeclGen = struct {
     gpa: mem.Allocator,
     module: *Module,
-    decl: ?*Decl,
     decl_index: Decl.OptionalIndex,
+    is_naked_fn: bool,
     /// This is a borrowed reference from `link.C`.
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
@@ -532,8 +532,10 @@ pub const DeclGen = struct {
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
         const mod = dg.module;
+        const decl_index = dg.decl_index.unwrap().?;
+        const decl = mod.declPtr(decl_index);
         const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(dg.decl.?, mod);
+        const src_loc = src.toSrcLoc(decl, mod);
         dg.error_msg = try Module.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
@@ -2493,8 +2495,8 @@ fn genExports(o: *Object) !void {
 
     const mod = o.dg.module;
     const ip = &mod.intern_pool;
-    const decl = o.dg.decl.?;
     const decl_index = o.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{ .ty = decl.ty, .val = (try decl.internValue(mod)).toValue() };
     const fwd = o.dg.fwd_decl.writer();
 
@@ -2634,9 +2636,10 @@ pub fn genFunc(f: *Function) !void {
     const mod = o.dg.module;
     const gpa = o.dg.gpa;
     const decl_index = o.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = o.dg.decl.?.ty,
-        .val = o.dg.decl.?.val,
+        .ty = decl.ty,
+        .val = decl.val,
     };
 
     o.code_header = std.ArrayList(u8).init(gpa);
@@ -2719,19 +2722,20 @@ pub fn genDecl(o: *Object) !void {
     defer tracy.end();
 
     const mod = o.dg.module;
-    const decl = o.dg.decl.?;
-    const decl_c_value = .{ .decl = o.dg.decl_index.unwrap().? };
+    const decl_index = o.dg.decl_index.unwrap().?;
+    const decl_c_value = .{ .decl = decl_index };
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{ .ty = decl.ty, .val = (try decl.internValue(mod)).toValue() };
 
     if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
     if (tv.val.getExternFunc(mod)) |_| {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
         try fwd_decl_writer.writeAll("zig_extern ");
-        try o.dg.renderFunctionSignature(fwd_decl_writer, decl_c_value.decl, .forward, .{ .export_index = 0 });
+        try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
         try fwd_decl_writer.writeAll(";\n");
         try genExports(o);
     } else if (tv.val.getVariable(mod)) |variable| {
-        try o.dg.renderFwdDecl(decl_c_value.decl, variable);
+        try o.dg.renderFwdDecl(decl_index, variable);
         try genExports(o);
 
         if (variable.is_extern) return;
@@ -2750,7 +2754,7 @@ pub fn genDecl(o: *Object) !void {
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
-        const is_global = o.dg.module.decl_exports.contains(decl_c_value.decl);
+        const is_global = o.dg.module.decl_exports.contains(decl_index);
         const fwd_decl_writer = o.dg.fwd_decl.writer();
 
         try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
@@ -2773,12 +2777,14 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = dg.module;
+    const decl_index = dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = dg.decl.?.ty,
-        .val = dg.decl.?.val,
+        .ty = decl.ty,
+        .val = decl.val,
     };
     const writer = dg.fwd_decl.writer();
-    const mod = dg.module;
 
     switch (tv.ty.zigTypeTag(mod)) {
         .Fn => {
@@ -3504,8 +3510,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     } else {
         try reap(f, inst, &.{un_op});
         // Not even allowed to return void in a naked function.
-        if (if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention(mod) != .Naked else true)
-            try writer.writeAll("return;\n");
+        if (!f.object.dg.is_naked_fn) try writer.writeAll("return;\n");
     }
     return .none;
 }
@@ -4144,7 +4149,7 @@ fn airCall(
 ) !CValue {
     const mod = f.object.dg.module;
     // Not even allowed to call panic in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     const gpa = f.object.dg.gpa;
     const writer = f.object.writer();
@@ -4637,9 +4642,8 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
 }
 
 fn airTrap(f: *Function, writer: anytype) !CValue {
-    const mod = f.object.dg.module;
     // Not even allowed to call trap in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     try writer.writeAll("zig_trap();\n");
     return .none;
@@ -4682,9 +4686,8 @@ fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airUnreach(f: *Function) !CValue {
-    const mod = f.object.dg.module;
     // Not even allowed to call unreachable in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     try f.object.writer().writeAll("zig_unreachable();\n");
     return .none;
@@ -7194,8 +7197,11 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const inst_ty = f.typeOfIndex(inst);
-    const fn_cty = try f.typeToCType(f.object.dg.decl.?.ty, .complete);
+    const decl_index = f.object.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
+    const fn_cty = try f.typeToCType(decl.ty, .complete);
     const param_len = fn_cty.castTag(.varargs_function).?.data.param_types.len;
 
     const writer = f.object.writer();

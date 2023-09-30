@@ -139,6 +139,7 @@ pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: 
 
     const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
+    const decl = module.declPtr(decl_index);
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -163,7 +164,7 @@ pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: 
                 .module = module,
                 .error_msg = null,
                 .decl_index = decl_index.toOptional(),
-                .decl = module.declPtr(decl_index),
+                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
             },
@@ -216,15 +217,13 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
 
-    const decl = module.declPtr(decl_index);
-
     var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
             .module = module,
             .error_msg = null,
             .decl_index = decl_index.toOptional(),
-            .decl = decl,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -510,7 +509,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .module = self.base.options.module.?,
             .error_msg = null,
             .decl_index = .none,
-            .decl = null,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -544,7 +543,7 @@ fn flushLazyFn(self: *C, ctypes: *codegen.CType.Store, lazy_fn: codegen.LazyFnMa
             .module = self.base.options.module.?,
             .error_msg = null,
             .decl_index = .none,
-            .decl = null,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
