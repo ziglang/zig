@@ -497,6 +497,8 @@ const usage_build_generic =
     \\  -search_static_only            Only search for static libs.
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
+    \\  --undefined-version            Allow the linker to link with symbols with undefined version
+    \\  --no-undefined-version         Cause a fatal error if the linker attempts to link to a symbol with an undefined version
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
@@ -2359,6 +2361,8 @@ fn buildOutputType(
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--no-undefined-version")) {
                     linker_no_undefined_version = true;
+                } else if (mem.eql(u8, arg, "--undefined-version")) {
+                    linker_no_undefined_version = false;
                 } else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
