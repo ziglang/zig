@@ -705,9 +705,20 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
+if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+  set(ZIG_HOST_TARGET_OS "macos")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
+  set(ZIG_HOST_TARGET_OS "solaris")
+endif()
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
 if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
-  set(ZIG_HOST_TARGET_ARCH "x86")
+  if (ZIG_HOST_TARGET_OS STREQUAL "solaris")
+    set(ZIG_HOST_TARGET_ARCH "x86_64")
+  else()
+    set(ZIG_HOST_TARGET_ARCH "x86")
+  endif()
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
@@ -726,11 +737,6 @@ if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
   endif()
 endif()
 string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-
-string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
-if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
-  set(ZIG_HOST_TARGET_OS "macos")
-endif()
 
 if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
