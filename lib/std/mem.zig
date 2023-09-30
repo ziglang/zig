@@ -985,19 +985,19 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                         return i + std.simd.firstTrue(matches).?;
                     }
 
-                    i += std.mem.alignForward(usize, start_addr, block_len) - start_addr;
+                    i += (std.mem.alignForward(usize, start_addr, @alignOf(Block)) - start_addr) / @sizeOf(T);
                 } else {
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
                     // An alternate strategy is to do read a full block (the last in the page) and
                     // mask the entries before the pointer.
-                    while ((@intFromPtr(&p[i]) & (block_len - 1)) != 0) : (i += 1) {
+                    while ((@intFromPtr(&p[i]) & (@alignOf(Block) - 1)) != 0) : (i += 1) {
                         if (p[i] == sentinel) return i;
                     }
                 }
 
-                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), block_len));
+                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), @alignOf(Block)));
                 while (true) {
                     const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
                     const matches = block.* == mask;
@@ -1015,6 +1015,41 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
         i += 1;
     }
     return i;
+}
+
+test "indexOfSentinel vector paths" {
+    const Types = [_]type{ u8, u16, u32, u64 };
+    const allocator = std.testing.allocator;
+
+    inline for (Types) |T| {
+        const block_len = comptime std.simd.suggestVectorSize(T) orelse continue;
+
+        // Allocate three pages so we guarantee a page-crossing address with a full page after
+        const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
+        defer allocator.free(memory);
+        @memset(memory, 0xaa);
+
+        // Find starting page-alignment = 0
+        var start: usize = 0;
+        const start_addr = @intFromPtr(&memory);
+        start += (std.mem.alignForward(usize, start_addr, std.mem.page_size) - start_addr) / @sizeOf(T);
+        try testing.expect(start < std.mem.page_size / @sizeOf(T));
+
+        // Validate all sub-block alignments
+        const search_len = std.mem.page_size / @sizeOf(T);
+        memory[start + search_len] = 0;
+        for (0..block_len) |offset| {
+            try testing.expectEqual(search_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start + offset])));
+        }
+        memory[start + search_len] = 0xaa;
+
+        // Validate page boundary crossing
+        const start_page_boundary = start + (std.mem.page_size / @sizeOf(T));
+        memory[start_page_boundary + block_len] = 0;
+        for (0..block_len) |offset| {
+            try testing.expectEqual(2 * block_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start_page_boundary - block_len + offset])));
+        }
+    }
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -1129,6 +1164,20 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         if (c == value) return j;
     }
     return null;
+}
+
+test "indexOfScalarPos" {
+    const Types = [_]type{ u8, u16, u32, u64 };
+
+    inline for (Types) |T| {
+        var memory: [64 / @sizeOf(T)]T = undefined;
+        @memset(&memory, 0xaa);
+        memory[memory.len - 1] = 0;
+
+        for (0..memory.len) |i| {
+            try testing.expectEqual(memory.len - i - 1, indexOfScalarPos(T, memory[i..], 0, 0).?);
+        }
+    }
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
