@@ -192,6 +192,8 @@ pub const Options = struct {
     sort_section: ?SortSection,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
+    undefined_version: ?bool,
+    no_undefined_version: ?bool,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool,
     subsystem: ?std.Target.SubSystem,

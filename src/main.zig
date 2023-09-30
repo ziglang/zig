@@ -843,8 +843,9 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
-    var linker_no_undefined_version: ?bool = null;
     var linker_sort_section: ?link.SortSection = null;
+    var linker_undefined_version: ?bool = null;
+    var linker_no_undefined_version: ?bool = null;
     var linker_gc_sections: ?bool = null;
     var linker_compress_debug_sections: ?link.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
@@ -2359,11 +2360,11 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
-                } else if (mem.eql(u8, arg, "--no-undefined-version")) {
-                    linker_no_undefined_version = true;
                 } else if (mem.eql(u8, arg, "--undefined-version")) {
                     linker_no_undefined_version = false;
-                } else if (mem.eql(u8, arg, "--version")) {
+                } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                    linker_no_undefined_version = true;
+                }  else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
                 } else {
@@ -3431,6 +3432,7 @@ fn buildOutputType(
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
+        .linker_undefined_version = linker_undefined_version,
         .linker_no_undefined_version = linker_no_undefined_version,
         .linker_sort_section = linker_sort_section,
         .linker_gc_sections = linker_gc_sections,
