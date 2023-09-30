@@ -1015,9 +1015,9 @@ pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
 }
 
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
-    var i: usize = start_index;
-    while (i < slice.len) : (i += 1) {
-        if (slice[i] == value) return i;
+    if (start_index >= slice.len) return null;
+    for (slice[start_index..], start_index..) |c, i| {
+        if (c == value) return i;
     }
     return null;
 }
@@ -1038,10 +1038,10 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
 }
 
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
-    var i: usize = start_index;
-    while (i < slice.len) : (i += 1) {
+    if (start_index >= slice.len) return null;
+    for (slice[start_index..], start_index..) |c, i| {
         for (values) |value| {
-            if (slice[i] == value) return i;
+            if (c == value) return i;
         }
     }
     return null;
@@ -1074,10 +1074,10 @@ pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?u
 ///
 /// Comparable to `strspn` in the C standard library.
 pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
-    var i: usize = start_index;
-    outer: while (i < slice.len) : (i += 1) {
+    if (start_index >= slice.len) return null;
+    outer: for (slice[start_index..], start_index..) |c, i| {
         for (values) |value| {
-            if (slice[i] == value) continue :outer;
+            if (c == value) continue :outer;
         }
         return i;
     }
