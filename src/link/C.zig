@@ -27,6 +27,9 @@ decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclBlock) = .{},
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
 string_bytes: std.ArrayListUnmanaged(u8) = .{},
+/// Tracks all the anonymous decls that are used by all the decls so they can
+/// be rendered during flush().
+anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, DeclBlock) = .{},
 
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
@@ -34,9 +37,6 @@ fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
 code_buf: std.ArrayListUnmanaged(u8) = .{},
-/// Optimization, `updateDecl` reuses this table rather than creating a new one
-/// with every call.
-scratch_anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// Optimization, `flush` reuses this buffer rather than creating a new
 /// one with every call.
 lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
@@ -45,7 +45,7 @@ lazy_fwd_decl_buf: std.ArrayListUnmanaged(u8) = .{},
 lazy_code_buf: std.ArrayListUnmanaged(u8) = .{},
 
 /// A reference into `string_bytes`.
-const String = struct {
+const String = extern struct {
     start: u32,
     len: u32,
 
@@ -54,8 +54,9 @@ const String = struct {
         .len = 0,
     };
 };
+
 /// Per-declaration data.
-const DeclBlock = struct {
+pub const DeclBlock = struct {
     code: String = String.empty,
     fwd_decl: String = String.empty,
     /// Each `Decl` stores a set of used `CType`s.  In `flush()`, we iterate
@@ -120,10 +121,14 @@ pub fn deinit(self: *C) void {
     }
     self.decl_table.deinit(gpa);
 
+    for (self.anon_decls.values()) |*db| {
+        db.deinit(gpa);
+    }
+    self.anon_decls.deinit(gpa);
+
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
     self.code_buf.deinit(gpa);
-    self.scratch_anon_decl_deps.deinit(gpa);
 }
 
 pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
@@ -158,57 +163,110 @@ pub fn updateFunc(
     lazy_fns.clearRetainingCapacity();
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
-    self.scratch_anon_decl_deps.clearRetainingCapacity();
 
-    {
-        var function: codegen.Function = .{
-            .value_map = codegen.CValueMap.init(gpa),
-            .air = air,
-            .liveness = liveness,
-            .func_index = func_index,
-            .object = .{
-                .dg = .{
-                    .gpa = gpa,
-                    .module = module,
-                    .error_msg = null,
-                    .decl_index = decl_index.toOptional(),
-                    .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
-                    .fwd_decl = fwd_decl.toManaged(gpa),
-                    .ctypes = ctypes.*,
-                    .anon_decl_deps = self.scratch_anon_decl_deps,
-                },
-                .code = code.toManaged(gpa),
-                .indent_writer = undefined, // set later so we can get a pointer to object.code
+    var function: codegen.Function = .{
+        .value_map = codegen.CValueMap.init(gpa),
+        .air = air,
+        .liveness = liveness,
+        .func_index = func_index,
+        .object = .{
+            .dg = .{
+                .gpa = gpa,
+                .module = module,
+                .error_msg = null,
+                .decl_index = decl_index.toOptional(),
+                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                .fwd_decl = fwd_decl.toManaged(gpa),
+                .ctypes = ctypes.*,
+                .anon_decl_deps = self.anon_decls,
             },
-            .lazy_fns = lazy_fns.*,
-        };
+            .code = code.toManaged(gpa),
+            .indent_writer = undefined, // set later so we can get a pointer to object.code
+        },
+        .lazy_fns = lazy_fns.*,
+    };
 
-        function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-        defer {
-            self.scratch_anon_decl_deps = function.object.dg.anon_decl_deps;
-            fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
-            code.* = function.object.code.moveToUnmanaged();
-            function.deinit();
-        }
-
-        codegen.genFunc(&function) catch |err| switch (err) {
-            error.AnalysisFail => {
-                try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
-                return;
-            },
-            else => |e| return e,
-        };
-
-        ctypes.* = function.object.dg.ctypes.move();
-        lazy_fns.* = function.lazy_fns.move();
-
-        // Free excess allocated memory for this Decl.
-        ctypes.shrinkAndFree(gpa, ctypes.count());
-        lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
-
-        gop.value_ptr.code = try self.addString(function.object.code.items);
-        gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
+    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
+    defer {
+        self.anon_decls = function.object.dg.anon_decl_deps;
+        fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
+        code.* = function.object.code.moveToUnmanaged();
+        function.deinit();
     }
+
+    codegen.genFunc(&function) catch |err| switch (err) {
+        error.AnalysisFail => {
+            try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
+            return;
+        },
+        else => |e| return e,
+    };
+
+    ctypes.* = function.object.dg.ctypes.move();
+    lazy_fns.* = function.lazy_fns.move();
+
+    // Free excess allocated memory for this Decl.
+    ctypes.shrinkAndFree(gpa, ctypes.count());
+    lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
+
+    gop.value_ptr.code = try self.addString(function.object.code.items);
+    gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
+}
+
+fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
+    const gpa = self.base.allocator;
+    const anon_decl = self.anon_decls.keys()[i];
+
+    const fwd_decl = &self.fwd_decl_buf;
+    const code = &self.code_buf;
+    fwd_decl.clearRetainingCapacity();
+    code.clearRetainingCapacity();
+
+    var object: codegen.Object = .{
+        .dg = .{
+            .gpa = gpa,
+            .module = module,
+            .error_msg = null,
+            .decl_index = .none,
+            .is_naked_fn = false,
+            .fwd_decl = fwd_decl.toManaged(gpa),
+            .ctypes = .{},
+            .anon_decl_deps = self.anon_decls,
+        },
+        .code = code.toManaged(gpa),
+        .indent_writer = undefined, // set later so we can get a pointer to object.code
+    };
+    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+
+    defer {
+        self.anon_decls = object.dg.anon_decl_deps;
+        object.dg.ctypes.deinit(object.dg.gpa);
+        fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
+        code.* = object.code.moveToUnmanaged();
+    }
+
+    const tv: @import("../TypedValue.zig") = .{
+        .ty = module.intern_pool.typeOf(anon_decl).toType(),
+        .val = anon_decl.toValue(),
+    };
+    const c_value: codegen.CValue = .{ .constant = anon_decl };
+    codegen.genDeclValue(&object, tv, false, c_value, .none, .none) catch |err| switch (err) {
+        error.AnalysisFail => {
+            @panic("TODO: C backend AnalysisFail on anonymous decl");
+            //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
+            //return;
+        },
+        else => |e| return e,
+    };
+
+    // Free excess allocated memory for this Decl.
+    object.dg.ctypes.shrinkAndFree(gpa, object.dg.ctypes.count());
+
+    object.dg.anon_decl_deps.values()[i] = .{
+        .code = try self.addString(object.code.items),
+        .fwd_decl = try self.addString(object.dg.fwd_decl.items),
+        .ctypes = object.dg.ctypes.move(),
+    };
 }
 
 pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -227,7 +285,6 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     ctypes.clearRetainingCapacity(gpa);
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
-    self.scratch_anon_decl_deps.clearRetainingCapacity();
 
     var object: codegen.Object = .{
         .dg = .{
@@ -238,14 +295,14 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
-            .anon_decl_deps = self.scratch_anon_decl_deps,
+            .anon_decl_deps = self.anon_decls,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
-        self.scratch_anon_decl_deps = object.dg.anon_decl_deps;
+        self.anon_decls = object.dg.anon_decl_deps;
         object.dg.ctypes.deinit(object.dg.gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -303,6 +360,13 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     const gpa = self.base.allocator;
     const module = self.base.options.module.?;
 
+    {
+        var i: usize = 0;
+        while (i < self.anon_decls.count()) : (i += 1) {
+            try updateAnonDecl(self, module, i);
+        }
+    }
+
     // This code path happens exclusively with -ofmt=c. The flush logic for
     // emit-h is in `flushEmitH` below.
 
@@ -345,10 +409,15 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
             try export_names.put(gpa, @"export".opts.name, {});
 
-        const decl_keys = self.decl_table.keys();
-        for (decl_keys) |decl_index| {
+        for (self.anon_decls.values()) |*decl_block| {
+            try self.flushDeclBlock(&f, decl_block, export_names, .none);
+        }
+
+        for (self.decl_table.keys(), self.decl_table.values()) |decl_index, *decl_block| {
             assert(module.declPtr(decl_index).has_tv);
-            try self.flushDecl(&f, decl_index, export_names);
+            const decl = module.declPtr(decl_index);
+            const extern_symbol_name = if (decl.isExtern(module)) decl.name.toOptional() else .none;
+            try self.flushDeclBlock(&f, decl_block, export_names, extern_symbol_name);
         }
     }
 
@@ -358,8 +427,12 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         assert(f.ctypes.count() == 0);
         try self.flushCTypes(&f, .none, f.lazy_ctypes);
 
-        for (self.decl_table.keys(), self.decl_table.values()) |decl_index, db| {
-            try self.flushCTypes(&f, decl_index.toOptional(), db.ctypes);
+        for (self.anon_decls.values()) |decl_block| {
+            try self.flushCTypes(&f, .none, decl_block.ctypes);
+        }
+
+        for (self.decl_table.keys(), self.decl_table.values()) |decl_index, decl_block| {
+            try self.flushCTypes(&f, decl_index.toOptional(), decl_block.ctypes);
         }
     }
 
@@ -377,10 +450,12 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     f.file_size += lazy_fwd_decl_len;
 
     // Now the code.
+    const anon_decl_values = self.anon_decls.values();
     const decl_values = self.decl_table.values();
-    try f.all_buffers.ensureUnusedCapacity(gpa, 1 + decl_values.len);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 1 + anon_decl_values.len + decl_values.len);
     f.appendBufAssumeCapacity(self.lazy_code_buf.items);
-    for (decl_values) |decl| f.appendBufAssumeCapacity(self.getString(decl.code));
+    for (anon_decl_values) |db| f.appendBufAssumeCapacity(self.getString(db.code));
+    for (decl_values) |db| f.appendBufAssumeCapacity(self.getString(db.code));
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -526,16 +601,14 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
-            .anon_decl_deps = .{},
+            .anon_decl_deps = self.anon_decls,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
-        // If this assert trips just handle the anon_decl_deps the same as
-        // `updateFunc()` does.
-        assert(object.dg.anon_decl_deps.count() == 0);
+        self.anon_decls = object.dg.anon_decl_deps;
         object.dg.ctypes.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -604,22 +677,22 @@ fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError
     }
 }
 
-fn flushDecl(
+fn flushDeclBlock(
     self: *C,
     f: *Flush,
-    decl_index: Module.Decl.Index,
+    decl_block: *DeclBlock,
     export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
+    extern_symbol_name: InternPool.OptionalNullTerminatedString,
 ) FlushDeclError!void {
     const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
-    const decl = mod.declPtr(decl_index);
-
-    const decl_block = self.decl_table.getPtr(decl_index).?;
-
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
-    if (!(decl.isExtern(mod) and export_names.contains(decl.name)))
+    fwd_decl: {
+        if (extern_symbol_name.unwrap()) |name| {
+            if (export_names.contains(name)) break :fwd_decl;
+        }
         f.appendBufAssumeCapacity(self.getString(decl_block.fwd_decl));
+    }
 }
 
 pub fn flushEmitH(module: *Module) !void {
