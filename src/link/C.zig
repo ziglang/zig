@@ -139,6 +139,7 @@ pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: 
 
     const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
+    const decl = module.declPtr(decl_index);
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -163,7 +164,7 @@ pub fn updateFunc(self: *C, module: *Module, func_index: InternPool.Index, air: 
                 .module = module,
                 .error_msg = null,
                 .decl_index = decl_index.toOptional(),
-                .decl = module.declPtr(decl_index),
+                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
             },
@@ -216,15 +217,13 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
 
-    const decl = module.declPtr(decl_index);
-
     var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
             .module = module,
             .error_msg = null,
             .decl_index = decl_index.toOptional(),
-            .decl = decl,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -322,29 +321,19 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     self.lazy_code_buf.clearRetainingCapacity();
     try self.flushErrDecls(&f.lazy_ctypes);
 
+    // Unlike other backends, the .c code we are emitting has order-dependent decls.
     // `CType`s, forward decls, and non-functions first.
-    // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
-    // we must traverse the set of Decls that we are emitting according to their dependencies.
-    // Our strategy is to populate a set of remaining decls, pop Decls one by one,
-    // recursively chasing their dependencies.
-    try f.remaining_decls.ensureUnusedCapacity(gpa, self.decl_table.count());
-
-    const decl_keys = self.decl_table.keys();
-    const decl_values = self.decl_table.values();
-    for (decl_keys) |decl_index| {
-        assert(module.declPtr(decl_index).has_tv);
-        f.remaining_decls.putAssumeCapacityNoClobber(decl_index, {});
-    }
 
     {
         var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @as(u32, @intCast(module.decl_exports.entries.len)));
+        try export_names.ensureTotalCapacity(gpa, @intCast(module.decl_exports.entries.len));
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
             try export_names.put(gpa, @"export".opts.name, {});
 
-        while (f.remaining_decls.popOrNull()) |kv| {
-            const decl_index = kv.key;
+        const decl_keys = self.decl_table.keys();
+        for (decl_keys) |decl_index| {
+            assert(module.declPtr(decl_index).has_tv);
             try self.flushDecl(&f, decl_index, export_names);
         }
     }
@@ -355,9 +344,9 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         assert(f.ctypes.count() == 0);
         try self.flushCTypes(&f, .none, f.lazy_ctypes);
 
-        var it = self.decl_table.iterator();
-        while (it.next()) |entry|
-            try self.flushCTypes(&f, entry.key_ptr.toOptional(), entry.value_ptr.ctypes);
+        for (self.decl_table.keys(), self.decl_table.values()) |decl_index, db| {
+            try self.flushCTypes(&f, decl_index.toOptional(), db.ctypes);
+        }
     }
 
     f.all_buffers.items[ctypes_index] = .{
@@ -374,6 +363,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     f.file_size += lazy_fwd_decl_len;
 
     // Now the code.
+    const decl_values = self.decl_table.values();
     try f.all_buffers.ensureUnusedCapacity(gpa, 1 + decl_values.len);
     f.appendBufAssumeCapacity(self.lazy_code_buf.items);
     for (decl_values) |decl| f.appendBufAssumeCapacity(self.getString(decl.code));
@@ -384,8 +374,6 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
 }
 
 const Flush = struct {
-    remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
-
     ctypes: codegen.CType.Store = .{},
     ctypes_map: std.ArrayListUnmanaged(codegen.CType.Index) = .{},
     ctypes_buf: std.ArrayListUnmanaged(u8) = .{},
@@ -416,7 +404,6 @@ const Flush = struct {
         f.ctypes_buf.deinit(gpa);
         f.ctypes_map.deinit(gpa);
         f.ctypes.deinit(gpa);
-        f.remaining_decls.deinit(gpa);
     }
 };
 
@@ -522,7 +509,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .module = self.base.options.module.?,
             .error_msg = null,
             .decl_index = .none,
-            .decl = null,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -556,7 +543,7 @@ fn flushLazyFn(self: *C, ctypes: *codegen.CType.Store, lazy_fn: codegen.LazyFnMa
             .module = self.base.options.module.?,
             .error_msg = null,
             .decl_index = .none,
-            .decl = null,
+            .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -591,7 +578,6 @@ fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError
     }
 }
 
-/// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
 fn flushDecl(
     self: *C,
     f: *Flush,
@@ -601,14 +587,6 @@ fn flushDecl(
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    // Before flushing any particular Decl we must ensure its
-    // dependencies are already flushed, so that the order in the .c
-    // file comes out correctly.
-    for (decl.dependencies.keys()) |dep| {
-        if (f.remaining_decls.swapRemove(dep)) {
-            try flushDecl(self, f, dep, export_names);
-        }
-    }
 
     const decl_block = self.decl_table.getPtr(decl_index).?;
 
