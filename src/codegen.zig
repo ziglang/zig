@@ -643,19 +643,9 @@ fn lowerParentPtr(
     const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
     assert(ptr.len == .none);
     return switch (ptr.addr) {
-        .decl, .mut_decl => try lowerDeclRef(
-            bin_file,
-            src_loc,
-            switch (ptr.addr) {
-                .decl => |decl| decl,
-                .mut_decl => |mut_decl| mut_decl.decl,
-                else => unreachable,
-            },
-            code,
-            debug_output,
-            reloc_info,
-        ),
-        .anon_decl => @panic("TODO"),
+        .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
+        .mut_decl => |md| try lowerDeclRef(bin_file, src_loc, md.decl, code, debug_output, reloc_info),
+        .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info),
         .int => |int| try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
             .val = int.toValue(),
@@ -740,6 +730,43 @@ const RelocInfo = struct {
         return .{ .parent_atom_index = ri.parent_atom_index, .addend = (ri.addend orelse 0) + addend };
     }
 };
+
+fn lowerAnonDeclRef(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    decl_val: InternPool.Index,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
+) CodeGenError!Result {
+    _ = src_loc;
+    _ = debug_output;
+    const target = bin_file.options.target;
+    const mod = bin_file.options.module.?;
+
+    const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
+    const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
+    if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
+        try code.appendNTimes(0xaa, ptr_width_bytes);
+        return Result.ok;
+    }
+
+    const vaddr = try bin_file.getAnonDeclVAddr(decl_val, .{
+        .parent_atom_index = reloc_info.parent_atom_index,
+        .offset = code.items.len,
+        .addend = reloc_info.addend orelse 0,
+    });
+    const endian = target.cpu.arch.endian();
+    switch (ptr_width_bytes) {
+        2 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(vaddr), endian),
+        4 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(vaddr), endian),
+        8 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
+        else => unreachable,
+    }
+
+    return Result.ok;
+}
 
 fn lowerDeclRef(
     bin_file: *link.File,

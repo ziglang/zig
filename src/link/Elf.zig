@@ -348,6 +348,27 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
     return vaddr;
 }
 
+pub fn getAnonDeclVAddr(
+    self: *Elf,
+    decl_val: InternPool.Index,
+    reloc_info: link.File.RelocInfo,
+) !u64 {
+    // This is basically the same as lowerUnnamedConst except it needs
+    // to return the same thing as `getDeclVAddr`
+    // example:
+    // const ty = mod.intern_pool.typeOf(decl_val).toType();
+    // const val = decl_val.toValue();
+    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
+    // It doesn't have an owner decl because it's just an unnamed constant that might
+    // be used by more than one function, however, its address is being used so we need
+    // to put it in some location.
+    // ...
+    _ = self;
+    _ = decl_val;
+    _ = reloc_info;
+    _ = @panic("TODO: link/Elf getAnonDeclVAddr");
+}
+
 /// Returns end pos of collision, if any.
 fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     const small_ptr = self.ptr_width == .p32;
