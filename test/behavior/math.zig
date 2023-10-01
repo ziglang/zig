@@ -7,8 +7,6 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
 const math = std.math;
-const no_x86_64_hardware_f16_support = builtin.zig_backend == .stage2_x86_64 and
-    !std.Target.x86.featureSetHas(builtin.cpu.features, .f16c);
 
 test "assignment operators" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1444,7 +1442,6 @@ test "@round f16" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
-    if (no_x86_64_hardware_f16_support) return error.SkipZigTest; // TODO
 
     try testRound(f16, 12.0);
     try comptime testRound(f16, 12.0);
