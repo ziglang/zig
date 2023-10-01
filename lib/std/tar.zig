@@ -3,8 +3,13 @@ pub const Options = struct {
     strip_components: u32 = 0,
     /// How to handle the "mode" property of files from within the tar file.
     mode_mode: ModeMode = .executable_bit_only,
+    /// Provide this to receive detailed error messages.
+    /// When this is provided, some errors which would otherwise be returned immediately
+    /// will instead be added to this structure. The API user must check the errors
+    /// in diagnostics to know whether the operation succeeded or failed.
+    diagnostics: ?*Diagnostics = null,
 
-    const ModeMode = enum {
+    pub const ModeMode = enum {
         /// The mode from the tar file is completely ignored. Files are created
         /// with the default mode when creating files.
         ignore,
@@ -12,6 +17,32 @@ pub const Options = struct {
         /// only. This bit is copied to the group and other executable bits.
         /// Other bits of the mode are left as the default when creating files.
         executable_bit_only,
+    };
+
+    pub const Diagnostics = struct {
+        allocator: std.mem.Allocator,
+        errors: std.ArrayListUnmanaged(Error) = .{},
+
+        pub const Error = union(enum) {
+            unable_to_create_sym_link: struct {
+                code: anyerror,
+                file_name: []const u8,
+                link_name: []const u8,
+            },
+        };
+
+        pub fn deinit(d: *Diagnostics) void {
+            for (d.errors.items) |item| {
+                switch (item) {
+                    .unable_to_create_sym_link => |info| {
+                        d.allocator.free(info.file_name);
+                        d.allocator.free(info.link_name);
+                    },
+                }
+            }
+            d.errors.deinit(d.allocator);
+            d.* = undefined;
+        }
     };
 };
 
@@ -63,6 +94,10 @@ pub const Header = struct {
 
     pub fn name(header: Header) []const u8 {
         return str(header, 0, 0 + 100);
+    }
+
+    pub fn linkName(header: Header) []const u8 {
+        return str(header, 157, 157 + 100);
     }
 
     pub fn prefix(header: Header) []const u8 {
@@ -148,7 +183,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         const header: Header = .{ .bytes = chunk[0..512] };
         const file_size = try header.fileSize();
         const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
-        const pad_len = @as(usize, @intCast(rounded_file_size - file_size));
+        const pad_len: usize = @intCast(rounded_file_size - file_size);
         const unstripped_file_name = if (file_name_override_len > 0)
             file_name_buffer[0..file_name_override_len]
         else
@@ -228,7 +263,22 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 buffer.skip(reader, @intCast(rounded_file_size)) catch return error.TarHeadersTooBig;
             },
             .hard_link => return error.TarUnsupportedFileType,
-            .symbolic_link => return error.TarUnsupportedFileType,
+            .symbolic_link => {
+                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                const link_name = header.linkName();
+
+                dir.symLink(link_name, file_name, .{}) catch |err| {
+                    if (options.diagnostics) |d| {
+                        try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
+                            .code = err,
+                            .file_name = try d.allocator.dupe(u8, file_name),
+                            .link_name = try d.allocator.dupe(u8, link_name),
+                        } });
+                    } else {
+                        return error.UnableToCreateSymLink;
+                    }
+                };
+            },
             else => return error.TarUnsupportedFileType,
         }
     }
