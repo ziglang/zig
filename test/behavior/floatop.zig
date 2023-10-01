@@ -2,12 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const math = std.math;
-const has_f80_rt = switch (builtin.cpu.arch) {
-    .x86_64, .x86 => true,
-    else => false,
-};
-const no_x86_64_hardware_f16_support = builtin.zig_backend == .stage2_x86_64 and
-    !std.Target.x86.featureSetHas(builtin.cpu.features, .f16c);
 
 const epsilon_16 = 0.002;
 const epsilon = 0.000001;
@@ -247,42 +241,93 @@ test "negative f128 intFromFloat at compile-time" {
     try expect(@as(i64, -2) == b);
 }
 
-test "@sqrt" {
+test "@sqrt f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
-    try testSqrt();
-    try comptime testSqrt();
+    try testSqrt(f16);
+    try comptime testSqrt(f16);
 }
 
-fn testSqrt() !void {
-    try expect(@sqrt(@as(f16, 4)) == 2);
-    try expect(@sqrt(@as(f32, 9)) == 3);
-    try expect(@sqrt(@as(f64, 25)) == 5);
-    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 1.1)), 1.0488088481701516, epsilon));
-    try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.0)), 1.4142135623730950, epsilon));
+test "@sqrt f32/f64" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
-    if (false) {
-        if (has_f80_rt) {
-            // TODO https://github.com/ziglang/zig/issues/10875
-            if (builtin.os.tag != .freebsd) {
-                var a: f80 = 25;
-                try expect(@sqrt(a) == 5);
-            }
-        }
-        {
-            const a: comptime_float = 25.0;
-            try expect(@sqrt(a) == 5.0);
-        }
-        // TODO test f128, and c_longdouble
-        // https://github.com/ziglang/zig/issues/4026
-        //{
-        //    var a: f128 = 49;
-        //try expect(@sqrt(a) == 7);
-        //}
+    try testSqrt(f32);
+    try comptime testSqrt(f32);
+    try testSqrt(f64);
+    try comptime testSqrt(f64);
+}
+
+test "@sqrt f80/f128/c_longdouble" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    if (builtin.os.tag == .freebsd) {
+        // TODO https://github.com/ziglang/zig/issues/10875
+        return error.SkipZigTest;
     }
+
+    try testSqrt(f80);
+    try comptime testSqrt(f80);
+    try testSqrt(f128);
+    try comptime testSqrt(f128);
+    try testSqrt(c_longdouble);
+    try comptime testSqrt(c_longdouble);
+}
+
+fn testSqrt(comptime T: type) !void {
+    const eps = epsForType(T);
+    var four: T = 4.0;
+    try expect(@sqrt(four) == 2.0);
+    var nine: T = 9.0;
+    try expect(@sqrt(nine) == 3.0);
+    var twenty_five: T = 25.0;
+    try expect(@sqrt(twenty_five) == 5.0);
+    var sixty_four: T = 64.0;
+    try expect(@sqrt(sixty_four) == 8.0);
+    var one_point_one: T = 1.1;
+
+    try expect(math.approxEqAbs(T, @sqrt(one_point_one), 1.0488088481701516, eps));
+    var two: T = 2.0;
+    try expect(math.approxEqAbs(T, @sqrt(two), 1.4142135623730950, eps));
+    var three_point_six: T = 3.6;
+    try expect(math.approxEqAbs(T, @sqrt(three_point_six), 1.8973665961010276, eps));
+    var sixty_four_point_one: T = 64.1;
+    try expect(math.approxEqAbs(T, @sqrt(sixty_four_point_one), 8.00624756049923802, eps));
+    var twelve: T = 12.0;
+    try expect(math.approxEqAbs(T, @sqrt(twelve), 3.46410161513775459, eps));
+    var thirteen: T = 13.0;
+    try expect(math.approxEqAbs(T, @sqrt(thirteen), 3.60555127546398929, eps));
+    var fourteen: T = 14.0;
+    try expect(math.approxEqAbs(T, @sqrt(fourteen), 3.74165738677394139, eps));
+    var a: T = 7.539840;
+    try expect(math.approxEqAbs(T, @sqrt(a), 2.74587690911300684, eps));
+    var b: T = 19.230934;
+    try expect(math.approxEqAbs(T, @sqrt(b), 4.38530888307767894, eps));
+    var c: T = 8942.230469;
+    try expect(math.approxEqAbs(T, @sqrt(c), 94.5633674791671111, eps));
+
+    // special cases
+    var inf: T = math.inf(T);
+    try expect(math.isPositiveInf(@sqrt(inf)));
+    var zero: T = 0.0;
+    try expect(@sqrt(zero) == 0.0);
+    var neg_zero: T = -0.0;
+    try expect(@sqrt(neg_zero) == 0.0);
+    var neg_one: T = -1.0;
+    try expect(math.isNan(@sqrt(neg_one)));
+    var nan: T = math.nan(T);
+    try expect(math.isNan(@sqrt(nan)));
 }
 
 test "@sqrt with vectors" {
@@ -302,58 +347,6 @@ fn testSqrtWithVectors() !void {
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 2.2)), result[1], epsilon));
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 3.3)), result[2], epsilon));
     try expect(math.approxEqAbs(f32, @sqrt(@as(f32, 4.4)), result[3], epsilon));
-}
-
-test "more @sqrt f16 tests" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
-
-    // TODO these are not all passing at comptime
-    try expect(@sqrt(@as(f16, 0.0)) == 0.0);
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 2.0)), 1.414214, epsilon));
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 3.6)), 1.897367, epsilon));
-    try expect(@sqrt(@as(f16, 4.0)) == 2.0);
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 7.539840)), 2.745877, epsilon));
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 19.230934)), 4.385309, epsilon));
-    try expect(@sqrt(@as(f16, 64.0)) == 8.0);
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 64.1)), 8.006248, epsilon));
-    try expect(math.approxEqAbs(f16, @sqrt(@as(f16, 8942.230469)), 94.563370, epsilon));
-
-    // special cases
-    try expect(math.isPositiveInf(@sqrt(@as(f16, math.inf(f16)))));
-    try expect(@sqrt(@as(f16, 0.0)) == 0.0);
-    try expect(@sqrt(@as(f16, -0.0)) == -0.0);
-    try expect(math.isNan(@sqrt(@as(f16, -1.0))));
-    try expect(math.isNan(@sqrt(@as(f16, math.nan(f16)))));
-}
-
-test "another, possibly redundant @sqrt test" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (no_x86_64_hardware_f16_support) return error.SkipZigTest;
-
-    try testSqrtLegacy(f64, 12.0);
-    try comptime testSqrtLegacy(f64, 12.0);
-    try testSqrtLegacy(f32, 13.0);
-    try comptime testSqrtLegacy(f32, 13.0);
-    try testSqrtLegacy(f16, 13.0);
-    try comptime testSqrtLegacy(f16, 13.0);
-
-    // TODO: make this pass
-    if (false) {
-        const x = 14.0;
-        const y = x * x;
-        const z = @sqrt(y);
-        try comptime expect(z == x);
-    }
-}
-
-fn testSqrtLegacy(comptime T: type, x: T) !void {
-    try expect(@sqrt(x * x) == x);
 }
 
 test "@sin f16" {

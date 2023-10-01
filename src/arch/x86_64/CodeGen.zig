@@ -5359,9 +5359,21 @@ fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
                 else => unreachable,
             },
             else => unreachable,
-        }) orelse return self.fail("TODO implement airSqrt for {}", .{
-            ty.fmt(mod),
-        });
+        }) orelse {
+            if (ty.zigTypeTag(mod) != .Float) return self.fail("TODO implement airSqrt for {}", .{
+                ty.fmt(mod),
+            });
+
+            var callee: ["__sqrt?".len]u8 = undefined;
+            break :result try self.genCall(.{ .lib = .{
+                .return_type = ty.toIntern(),
+                .param_types = &.{ty.toIntern()},
+                .callee = std.fmt.bufPrint(&callee, "{s}sqrt{s}", .{
+                    floatLibcAbiPrefix(ty),
+                    floatLibcAbiSuffix(ty),
+                }) catch unreachable,
+            } }, &.{ty}, &.{src_mcv});
+        };
         switch (mir_tag[0]) {
             .v_ss, .v_sd => if (src_mcv.isMemory()) try self.asmRegisterRegisterMemory(
                 mir_tag,
