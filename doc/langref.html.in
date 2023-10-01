@@ -6657,7 +6657,7 @@ test "coercion from homogenous tuple to array" {
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
           <li>{#link|@enumFromInt#} - obtain an enum value based on its integer tag value</li>
           <li>{#link|@errorFromInt#} - obtain an error code based on its integer value</li>
-          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
+          <li>{#link|@errorCast#} - convert to a smaller error set</li>
           <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
           <li>{#link|@floatFromInt#} - convert an integer to a float value</li>
           <li>{#link|@intCast#} - convert between integer types</li>
@@ -8410,10 +8410,10 @@ test "main" {
       </p>
       {#header_close#}
 
-      {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(value: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@errorCast#}
+      <pre>{#syntax#}@errorCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an error value from one error set to another error set. The return type is the
+      Converts an error set or error union value from one error set to another error set. The return type is the
 			inferred result type. Attempting to convert an error which is not in the destination error
 			set results in safety-protected {#link|Undefined Behavior#}.
       </p>
@@ -10257,7 +10257,7 @@ const Set2 = error{
     C,
 };
 comptime {
-    _ = @as(Set2, @errSetCast(Set1.B));
+    _ = @as(Set2, @errorCast(Set1.B));
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -10276,7 +10276,7 @@ pub fn main() void {
     foo(Set1.B);
 }
 fn foo(set1: Set1) void {
-    const x: Set2 = @errSetCast(set1);
+    const x: Set2 = @errorCast(set1);
     std.debug.print("value: {}\n", .{x});
 }
       {#code_end#}

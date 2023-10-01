@@ -228,11 +228,27 @@ const Set1 = error{ A, B };
 const Set2 = error{ A, C };
 
 fn testExplicitErrorSetCast(set1: Set1) !void {
-    var x = @as(Set2, @errSetCast(set1));
+    var x = @as(Set2, @errorCast(set1));
     try expect(@TypeOf(x) == Set2);
-    var y = @as(Set1, @errSetCast(x));
+    var y = @as(Set1, @errorCast(x));
     try expect(@TypeOf(y) == Set1);
     try expect(y == error.A);
+}
+
+test "@errorCast on error unions" {
+    const S = struct {
+        fn doTheTest() !void {
+            const casted: error{Bad}!i32 = @errorCast(retErrUnion());
+            try expect((try casted) == 1234);
+        }
+
+        fn retErrUnion() anyerror!i32 {
+            return 1234;
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "comptime test error for empty error set" {

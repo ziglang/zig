@@ -945,7 +945,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .float_cast,
         .int_cast,
         .truncate,
-        .err_set_cast,
+        .error_cast,
         .ptr_cast,
         .align_cast,
         .addrspace_cast,
