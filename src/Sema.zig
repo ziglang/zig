@@ -1252,7 +1252,7 @@ fn analyzeBodyInner(
                     .wasm_memory_size   => try sema.zirWasmMemorySize(    block, extended),
                     .wasm_memory_grow   => try sema.zirWasmMemoryGrow(    block, extended),
                     .prefetch           => try sema.zirPrefetch(          block, extended),
-                    .err_set_cast       => try sema.zirErrSetCast(        block, extended),
+                    .error_cast         => try sema.zirErrorCast(         block, extended),
                     .await_nosuspend    => try sema.zirAwaitNosuspend(    block, extended),
                     .select             => try sema.zirSelect(            block, extended),
                     .int_from_error     => try sema.zirIntFromError(      block, extended),
@@ -21747,17 +21747,31 @@ fn ptrFromIntVal(
     };
 }
 
-fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@errSetCast");
+    const base_dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_opt, "@errorCast");
     const operand = try sema.resolveInst(extra.rhs);
-    const operand_ty = sema.typeOf(operand);
-    try sema.checkErrorSetType(block, src, dest_ty);
-    try sema.checkErrorSetType(block, operand_src, operand_ty);
+    const base_operand_ty = sema.typeOf(operand);
+    const dest_tag = base_dest_ty.zigTypeTag(mod);
+    const operand_tag = base_operand_ty.zigTypeTag(mod);
+    if (dest_tag != operand_tag) {
+        return sema.fail(block, src, "expected source and destination types to match, found '{s}' and '{s}'", .{
+            @tagName(operand_tag), @tagName(dest_tag),
+        });
+    } else if (dest_tag != .ErrorSet and dest_tag != .ErrorUnion) {
+        return sema.fail(block, src, "expected error set or error union type, found '{s}'", .{@tagName(dest_tag)});
+    }
+    const dest_ty, const operand_ty = if (dest_tag == .ErrorUnion) .{
+        base_dest_ty.errorUnionSet(mod),
+        base_operand_ty.errorUnionSet(mod),
+    } else .{
+        base_dest_ty,
+        base_operand_ty,
+    };
 
     // operand must be defined since it can be an invalid error value
     const maybe_operand_val = try sema.resolveDefinedValue(block, operand_src, operand);
@@ -21804,8 +21818,15 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     }
 
     if (maybe_operand_val) |val| {
-        if (!dest_ty.isAnyError(mod)) {
-            const error_name = mod.intern_pool.indexToKey(val.toIntern()).err.name;
+        if (!dest_ty.isAnyError(mod)) check: {
+            const operand_val = mod.intern_pool.indexToKey(val.toIntern());
+            var error_name: InternPool.NullTerminatedString = undefined;
+            if (dest_tag == .ErrorUnion) {
+                if (operand_val.error_union.val != .err_name) break :check;
+                error_name = operand_val.error_union.val.err_name;
+            } else {
+                error_name = operand_val.err.name;
+            }
             if (!Type.errorSetHasFieldIp(ip, dest_ty.toIntern(), error_name)) {
                 const msg = msg: {
                     const msg = try sema.errMsg(
@@ -21822,16 +21843,29 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
             }
         }
 
-        return Air.internedToRef((try mod.getCoerced(val, dest_ty)).toIntern());
+        return Air.internedToRef((try mod.getCoerced(val, base_dest_ty)).toIntern());
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety() and !dest_ty.isAnyError(mod) and sema.mod.backendSupportsFeature(.error_set_has_value)) {
-        const err_int_inst = try block.addBitCast(Type.err_int, operand);
-        const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
-        try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+        if (dest_tag == .ErrorUnion) {
+            const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
+            const err_int = try block.addBitCast(Type.err_int, err_code);
+            const zero_u16 = Air.internedToRef(try mod.intern(.{
+                .int = .{ .ty = .u16_type, .storage = .{ .u64 = 0 } },
+            }));
+
+            const has_value = try block.addTyOp(.error_set_has_value, dest_ty, err_code);
+            const is_zero = try block.addBinOp(.cmp_eq, err_int, zero_u16);
+            const ok = try block.addBinOp(.bit_or, has_value, is_zero);
+            try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+        } else {
+            const err_int_inst = try block.addBitCast(Type.err_int, operand);
+            const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
+            try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+        }
     }
-    return block.addBitCast(dest_ty, operand);
+    return block.addBitCast(base_dest_ty, operand);
 }
 
 fn zirPtrCastFull(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
@@ -22913,14 +22947,6 @@ fn checkIntOrVectorAllowComptime(
         else => return sema.fail(block, operand_src, "expected integer or vector, found '{}'", .{
             operand_ty.fmt(mod),
         }),
-    }
-}
-
-fn checkErrorSetType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
-    const mod = sema.mod;
-    switch (ty.zigTypeTag(mod)) {
-        .ErrorSet => return,
-        else => return sema.fail(block, src, "expected error set type, found '{}'", .{ty.fmt(mod)}),
     }
 }
 
