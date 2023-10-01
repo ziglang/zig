@@ -234,7 +234,7 @@ test "link with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     switch (native_os) {
-        .wasi, .linux, .solaris => {},
+        .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     if (true) {
@@ -277,7 +277,7 @@ test "linkat with different directories" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     switch (native_os) {
-        .wasi, .linux, .solaris => {},
+        .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     if (true) {
@@ -706,7 +706,7 @@ test "fcntl" {
 
 test "signalfd" {
     switch (native_os) {
-        .linux, .solaris => {},
+        .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     _ = &os.signalfd;
@@ -732,7 +732,7 @@ test "sync" {
 
 test "fsync" {
     switch (native_os) {
-        .linux, .windows, .solaris => {},
+        .linux, .windows, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
 
@@ -870,7 +870,7 @@ test "sigaction" {
 
 test "dup & dup2" {
     switch (native_os) {
-        .linux, .solaris => {},
+        .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
 

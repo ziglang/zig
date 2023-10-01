@@ -33,6 +33,7 @@ pub const haiku = std.c;
 pub const netbsd = std.c;
 pub const openbsd = std.c;
 pub const solaris = std.c;
+pub const illumos = std.c;
 pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
@@ -1821,7 +1822,7 @@ pub fn execveZ(
                 .BADARCH => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
-            .linux, .solaris => switch (err) {
+            .linux => switch (err) {
                 .LIBBAD => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
@@ -5226,6 +5227,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .macos, .ios, .watchos, .tvos,
         .linux,
         .solaris,
+        .illumos,
         .freebsd,
         => true,
         // zig fmt: on
@@ -5280,7 +5282,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             };
             return target;
         },
-        .solaris => {
+        .solaris, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
 

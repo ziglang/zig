@@ -213,9 +213,8 @@ pub const LibCInstallation = struct {
             try self.findNativeIncludeDirPosix(args);
             try self.findNativeCrtBeginDirHaiku(args);
             self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
-        } else if (builtin.target.os.tag == .solaris) {
-            // There is only one libc in illumos, and its headers and
-            // libraries are always in the same spot.
+        } else if (builtin.target.os.tag.isSolarish()) {
+            // There is only one libc, and its headers/libraries are always in the same spot.
             self.include_dir = try args.allocator.dupeZ(u8, "/usr/include");
             self.sys_include_dir = try args.allocator.dupeZ(u8, "/usr/include");
             self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64");

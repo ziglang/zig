@@ -58,6 +58,7 @@ pub const Target = struct {
             glsl450,
             vulkan,
             plan9,
+            illumos,
             other,
 
             pub inline fn isDarwin(tag: Tag) bool {
@@ -72,6 +73,10 @@ pub const Target = struct {
                     .kfreebsd, .freebsd, .openbsd, .netbsd, .dragonfly => true,
                     else => false,
                 };
+            }
+
+            pub inline fn isSolarish(tag: Tag) bool {
+                return tag == .solaris or tag == .illumos;
             }
 
             pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
@@ -326,7 +331,7 @@ pub const Target = struct {
                             .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
-                    .solaris => return .{
+                    .solaris, .illumos => return .{
                         .semver = .{
                             .min = .{ .major = 5, .minor = 11, .patch = 0 },
                             .max = .{ .major = 5, .minor = 11, .patch = 0 },
@@ -376,6 +381,7 @@ pub const Target = struct {
                 .openbsd,
                 .dragonfly,
                 .solaris,
+                .illumos,
                 => return TaggedVersionRange{ .semver = self.version_range.semver },
 
                 else => return .none,
@@ -409,6 +415,7 @@ pub const Target = struct {
                 .openbsd,
                 .haiku,
                 .solaris,
+                .illumos,
                 => true,
 
                 .linux,
@@ -569,6 +576,7 @@ pub const Target = struct {
                 .shadermodel,
                 .liteos, // TODO: audit this
                 .solaris,
+                .illumos,
                 => return .none,
             }
         }
@@ -1575,7 +1583,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
-            .solaris => return copy(&result, "/usr/lib/amd64/ld.so.1"),
+            .solaris, .illumos => return copy(&result, "/usr/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .x86,
                 .sparc,
@@ -2115,6 +2123,7 @@ pub const Target = struct {
             .emscripten,
             .plan9,
             .solaris,
+            .illumos,
             .haiku,
             .ananas,
             .fuchsia,

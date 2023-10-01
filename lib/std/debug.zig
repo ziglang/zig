@@ -990,6 +990,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
             .openbsd,
             .macos,
             .solaris,
+            .illumos,
             .windows,
             => return try DebugInfo.init(allocator),
             else => return error.UnsupportedOperatingSystem,
@@ -2228,7 +2229,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []align(mem.page_size) const u8,
@@ -2313,6 +2314,7 @@ pub const have_segfault_handling_support = switch (native_os) {
     .macos,
     .netbsd,
     .solaris,
+    .illumos,
     .windows,
     => true,
 
@@ -2386,7 +2388,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
         .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris => @intFromPtr(info.reason.fault.addr),
+        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
         else => unreachable,
     };
 

@@ -64,7 +64,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
         .windows => return rescanWindows(cb, gpa),
-        .solaris => return rescanSolaris(cb, gpa, "/etc/ssl/cacert.pem"),
+        .solaris, .illumos => return rescanSolaris(cb, gpa, "/etc/ssl/cacert.pem"),
         else => {},
     }
 }

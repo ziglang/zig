@@ -959,7 +959,18 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os.tag) {
-        .linux, .macos, .watchos, .tvos, .ios, .freebsd, .netbsd, .openbsd, .haiku, .solaris => posixGetUserInfo(name),
+        .linux,
+        .macos,
+        .watchos,
+        .tvos,
+        .ios,
+        .freebsd,
+        .netbsd,
+        .openbsd,
+        .haiku,
+        .solaris,
+        .illumos,
+        => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }

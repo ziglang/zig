@@ -359,7 +359,7 @@ pub const File = struct {
                     os.S.IFSOCK => break :blk .unix_domain_socket,
                     else => {},
                 }
-                if (builtin.os.tag == .solaris) switch (m) {
+                if (builtin.os.tag.isSolarish()) switch (m) {
                     os.S.IFDOOR => break :blk .door,
                     os.S.IFPORT => break :blk .event_port,
                     else => {},
@@ -685,7 +685,7 @@ pub const File = struct {
                 else => {},
             }
 
-            if (builtin.os.tag == .solaris) switch (m) {
+            if (builtin.os.tag.isSolarish()) switch (m) {
                 os.S.IFDOOR => return .door,
                 os.S.IFPORT => return .event_port,
                 else => {},
