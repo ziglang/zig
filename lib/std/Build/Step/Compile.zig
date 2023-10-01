@@ -289,6 +289,7 @@ const FrameworkLinkInfo = struct {
 pub const IncludeDir = union(enum) {
     path: LazyPath,
     path_system: LazyPath,
+    path_after: LazyPath,
     framework_path: LazyPath,
     framework_path_system: LazyPath,
     other_step: *Compile,
@@ -1060,6 +1061,12 @@ pub fn addObjectFile(self: *Compile, source: LazyPath) void {
 pub fn addObject(self: *Compile, obj: *Compile) void {
     assert(obj.kind == .obj);
     self.linkLibraryOrObject(obj);
+}
+
+pub fn addAfterIncludePath(self: *Compile, path: LazyPath) void {
+    const b = self.step.owner;
+    self.include_dirs.append(IncludeDir{ .path_after = path.dupe(b) }) catch @panic("OOM");
+    path.addStepDependencies(&self.step);
 }
 
 pub fn addSystemIncludePath(self: *Compile, path: LazyPath) void {
@@ -1840,6 +1847,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
             .path_system => |include_path| {
                 try zig_args.append("-isystem");
+                try zig_args.append(include_path.getPath(b));
+            },
+            .path_after => |include_path| {
+                try zig_args.append("-idirafter");
                 try zig_args.append(include_path.getPath(b));
             },
             .framework_path => |include_path| {
