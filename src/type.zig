@@ -1954,6 +1954,16 @@ pub const Type = struct {
         return true;
     }
 
+    /// Returns the type used for backing storage of this union during comptime operations.
+    /// Asserts the type is either an extern or packed union.
+    pub fn unionBackingType(ty: Type, mod: *Module) !Type {
+        return switch (ty.containerLayout(mod)) {
+            .Extern => try mod.arrayType(.{ .len = ty.abiSize(mod), .child = .u8_type }),
+            .Packed => try mod.intType(.unsigned, @intCast(ty.bitSize(mod))),
+            .Auto => unreachable,
+        };
+    }
+
     pub fn unionGetLayout(ty: Type, mod: *Module) Module.UnionLayout {
         const ip = &mod.intern_pool;
         const union_type = ip.indexToKey(ty.toIntern()).union_type;

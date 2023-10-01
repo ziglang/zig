@@ -457,18 +457,60 @@ test "type pun null pointer-like optional" {
 }
 
 test "reinterpret extern union" {
-    {
-        const U = extern union {
-            a: u32,
-            b: u8 align(8),
-        };
+    const U = extern union {
+        foo: u8,
+        baz: u32 align(8),
+        bar: u32,
+    };
 
-        comptime var u: U = undefined;
-        comptime @memset(std.mem.asBytes(&u), 42);
-        try comptime testing.expect(0x2a2a2a2a == u.a);
-        try comptime testing.expect(42 == u.b);
-        try testing.expectEqual(@as(u32, 0x2a2a2a2a), u.a);
-        try testing.expectEqual(42, u.b);
+    comptime {
+        {
+            // Undefined initialization
+            const u = blk: {
+                var u: U = undefined;
+                @memset(std.mem.asBytes(&u), 0);
+                u.bar = 0xbbbbbbbb;
+                u.foo = 0x2a;
+                break :blk u;
+            };
+            try testing.expectEqual(@as(u8, 0x2a), u.foo);
+            try testing.expectEqual(@as(u32, 0xbbbbbb2a), u.bar);
+            try testing.expectEqual(@as(u64, 0x00000000_bbbbbb2a), u.baz);
+        }
+
+        {
+            // Union initialization
+            var u: U = .{
+                .foo = 0x2a,
+            };
+            try testing.expectEqual(@as(u8, 0x2a), u.foo);
+            try testing.expectEqual(@as(u32, 0x2a), u.bar & 0xff);
+            try testing.expectEqual(@as(u64, 0x2a), u.baz & 0xff);
+
+            // Writing to a larger field
+            u = .{
+                .baz = 0xbbbbbbbb,
+            };
+            try testing.expectEqual(@as(u8, 0xbb), u.foo);
+            try testing.expectEqual(@as(u32, 0xbbbbbbbb), u.bar);
+            try testing.expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
+
+            // Writing to the same field
+            u = .{
+                .baz = 0xcccccccc,
+            };
+            try testing.expectEqual(@as(u8, 0xcc), u.foo);
+            try testing.expectEqual(@as(u32, 0xcccccccc), u.bar);
+            try testing.expectEqual(@as(u64, 0xcccccccc), u.baz);
+
+            // Writing to a smaller field
+            u = .{
+                .foo = 0xdd,
+            };
+            try testing.expectEqual(@as(u8, 0xdd), u.foo);
+            try testing.expectEqual(@as(u32, 0xccccccdd), u.bar);
+            try testing.expectEqual(@as(u64, 0xccccccdd), u.baz);
+        }
     }
 }
 
@@ -479,12 +521,14 @@ test "reinterpret packed union" {
             b: u8 align(8),
         };
 
-        comptime var u: U = undefined;
-        comptime @memset(std.mem.asBytes(&u), 42);
-        try comptime testing.expect(0x2a2a2a2a == u.a);
-        try comptime testing.expect(0x2a == u.b);
-        try testing.expectEqual(@as(u32, 0x2a2a2a2a), u.a);
-        try testing.expectEqual(0x2a, u.b);
+        comptime {
+            var u: U = undefined;
+            @memset(std.mem.asBytes(&u), 42);
+            try testing.expect(0x2a2a2a2a == u.a);
+            try testing.expect(0x2a == u.b);
+            try testing.expectEqual(@as(u32, 0x2a2a2a2a), u.a);
+            try testing.expectEqual(0x2a, u.b);
+        }
     }
 
     {
@@ -498,11 +542,77 @@ test "reinterpret packed union" {
             msb: U,
         };
 
-        comptime var s: S = undefined;
-        comptime @memset(std.mem.asBytes(&s), 0xaa);
-        try comptime testing.expectEqual(@as(u7, 0x2a), s.lsb.a);
-        try comptime testing.expectEqual(@as(u1, 0), s.lsb.b);
-        try comptime testing.expectEqual(@as(u7, 0x55), s.msb.a);
-        try comptime testing.expectEqual(@as(u1, 1), s.msb.b);
+        comptime {
+            var s: S = undefined;
+            @memset(std.mem.asBytes(&s), 0x55);
+            try testing.expectEqual(@as(u7, 0x55), s.lsb.a);
+            try testing.expectEqual(@as(u1, 1), s.lsb.b);
+            try testing.expectEqual(@as(u7, 0x2a), s.msb.a);
+            try testing.expectEqual(@as(u1, 0), s.msb.b);
+
+            s.lsb.b = 0;
+            try testing.expectEqual(@as(u7, 0x54), s.lsb.a);
+            try testing.expectEqual(@as(u1, 0), s.lsb.b);
+            s.msb.b = 1;
+            try testing.expectEqual(@as(u7, 0x2b), s.msb.a);
+            try testing.expectEqual(@as(u1, 1), s.msb.b);
+        }
+    }
+
+    {
+        const U = packed union {
+            foo: u8,
+            bar: u29,
+            baz: u64,
+        };
+
+        comptime {
+            {
+                const u = blk: {
+                    var u: U = undefined;
+                    @memset(std.mem.asBytes(&u), 0);
+                    u.baz = 0xbbbbbbbb;
+                    u.foo = 0x2a;
+                    break :blk u;
+                };
+                try testing.expectEqual(@as(u8, 0x2a), u.foo);
+                try testing.expectEqual(@as(u29, 0x1bbbbb2a), u.bar);
+                try testing.expectEqual(@as(u64, 0x00000000_bbbbbb2a), u.baz);
+            }
+
+            {
+                // Union initialization
+                var u: U = .{
+                    .foo = 0x2a,
+                };
+                try testing.expectEqual(@as(u8, 0x2a), u.foo);
+                try testing.expectEqual(@as(u29, 0x2a), u.bar & 0xff);
+                try testing.expectEqual(@as(u64, 0x2a), u.baz & 0xff);
+
+                // Writing to a larger field
+                u = .{
+                    .baz = 0xbbbbbbbb,
+                };
+                try testing.expectEqual(@as(u8, 0xbb), u.foo);
+                try testing.expectEqual(@as(u29, 0x1bbbbbbb), u.bar);
+                try testing.expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
+
+                // Writing to the same field
+                u = .{
+                    .baz = 0xcccccccc,
+                };
+                try testing.expectEqual(@as(u8, 0xcc), u.foo);
+                try testing.expectEqual(@as(u29, 0x0ccccccc), u.bar);
+                try testing.expectEqual(@as(u64, 0xcccccccc), u.baz);
+
+                // Writing to a smaller field
+                u = .{
+                    .foo = 0xdd,
+                };
+                try testing.expectEqual(@as(u8, 0xdd), u.foo);
+                try testing.expectEqual(@as(u29, 0x0cccccdd), u.bar);
+                try testing.expectEqual(@as(u64, 0xccccccdd), u.baz);
+            }
+        }
     }
 }

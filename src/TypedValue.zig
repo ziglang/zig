@@ -84,22 +84,27 @@ pub fn print(
                 if (level == 0) {
                     return writer.writeAll(".{ ... }");
                 }
-                const union_val = val.castTag(.@"union").?.data;
+                const payload = val.castTag(.@"union").?.data;
                 try writer.writeAll(".{ ");
 
-                if (union_val.tag.toIntern() != .none) {
+                if (payload.tag) |tag| {
                     try print(.{
                         .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
-                        .val = union_val.tag,
+                        .val = tag,
                     }, writer, level - 1, mod);
                     try writer.writeAll(" = ");
-                    const field_ty = ty.unionFieldType(union_val.tag, mod).?;
+                    const field_ty = ty.unionFieldType(tag, mod).?;
                     try print(.{
                         .ty = field_ty,
-                        .val = union_val.val,
+                        .val = payload.val,
                     }, writer, level - 1, mod);
                 } else {
-                    return writer.writeAll("(unknown tag)");
+                    try writer.writeAll("(unknown tag) = ");
+                    const backing_ty = try ty.unionBackingType(mod);
+                    try print(.{
+                        .ty = backing_ty,
+                        .val = payload.val,
+                    }, writer, level - 1, mod);
                 }
 
                 return writer.writeAll(" }");
@@ -421,7 +426,12 @@ pub fn print(
                             .val = un.val.toValue(),
                         }, writer, level - 1, mod);
                     } else {
-                        try writer.writeAll("(unknown tag)");
+                        try writer.writeAll("(unknown tag) = ");
+                        const backing_ty = try ty.unionBackingType(mod);
+                        try print(.{
+                            .ty = backing_ty,
+                            .val = un.val.toValue(),
+                        }, writer, level - 1, mod);
                     }
                 } else try writer.writeAll("...");
                 return writer.writeAll(" }");
