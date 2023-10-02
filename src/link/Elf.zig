@@ -18,6 +18,9 @@ objects: std.ArrayListUnmanaged(File.Index) = .{},
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
+/// Given index to a section, returns a list of atoms allocated within it.
+/// Excludes incrementally allocated atoms - for those, use linked-list approach.
+atoms_by_shdr_table: std.AutoArrayHashMapUnmanaged(u16, AtomList) = .{},
 /// Given index to a section, pulls index of containing phdr if any.
 phdr_to_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 /// File offset into the shdr table.
@@ -159,6 +162,7 @@ comdat_groups: std.ArrayListUnmanaged(ComdatGroup) = .{},
 comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
 comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
 
+const AtomList = std.ArrayListUnmanaged(Atom.Index);
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Symbol.Index);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
@@ -315,6 +319,12 @@ pub fn deinit(self: *Elf) void {
     self.objects.deinit(gpa);
 
     self.shdrs.deinit(gpa);
+
+    for (self.atoms_by_shdr_table.values()) |*list| {
+        list.deinit(gpa);
+    }
+    self.atoms_by_shdr_table.deinit(gpa);
+
     self.phdr_to_shdr_table.deinit(gpa);
     self.phdrs.deinit(gpa);
     self.shstrtab.deinit(gpa);
@@ -1244,6 +1254,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.sortSections();
+    try self.addAtomsToSections();
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -3561,7 +3572,7 @@ fn sortSections(self: *Elf) !void {
     }
 
     for (self.objects.items) |index| {
-        for (self.file(index).?.object.atoms.items) |atom_index| {
+        for (self.file(index).?.atoms()) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
@@ -3584,6 +3595,19 @@ fn sortSections(self: *Elf) !void {
     if (self.symtab_section_index) |index| {
         const shdr = &self.shdrs.items[index];
         shdr.sh_link = self.strtab_section_index.?;
+    }
+}
+
+fn addAtomsToSections(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    for (self.objects.items) |index| {
+        for (self.file(index).?.atoms()) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const gop = try self.atoms_by_shdr_table.getOrPut(gpa, atom_ptr.output_section_index);
+            if (!gop.found_existing) gop.value_ptr.* = .{};
+            try gop.value_ptr.append(gpa, atom_index);
+        }
     }
 }
 
