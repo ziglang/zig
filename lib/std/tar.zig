@@ -210,7 +210,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 while (true) {
                     const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
                     if (temp.len == 0) return error.UnexpectedEndOfStream;
-                    const slice = temp[0..@as(usize, @intCast(@min(file_size - file_off, temp.len)))];
+                    const slice = temp[0..@intCast(@min(file_size - file_off, temp.len))];
                     try file.writeAll(slice);
 
                     file_off += slice.len;

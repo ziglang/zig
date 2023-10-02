@@ -15,10 +15,10 @@ const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const Cache = std.Build.Cache;
 const build_options = @import("build_options");
-const Manifest = @import("Manifest.zig");
 const git = @import("git.zig");
 const computePackageHash = @import("Package/hash.zig").compute;
 
+pub const Manifest = @import("Manifest.zig");
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
 root_src_directory: Compilation.Directory,
@@ -454,8 +454,8 @@ pub fn createFilePkg(
     return createWithDir(gpa, cache_directory, o_dir_sub_path, basename);
 }
 
-const Report = struct {
-    ast: *const std.zig.Ast,
+pub const Report = struct {
+    ast: ?*const std.zig.Ast,
     directory: Compilation.Directory,
     error_bundle: *std.zig.ErrorBundle.Wip,
 
@@ -465,6 +465,7 @@ const Report = struct {
         comptime fmt_string: []const u8,
         fmt_args: anytype,
     ) error{ PackageFetchFailed, OutOfMemory } {
+        const ast = report.ast orelse main.fatal(fmt_string, fmt_args);
         const gpa = report.error_bundle.gpa;
 
         const file_path = try report.directory.join(gpa, &.{Manifest.basename});
@@ -473,13 +474,25 @@ const Report = struct {
         const msg = try std.fmt.allocPrint(gpa, fmt_string, fmt_args);
         defer gpa.free(msg);
 
-        try addErrorMessage(report.ast.*, file_path, report.error_bundle, 0, .{
+        try addErrorMessage(ast.*, file_path, report.error_bundle, 0, .{
             .tok = tok,
             .off = 0,
             .msg = msg,
         });
 
         return error.PackageFetchFailed;
+    }
+
+    fn addErrorWithNotes(
+        report: Report,
+        notes_len: u32,
+        msg: Manifest.ErrorMessage,
+    ) error{OutOfMemory}!void {
+        const ast = report.ast orelse main.fatal("{s}", .{msg.msg});
+        const gpa = report.error_bundle.gpa;
+        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+        defer gpa.free(file_path);
+        return addErrorMessage(ast.*, file_path, report.error_bundle, notes_len, msg);
     }
 
     fn addErrorMessage(
@@ -508,7 +521,7 @@ const Report = struct {
     }
 };
 
-const FetchLocation = union(enum) {
+pub const FetchLocation = union(enum) {
     /// The relative path to a file or directory.
     /// This may be a file that requires unpacking (such as a .tar.gz),
     /// or the path to the root directory of a package.
@@ -517,30 +530,27 @@ const FetchLocation = union(enum) {
     http_request: std.Uri,
     git_request: std.Uri,
 
-    pub fn init(gpa: Allocator, dep: Manifest.Dependency, root_dir: Compilation.Directory, report: Report) !FetchLocation {
+    pub fn init(
+        gpa: Allocator,
+        dep: Manifest.Dependency,
+        root_dir: Compilation.Directory,
+        report: Report,
+    ) !FetchLocation {
         switch (dep.location) {
             .url => |url| {
                 const uri = std.Uri.parse(url) catch |err| switch (err) {
                     error.UnexpectedCharacter => return report.fail(dep.location_tok, "failed to parse dependency location as URI", .{}),
                     else => return err,
                 };
-                if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
-                    return report.fail(dep.location_tok, "'file' scheme is not allowed for URLs. Use '.path' instead", .{});
-                } else if (ascii.eqlIgnoreCase(uri.scheme, "http") or ascii.eqlIgnoreCase(uri.scheme, "https")) {
-                    return .{ .http_request = uri };
-                } else if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or ascii.eqlIgnoreCase(uri.scheme, "git+https")) {
-                    return .{ .git_request = uri };
-                } else {
-                    return report.fail(dep.location_tok, "Unsupported URL scheme: {s}", .{uri.scheme});
-                }
+                return initUri(uri, dep.location_tok, report);
             },
             .path => |path| {
                 if (fs.path.isAbsolute(path)) {
-                    return report.fail(dep.location_tok, "Absolute paths are not allowed. Use a relative path instead", .{});
+                    return report.fail(dep.location_tok, "absolute paths are not allowed. Use a relative path instead", .{});
                 }
 
                 const is_dir = isDirectory(root_dir, path) catch |err| switch (err) {
-                    error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{path}),
+                    error.FileNotFound => return report.fail(dep.location_tok, "file not found: {s}", .{path}),
                     else => return err,
                 };
 
@@ -552,9 +562,21 @@ const FetchLocation = union(enum) {
         }
     }
 
+    pub fn initUri(uri: std.Uri, location_tok: std.zig.Ast.TokenIndex, report: Report) !FetchLocation {
+        if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
+            return report.fail(location_tok, "'file' scheme is not allowed for URLs. Use '.path' instead", .{});
+        } else if (ascii.eqlIgnoreCase(uri.scheme, "http") or ascii.eqlIgnoreCase(uri.scheme, "https")) {
+            return .{ .http_request = uri };
+        } else if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or ascii.eqlIgnoreCase(uri.scheme, "git+https")) {
+            return .{ .git_request = uri };
+        } else {
+            return report.fail(location_tok, "unsupported URL scheme: {s}", .{uri.scheme});
+        }
+    }
+
     pub fn deinit(f: *FetchLocation, gpa: Allocator) void {
         switch (f.*) {
-            inline .file, .directory => |path| gpa.free(path),
+            .file, .directory => |path| gpa.free(path),
             .http_request, .git_request => {},
         }
         f.* = undefined;
@@ -565,7 +587,7 @@ const FetchLocation = union(enum) {
         gpa: Allocator,
         root_dir: Compilation.Directory,
         http_client: *std.http.Client,
-        dep: Manifest.Dependency,
+        dep_location_tok: std.zig.Ast.TokenIndex,
         report: Report,
     ) !ReadableResource {
         switch (f) {
@@ -588,7 +610,7 @@ const FetchLocation = union(enum) {
                 try req.wait();
 
                 if (req.response.status != .ok) {
-                    return report.fail(dep.location_tok, "Expected response status '200 OK' got '{} {s}'", .{
+                    return report.fail(dep_location_tok, "expected response status '200 OK' got '{} {s}'", .{
                         @intFromEnum(req.response.status),
                         req.response.status.phrase() orelse "",
                     });
@@ -607,7 +629,7 @@ const FetchLocation = union(enum) {
                 session.discoverCapabilities(gpa, &redirect_uri) catch |e| switch (e) {
                     error.Redirected => {
                         defer gpa.free(redirect_uri);
-                        return report.fail(dep.location_tok, "Repository moved to {s}", .{redirect_uri});
+                        return report.fail(dep_location_tok, "repository moved to {s}", .{redirect_uri});
                     },
                     else => |other| return other,
                 };
@@ -634,19 +656,16 @@ const FetchLocation = union(enum) {
                             break :want_oid ref.peeled orelse ref.oid;
                         }
                     }
-                    return report.fail(dep.location_tok, "Ref not found: {s}", .{want_ref});
+                    return report.fail(dep_location_tok, "ref not found: {s}", .{want_ref});
                 };
                 if (uri.fragment == null) {
-                    const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-                    defer gpa.free(file_path);
-
-                    const eb = report.error_bundle;
                     const notes_len = 1;
-                    try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
-                        .tok = dep.location_tok,
+                    try report.addErrorWithNotes(notes_len, .{
+                        .tok = dep_location_tok,
                         .off = 0,
                         .msg = "url field is missing an explicit ref",
                     });
+                    const eb = report.error_bundle;
                     const notes_start = try eb.reserveNotes(notes_len);
                     eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("try .url = \"{+/}#{}\",", .{ uri, std.fmt.fmtSliceHexLower(&want_oid) }),
@@ -669,12 +688,13 @@ const FetchLocation = union(enum) {
     }
 };
 
-const ReadableResource = struct {
+pub const ReadableResource = struct {
     path: []const u8,
     resource: union(enum) {
         file: fs.File,
         http_request: std.http.Client.Request,
         git_fetch_stream: git.Session.FetchStream,
+        dir: fs.IterableDir,
     },
 
     /// Unpack the package into the global cache directory.
@@ -685,12 +705,12 @@ const ReadableResource = struct {
         allocator: Allocator,
         thread_pool: *ThreadPool,
         global_cache_directory: Compilation.Directory,
-        dep: Manifest.Dependency,
+        dep_location_tok: std.zig.Ast.TokenIndex,
         report: Report,
         pkg_prog_node: *std.Progress.Node,
     ) !PackageLocation {
         switch (rr.resource) {
-            inline .file, .http_request, .git_fetch_stream => |*r| {
+            inline .file, .http_request, .git_fetch_stream, .dir => |*r, tag| {
                 const s = fs.path.sep_str;
                 const rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
@@ -710,44 +730,57 @@ const ReadableResource = struct {
                     };
                     defer tmp_directory.closeAndFree(allocator);
 
-                    const opt_content_length = try rr.getSize();
+                    if (tag != .dir) {
+                        const opt_content_length = try rr.getSize();
 
-                    var prog_reader: ProgressReader(@TypeOf(r.reader())) = .{
-                        .child_reader = r.reader(),
-                        .prog_node = pkg_prog_node,
-                        .unit = if (opt_content_length) |content_length| unit: {
-                            const kib = content_length / 1024;
-                            const mib = kib / 1024;
-                            if (mib > 0) {
-                                pkg_prog_node.setEstimatedTotalItems(@intCast(mib));
-                                pkg_prog_node.setUnit("MiB");
-                                break :unit .mib;
-                            } else {
-                                pkg_prog_node.setEstimatedTotalItems(@intCast(@max(1, kib)));
-                                pkg_prog_node.setUnit("KiB");
-                                break :unit .kib;
+                        var prog_reader: ProgressReader(@TypeOf(r.reader())) = .{
+                            .child_reader = r.reader(),
+                            .prog_node = pkg_prog_node,
+                            .unit = if (opt_content_length) |content_length| unit: {
+                                const kib = content_length / 1024;
+                                const mib = kib / 1024;
+                                if (mib > 0) {
+                                    pkg_prog_node.setEstimatedTotalItems(@intCast(mib));
+                                    pkg_prog_node.setUnit("MiB");
+                                    break :unit .mib;
+                                } else {
+                                    pkg_prog_node.setEstimatedTotalItems(@intCast(@max(1, kib)));
+                                    pkg_prog_node.setUnit("KiB");
+                                    break :unit .kib;
+                                }
+                            } else .any,
+                        };
+
+                        switch (try rr.getFileType(dep_location_tok, report)) {
+                            .tar => try unpackTarball(prog_reader.reader(), tmp_directory.handle),
+                            .@"tar.gz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, std.compress.gzip),
+                            .@"tar.xz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, std.compress.xz),
+                            .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle),
+                        }
+                    } else {
+                        // Recursive directory copy.
+                        var it = try r.walk(allocator);
+                        defer it.deinit();
+                        while (try it.next()) |entry| {
+                            switch (entry.kind) {
+                                .directory => try tmp_directory.handle.makePath(entry.path),
+                                .file => try r.dir.copyFile(
+                                    entry.path,
+                                    tmp_directory.handle,
+                                    entry.path,
+                                    .{},
+                                ),
+                                .sym_link => {
+                                    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                                    const link_name = try r.dir.readLink(entry.path, &buf);
+                                    // TODO: if this would create a symlink to outside
+                                    // the destination directory, fail with an error instead.
+                                    try tmp_directory.handle.symLink(link_name, entry.path, .{});
+                                },
+                                else => return error.IllegalFileTypeInPackage,
                             }
-                        } else .any,
-                    };
-                    pkg_prog_node.context.refresh();
-
-                    switch (try rr.getFileType(dep, report)) {
-                        .@"tar.gz" => try unpackTarball(allocator, prog_reader, tmp_directory.handle, std.compress.gzip),
-                        // I have not checked what buffer sizes the xz decompression implementation uses
-                        // by default, so the same logic applies for buffering the reader as for gzip.
-                        .@"tar.xz" => try unpackTarball(allocator, prog_reader, tmp_directory.handle, std.compress.xz),
-                        .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle),
+                        }
                     }
-
-                    // Unpack completed - stop showing amount as progress
-                    pkg_prog_node.setEstimatedTotalItems(0);
-                    pkg_prog_node.setCompletedItems(0);
-                    pkg_prog_node.context.refresh();
-
-                    // TODO: delete files not included in the package prior to computing the package hash.
-                    // for example, if the ini file has directives to include/not include certain files,
-                    // apply those rules directly to the filesystem right here. This ensures that files
-                    // not protected by the hash are not present on the file system.
 
                     break :h try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
                 };
@@ -769,6 +802,7 @@ const ReadableResource = struct {
     }
 
     const FileType = enum {
+        tar,
         @"tar.gz",
         @"tar.xz",
         git_pack,
@@ -780,21 +814,28 @@ const ReadableResource = struct {
             // TODO: Handle case of chunked content-length
             .http_request => |req| return req.response.content_length,
             .git_fetch_stream => |stream| return stream.request.response.content_length,
+            .dir => unreachable,
         }
     }
 
-    pub fn getFileType(rr: ReadableResource, dep: Manifest.Dependency, report: Report) !FileType {
+    pub fn getFileType(
+        rr: ReadableResource,
+        dep_location_tok: std.zig.Ast.TokenIndex,
+        report: Report,
+    ) !FileType {
         switch (rr.resource) {
             .file => {
                 return fileTypeFromPath(rr.path) orelse
-                    return report.fail(dep.location_tok, "Unknown file type", .{});
+                    return report.fail(dep_location_tok, "unknown file type", .{});
             },
             .http_request => |req| {
                 const content_type = req.response.headers.getFirstValue("Content-Type") orelse
-                    return report.fail(dep.location_tok, "Missing 'Content-Type' header", .{});
+                    return report.fail(dep_location_tok, "missing 'Content-Type' header", .{});
 
                 // If the response has a different content type than the URI indicates, override
                 // the previously assumed file type.
+                if (ascii.eqlIgnoreCase(content_type, "application/x-tar")) return .tar;
+
                 return if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
                     ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
                     ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
@@ -805,22 +846,21 @@ const ReadableResource = struct {
                     // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
                     // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
                     const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
-                        return report.fail(dep.location_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
+                        return report.fail(dep_location_tok, "missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
                     break :ty getAttachmentType(content_disposition) orelse
-                        return report.fail(dep.location_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
-                } else return report.fail(dep.location_tok, "Unrecognized value for 'Content-Type' header: {s}", .{content_type});
+                        return report.fail(dep_location_tok, "unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
+                } else return report.fail(dep_location_tok, "unrecognized value for 'Content-Type' header: {s}", .{content_type});
             },
             .git_fetch_stream => return .git_pack,
+            .dir => unreachable,
         }
     }
 
     fn fileTypeFromPath(file_path: []const u8) ?FileType {
-        return if (ascii.endsWithIgnoreCase(file_path, ".tar.gz"))
-            .@"tar.gz"
-        else if (ascii.endsWithIgnoreCase(file_path, ".tar.xz"))
-            .@"tar.xz"
-        else
-            null;
+        if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
+        if (ascii.endsWithIgnoreCase(file_path, ".tar.gz")) return .@"tar.gz";
+        if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
+        return null;
     }
 
     fn getAttachmentType(content_disposition: []const u8) ?FileType {
@@ -847,6 +887,7 @@ const ReadableResource = struct {
             .file => |file| file.close(),
             .http_request => |*req| req.deinit(),
             .git_fetch_stream => |*stream| stream.deinit(),
+            .dir => |*dir| dir.close(),
         }
         rr.* = undefined;
     }
@@ -908,7 +949,7 @@ fn ProgressReader(comptime ReaderType: type) type {
                     }
                 },
             }
-            self.prog_node.context.maybeRefresh();
+            self.prog_node.activate();
             return amt;
         }
 
@@ -993,7 +1034,7 @@ fn getDirectoryModule(
     if (all_modules.get(hex_digest)) |mod| return .{ mod.?, true };
 
     var pkg_dir = directory.handle.openDir(fetch_location.directory, .{}) catch |err| switch (err) {
-        error.FileNotFound => return report.fail(dep.location_tok, "File not found: {s}", .{fetch_location.directory}),
+        error.FileNotFound => return report.fail(dep.location_tok, "file not found: {s}", .{fetch_location.directory}),
         else => |e| return e,
     };
     defer pkg_dir.close();
@@ -1032,12 +1073,18 @@ fn fetchAndUnpack(
     var pkg_prog_node = root_prog_node.start(name_for_prog, 0);
     defer pkg_prog_node.end();
     pkg_prog_node.activate();
-    pkg_prog_node.context.refresh();
 
-    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep, report);
+    var readable_resource = try fetch_location.fetch(gpa, directory, http_client, dep.location_tok, report);
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(gpa, thread_pool, global_cache_directory, dep, report, &pkg_prog_node);
+    var package_location = try readable_resource.unpack(
+        gpa,
+        thread_pool,
+        global_cache_directory,
+        dep.location_tok,
+        report,
+        &pkg_prog_node,
+    );
     defer package_location.deinit(gpa);
 
     const actual_hex = Manifest.hexDigest(package_location.hash);
@@ -1048,16 +1095,13 @@ fn fetchAndUnpack(
             });
         }
     } else {
-        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-        defer gpa.free(file_path);
-
-        const eb = report.error_bundle;
         const notes_len = 1;
-        try Report.addErrorMessage(report.ast.*, file_path, eb, notes_len, .{
+        try report.addErrorWithNotes(notes_len, .{
             .tok = dep.location_tok,
             .off = 0,
             .msg = "dependency is missing hash field",
         });
+        const eb = report.error_bundle;
         const notes_start = try eb.reserveNotes(notes_len);
         eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
             .msg = try eb.printString("expected .hash = \"{s}\",", .{&actual_hex}),
@@ -1080,18 +1124,22 @@ fn fetchAndUnpack(
     return module;
 }
 
-fn unpackTarball(
+fn unpackTarballCompressed(
     gpa: Allocator,
     reader: anytype,
     out_dir: fs.Dir,
-    comptime compression: type,
+    comptime Compression: type,
 ) !void {
     var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
 
-    var decompress = try compression.decompress(gpa, br.reader());
+    var decompress = try Compression.decompress(gpa, br.reader());
     defer decompress.deinit();
 
-    try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
+    return unpackTarball(decompress.reader(), out_dir);
+}
+
+fn unpackTarball(reader: anytype, out_dir: fs.Dir) !void {
+    try std.tar.pipeToFileSystem(out_dir, reader, .{
         .strip_components = 1,
         // TODO: we would like to set this to executable_bit_only, but two
         // things need to happen before that:
@@ -1126,7 +1174,6 @@ fn unpackGitPack(
             var index_prog_node = reader.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
             index_prog_node.activate();
-            index_prog_node.context.refresh();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
             try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
@@ -1137,7 +1184,6 @@ fn unpackGitPack(
             var checkout_prog_node = reader.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
             checkout_prog_node.activate();
-            checkout_prog_node.context.refresh();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
             try repository.checkout(out_dir, want_oid);

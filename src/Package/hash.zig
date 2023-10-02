@@ -16,6 +16,11 @@ pub fn compute(thread_pool: *ThreadPool, pkg_dir: fs.IterableDir) ![Hash.digest_
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    // TODO: delete files not included in the package prior to computing the package hash.
+    // for example, if the ini file has directives to include/not include certain files,
+    // apply those rules directly to the filesystem right here. This ensures that files
+    // not protected by the hash are not present on the file system.
+
     // Collect all files, recursively, then sort.
     var all_files = std.ArrayList(*HashedFile).init(gpa);
     defer all_files.deinit();
@@ -30,16 +35,18 @@ pub fn compute(thread_pool: *ThreadPool, pkg_dir: fs.IterableDir) ![Hash.digest_
         defer wait_group.wait();
 
         while (try walker.next()) |entry| {
-            switch (entry.kind) {
+            const kind: HashedFile.Kind = switch (entry.kind) {
                 .directory => continue,
-                .file => {},
+                .file => .file,
+                .sym_link => .sym_link,
                 else => return error.IllegalFileTypeInPackage,
-            }
+            };
             const hashed_file = try arena.create(HashedFile);
             const fs_path = try arena.dupe(u8, entry.path);
             hashed_file.* = .{
                 .fs_path = fs_path,
                 .normalized_path = try normalizePath(arena, fs_path),
+                .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
@@ -70,8 +77,15 @@ const HashedFile = struct {
     normalized_path: []const u8,
     hash: [Hash.digest_length]u8,
     failure: Error!void,
+    kind: Kind,
 
-    const Error = fs.File.OpenError || fs.File.ReadError || fs.File.StatError;
+    const Error =
+        fs.File.OpenError ||
+        fs.File.ReadError ||
+        fs.File.StatError ||
+        fs.Dir.ReadLinkError;
+
+    const Kind = enum { file, sym_link };
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
@@ -104,15 +118,23 @@ fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
-    var file = try dir.openFile(hashed_file.fs_path, .{});
-    defer file.close();
     var hasher = Hash.init(.{});
     hasher.update(hashed_file.normalized_path);
-    hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
-    while (true) {
-        const bytes_read = try file.read(&buf);
-        if (bytes_read == 0) break;
-        hasher.update(buf[0..bytes_read]);
+    switch (hashed_file.kind) {
+        .file => {
+            var file = try dir.openFile(hashed_file.fs_path, .{});
+            defer file.close();
+            hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
+            while (true) {
+                const bytes_read = try file.read(&buf);
+                if (bytes_read == 0) break;
+                hasher.update(buf[0..bytes_read]);
+            }
+        },
+        .sym_link => {
+            const link_name = try dir.readLink(hashed_file.fs_path, &buf);
+            hasher.update(link_name);
+        },
     }
     hasher.final(&hashed_file.hash);
 }
