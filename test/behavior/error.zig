@@ -238,12 +238,22 @@ fn testExplicitErrorSetCast(set1: Set1) !void {
 test "@errorCast on error unions" {
     const S = struct {
         fn doTheTest() !void {
-            const casted: error{Bad}!i32 = @errorCast(retErrUnion());
-            try expect((try casted) == 1234);
+            {
+                const casted: error{Bad}!i32 = @errorCast(retErrUnion());
+                try expect((try casted) == 1234);
+            }
+            {
+                const casted: error{Bad}!i32 = @errorCast(retInferredErrUnion());
+                try expect((try casted) == 5678);
+            }
         }
 
         fn retErrUnion() anyerror!i32 {
             return 1234;
+        }
+
+        fn retInferredErrUnion() !i32 {
+            return 5678;
         }
     };
 
