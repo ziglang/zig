@@ -1049,10 +1049,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
         const c_frontend: CFrontend = blk: {
-            if (!build_options.have_llvm) break :blk .aro;
-            if (options.use_clang) |explicit| if (explicit) break :blk .clang;
-            break :blk .clang;
+            if (options.use_clang) |want_clang| {
+                break :blk if (want_clang) .clang else .aro;
+            }
+            break :blk if (build_options.have_llvm) .clang else .aro;
         };
+        if (!build_options.have_llvm and c_frontend == .clang) {
+            return error.ZigCompilerNotBuiltWithLLVMExtensions;
+        }
 
         const is_safe_mode = switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
