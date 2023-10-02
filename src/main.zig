@@ -20,7 +20,6 @@ const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
-const translate_c = @import("translate_c.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
@@ -4204,9 +4203,7 @@ fn updateModule(comp: *Compilation) !void {
 }
 
 fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
-    if (!build_options.have_llvm)
-        fatal("cannot translate-c: compiler built without LLVM extensions", .{});
-
+    if (build_options.only_c) unreachable; // translate-c is not needed for bootstrapping
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4225,14 +4222,14 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     const digest = if (try man.hit()) man.final() else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        try argv.append(""); // argv[0] is program name, actual args start at [1]
+        try argv.append(@tagName(comp.c_frontend)); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (comp.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
                 break :blk null;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
@@ -4241,44 +4238,67 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             break :blk out_dep_path;
         };
 
-        try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
+        // TODO
+        if (comp.c_frontend != .aro) try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
         try argv.append(c_source_file.src_path);
 
         if (comp.verbose_cc) {
-            std.debug.print("clang ", .{});
             Compilation.dump_argv(argv.items);
         }
 
-        // Convert to null terminated args.
-        const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
-        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
-        new_argv_with_sentinel[clang_args_len] = null;
-        const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-        for (argv.items, 0..) |arg, i| {
-            new_argv[i] = try arena.dupeZ(u8, arg);
-        }
-        for (c_source_file.extra_flags, 0..) |arg, i| {
-            new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
-        }
+        var tree = switch (comp.c_frontend) {
+            .aro => tree: {
+                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
+                const translate_c = @import("aro_translate_c.zig");
+                var aro_comp = translate_c.Compilation.init(comp.gpa);
+                defer aro_comp.deinit();
 
-        const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
-        var errors = std.zig.ErrorBundle.empty;
-        var tree = translate_c.translate(
-            comp.gpa,
-            new_argv.ptr,
-            new_argv.ptr + new_argv.len,
-            &errors,
-            c_headers_dir_path_z,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.SemanticAnalyzeFail => {
-                if (fancy_output) |p| {
-                    p.errors = errors;
-                    return;
-                } else {
-                    errors.renderToStdErr(renderOptions(comp.color));
-                    process.exit(1);
+                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
+                    error.SemanticAnalyzeFail, error.FatalError => {
+                        // TODO convert these to zig errors
+                        aro_comp.renderErrors();
+                        process.exit(1);
+                    },
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.StreamTooLong => fatal("StreamTooLong?", .{}),
+                };
+            },
+            .clang => tree: {
+                if (!build_options.have_llvm) unreachable;
+                const translate_c = @import("translate_c.zig");
+
+                // Convert to null terminated args.
+                const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
+                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
+                new_argv_with_sentinel[clang_args_len] = null;
+                const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
+                for (argv.items, 0..) |arg, i| {
+                    new_argv[i] = try arena.dupeZ(u8, arg);
                 }
+                for (c_source_file.extra_flags, 0..) |arg, i| {
+                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
+                }
+
+                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+                var errors = std.zig.ErrorBundle.empty;
+                break :tree translate_c.translate(
+                    comp.gpa,
+                    new_argv.ptr,
+                    new_argv.ptr + new_argv.len,
+                    &errors,
+                    c_headers_dir_path_z,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.SemanticAnalyzeFail => {
+                        if (fancy_output) |p| {
+                            p.errors = errors;
+                            return;
+                        } else {
+                            errors.renderToStdErr(renderOptions(comp.color));
+                            process.exit(1);
+                        }
+                    },
+                };
             },
         };
         defer tree.deinit(comp.gpa);
