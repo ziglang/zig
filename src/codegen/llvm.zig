@@ -6394,15 +6394,6 @@ pub const FuncGen = struct {
         const fn_ty = try mod.funcType(.{
             .param_types = &.{},
             .return_type = .void_type,
-            .alignment = .none,
-            .noalias_bits = 0,
-            .comptime_bits = 0,
-            .cc = .Unspecified,
-            .is_var_args = false,
-            .is_generic = false,
-            .is_noinline = false,
-            .section_is_generic = false,
-            .addrspace_is_generic = false,
         });
         const fn_di_ty = try o.lowerDebugType(fn_ty, .full);
         const subprogram = dib.createFunction(

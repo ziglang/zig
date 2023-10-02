@@ -1871,8 +1871,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 comp.job_queued_compiler_rt_lib = true;
             } else if (options.output_mode != .Obj) {
                 log.debug("queuing a job to build compiler_rt_obj", .{});
-                // If build-obj with -fcompiler-rt is requested, that is handled specially
-                // elsewhere. In this case we are making a static library, so we ask
+                // In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
                 comp.job_queued_compiler_rt_obj = true;
             }

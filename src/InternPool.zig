@@ -5407,19 +5407,19 @@ pub fn getAnonStructType(ip: *InternPool, gpa: Allocator, ini: AnonStructTypeIni
 
 /// This is equivalent to `Key.FuncType` but adjusted to have a slice for `param_types`.
 pub const GetFuncTypeKey = struct {
-    param_types: []Index,
+    param_types: []const Index,
     return_type: Index,
-    comptime_bits: u32,
-    noalias_bits: u32,
+    comptime_bits: u32 = 0,
+    noalias_bits: u32 = 0,
     /// `null` means generic.
-    alignment: ?Alignment,
+    alignment: ?Alignment = .none,
     /// `null` means generic.
-    cc: ?std.builtin.CallingConvention,
-    is_var_args: bool,
-    is_generic: bool,
-    is_noinline: bool,
-    section_is_generic: bool,
-    addrspace_is_generic: bool,
+    cc: ?std.builtin.CallingConvention = .Unspecified,
+    is_var_args: bool = false,
+    is_generic: bool = false,
+    is_noinline: bool = false,
+    section_is_generic: bool = false,
+    addrspace_is_generic: bool = false,
 };
 
 pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocator.Error!Index {
@@ -5754,15 +5754,10 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
     const func_ty = try ip.getFuncType(gpa, .{
         .param_types = arg.param_types,
         .return_type = arg.bare_return_type,
-        .comptime_bits = 0,
         .noalias_bits = arg.noalias_bits,
         .alignment = arg.alignment,
         .cc = arg.cc,
-        .is_var_args = false,
-        .is_generic = false,
         .is_noinline = arg.is_noinline,
-        .section_is_generic = false,
-        .addrspace_is_generic = false,
     });
 
     const generic_owner = unwrapCoercedFunc(ip, arg.generic_owner);
