@@ -842,42 +842,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         }
     }
 
-    const shsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Shdr),
-        .p64 => @sizeOf(elf.Elf64_Shdr),
-    };
-    const shalign: u16 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Shdr),
-        .p64 => @alignOf(elf.Elf64_Shdr),
-    };
-    if (self.shdr_table_offset == null) {
-        self.shdr_table_offset = self.findFreeSpace(self.shdrs.items.len * shsize, shalign);
-        self.shdr_table_dirty = true;
-    }
-
-    {
-        // Iterate over symbols, populating free_list and last_text_block.
-        if (self.symbols.items.len != 1) {
-            @panic("TODO implement setting up free_list and last_text_block from existing ELF file");
-        }
-        // We are starting with an empty file. The default values are correct, null and empty list.
-    }
-
-    if (self.shdr_table_dirty) {
-        // We need to find out what the max file offset is according to section headers.
-        // Otherwise, we may end up with an ELF binary with file size not matching the final section's
-        // offset + it's filesize.
-        var max_file_offset: u64 = 0;
-
-        for (self.shdrs.items) |shdr| {
-            if (shdr.sh_offset + shdr.sh_size > max_file_offset) {
-                max_file_offset = shdr.sh_offset + shdr.sh_size;
-            }
-        }
-
-        try self.base.file.?.pwriteAll(&[_]u8{0}, max_file_offset);
-    }
-
     if (self.base.options.module) |module| {
         if (self.zig_module_index == null and !self.base.options.use_llvm) {
             const index: File.Index = @intCast(try self.files.addOne(gpa));
@@ -1469,9 +1433,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             .p32 => @alignOf(elf.Elf32_Shdr),
             .p64 => @alignOf(elf.Elf64_Shdr),
         };
-        const allocated_size = self.allocatedSize(self.shdr_table_offset.?);
         const needed_size = self.shdrs.items.len * shsize;
-
+        const allocated_size = if (self.shdr_table_offset) |off|
+            self.allocatedSize(off)
+        else
+            0;
         if (needed_size > allocated_size) {
             self.shdr_table_offset = null; // free the space
             self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
