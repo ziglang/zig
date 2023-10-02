@@ -379,15 +379,8 @@ pub const GotSection = struct {
     pub fn updateStrtab(got: GotSection, elf_file: *Elf) !void {
         const gpa = elf_file.base.allocator;
         for (got.entries.items) |entry| {
-            const suffix = switch (entry.tag) {
-                .tlsld => "$tlsld",
-                .tlsgd => "$tlsgd",
-                .got => "$got",
-                .gottp => "$gottp",
-                .tlsdesc => "$tlsdesc",
-            };
             const symbol = elf_file.symbol(entry.symbol_index);
-            const name = try std.fmt.allocPrint(gpa, "{s}{s}", .{ symbol.name(elf_file), suffix });
+            const name = try std.fmt.allocPrint(gpa, "{s}${s}", .{ symbol.name(elf_file), @tagName(entry.tag) });
             defer gpa.free(name);
             _ = try elf_file.strtab.insert(gpa, name);
         }
@@ -396,15 +389,8 @@ pub const GotSection = struct {
     pub fn writeSymtab(got: GotSection, elf_file: *Elf, ctx: anytype) !void {
         const gpa = elf_file.base.allocator;
         for (got.entries.items, ctx.ilocal..) |entry, ilocal| {
-            const suffix = switch (entry.tag) {
-                .tlsld => "$tlsld",
-                .tlsgd => "$tlsgd",
-                .got => "$got",
-                .gottp => "$gottp",
-                .tlsdesc => "$tlsdesc",
-            };
             const symbol = elf_file.symbol(entry.symbol_index);
-            const name = try std.fmt.allocPrint(gpa, "{s}{s}", .{ symbol.name(elf_file), suffix });
+            const name = try std.fmt.allocPrint(gpa, "{s}${s}", .{ symbol.name(elf_file), @tagName(entry.tag) });
             defer gpa.free(name);
             const st_name = try elf_file.strtab.insert(gpa, name);
             const st_value = switch (entry.tag) {
