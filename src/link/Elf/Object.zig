@@ -179,7 +179,6 @@ fn addAtom(
     atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
     atom.file_index = self.index;
     atom.input_section_index = shndx;
-    atom.output_section_index = try self.getOutputSectionIndex(elf_file, shdr);
     atom.flags.alive = true;
     self.atoms.items[shndx] = atom_index;
 
@@ -279,10 +278,6 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
         sym_ptr.esym_index = @as(u32, @intCast(i));
         sym_ptr.atom_index = if (sym.st_shndx == elf.SHN_ABS) 0 else self.atoms.items[sym.st_shndx];
         sym_ptr.file_index = self.index;
-        sym_ptr.output_section_index = if (sym_ptr.atom(elf_file)) |atom_ptr|
-            atom_ptr.outputShndx().?
-        else
-            elf.SHN_UNDEF;
     }
 
     for (self.symtab[first_global..]) |sym| {
@@ -453,15 +448,10 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
                 elf.SHN_ABS, elf.SHN_COMMON => 0,
                 else => self.atoms.items[esym.st_shndx],
             };
-            const output_section_index = if (elf_file.atom(atom_index)) |atom|
-                atom.outputShndx().?
-            else
-                elf.SHN_UNDEF;
             global.value = esym.st_value;
             global.atom_index = atom_index;
             global.esym_index = esym_index;
             global.file_index = self.index;
-            global.output_section_index = output_section_index;
             global.version_index = elf_file.default_sym_version;
             if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
         }
@@ -608,6 +598,19 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         global.value = 0;
         global.atom = atom_index;
         global.flags.weak = false;
+    }
+}
+
+pub fn updateSectionSizes(self: Object, elf_file: *Elf) void {
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shdr = &elf_file.shdrs.items[atom.output_section_index];
+        const offset = atom.alignment.forward(shdr.sh_size);
+        const padding = offset - shdr.sh_size;
+        atom.value = offset;
+        shdr.sh_size += padding + atom.size;
+        shdr.sh_addralign = @max(shdr.sh_addralign, atom.alignment.toByteUnits(1));
     }
 }
 

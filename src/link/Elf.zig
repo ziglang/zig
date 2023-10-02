@@ -18,9 +18,6 @@ objects: std.ArrayListUnmanaged(File.Index) = .{},
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
-/// Given index to a section, returns a list of atoms allocated within it.
-/// Excludes incrementally allocated atoms - for those, use linked-list approach.
-atoms_by_shdr_table: std.AutoArrayHashMapUnmanaged(u16, AtomList) = .{},
 /// Given index to a section, pulls index of containing phdr if any.
 phdr_to_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 /// File offset into the shdr table.
@@ -319,12 +316,6 @@ pub fn deinit(self: *Elf) void {
     self.objects.deinit(gpa);
 
     self.shdrs.deinit(gpa);
-
-    for (self.atoms_by_shdr_table.values()) |*list| {
-        list.deinit(gpa);
-    }
-    self.atoms_by_shdr_table.deinit(gpa);
-
     self.phdr_to_shdr_table.deinit(gpa);
     self.phdrs.deinit(gpa);
     self.shstrtab.deinit(gpa);
@@ -1254,7 +1245,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.sortSections();
-    try self.addAtomsToSections();
+    try self.updateSectionSizes();
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -1266,7 +1257,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // linker-defined synthetic symbols.
     try self.allocateObjects();
     self.allocateLinkerDefinedSymbols();
-    try self.updateSyntheticSectionSizes();
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_addr == null) {
@@ -3598,26 +3588,13 @@ fn sortSections(self: *Elf) !void {
     }
 }
 
-fn addAtomsToSections(self: *Elf) !void {
-    const gpa = self.base.allocator;
+fn updateSectionSizes(self: *Elf) !void {
     for (self.objects.items) |index| {
-        for (self.file(index).?.atoms()) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const gop = try self.atoms_by_shdr_table.getOrPut(gpa, atom_ptr.output_section_index);
-            if (!gop.found_existing) gop.value_ptr.* = .{};
-            try gop.value_ptr.append(gpa, atom_index);
-        }
+        self.file(index).?.object.updateSectionSizes(self);
     }
-}
 
-fn updateSyntheticSectionSizes(self: *Elf) !void {
     if (self.got_section_index) |index| {
-        if (self.got.dirty) {
-            try self.growAllocSection(index, self.got.size(self));
-            self.got.dirty = false;
-            self.got_addresses_dirty = true;
-        }
+        self.shdrs.items[index].sh_size = self.got.size(self);
     }
 
     if (self.symtab_section_index != null) {
