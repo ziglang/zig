@@ -10,7 +10,6 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.package);
 const main = @import("main.zig");
 const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
 
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -18,6 +17,7 @@ const Cache = std.Build.Cache;
 const build_options = @import("build_options");
 const Manifest = @import("Manifest.zig");
 const git = @import("git.zig");
+const computePackageHash = @import("Package/hash.zig").compute;
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -1147,81 +1147,6 @@ fn unpackGitPack(
     try out_dir.deleteTree(".git");
 }
 
-const HashedFile = struct {
-    fs_path: []const u8,
-    normalized_path: []const u8,
-    hash: [Manifest.Hash.digest_length]u8,
-    failure: Error!void,
-
-    const Error = fs.File.OpenError || fs.File.ReadError || fs.File.StatError;
-
-    fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
-        _ = context;
-        return mem.lessThan(u8, lhs.normalized_path, rhs.normalized_path);
-    }
-};
-
-fn computePackageHash(
-    thread_pool: *ThreadPool,
-    pkg_dir: fs.IterableDir,
-) ![Manifest.Hash.digest_length]u8 {
-    const gpa = thread_pool.allocator;
-
-    // We'll use an arena allocator for the path name strings since they all
-    // need to be in memory for sorting.
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(gpa);
-    defer all_files.deinit();
-
-    var walker = try pkg_dir.walk(gpa);
-    defer walker.deinit();
-
-    {
-        // The final hash will be a hash of each file hashed independently. This
-        // allows hashing in parallel.
-        var wait_group: WaitGroup = .{};
-        defer wait_group.wait();
-
-        while (try walker.next()) |entry| {
-            switch (entry.kind) {
-                .directory => continue,
-                .file => {},
-                else => return error.IllegalFileTypeInPackage,
-            }
-            const hashed_file = try arena.create(HashedFile);
-            const fs_path = try arena.dupe(u8, entry.path);
-            hashed_file.* = .{
-                .fs_path = fs_path,
-                .normalized_path = try normalizePath(arena, fs_path),
-                .hash = undefined, // to be populated by the worker
-                .failure = undefined, // to be populated by the worker
-            };
-            wait_group.start();
-            try thread_pool.spawn(workerHashFile, .{ pkg_dir.dir, hashed_file, &wait_group });
-
-            try all_files.append(hashed_file);
-        }
-    }
-
-    mem.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
-
-    var hasher = Manifest.Hash.init(.{});
-    var any_failures = false;
-    for (all_files.items) |hashed_file| {
-        hashed_file.failure catch |err| {
-            any_failures = true;
-            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.fs_path, @errorName(err) });
-        };
-        hasher.update(&hashed_file.hash);
-    }
-    if (any_failures) return error.PackageHashUnavailable;
-    return hasher.finalResult();
-}
-
 /// Compute the hash of a file path.
 fn computePathHash(gpa: Allocator, dir: Compilation.Directory, path: []const u8) ![Manifest.Hash.digest_length]u8 {
     const resolved_path = try std.fs.path.resolve(gpa, &.{ dir.path.?, path });
@@ -1238,57 +1163,6 @@ fn isDirectory(root_dir: Compilation.Directory, path: []const u8) !bool {
     };
     defer dir.close();
     return true;
-}
-
-/// Make a file system path identical independently of operating system path inconsistencies.
-/// This converts backslashes into forward slashes.
-fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
-    const canonical_sep = '/';
-
-    if (fs.path.sep == canonical_sep)
-        return fs_path;
-
-    const normalized = try arena.dupe(u8, fs_path);
-    for (normalized) |*byte| {
-        switch (byte.*) {
-            fs.path.sep => byte.* = canonical_sep,
-            else => continue,
-        }
-    }
-    return normalized;
-}
-
-fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
-    defer wg.finish();
-    hashed_file.failure = hashFileFallible(dir, hashed_file);
-}
-
-fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
-    var buf: [8000]u8 = undefined;
-    var file = try dir.openFile(hashed_file.fs_path, .{});
-    defer file.close();
-    var hasher = Manifest.Hash.init(.{});
-    hasher.update(hashed_file.normalized_path);
-    hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
-    while (true) {
-        const bytes_read = try file.read(&buf);
-        if (bytes_read == 0) break;
-        hasher.update(buf[0..bytes_read]);
-    }
-    hasher.final(&hashed_file.hash);
-}
-
-fn isExecutable(file: fs.File) !bool {
-    if (builtin.os.tag == .windows) {
-        // TODO check the ACL on Windows.
-        // Until this is implemented, this could be a false negative on
-        // Windows, which is why we do not yet set executable_bit_only above
-        // when unpacking the tarball.
-        return false;
-    } else {
-        const stat = try file.stat();
-        return (stat.mode & std.os.S.IXUSR) != 0;
-    }
 }
 
 fn renameTmpIntoCache(
