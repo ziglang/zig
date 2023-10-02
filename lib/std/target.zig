@@ -1583,7 +1583,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
-            .solaris, .illumos => return copy(&result, "/usr/lib/64/ld.so.1"),
+            .solaris, .illumos => return copy(&result, "/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .x86,
                 .sparc,
