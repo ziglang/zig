@@ -271,6 +271,7 @@ pub const Target = struct {
                     .glsl450, // TODO: GLSL versions
                     .vulkan,
                     .plan9,
+                    .illumos,
                     .other,
                     => return .{ .none = {} },
 
@@ -331,7 +332,7 @@ pub const Target = struct {
                             .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
-                    .solaris, .illumos => return .{
+                    .solaris => return .{
                         .semver = .{
                             .min = .{ .major = 5, .minor = 11, .patch = 0 },
                             .max = .{ .major = 5, .minor = 11, .patch = 0 },
@@ -381,7 +382,6 @@ pub const Target = struct {
                 .openbsd,
                 .dragonfly,
                 .solaris,
-                .illumos,
                 => return TaggedVersionRange{ .semver = self.version_range.semver },
 
                 else => return .none,
