@@ -194,10 +194,10 @@ fn addAtom(
     }
 }
 
-fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
+pub fn getOutputSectionIndex(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.strings.getAssumeExists(shdr.sh_name);
-        // if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
+        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
             ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
@@ -231,32 +231,11 @@ fn getOutputSectionIndex(self: *Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) er
             else => flags,
         };
     };
-    const out_shndx = elf_file.sectionByName(name) orelse blk: {
-        const is_alloc = flags & elf.SHF_ALLOC != 0;
-        const is_write = flags & elf.SHF_WRITE != 0;
-        const is_exec = flags & elf.SHF_EXECINSTR != 0;
-        if (!is_alloc) {
-            log.err("{}: output section {s} not found", .{ self.fmtPath(), name });
-            @panic("TODO: missing output section!");
-        }
-        var phdr_flags: u32 = elf.PF_R;
-        if (is_write) phdr_flags |= elf.PF_W;
-        if (is_exec) phdr_flags |= elf.PF_X;
-        const phdr_index = try elf_file.allocateSegment(.{
-            .size = Elf.padToIdeal(shdr.sh_size),
-            .alignment = elf_file.page_size,
-            .flags = phdr_flags,
-        });
-        const shndx = try elf_file.allocateAllocSection(.{
-            .name = name,
-            .phdr_index = phdr_index,
-            .alignment = shdr.sh_addralign,
-            .flags = flags,
-            .type = @"type",
-        });
-        try elf_file.last_atom_and_free_list_table.putNoClobber(elf_file.base.allocator, shndx, .{});
-        break :blk shndx;
-    };
+    const out_shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
+        .type = @"type",
+        .flags = flags,
+        .name = name,
+    });
     return out_shndx;
 }
 

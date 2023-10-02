@@ -1241,58 +1241,21 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
 
+    // Generate and emit non-incremental sections.
+    try self.initSections();
+    try self.initSyntheticSections();
+
+    // Dump the state for easy debugging.
+    // State can be dumped via `--debug-log link_state`.
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
+
     // Allocate atoms parsed from input object files, followed by allocating
     // linker-defined synthetic symbols.
     try self.allocateObjects();
     self.allocateLinkerDefinedSymbols();
-
-    // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
-    // get mapped by the loader
-    if (self.data_section_index) |data_shndx| blk: {
-        const bss_shndx = self.bss_section_index orelse break :blk;
-        const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
-        const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
-        self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
-        self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
-    }
-
-    // Same treatment for .tbss section.
-    if (self.tdata_section_index) |tdata_shndx| blk: {
-        const tbss_shndx = self.tbss_section_index orelse break :blk;
-        const tdata_phndx = self.phdr_to_shdr_table.get(tdata_shndx).?;
-        const tbss_phndx = self.phdr_to_shdr_table.get(tbss_shndx).?;
-        self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
-        self.phdrs.items[tbss_phndx].p_offset = self.phdrs.items[tdata_phndx].p_offset;
-    }
-
-    if (self.phdr_tls_index) |tls_index| {
-        const tdata_phdr = &self.phdrs.items[self.phdr_load_tls_data_index.?];
-        const tbss_phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
-        const phdr = &self.phdrs.items[tls_index];
-        phdr.p_offset = tdata_phdr.p_offset;
-        phdr.p_filesz = tdata_phdr.p_filesz;
-        phdr.p_vaddr = tdata_phdr.p_vaddr;
-        phdr.p_paddr = tdata_phdr.p_vaddr;
-        phdr.p_memsz = tbss_phdr.p_vaddr + tbss_phdr.p_memsz - tdata_phdr.p_vaddr;
-    }
-
-    // Beyond this point, everything has been allocated a virtual address and we can resolve
-    // the relocations, and commit objects to file.
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
-            if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            const code = try zig_module.codeAlloc(self, atom_index);
-            defer gpa.free(code);
-            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            try atom_ptr.resolveRelocs(self, code);
-            try self.base.file.?.pwriteAll(code, file_offset);
-        }
-    }
-    try self.writeObjects();
+    try self.updateSyntheticSectionSizes();
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_addr == null) {
@@ -1307,57 +1270,99 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         } else null;
     }
 
-    if (self.dwarf) |*dw| {
-        if (self.debug_abbrev_section_dirty) {
-            try dw.writeDbgAbbrev();
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeShdr(self.debug_abbrev_section_index.?);
+    // Beyond this point, everything has been allocated a virtual address and we can resolve
+    // the relocations, and commit objects to file.
+    if (self.zig_module_index) |index| {
+        // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
+        // get mapped by the loader
+        if (self.data_section_index) |data_shndx| blk: {
+            const bss_shndx = self.bss_section_index orelse break :blk;
+            const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
+            const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
+            self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
+            self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
+        }
+
+        // Same treatment for .tbss section.
+        if (self.tdata_section_index) |tdata_shndx| blk: {
+            const tbss_shndx = self.tbss_section_index orelse break :blk;
+            const tdata_phndx = self.phdr_to_shdr_table.get(tdata_shndx).?;
+            const tbss_phndx = self.phdr_to_shdr_table.get(tbss_shndx).?;
+            self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
+            self.phdrs.items[tbss_phndx].p_offset = self.phdrs.items[tdata_phndx].p_offset;
+        }
+
+        if (self.phdr_tls_index) |tls_index| {
+            const tdata_phdr = &self.phdrs.items[self.phdr_load_tls_data_index.?];
+            const tbss_phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
+            const phdr = &self.phdrs.items[tls_index];
+            phdr.p_offset = tdata_phdr.p_offset;
+            phdr.p_filesz = tdata_phdr.p_filesz;
+            phdr.p_vaddr = tdata_phdr.p_vaddr;
+            phdr.p_paddr = tdata_phdr.p_vaddr;
+            phdr.p_memsz = tbss_phdr.p_vaddr + tbss_phdr.p_memsz - tdata_phdr.p_vaddr;
+        }
+
+        const zig_module = self.file(index).?.zig_module;
+        for (zig_module.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
+            if (shdr.sh_type == elf.SHT_NOBITS) continue;
+            const code = try zig_module.codeAlloc(self, atom_index);
+            defer gpa.free(code);
+            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            try atom_ptr.resolveRelocs(self, code);
+            try self.base.file.?.pwriteAll(code, file_offset);
+        }
+
+        if (self.dwarf) |*dw| {
+            if (self.debug_abbrev_section_dirty) {
+                try dw.writeDbgAbbrev();
+                if (!self.shdr_table_dirty) {
+                    // Then it won't get written with the others and we need to do it.
+                    try self.writeShdr(self.debug_abbrev_section_index.?);
+                }
+                self.debug_abbrev_section_dirty = false;
             }
-            self.debug_abbrev_section_dirty = false;
-        }
 
-        if (self.debug_info_header_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
-            const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
-            const low_pc = text_phdr.p_vaddr;
-            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-            try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
-            self.debug_info_header_dirty = false;
-        }
-
-        if (self.debug_aranges_section_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
-            const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
-            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-            if (!self.shdr_table_dirty) {
-                // Then it won't get written with the others and we need to do it.
-                try self.writeShdr(self.debug_aranges_section_index.?);
+            if (self.debug_info_header_dirty) {
+                // Currently only one compilation unit is supported, so the address range is simply
+                // identical to the main program header virtual address and memory size.
+                const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
+                const low_pc = text_phdr.p_vaddr;
+                const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+                try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
+                self.debug_info_header_dirty = false;
             }
-            self.debug_aranges_section_dirty = false;
-        }
 
-        if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader();
-            self.debug_line_header_dirty = false;
-        }
+            if (self.debug_aranges_section_dirty) {
+                // Currently only one compilation unit is supported, so the address range is simply
+                // identical to the main program header virtual address and memory size.
+                const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
+                try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+                if (!self.shdr_table_dirty) {
+                    // Then it won't get written with the others and we need to do it.
+                    try self.writeShdr(self.debug_aranges_section_index.?);
+                }
+                self.debug_aranges_section_dirty = false;
+            }
 
-        if (self.debug_str_section_index) |index| {
-            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[index].sh_size) {
-                try self.growNonAllocSection(index, dw.strtab.buffer.items.len, 1, false);
-                const shdr = self.shdrs.items[index];
-                try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
-                self.debug_strtab_dirty = false;
+            if (self.debug_line_header_dirty) {
+                try dw.writeDbgLineHeader();
+                self.debug_line_header_dirty = false;
+            }
+
+            if (self.debug_str_section_index) |shndx| {
+                if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[shndx].sh_size) {
+                    try self.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
+                    const shdr = self.shdrs.items[shndx];
+                    try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
+                    self.debug_strtab_dirty = false;
+                }
             }
         }
     }
-
-    // Generate and emit non-incremental sections.
-    try self.initSyntheticSections();
-    try self.updateSyntheticSectionSizes();
-    try self.writeSyntheticSections();
 
     if (self.phdr_table_dirty) {
         const phsize: u64 = switch (self.ptr_width) {
@@ -1470,6 +1475,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
         self.shdr_table_dirty = false;
     }
+
+    try self.writeSyntheticSections();
+    try self.writeObjects();
+
     if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
         log.debug("flushing. no_entry_point_found = true", .{});
         self.error_flags.no_entry_point_found = true;
@@ -3416,6 +3425,18 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             start.output_section_index = shndx;
             stop.value = shdr.sh_addr + shdr.sh_size;
             stop.output_section_index = shndx;
+        }
+    }
+}
+
+fn initSections(self: *Elf) !void {
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const shdr = atom_ptr.inputShdr(self);
+            atom_ptr.output_section_index = try object.getOutputSectionIndex(self, shdr);
         }
     }
 }
