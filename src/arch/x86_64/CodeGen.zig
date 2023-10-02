@@ -9528,13 +9528,16 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     extra_i += inputs.len;
 
     var result: MCValue = .none;
-    var args = std.StringArrayHashMap(MCValue).init(self.gpa);
+    var args = std.ArrayList(MCValue).init(self.gpa);
     try args.ensureTotalCapacity(outputs.len + inputs.len);
     defer {
-        for (args.values()) |arg| if (arg.getReg()) |reg|
+        for (args.items) |arg| if (arg.getReg()) |reg|
             self.register_manager.unlockReg(.{ .register = reg });
         args.deinit();
     }
+    var arg_map = std.StringHashMap(u8).init(self.gpa);
+    try arg_map.ensureTotalCapacity(@intCast(outputs.len + inputs.len));
+    defer arg_map.deinit();
 
     var outputs_extra_i = extra_i;
     for (outputs) |output| {
@@ -9585,7 +9588,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
             _ = self.register_manager.lockRegAssumeUnused(reg);
         };
-        args.putAssumeCapacity(name, arg_mcv);
+        if (!std.mem.eql(u8, name, "_"))
+            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        args.appendAssumeCapacity(arg_mcv);
         if (output == .none) result = arg_mcv;
     }
 
@@ -9643,7 +9648,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
             _ = self.register_manager.lockReg(reg);
         };
-        args.putAssumeCapacity(name, arg_mcv);
+        if (!std.mem.eql(u8, name, "_"))
+            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        args.appendAssumeCapacity(arg_mcv);
     }
 
     {
@@ -9712,8 +9719,10 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                     op_str[colon_pos + 1 .. op_str.len - "]".len]
                 else
                     "";
-                op.* = switch (args.get(op_str["%[".len .. colon orelse op_str.len - "]".len]) orelse
-                    return self.fail("no matching constraint: '{s}'", .{op_str})) {
+                op.* = switch (args.items[
+                    arg_map.get(op_str["%[".len .. colon orelse op_str.len - "]".len]) orelse
+                        return self.fail("no matching constraint: '{s}'", .{op_str})
+                ]) {
                     .register => |reg| if (std.mem.eql(u8, modifier, ""))
                         .{ .reg = reg }
                     else
@@ -9826,7 +9835,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         };
     }
 
-    for (outputs, args.values()[0..outputs.len]) |output, mcv| {
+    for (outputs, args.items[0..outputs.len]) |output, mcv| {
         const extra_bytes = std.mem.sliceAsBytes(self.air.extra[outputs_extra_i..]);
         const constraint =
             std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[outputs_extra_i..]), 0);
@@ -10203,17 +10212,13 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 .sse => try self.asmRegisterRegister(
                     @as(?Mir.Inst.FixedTag, switch (ty.scalarType(mod).zigTypeTag(mod)) {
                         else => switch (abi_size) {
-                            1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
-                            5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
-                            9...16 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                            1...16 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
                             17...32 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else null,
                             else => null,
                         },
                         .Float => switch (ty.scalarType(mod).floatBits(self.target.*)) {
                             16, 128 => switch (abi_size) {
-                                2...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
-                                5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
-                                9...16 => if (self.hasFeature(.avx))
+                                2...16 => if (self.hasFeature(.avx))
                                     .{ .v_, .movdqa }
                                 else
                                     .{ ._, .movdqa },
