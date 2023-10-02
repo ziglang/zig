@@ -376,6 +376,23 @@ pub const GotSection = struct {
         got.output_symtab_size.nlocals = @as(u32, @intCast(got.entries.items.len));
     }
 
+    pub fn updateStrtab(got: GotSection, elf_file: *Elf) !void {
+        const gpa = elf_file.base.allocator;
+        for (got.entries.items) |entry| {
+            const suffix = switch (entry.tag) {
+                .tlsld => "$tlsld",
+                .tlsgd => "$tlsgd",
+                .got => "$got",
+                .gottp => "$gottp",
+                .tlsdesc => "$tlsdesc",
+            };
+            const symbol = elf_file.symbol(entry.symbol_index);
+            const name = try std.fmt.allocPrint(gpa, "{s}{s}", .{ symbol.name(elf_file), suffix });
+            defer gpa.free(name);
+            _ = try elf_file.strtab.insert(gpa, name);
+        }
+    }
+
     pub fn writeSymtab(got: GotSection, elf_file: *Elf, ctx: anytype) !void {
         const gpa = elf_file.base.allocator;
         for (got.entries.items, ctx.ilocal..) |entry, ilocal| {

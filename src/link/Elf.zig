@@ -3503,6 +3503,11 @@ fn updateSyntheticSectionSizes(self: *Elf) !void {
         try self.updateSymtabSize();
     }
     if (self.strtab_section_index) |index| {
+        // TODO I don't really this here but we need it to add symbol names from GOT and other synthetic
+        // sections into .strtab for easier debugging.
+        if (self.got_section_index) |_| {
+            try self.got.updateStrtab(self);
+        }
         try self.growNonAllocSection(index, self.strtab.buffer.items.len, 1, false);
     }
     if (self.shstrtab_section_index) |index| {
