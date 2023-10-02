@@ -27251,7 +27251,7 @@ fn unionFieldVal(
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
-            .Packed, .Extern => {
+            .Packed, .Extern => |layout| {
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
@@ -27260,7 +27260,7 @@ fn unionFieldVal(
                     else
                         union_ty.unionFieldType(un.tag.toValue(), mod).?;
 
-                    if (try sema.bitCastUnionFieldVal(block, src, un.val.toValue(), old_ty, field_ty)) |new_val| {
+                    if (try sema.bitCastUnionFieldVal(block, src, un.val.toValue(), old_ty, field_ty, layout)) |new_val| {
                         return Air.internedToRef(new_val.toIntern());
                     }
                 }
@@ -30751,26 +30751,50 @@ fn bitCastUnionFieldVal(
     val: Value,
     old_ty: Type,
     field_ty: Type,
+    layout: std.builtin.Type.ContainerLayout,
 ) !?Value {
     const mod = sema.mod;
     if (old_ty.eql(field_ty, mod)) return val;
 
     const old_size = try sema.usizeCast(block, src, old_ty.abiSize(mod));
     const field_size = try sema.usizeCast(block, src, field_ty.abiSize(mod));
+    const endian = mod.getTarget().cpu.arch.endian();
 
     const buffer = try sema.gpa.alloc(u8, @max(old_size, field_size));
     defer sema.gpa.free(buffer);
-    val.writeToMemory(old_ty, mod, buffer) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ReinterpretDeclRef => return null,
-        error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
-        error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(mod)}),
+
+    // Reading a larger value means we need to reinterpret from undefined bytes.
+    const offset = switch (layout) {
+        .Extern => offset: {
+            if (field_size > old_size) @memset(buffer[old_size..], 0xaa);
+            val.writeToMemory(old_ty, mod, buffer) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReinterpretDeclRef => return null,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(mod)}),
+            };
+            break :offset 0;
+        },
+        .Packed => offset: {
+            if (field_size > old_size) {
+                const min_size = @max(old_size, 1);
+                switch (endian) {
+                    .Little => @memset(buffer[min_size - 1 ..], 0xaa),
+                    .Big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
+                }
+            }
+
+            val.writeToPackedMemory(old_ty, mod, buffer, 0) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReinterpretDeclRef => return null,
+            };
+
+            break :offset if (endian == .Big) buffer.len - field_size else 0;
+        },
+        .Auto => unreachable,
     };
 
-    // Reading a larger value means we need to reinterpret from undefined bytes
-    if (field_size > old_size) @memset(buffer[old_size..], 0xaa);
-
-    return Value.readFromMemory(field_ty, mod, buffer[0..], sema.arena) catch |err| switch (err) {
+    return Value.readFromMemory(field_ty, mod, buffer[offset..], sema.arena) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.IllDefinedMemoryLayout => unreachable,
         error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{field_ty.fmt(mod)}),
