@@ -111,8 +111,6 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
-shstrtab_dirty: bool = false,
-strtab_dirty: bool = false,
 got_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
@@ -721,24 +719,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             });
             self.phdr_table_dirty = true;
         }
-    }
-
-    if (self.shstrtab_section_index == null) {
-        self.shstrtab_section_index = try self.allocateNonAllocSection(.{
-            .name = ".shstrtab",
-            .size = @intCast(self.shstrtab.buffer.items.len),
-            .type = elf.SHT_STRTAB,
-        });
-        self.shstrtab_dirty = true;
-    }
-
-    if (self.strtab_section_index == null) {
-        self.strtab_section_index = try self.allocateNonAllocSection(.{
-            .name = ".strtab",
-            .size = @intCast(self.strtab.buffer.items.len),
-            .type = elf.SHT_STRTAB,
-        });
-        self.strtab_dirty = true;
     }
 
     if (self.text_section_index == null) {
@@ -1375,11 +1355,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         } else null;
     }
 
-    // Generate and emit non-incremental sections.
-    try self.initSyntheticSections();
-    try self.updateSyntheticSectionSizes();
-    try self.writeSyntheticSections();
-
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
             try dw.writeDbgAbbrev();
@@ -1416,7 +1391,21 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try dw.writeDbgLineHeader();
             self.debug_line_header_dirty = false;
         }
+
+        if (self.debug_str_section_index) |index| {
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[index].sh_size) {
+                try self.growNonAllocSection(index, dw.strtab.buffer.items.len, 1, false);
+                const shdr = self.shdrs.items[index];
+                try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
+                self.debug_strtab_dirty = false;
+            }
+        }
     }
+
+    // Generate and emit non-incremental sections.
+    try self.initSyntheticSections();
+    try self.updateSyntheticSectionSizes();
+    try self.writeSyntheticSections();
 
     if (self.phdr_table_dirty) {
         const phsize: u64 = switch (self.ptr_width) {
@@ -1478,36 +1467,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         phdr_table_load.p_filesz = 0;
 
         self.phdr_table_dirty = false;
-    }
-
-    {
-        const shdr_index = self.shstrtab_section_index.?;
-        if (self.shstrtab_dirty or self.shstrtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
-            try self.growNonAllocSection(shdr_index, self.shstrtab.buffer.items.len, 1, false);
-            const shstrtab_sect = &self.shdrs.items[shdr_index];
-            try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shstrtab_sect.sh_offset);
-            self.shstrtab_dirty = false;
-        }
-    }
-
-    {
-        const shdr_index = self.strtab_section_index.?;
-        if (self.strtab_dirty or self.strtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
-            try self.growNonAllocSection(shdr_index, self.strtab.buffer.items.len, 1, false);
-            const strtab_sect = self.shdrs.items[shdr_index];
-            try self.base.file.?.pwriteAll(self.strtab.buffer.items, strtab_sect.sh_offset);
-            self.strtab_dirty = false;
-        }
-    }
-
-    if (self.dwarf) |dwarf| {
-        const shdr_index = self.debug_str_section_index.?;
-        if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.shdrs.items[shdr_index].sh_size) {
-            try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
-            const debug_strtab_sect = self.shdrs.items[shdr_index];
-            try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
-            self.debug_strtab_dirty = false;
-        }
     }
 
     if (self.shdr_table_dirty) {
@@ -1580,8 +1539,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.debug_aranges_section_dirty);
     assert(!self.phdr_table_dirty);
     assert(!self.shdr_table_dirty);
-    assert(!self.shstrtab_dirty);
-    assert(!self.strtab_dirty);
     assert(!self.debug_strtab_dirty);
     assert(!self.got.dirty);
 }
@@ -3523,11 +3480,33 @@ fn initSyntheticSections(self: *Elf) !void {
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
         });
     }
+    if (self.strtab_section_index == null) {
+        self.strtab_section_index = try self.addSection(.{
+            .name = ".strtab",
+            .type = elf.SHT_STRTAB,
+            .entsize = 1,
+            .addralign = 1,
+        });
+    }
+    if (self.shstrtab_section_index == null) {
+        self.shstrtab_section_index = try self.addSection(.{
+            .name = ".shstrtab",
+            .type = elf.SHT_STRTAB,
+            .entsize = 1,
+            .addralign = 1,
+        });
+    }
 }
 
 fn updateSyntheticSectionSizes(self: *Elf) !void {
     if (self.symtab_section_index != null) {
         try self.updateSymtabSize();
+    }
+    if (self.strtab_section_index) |index| {
+        try self.growNonAllocSection(index, self.strtab.buffer.items.len, 1, false);
+    }
+    if (self.shstrtab_section_index) |index| {
+        try self.growNonAllocSection(index, self.shstrtab.buffer.items.len, 1, false);
     }
 }
 
@@ -3562,7 +3541,6 @@ fn updateSymtabSize(self: *Elf) !void {
     const shdr = &self.shdrs.items[self.symtab_section_index.?];
     shdr.sh_info = sizes.nlocals + 1;
     shdr.sh_link = self.strtab_section_index.?;
-    self.markDirty(self.symtab_section_index.?, null);
 
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
@@ -3573,11 +3551,18 @@ fn updateSymtabSize(self: *Elf) !void {
         .p64 => @alignOf(elf.Elf64_Sym),
     };
     const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
-    shdr.sh_size = needed_size;
-    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
+    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, false);
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
+    if (self.shstrtab_section_index) |index| {
+        const shdr = self.shdrs.items[index];
+        try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shdr.sh_offset);
+    }
+    if (self.strtab_section_index) |index| {
+        const shdr = self.shdrs.items[index];
+        try self.base.file.?.pwriteAll(self.strtab.buffer.items, shdr.sh_offset);
+    }
     if (self.symtab_section_index) |_| {
         try self.writeSymtab();
     }
