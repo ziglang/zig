@@ -604,10 +604,6 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
 
 pub fn populateMissingMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
-    const small_ptr = switch (self.ptr_width) {
-        .p32 => true,
-        .p64 => false,
-    };
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
     const image_base = self.calcImageBase();
@@ -824,21 +820,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             });
             try self.last_atom_and_free_list_table.putNoClobber(gpa, self.tbss_section_index.?, .{});
         }
-    }
-
-    if (self.symtab_section_index == null) {
-        const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
-        const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
-        self.symtab_section_index = try self.allocateNonAllocSection(.{
-            .name = ".symtab",
-            .size = self.base.options.symbol_count_hint * each_size,
-            .alignment = min_align,
-            .type = elf.SHT_SYMTAB,
-            .link = self.strtab_section_index.?, // Index of associated string table
-            .info = @intCast(self.symbols.items.len),
-            .entsize = each_size,
-        });
-        self.shdr_table_dirty = true;
     }
 
     if (self.dwarf) |*dw| {
@@ -1404,9 +1385,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         } else null;
     }
 
-    // Generate and emit the symbol table.
-    try self.updateSymtabSize();
-    try self.writeSymtab();
+    // Generate and emit non-incremental sections.
+    try self.initSyntheticSections();
+    try self.updateSyntheticSectionSizes();
+    try self.writeSyntheticSections();
 
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
@@ -3537,6 +3519,29 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     }
 }
 
+fn initSyntheticSections(self: *Elf) !void {
+    const small_ptr = switch (self.ptr_width) {
+        .p32 => true,
+        .p64 => false,
+    };
+
+    if (self.symtab_section_index == null) {
+        self.symtab_section_index = try self.addSection(.{
+            .name = ".symtab",
+            .type = elf.SHT_SYMTAB,
+            .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
+            .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
+        });
+        self.shdr_table_dirty = true;
+    }
+}
+
+fn updateSyntheticSectionSizes(self: *Elf) !void {
+    if (self.symtab_section_index != null) {
+        try self.updateSymtabSize();
+    }
+}
+
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
@@ -3567,6 +3572,7 @@ fn updateSymtabSize(self: *Elf) !void {
 
     const shdr = &self.shdrs.items[self.symtab_section_index.?];
     shdr.sh_info = sizes.nlocals + 1;
+    shdr.sh_link = self.strtab_section_index.?;
     self.markDirty(self.symtab_section_index.?, null);
 
     const sym_size: u64 = switch (self.ptr_width) {
@@ -3580,6 +3586,12 @@ fn updateSymtabSize(self: *Elf) !void {
     const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
     shdr.sh_size = needed_size;
     try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, true);
+}
+
+fn writeSyntheticSections(self: *Elf) !void {
+    if (self.symtab_section_index) |_| {
+        try self.writeSymtab();
+    }
 }
 
 fn writeSymtab(self: *Elf) !void {
@@ -3981,6 +3993,35 @@ pub fn isStatic(self: Elf) bool {
 
 pub fn isDynLib(self: Elf) bool {
     return self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic;
+}
+
+pub const AddSectionOpts = struct {
+    name: [:0]const u8,
+    type: u32 = elf.SHT_NULL,
+    flags: u64 = 0,
+    link: u32 = 0,
+    info: u32 = 0,
+    addralign: u64 = 0,
+    entsize: u64 = 0,
+};
+
+pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
+    const gpa = self.base.allocator;
+    const index = @as(u16, @intCast(self.shdrs.items.len));
+    const shdr = try self.shdrs.addOne(gpa);
+    shdr.* = .{
+        .sh_name = try self.shstrtab.insert(gpa, opts.name),
+        .sh_type = opts.type,
+        .sh_flags = opts.flags,
+        .sh_addr = 0,
+        .sh_offset = 0,
+        .sh_size = 0,
+        .sh_link = 0,
+        .sh_info = opts.info,
+        .sh_addralign = opts.addralign,
+        .sh_entsize = opts.entsize,
+    };
+    return index;
 }
 
 pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
