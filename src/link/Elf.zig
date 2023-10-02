@@ -224,6 +224,17 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         .sh_addralign = 0,
         .sh_entsize = 0,
     });
+    // Append null byte to string tables
+    try self.shstrtab.buffer.append(allocator, 0);
+    try self.strtab.buffer.append(allocator, 0);
+
+    if (options.module != null and !options.use_llvm) {
+        if (!options.strip) {
+            self.dwarf = Dwarf.init(allocator, &self.base, options.target);
+        }
+
+        // TODO move populateMissingMetadata here renamed to zig_module.initMetadata();
+    }
 
     try self.populateMissingMetadata();
 
@@ -249,12 +260,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     else
         elf.VER_NDX_LOCAL;
 
-    const use_llvm = options.use_llvm;
-    var dwarf: ?Dwarf = if (!options.strip and options.module != null and !use_llvm)
-        Dwarf.init(gpa, &self.base, options.target)
-    else
-        null;
-
     self.* = .{
         .base = .{
             .tag = .elf,
@@ -262,12 +267,11 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
             .allocator = gpa,
             .file = null,
         },
-        .dwarf = dwarf,
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
     };
-    if (use_llvm and options.module != null) {
+    if (options.use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -734,8 +738,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.shstrtab_section_index == null) {
-        assert(self.shstrtab.buffer.items.len == 0);
-        try self.shstrtab.buffer.append(gpa, 0); // need a 0 at position 0
         self.shstrtab_section_index = try self.allocateNonAllocSection(.{
             .name = ".shstrtab",
             .size = @intCast(self.shstrtab.buffer.items.len),
@@ -745,8 +747,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     }
 
     if (self.strtab_section_index == null) {
-        assert(self.strtab.buffer.items.len == 0);
-        try self.strtab.buffer.append(gpa, 0); // need a 0 at position 0
         self.strtab_section_index = try self.allocateNonAllocSection(.{
             .name = ".strtab",
             .size = @intCast(self.strtab.buffer.items.len),
