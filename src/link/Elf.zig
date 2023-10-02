@@ -231,10 +231,33 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             self.dwarf = Dwarf.init(allocator, &self.base, options.target);
         }
 
-        // TODO move populateMissingMetadata here renamed to zig_module.initMetadata();
-    }
+        const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
+        self.files.set(index, .{ .zig_module = .{
+            .index = index,
+            .path = options.module.?.main_pkg.root_src_path,
+        } });
+        self.zig_module_index = index;
+        const zig_module = self.file(index).?.zig_module;
 
-    try self.populateMissingMetadata();
+        try zig_module.atoms.append(allocator, 0); // null input section
+
+        const name_off = try self.strtab.insert(allocator, std.fs.path.stem(options.module.?.main_mod.root_src_path));
+        const symbol_index = try self.addSymbol();
+        try zig_module.local_symbols.append(allocator, symbol_index);
+        const symbol_ptr = self.symbol(symbol_index);
+        symbol_ptr.file_index = zig_module.index;
+        symbol_ptr.name_offset = name_off;
+
+        const esym_index = try zig_module.addLocalEsym(allocator);
+        const esym = &zig_module.local_esyms.items[esym_index];
+        esym.st_name = name_off;
+        esym.st_info |= elf.STT_FILE;
+        esym.st_shndx = elf.SHN_ABS;
+        symbol_ptr.esym_index = esym_index;
+
+        // TODO move populateMissingMetadata here renamed to zig_module.initMetadata();
+        try self.populateMissingMetadata();
+    }
 
     return self;
 }
@@ -839,32 +862,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
                 .alignment = 1,
             });
             self.debug_line_header_dirty = true;
-        }
-    }
-
-    if (self.base.options.module) |module| {
-        if (self.zig_module_index == null and !self.base.options.use_llvm) {
-            const index: File.Index = @intCast(try self.files.addOne(gpa));
-            self.files.set(index, .{ .zig_module = .{
-                .index = index,
-                .path = module.main_mod.root_src_path,
-            } });
-            self.zig_module_index = index;
-            const zig_module = self.file(index).?.zig_module;
-            try zig_module.atoms.append(gpa, 0); // null input section
-            const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_mod.root_src_path));
-            const symbol_index = try self.addSymbol();
-            try zig_module.local_symbols.append(gpa, symbol_index);
-            const symbol_ptr = self.symbol(symbol_index);
-            symbol_ptr.file_index = zig_module.index;
-            symbol_ptr.name_offset = name_off;
-
-            const esym_index = try zig_module.addLocalEsym(gpa);
-            const esym = &zig_module.local_esyms.items[esym_index];
-            esym.st_name = name_off;
-            esym.st_info |= elf.STT_FILE;
-            esym.st_shndx = elf.SHN_ABS;
-            symbol_ptr.esym_index = esym_index;
         }
     }
 }
