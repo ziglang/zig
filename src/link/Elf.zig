@@ -541,9 +541,13 @@ const AllocateAllocSectionOpts = struct {
 pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfMemory}!u16 {
     const gpa = self.base.allocator;
     const phdr = &self.phdrs.items[opts.phdr_index];
-    const index = @as(u16, @intCast(self.shdrs.items.len));
-    try self.shdrs.ensureUnusedCapacity(gpa, 1);
-    const sh_name = try self.shstrtab.insert(gpa, opts.name);
+    const index = try self.addSection(.{
+        .name = opts.name,
+        .type = opts.type,
+        .flags = opts.flags,
+        .addralign = opts.alignment,
+    });
+    const shdr = &self.shdrs.items[index];
     try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
     log.debug("allocating '{s}' in phdr({d}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         opts.name,
@@ -553,19 +557,9 @@ pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{Ou
         phdr.p_vaddr,
         phdr.p_vaddr + phdr.p_memsz,
     });
-    self.shdrs.appendAssumeCapacity(.{
-        .sh_name = sh_name,
-        .sh_type = opts.type,
-        .sh_flags = opts.flags,
-        .sh_addr = phdr.p_vaddr,
-        .sh_offset = phdr.p_offset,
-        .sh_size = phdr.p_memsz,
-        .sh_link = 0,
-        .sh_info = 0,
-        .sh_addralign = opts.alignment,
-        .sh_entsize = 0,
-    });
-    self.shdr_table_dirty = true;
+    shdr.sh_addr = phdr.p_vaddr;
+    shdr.sh_offset = phdr.p_offset;
+    shdr.sh_size = phdr.p_memsz;
     return index;
 }
 
@@ -581,24 +575,20 @@ const AllocateNonAllocSectionOpts = struct {
 };
 
 fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{OutOfMemory}!u16 {
-    const index = @as(u16, @intCast(self.shdrs.items.len));
-    try self.shdrs.ensureUnusedCapacity(self.base.allocator, 1);
-    const sh_name = try self.shstrtab.insert(self.base.allocator, opts.name);
+    const index = try self.addSection(.{
+        .name = opts.name,
+        .type = opts.type,
+        .flags = opts.flags,
+        .link = opts.link,
+        .info = opts.info,
+        .addralign = opts.alignment,
+        .entsize = opts.entsize,
+    });
+    const shdr = &self.shdrs.items[index];
     const off = self.findFreeSpace(opts.size, opts.alignment);
     log.debug("allocating '{s}' from 0x{x} to 0x{x} ", .{ opts.name, off, off + opts.size });
-    self.shdrs.appendAssumeCapacity(.{
-        .sh_name = sh_name,
-        .sh_type = opts.type,
-        .sh_flags = opts.flags,
-        .sh_addr = 0,
-        .sh_offset = off,
-        .sh_size = opts.size,
-        .sh_link = opts.link,
-        .sh_info = opts.info,
-        .sh_addralign = opts.alignment,
-        .sh_entsize = opts.entsize,
-    });
-    self.shdr_table_dirty = true;
+    shdr.sh_offset = off;
+    shdr.sh_size = opts.size;
     return index;
 }
 
@@ -3532,7 +3522,6 @@ fn initSyntheticSections(self: *Elf) !void {
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
         });
-        self.shdr_table_dirty = true;
     }
 }
 
@@ -4016,11 +4005,12 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
         .sh_addr = 0,
         .sh_offset = 0,
         .sh_size = 0,
-        .sh_link = 0,
+        .sh_link = opts.link,
         .sh_info = opts.info,
         .sh_addralign = opts.addralign,
         .sh_entsize = opts.entsize,
     };
+    self.shdr_table_dirty = true;
     return index;
 }
 
