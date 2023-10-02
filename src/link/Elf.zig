@@ -1243,7 +1243,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Generate and emit non-incremental sections.
     try self.initSections();
-    try self.initSyntheticSections();
+    try self.sortSections();
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -3430,6 +3430,11 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 }
 
 fn initSections(self: *Elf) !void {
+    const small_ptr = switch (self.ptr_width) {
+        .p32 => true,
+        .p64 => false,
+    };
+
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
         for (object.atoms.items) |atom_index| {
@@ -3439,13 +3444,6 @@ fn initSections(self: *Elf) !void {
             atom_ptr.output_section_index = try object.getOutputSectionIndex(self, shdr);
         }
     }
-}
-
-fn initSyntheticSections(self: *Elf) !void {
-    const small_ptr = switch (self.ptr_width) {
-        .p32 => true,
-        .p64 => false,
-    };
 
     if (self.got.entries.items.len > 0 and self.got_section_index == null) {
         self.got_section_index = try self.addSection(.{
@@ -3479,6 +3477,113 @@ fn initSyntheticSections(self: *Elf) !void {
             .entsize = 1,
             .addralign = 1,
         });
+    }
+}
+
+fn sectionRank(self: *Elf, shdr: elf.Elf64_Shdr) u8 {
+    const name = self.shstrtab.getAssumeExists(shdr.sh_name);
+    const flags = shdr.sh_flags;
+    switch (shdr.sh_type) {
+        elf.SHT_NULL => return 0,
+        elf.SHT_DYNSYM => return 2,
+        elf.SHT_HASH => return 3,
+        elf.SHT_GNU_HASH => return 3,
+        elf.SHT_GNU_VERSYM => return 4,
+        elf.SHT_GNU_VERDEF => return 4,
+        elf.SHT_GNU_VERNEED => return 4,
+
+        elf.SHT_PREINIT_ARRAY,
+        elf.SHT_INIT_ARRAY,
+        elf.SHT_FINI_ARRAY,
+        => return 0xf2,
+
+        elf.SHT_DYNAMIC => return 0xf3,
+
+        elf.SHT_RELA => return 0xf,
+
+        elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
+            if (flags & elf.SHF_EXECINSTR != 0) {
+                return 0xf1;
+            } else if (flags & elf.SHF_WRITE != 0) {
+                return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6;
+            } else if (mem.eql(u8, name, ".interp")) {
+                return 1;
+            } else {
+                return 0xf0;
+            }
+        } else {
+            if (mem.startsWith(u8, name, ".debug")) {
+                return 0xf8;
+            } else {
+                return 0xf9;
+            }
+        },
+
+        elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf5 else 0xf7,
+        elf.SHT_SYMTAB => return 0xfa,
+        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 4 else 0xfb,
+        else => return 0xff,
+    }
+}
+
+fn sortSections(self: *Elf) !void {
+    const Entry = struct {
+        shndx: u16,
+
+        pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
+            const lhs_shdr = elf_file.shdrs.items[lhs.shndx];
+            const rhs_shdr = elf_file.shdrs.items[rhs.shndx];
+            return elf_file.sectionRank(lhs_shdr) < elf_file.sectionRank(rhs_shdr);
+        }
+    };
+
+    const gpa = self.base.allocator;
+    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.shdrs.items.len);
+    defer entries.deinit();
+    for (0..self.shdrs.items.len) |shndx| {
+        entries.appendAssumeCapacity(.{ .shndx = @as(u16, @intCast(shndx)) });
+    }
+
+    mem.sort(Entry, entries.items, self, Entry.lessThan);
+
+    const backlinks = try gpa.alloc(u16, entries.items.len);
+    defer gpa.free(backlinks);
+    for (entries.items, 0..) |entry, i| {
+        backlinks[entry.shndx] = @as(u16, @intCast(i));
+    }
+
+    var slice = try self.shdrs.toOwnedSlice(gpa);
+    defer gpa.free(slice);
+
+    try self.shdrs.ensureTotalCapacityPrecise(gpa, slice.len);
+    for (entries.items) |sorted| {
+        self.shdrs.appendAssumeCapacity(slice[sorted.shndx]);
+    }
+
+    for (self.objects.items) |index| {
+        for (self.file(index).?.object.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
+        }
+    }
+
+    for (&[_]*?u16{
+        &self.eh_frame_section_index,
+        &self.eh_frame_hdr_section_index,
+        &self.got_section_index,
+        &self.symtab_section_index,
+        &self.strtab_section_index,
+        &self.shstrtab_section_index,
+    }) |maybe_index| {
+        if (maybe_index.*) |*index| {
+            index.* = backlinks[index.*];
+        }
+    }
+
+    if (self.symtab_section_index) |index| {
+        const shdr = &self.shdrs.items[index];
+        shdr.sh_link = self.strtab_section_index.?;
     }
 }
 
