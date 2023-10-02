@@ -2003,10 +2003,12 @@ pub const Dir = struct {
         return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
+    pub const ReadLinkError = os.ReadLinkError;
+
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
-    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.readLinkWasi(sub_path, buffer);
         }
