@@ -111,7 +111,7 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
-got_dirty: bool = false,
+got_addresses_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
@@ -942,7 +942,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         // and grow.
         {
             const dirty_addr = phdr.p_vaddr + phdr.p_memsz;
-            self.got_dirty = for (self.got.entries.items) |entry| {
+            self.got_addresses_dirty = for (self.got.entries.items) |entry| {
                 if (self.symbol(entry.symbol_index).value >= dirty_addr) break true;
             } else false;
 
@@ -1333,15 +1333,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
     try self.writeObjects();
 
-    if (self.got_dirty) {
-        const shdr = &self.shdrs.items[self.got_section_index.?];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got.size(self));
-        defer buffer.deinit();
-        try self.got.writeAllEntries(self, buffer.writer());
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
-        self.got_dirty = false;
-    }
-
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_addr == null) {
         const entry: ?[]const u8 = entry: {
@@ -1541,6 +1532,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.shdr_table_dirty);
     assert(!self.debug_strtab_dirty);
     assert(!self.got.dirty);
+    assert(!self.got_addresses_dirty);
 }
 
 const ParseError = error{
@@ -1789,8 +1781,7 @@ fn scanRelocs(self: *Elf) !void {
         if (sym.flags.needs_got) {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
             // TODO how can we tell we need to write it again, aka the entry is dirty?
-            const gop = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
-            try self.got.writeEntry(self, gop.index);
+            _ = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
         }
     }
 }
@@ -3472,6 +3463,15 @@ fn initSyntheticSections(self: *Elf) !void {
         .p64 => false,
     };
 
+    if (self.got.entries.items.len > 0 and self.got_section_index == null) {
+        self.got_section_index = try self.addSection(.{
+            .name = ".got",
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .addralign = self.ptrWidthBytes(),
+        });
+    }
+
     if (self.symtab_section_index == null) {
         self.symtab_section_index = try self.addSection(.{
             .name = ".symtab",
@@ -3499,9 +3499,18 @@ fn initSyntheticSections(self: *Elf) !void {
 }
 
 fn updateSyntheticSectionSizes(self: *Elf) !void {
+    if (self.got_section_index) |index| {
+        if (self.got.dirty) {
+            try self.growAllocSection(index, self.got.size(self));
+            self.got.dirty = false;
+            self.got_addresses_dirty = true;
+        }
+    }
+
     if (self.symtab_section_index != null) {
         try self.updateSymtabSize();
     }
+
     if (self.strtab_section_index) |index| {
         // TODO I don't really this here but we need it to add symbol names from GOT and other synthetic
         // sections into .strtab for easier debugging.
@@ -3510,6 +3519,7 @@ fn updateSyntheticSectionSizes(self: *Elf) !void {
         }
         try self.growNonAllocSection(index, self.strtab.buffer.items.len, 1, false);
     }
+
     if (self.shstrtab_section_index) |index| {
         try self.growNonAllocSection(index, self.shstrtab.buffer.items.len, 1, false);
     }
@@ -3560,14 +3570,25 @@ fn updateSymtabSize(self: *Elf) !void {
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
+    if (self.got_addresses_dirty) {
+        const shdr = &self.shdrs.items[self.got_section_index.?];
+        var buffer = try std.ArrayList(u8).initCapacity(self.base.allocator, self.got.size(self));
+        defer buffer.deinit();
+        try self.got.writeAllEntries(self, buffer.writer());
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        self.got_addresses_dirty = false;
+    }
+
     if (self.shstrtab_section_index) |index| {
         const shdr = self.shdrs.items[index];
         try self.base.file.?.pwriteAll(self.shstrtab.buffer.items, shdr.sh_offset);
     }
+
     if (self.strtab_section_index) |index| {
         const shdr = self.shdrs.items[index];
         try self.base.file.?.pwriteAll(self.strtab.buffer.items, shdr.sh_offset);
     }
+
     if (self.symtab_section_index) |_| {
         try self.writeSymtab();
     }
