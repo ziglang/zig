@@ -225,7 +225,6 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             link.* = null;
 
             // clean up after ourselves
-            node.key = undefined;
             node.priority = 0;
             node.parent = null;
             node.children = [_]?*Node{ null, null };

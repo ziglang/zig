@@ -913,8 +913,6 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 // save the node for destruction/insertion into in empty_buckets
                 var node = entry.node.?;
                 entry.set(null);
-                // restore the node's key since Treap.remove sets it to undefined
-                node.key = bucket;
                 if (self.cur_buckets[bucket_index] == bucket) {
                     self.cur_buckets[bucket_index] = null;
                 }
