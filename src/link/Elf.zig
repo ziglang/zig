@@ -1247,16 +1247,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.sortSections();
     try self.updateSectionSizes();
 
+    try self.allocateSections();
+    self.allocateAtoms();
+    self.allocateLinkerDefinedSymbols();
+
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
     }
-
-    // Allocate atoms parsed from input object files, followed by allocating
-    // linker-defined synthetic symbols.
-    try self.allocateObjects();
-    self.allocateLinkerDefinedSymbols();
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_addr == null) {
@@ -1753,34 +1752,6 @@ fn scanRelocs(self: *Elf) !void {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
             // TODO how can we tell we need to write it again, aka the entry is dirty?
             _ = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
-        }
-    }
-}
-
-fn allocateObjects(self: *Elf) !void {
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-
-        for (object.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive or atom_ptr.flags.allocated) continue;
-            try atom_ptr.allocate(self);
-        }
-
-        for (object.locals()) |local_index| {
-            const local = self.symbol(local_index);
-            const atom_ptr = local.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            local.value = local.elfSym(self).st_value + atom_ptr.value;
-        }
-
-        for (object.globals()) |global_index| {
-            const global = self.symbol(global_index);
-            const atom_ptr = global.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            if (global.file_index == index) {
-                global.value = global.elfSym(self).st_value + atom_ptr.value;
-            }
         }
     }
 }
@@ -3398,14 +3369,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // _end
     {
         const end_symbol = self.symbol(self.end_index.?);
-        end_symbol.value = 0;
-        for (self.shdrs.items, 0..) |*shdr, shndx| {
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-            const phdr_index = self.phdr_to_shdr_table.get(@intCast(shndx)).?;
-            const phdr = self.phdrs.items[phdr_index];
-            const value = phdr.p_vaddr + phdr.p_memsz;
-            if (end_symbol.value < value) {
-                end_symbol.value = value;
+        for (self.shdrs.items, 0..) |shdr, shndx| {
+            if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
+                end_symbol.value = shdr.sh_addr + shdr.sh_size;
                 end_symbol.output_section_index = @intCast(shndx);
             }
         }
@@ -3440,7 +3406,7 @@ fn initSections(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const shdr = atom_ptr.inputShdr(self);
-            atom_ptr.output_section_index = try object.getOutputSectionIndex(self, shdr);
+            atom_ptr.output_section_index = try object.initOutputSection(self, shdr);
         }
     }
 
@@ -3605,11 +3571,323 @@ fn updateSectionSizes(self: *Elf) !void {
         if (self.got_section_index) |_| {
             try self.got.updateStrtab(self);
         }
-        try self.growNonAllocSection(index, self.strtab.buffer.items.len, 1, false);
+        self.shdrs.items[index].sh_size = self.strtab.buffer.items.len;
+        // try self.growNonAllocSection(index, self.strtab.buffer.items.len, 1, false);
     }
 
     if (self.shstrtab_section_index) |index| {
-        try self.growNonAllocSection(index, self.shstrtab.buffer.items.len, 1, false);
+        self.shdrs.items[index].sh_size = self.shstrtab.buffer.items.len;
+        // try self.growNonAllocSection(index, self.shstrtab.buffer.items.len, 1, false);
+    }
+}
+
+fn initPhdrs(self: *Elf) !void {
+    // Add PHDR phdr
+    const phdr_index = try self.addPhdr(.{
+        .type = elf.PT_PHDR,
+        .flags = elf.PF_R,
+        .@"align" = @alignOf(elf.Elf64_Phdr),
+        .addr = self.calcImageBase() + @sizeOf(elf.Elf64_Ehdr),
+        .offset = @sizeOf(elf.Elf64_Ehdr),
+    });
+
+    // Add INTERP phdr if required
+    // if (self.interp_sect_index) |index| {
+    //     const shdr = self.sections.items(.shdr)[index];
+    //     _ = try self.addPhdr(.{
+    //         .type = elf.PT_INTERP,
+    //         .flags = elf.PF_R,
+    //         .@"align" = 1,
+    //         .offset = shdr.sh_offset,
+    //         .addr = shdr.sh_addr,
+    //         .filesz = shdr.sh_size,
+    //         .memsz = shdr.sh_size,
+    //     });
+    // }
+
+    // Add LOAD phdrs
+    const slice = self.shdrs.items;
+    {
+        var last_phdr: ?u16 = null;
+        var shndx: usize = 0;
+        while (shndx < slice.len) {
+            const shdr = &slice[shndx];
+            if (!shdrIsAlloc(shdr) or shdrIsTbss(shdr)) {
+                shndx += 1;
+                continue;
+            }
+            last_phdr = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .flags = shdrToPhdrFlags(shdr.sh_flags),
+                .@"align" = @max(self.page_size, shdr.sh_addralign),
+                .offset = if (last_phdr == null) 0 else shdr.sh_offset,
+                .addr = if (last_phdr == null) self.calcImageBase() else shdr.sh_addr,
+            });
+            const p_flags = self.phdrs.items[last_phdr.?].p_flags;
+            try self.addShdrToPhdr(last_phdr.?, shdr);
+            shndx += 1;
+
+            while (shndx < slice.len) : (shndx += 1) {
+                const next = &slice[shndx];
+                if (shdrIsTbss(next)) continue;
+                if (p_flags == shdrToPhdrFlags(next.sh_flags)) {
+                    if (shdrIsBss(next) or next.sh_offset - shdr.sh_offset == next.sh_addr - shdr.sh_addr) {
+                        try self.addShdrToPhdr(last_phdr.?, next);
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Add TLS phdr
+    {
+        var shndx: usize = 0;
+        outer: while (shndx < slice.len) {
+            const shdr = &slice[shndx];
+            if (!shdrIsTls(shdr)) {
+                shndx += 1;
+                continue;
+            }
+            self.phdr_tls_index = try self.addPhdr(.{
+                .type = elf.PT_TLS,
+                .flags = elf.PF_R,
+                .@"align" = shdr.sh_addralign,
+                .offset = shdr.sh_offset,
+                .addr = shdr.sh_addr,
+            });
+            try self.addShdrToPhdr(self.phdr_tls_index.?, shdr);
+            shndx += 1;
+
+            while (shndx < slice.len) : (shndx += 1) {
+                const next = &slice[shndx];
+                if (!shdrIsTls(next)) continue :outer;
+                try self.addShdrToPhdr(self.phdr_tls_index.?, next);
+            }
+        }
+    }
+
+    // Add DYNAMIC phdr
+    // if (self.dynamic_sect_index) |index| {
+    //     const shdr = self.sections.items(.shdr)[index];
+    //     _ = try self.addPhdr(.{
+    //         .type = elf.PT_DYNAMIC,
+    //         .flags = elf.PF_R | elf.PF_W,
+    //         .@"align" = shdr.sh_addralign,
+    //         .offset = shdr.sh_offset,
+    //         .addr = shdr.sh_addr,
+    //         .memsz = shdr.sh_size,
+    //         .filesz = shdr.sh_size,
+    //     });
+    // }
+
+    // Add PT_GNU_EH_FRAME phdr if required.
+    if (self.eh_frame_hdr_section_index) |index| {
+        const shdr = self.shdrs.items[index];
+        _ = try self.addPhdr(.{
+            .type = elf.PT_GNU_EH_FRAME,
+            .flags = elf.PF_R,
+            .@"align" = shdr.sh_addralign,
+            .offset = shdr.sh_offset,
+            .addr = shdr.sh_addr,
+            .memsz = shdr.sh_size,
+            .filesz = shdr.sh_size,
+        });
+    }
+
+    // Add PT_GNU_STACK phdr that controls some stack attributes that apparently may or may not
+    // be respected by the OS.
+    _ = try self.addPhdr(.{
+        .type = elf.PT_GNU_STACK,
+        .flags = elf.PF_W | elf.PF_R,
+        .memsz = self.base.options.stack_size_override orelse 0,
+        .@"align" = 1,
+    });
+
+    // Backpatch size of the PHDR phdr
+    {
+        const phdr = &self.phdrs.items[phdr_index];
+        const size = @sizeOf(elf.Elf64_Phdr) * self.phdrs.items.len;
+        phdr.p_filesz = size;
+        phdr.p_memsz = size;
+    }
+}
+
+fn addShdrToPhdr(self: *Elf, phdr_index: u16, shdr: *const elf.Elf64_Shdr) !void {
+    const phdr = &self.phdrs.items[phdr_index];
+    phdr.p_align = @max(phdr.p_align, shdr.sh_addralign);
+    if (shdr.sh_type != elf.SHT_NOBITS) {
+        phdr.p_filesz = shdr.sh_addr + shdr.sh_size - phdr.p_vaddr;
+    }
+    phdr.p_memsz = shdr.sh_addr + shdr.sh_size - phdr.p_vaddr;
+}
+
+fn shdrToPhdrFlags(sh_flags: u64) u32 {
+    const write = sh_flags & elf.SHF_WRITE != 0;
+    const exec = sh_flags & elf.SHF_EXECINSTR != 0;
+    var out_flags: u32 = elf.PF_R;
+    if (write) out_flags |= elf.PF_W;
+    if (exec) out_flags |= elf.PF_X;
+    return out_flags;
+}
+
+inline fn shdrIsAlloc(shdr: *const elf.Elf64_Shdr) bool {
+    return shdr.sh_flags & elf.SHF_ALLOC != 0;
+}
+
+inline fn shdrIsBss(shdr: *const elf.Elf64_Shdr) bool {
+    return shdrIsZerofill(shdr) and !shdrIsTls(shdr);
+}
+
+inline fn shdrIsTbss(shdr: *const elf.Elf64_Shdr) bool {
+    return shdrIsZerofill(shdr) and shdrIsTls(shdr);
+}
+
+inline fn shdrIsZerofill(shdr: *const elf.Elf64_Shdr) bool {
+    return shdr.sh_type == elf.SHT_NOBITS;
+}
+
+pub inline fn shdrIsTls(shdr: *const elf.Elf64_Shdr) bool {
+    return shdr.sh_flags & elf.SHF_TLS != 0;
+}
+
+fn allocateSectionsInMemory(self: *Elf, base_offset: u64) !void {
+    // We use this struct to track maximum alignment of all TLS sections.
+    // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
+    // in-file offsets have to be aligned against the start of TLS program header.
+    // If that's not ensured, then in a multi-threaded context, TLS variables across a shared object
+    // boundary may not get correctly loaded at an aligned address.
+    const Align = struct {
+        tls_start_align: u64 = 1,
+        first_tls_index: ?usize = null,
+
+        inline fn isFirstTlsShdr(this: @This(), other: usize) bool {
+            if (this.first_tls_index) |index| return index == other;
+            return false;
+        }
+
+        inline fn @"align"(this: @This(), index: usize, sh_addralign: u64, addr: u64) u64 {
+            const alignment = if (this.isFirstTlsShdr(index)) this.tls_start_align else sh_addralign;
+            return mem.alignForward(u64, addr, alignment);
+        }
+    };
+
+    var alignment = Align{};
+    for (self.shdrs.items, 0..) |*shdr, i| {
+        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (!shdrIsTls(shdr)) continue;
+        if (alignment.first_tls_index == null) alignment.first_tls_index = i;
+        alignment.tls_start_align = @max(alignment.tls_start_align, shdr.sh_addralign);
+    }
+
+    var addr = self.calcImageBase() + base_offset;
+    var i: usize = 0;
+    while (i < self.shdrs.items.len) : (i += 1) {
+        const shdr = &self.shdrs.items[i];
+        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (!shdrIsAlloc(shdr)) continue;
+        if (i > 0) {
+            const prev_shdr = self.shdrs.items[i - 1];
+            if (shdrToPhdrFlags(shdr.sh_flags) != shdrToPhdrFlags(prev_shdr.sh_flags)) {
+                // We need to advance by page size
+                addr += self.page_size;
+            }
+        }
+        if (shdrIsTbss(shdr)) {
+            // .tbss is a little special as it's used only by the loader meaning it doesn't
+            // need to be actually mmap'ed at runtime. We still need to correctly increment
+            // the addresses of every TLS zerofill section tho. Thus, we hack it so that
+            // we increment the start address like normal, however, after we are done,
+            // the next ALLOC section will get its start address allocated within the same
+            // range as the .tbss sections. We will get something like this:
+            //
+            // ...
+            // .tbss 0x10
+            // .tcommon 0x20
+            // .data 0x10
+            // ...
+            var tbss_addr = addr;
+            while (i < self.shdrs.items.len and shdrIsTbss(&self.shdrs.items[i])) : (i += 1) {
+                const tbss_shdr = &self.shdrs.items[i];
+                tbss_addr = alignment.@"align"(i, tbss_shdr.sh_addralign, tbss_addr);
+                tbss_shdr.sh_addr = tbss_addr;
+                tbss_addr += tbss_shdr.sh_size;
+            }
+            i -= 1;
+            continue;
+        }
+
+        addr = alignment.@"align"(i, shdr.sh_addralign, addr);
+        shdr.sh_addr = addr;
+        addr += shdr.sh_size;
+    }
+}
+
+fn allocateSectionsInFile(self: *Elf, base_offset: u64) void {
+    var offset = base_offset;
+    var i: usize = 0;
+    while (i < self.shdrs.items.len) {
+        const first = &self.shdrs.items[i];
+        defer if (!shdrIsAlloc(first) or shdrIsZerofill(first)) {
+            i += 1;
+        };
+
+        if (first.sh_type == elf.SHT_NULL) continue;
+
+        // Non-alloc sections don't need congruency with their allocated virtual memory addresses
+        if (!shdrIsAlloc(first)) {
+            first.sh_offset = mem.alignForward(u64, offset, first.sh_addralign);
+            offset = first.sh_offset + first.sh_size;
+            continue;
+        }
+        // Skip any zerofill section
+        if (shdrIsZerofill(first)) continue;
+
+        // Set the offset to a value that is congruent with the section's allocated virtual memory address
+        if (first.sh_addralign > self.page_size) {
+            offset = mem.alignForward(u64, offset, first.sh_addralign);
+        } else {
+            const val = mem.alignBackward(u64, offset, self.page_size) + @rem(first.sh_addr, self.page_size);
+            offset = if (offset <= val) val else val + self.page_size;
+        }
+
+        while (true) {
+            const prev = &self.shdrs.items[i];
+            prev.sh_offset = offset + prev.sh_addr - first.sh_addr;
+            i += 1;
+
+            const next = &self.shdrs.items[i];
+            if (i >= self.shdrs.items.len or !shdrIsAlloc(next) or shdrIsZerofill(next)) break;
+            if (next.sh_addr < first.sh_addr) break;
+
+            const gap = next.sh_addr - prev.sh_addr - prev.sh_size;
+            if (gap >= self.page_size) break;
+        }
+
+        const prev = &self.shdrs.items[i - 1];
+        offset = prev.sh_offset + prev.sh_size;
+
+        // Skip any zerofill section
+        while (i < self.shdrs.items.len and shdrIsAlloc(&self.shdrs.items[i]) and shdrIsZerofill(&self.shdrs.items[i])) : (i += 1) {}
+    }
+}
+
+fn allocateSections(self: *Elf) !void {
+    while (true) {
+        const nphdrs = self.phdrs.items.len;
+        const base_offset: u64 = @sizeOf(elf.Elf64_Ehdr) + nphdrs * @sizeOf(elf.Elf64_Phdr);
+        try self.allocateSectionsInMemory(base_offset);
+        self.allocateSectionsInFile(base_offset);
+        self.phdrs.clearRetainingCapacity();
+        try self.initPhdrs();
+        if (nphdrs == self.phdrs.items.len) break;
+    }
+}
+
+fn allocateAtoms(self: *Elf) void {
+    for (self.objects.items) |index| {
+        self.file(index).?.object.allocateAtoms(self);
     }
 }
 
@@ -3649,12 +3927,13 @@ fn updateSymtabSize(self: *Elf) !void {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
     };
-    const sym_align: u16 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Sym),
-        .p64 => @alignOf(elf.Elf64_Sym),
-    };
+    // const sym_align: u16 = switch (self.ptr_width) {
+    //     .p32 => @alignOf(elf.Elf32_Sym),
+    //     .p64 => @alignOf(elf.Elf64_Sym),
+    // };
     const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
-    try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, false);
+    shdr.sh_size = needed_size;
+    // try self.growNonAllocSection(self.symtab_section_index.?, needed_size, sym_align, false);
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
@@ -4082,6 +4361,29 @@ pub fn isStatic(self: Elf) bool {
 
 pub fn isDynLib(self: Elf) bool {
     return self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic;
+}
+
+fn addPhdr(self: *Elf, opts: struct {
+    type: u32 = 0,
+    flags: u32 = 0,
+    @"align": u64 = 0,
+    offset: u64 = 0,
+    addr: u64 = 0,
+    filesz: u64 = 0,
+    memsz: u64 = 0,
+}) !u16 {
+    const index = @as(u16, @intCast(self.phdrs.items.len));
+    try self.phdrs.append(self.base.allocator, .{
+        .p_type = opts.type,
+        .p_flags = opts.flags,
+        .p_offset = opts.offset,
+        .p_vaddr = opts.addr,
+        .p_paddr = opts.addr,
+        .p_filesz = opts.filesz,
+        .p_memsz = opts.memsz,
+        .p_align = opts.@"align",
+    });
+    return index;
 }
 
 pub const AddSectionOpts = struct {

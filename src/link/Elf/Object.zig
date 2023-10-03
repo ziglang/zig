@@ -193,7 +193,7 @@ fn addAtom(
     }
 }
 
-pub fn getOutputSectionIndex(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
+pub fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.strings.getAssumeExists(shdr.sh_name);
         if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
@@ -614,6 +614,32 @@ pub fn updateSectionSizes(self: Object, elf_file: *Elf) void {
     }
 }
 
+pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shdr = elf_file.shdrs.items[atom.output_section_index];
+        atom.value += shdr.sh_addr;
+    }
+
+    for (self.locals()) |local_index| {
+        const local = elf_file.symbol(local_index);
+        const atom = local.atom(elf_file) orelse continue;
+        if (!atom.flags.alive) continue;
+        local.value += atom.value;
+        local.output_section_index = atom.output_section_index;
+    }
+
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const atom = global.atom(elf_file) orelse continue;
+        if (!atom.flags.alive) continue;
+        if (global.file(elf_file).?.index() != self.index) continue;
+        global.value += atom.value;
+        global.output_section_index = atom.output_section_index;
+    }
+}
+
 pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
@@ -664,12 +690,12 @@ pub fn writeSymtab(self: *Object, elf_file: *Elf, ctx: anytype) void {
     }
 }
 
-pub fn locals(self: *Object) []const Symbol.Index {
+pub fn locals(self: Object) []const Symbol.Index {
     const end = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[0..end];
 }
 
-pub fn globals(self: *Object) []const Symbol.Index {
+pub fn globals(self: Object) []const Symbol.Index {
     const start = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[start..];
 }
