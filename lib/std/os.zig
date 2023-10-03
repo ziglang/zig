@@ -4340,6 +4340,73 @@ pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
     }
 }
 
+pub const FanotifyInitError = error{
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    OperationNotSupported,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn fanotify_init(flags: u32, event_f_flags: u32) FanotifyInitError!i32 {
+    const rc = system.fanotify_init(flags, event_f_flags);
+    switch (errno(rc)) {
+        .SUCCESS => return @as(i32, @intCast(rc)),
+        .INVAL => unreachable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NOMEM => return error.SystemResources,
+        .NOSYS => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const FanotifyMarkError = error{
+    MarkAlreadyExists,
+    IsDir,
+    NotAssociatedWithFileSystem,
+    FileNotFound,
+    SystemResources,
+    UserMarkQuotaExceeded,
+    NotImplemented,
+    NotDir,
+    OperationNotSupported,
+    PermissionDenied,
+    NotSameFileSystem,
+    NameTooLong,
+} || UnexpectedError;
+
+pub fn fanotify_mark(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[]const u8) FanotifyMarkError!void {
+    if (pathname) |path| {
+        const path_c = try toPosixPath(path);
+        return fanotify_markZ(fanotify_fd, flags, mask, dirfd, &path_c);
+    }
+
+    return fanotify_markZ(fanotify_fd, flags, mask, dirfd, null);
+}
+
+pub fn fanotify_markZ(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) FanotifyMarkError!void {
+    const rc = system.fanotify_mark(fanotify_fd, flags, mask, dirfd, pathname);
+    switch (errno(rc)) {
+        .SUCCESS => return,
+        .BADF => unreachable,
+        .EXIST => return error.MarkAlreadyExists,
+        .INVAL => unreachable,
+        .ISDIR => return error.IsDir,
+        .NODEV => return error.NotAssociatedWithFileSystem,
+        .NOENT => return error.FileNotFound,
+        .NOMEM => return error.SystemResources,
+        .NOSPC => return error.UserMarkQuotaExceeded,
+        .NOSYS => return error.NotImplemented,
+        .NOTDIR => return error.NotDir,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        .XDEV => return error.NotSameFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const MProtectError = error{
     /// The memory cannot be given the specified access.  This can happen, for example, if you
     /// mmap(2)  a  file  to  which  you have read-only access, then ask mprotect() to mark it
