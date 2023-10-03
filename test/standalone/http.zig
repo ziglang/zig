@@ -680,7 +680,7 @@ pub fn main() !void {
         for (0..total_connections) |i| {
             var req = try client.request(.GET, uri, .{ .allocator = calloc }, .{});
             req.response.parser.done = true;
-            req.connection.?.data.closing = false;
+            req.connection.?.closing = false;
             requests[i] = req;
         }
 
