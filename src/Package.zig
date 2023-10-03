@@ -778,7 +778,7 @@ pub const ReadableResource = struct {
                             .tar => try unpackTarball(allocator, prog_reader.reader(), tmp_directory.handle, dep_location_tok, report),
                             .@"tar.gz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, dep_location_tok, report, std.compress.gzip),
                             .@"tar.xz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, dep_location_tok, report, std.compress.xz),
-                            .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle),
+                            .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle, dep_location_tok, report),
                         }
                     } else {
                         // Recursive directory copy.
@@ -1220,6 +1220,8 @@ fn unpackGitPack(
     reader: anytype,
     want_oid: git.Oid,
     out_dir: fs.Dir,
+    dep_location_tok: std.zig.Ast.TokenIndex,
+    report: Report,
 ) !void {
     // The .git directory is used to store the packfile and associated index, but
     // we do not attempt to replicate the exact structure of a real .git
@@ -1251,7 +1253,32 @@ fn unpackGitPack(
             checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
-            try repository.checkout(out_dir, want_oid);
+            var diagnostics: git.Diagnostics = .{ .allocator = gpa };
+            defer diagnostics.deinit();
+            try repository.checkout(out_dir, want_oid, &diagnostics);
+
+            if (diagnostics.errors.items.len > 0) {
+                const notes_len: u32 = @intCast(diagnostics.errors.items.len);
+                try report.addErrorWithNotes(notes_len, .{
+                    .tok = dep_location_tok,
+                    .off = 0,
+                    .msg = "unable to unpack packfile",
+                });
+                const eb = report.error_bundle;
+                const notes_start = try eb.reserveNotes(notes_len);
+                for (diagnostics.errors.items, notes_start..) |item, note_i| {
+                    switch (item) {
+                        .unable_to_create_sym_link => |info| {
+                            eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                                .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
+                                    info.file_name, info.link_name, @errorName(info.code),
+                                }),
+                            }));
+                        },
+                    }
+                }
+                return error.InvalidGitPack;
+            }
         }
     }
 

@@ -38,6 +38,32 @@ test parseOid {
     try testing.expectError(error.InvalidOid, parseOid("HEAD"));
 }
 
+pub const Diagnostics = struct {
+    allocator: Allocator,
+    errors: std.ArrayListUnmanaged(Error) = .{},
+
+    pub const Error = union(enum) {
+        unable_to_create_sym_link: struct {
+            code: anyerror,
+            file_name: []const u8,
+            link_name: []const u8,
+        },
+    };
+
+    pub fn deinit(d: *Diagnostics) void {
+        for (d.errors.items) |item| {
+            switch (item) {
+                .unable_to_create_sym_link => |info| {
+                    d.allocator.free(info.file_name);
+                    d.allocator.free(info.link_name);
+                },
+            }
+        }
+        d.errors.deinit(d.allocator);
+        d.* = undefined;
+    }
+};
+
 pub const Repository = struct {
     odb: Odb,
 
@@ -55,6 +81,7 @@ pub const Repository = struct {
         repository: *Repository,
         worktree: std.fs.Dir,
         commit_oid: Oid,
+        diagnostics: *Diagnostics,
     ) !void {
         try repository.odb.seekOid(commit_oid);
         const tree_oid = tree_oid: {
@@ -62,7 +89,7 @@ pub const Repository = struct {
             if (commit_object.type != .commit) return error.NotACommit;
             break :tree_oid try getCommitTree(commit_object.data);
         };
-        try repository.checkoutTree(worktree, tree_oid);
+        try repository.checkoutTree(worktree, tree_oid, "", diagnostics);
     }
 
     /// Checks out the tree at `tree_oid` to `worktree`.
@@ -70,6 +97,8 @@ pub const Repository = struct {
         repository: *Repository,
         dir: std.fs.Dir,
         tree_oid: Oid,
+        current_path: []const u8,
+        diagnostics: *Diagnostics,
     ) !void {
         try repository.odb.seekOid(tree_oid);
         const tree_object = try repository.odb.readObject();
@@ -87,7 +116,9 @@ pub const Repository = struct {
                     try dir.makeDir(entry.name);
                     var subdir = try dir.openDir(entry.name, .{});
                     defer subdir.close();
-                    try repository.checkoutTree(subdir, entry.oid);
+                    const sub_path = try std.fs.path.join(repository.odb.allocator, &.{ current_path, entry.name });
+                    defer repository.odb.allocator.free(sub_path);
+                    try repository.checkoutTree(subdir, entry.oid, sub_path, diagnostics);
                 },
                 .file => {
                     var file = try dir.createFile(entry.name, .{});
@@ -98,7 +129,23 @@ pub const Repository = struct {
                     try file.writeAll(file_object.data);
                     try file.sync();
                 },
-                .symlink => return error.SymlinkNotSupported,
+                .symlink => {
+                    try repository.odb.seekOid(entry.oid);
+                    var symlink_object = try repository.odb.readObject();
+                    if (symlink_object.type != .blob) return error.InvalidFile;
+                    const link_name = symlink_object.data;
+                    dir.symLink(link_name, entry.name, .{}) catch |e| {
+                        const file_name = try std.fs.path.join(diagnostics.allocator, &.{ current_path, entry.name });
+                        errdefer diagnostics.allocator.free(file_name);
+                        const link_name_dup = try diagnostics.allocator.dupe(u8, link_name);
+                        errdefer diagnostics.allocator.free(link_name_dup);
+                        try diagnostics.errors.append(diagnostics.allocator, .{ .unable_to_create_sym_link = .{
+                            .code = e,
+                            .file_name = file_name,
+                            .link_name = link_name_dup,
+                        } });
+                    };
+                },
                 .gitlink => {
                     // Consistent with git archive behavior, create the directory but
                     // do nothing else
