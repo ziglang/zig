@@ -84,6 +84,7 @@ const normal_usage =
     \\Commands:
     \\
     \\  build            Build project from build.zig
+    \\  fetch            Copy a package into global cache and print its hash
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
     \\
@@ -303,6 +304,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
+    } else if (mem.eql(u8, cmd, "fetch")) {
+        return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "init-exe")) {
@@ -6588,4 +6591,144 @@ fn accessFrameworkPath(
 fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
     return std.meta.stringToEnum(Compilation.RcIncludes, arg) orelse
         fatal("unsupported rc includes type: '{s}'", .{arg});
+}
+
+pub const usage_fetch =
+    \\Usage: zig fetch [options] <url>
+    \\Usage: zig fetch [options] <path>
+    \\
+    \\    Copy a package into the global cache and print its hash.
+    \\
+    \\Options:
+    \\  -h, --help                    Print this help and exit
+    \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\
+;
+
+fn cmdFetch(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+) !void {
+    const color: Color = .auto;
+    var opt_url: ?[]const u8 = null;
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                    const stdout = io.getStdOut().writer();
+                    try stdout.writeAll(usage_fetch);
+                    return cleanExit();
+                } else if (mem.eql(u8, arg, "--global-cache-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_global_cache_dir = args[i];
+                    continue;
+                } else {
+                    fatal("unrecognized parameter: '{s}'", .{arg});
+                }
+            } else if (opt_url != null) {
+                fatal("unexpected extra parameter: '{s}'", .{arg});
+            } else {
+                opt_url = arg;
+            }
+        }
+    }
+
+    const url = opt_url orelse fatal("missing url or path parameter", .{});
+
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    var http_client: std.http.Client = .{ .allocator = gpa };
+    defer http_client.deinit();
+
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    const root_prog_node = progress.start("Fetch", 0);
+    defer root_prog_node.end();
+
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    var report: Package.Report = .{
+        .ast = null,
+        .directory = .{
+            .handle = fs.cwd(),
+            .path = null,
+        },
+        .error_bundle = &wip_errors,
+    };
+
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
+
+    var readable_resource: Package.ReadableResource = rr: {
+        if (fs.cwd().openIterableDir(url, .{})) |dir| {
+            break :rr .{
+                .path = try gpa.dupe(u8, url),
+                .resource = .{ .dir = dir },
+            };
+        } else |dir_err| {
+            const file_err = if (dir_err == error.NotDir) e: {
+                if (fs.cwd().openFile(url, .{})) |f| {
+                    break :rr .{
+                        .path = try gpa.dupe(u8, url),
+                        .resource = .{ .file = f },
+                    };
+                } else |err| break :e err;
+            } else dir_err;
+
+            const uri = std.Uri.parse(url) catch |uri_err| {
+                fatal("'{s}' could not be recognized as a file path ({s}) or an URL ({s})", .{
+                    url, @errorName(file_err), @errorName(uri_err),
+                });
+            };
+            const fetch_location = try Package.FetchLocation.initUri(uri, 0, report);
+            const cwd: Cache.Directory = .{
+                .handle = fs.cwd(),
+                .path = null,
+            };
+            break :rr try fetch_location.fetch(gpa, cwd, &http_client, 0, report);
+        }
+    };
+    defer readable_resource.deinit(gpa);
+
+    var package_location = readable_resource.unpack(
+        gpa,
+        &thread_pool,
+        global_cache_directory,
+        0,
+        report,
+        root_prog_node,
+    ) catch |err| {
+        if (wip_errors.root_list.items.len > 0) {
+            var errors = try wip_errors.toOwnedBundle("");
+            defer errors.deinit(gpa);
+            errors.renderToStdErr(renderOptions(color));
+            process.exit(1);
+        }
+        fatal("unable to unpack '{s}': {s}", .{ url, @errorName(err) });
+    };
+    defer package_location.deinit(gpa);
+
+    const hex_digest = Package.Manifest.hexDigest(package_location.hash);
+
+    progress.done = true;
+    progress.refresh();
+
+    try io.getStdOut().writeAll(hex_digest ++ "\n");
+
+    return cleanExit();
 }
