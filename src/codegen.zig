@@ -739,7 +739,6 @@ fn lowerAnonDeclRef(
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
-    _ = src_loc;
     _ = debug_output;
     const target = bin_file.options.target;
     const mod = bin_file.options.module.?;
@@ -750,6 +749,12 @@ fn lowerAnonDeclRef(
     if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
         return Result.ok;
+    }
+
+    const res = try bin_file.lowerAnonDecl(decl_val, src_loc);
+    switch (res) {
+        .ok => {},
+        .fail => |em| return .{ .fail = em },
     }
 
     const vaddr = try bin_file.getAnonDeclVAddr(decl_val, .{

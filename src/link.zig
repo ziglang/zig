@@ -937,6 +937,22 @@ pub const File = struct {
         }
     }
 
+    pub const LowerResult = @import("codegen.zig").Result;
+
+    pub fn lowerAnonDecl(base: *File, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !LowerResult {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .elf => return @fieldParentPtr(Elf, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .c => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .spirv => unreachable,
+            .nvptx => unreachable,
+        }
+    }
+
     pub fn getAnonDeclVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
         if (build_options.only_c) unreachable;
         switch (base.tag) {

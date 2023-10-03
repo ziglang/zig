@@ -1679,13 +1679,8 @@ pub fn getDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn getAnonDeclVAddr(
-    wasm: *Wasm,
-    decl_val: InternPool.Index,
-    reloc_info: link.File.RelocInfo,
-) !u64 {
-    // This is basically the same as lowerUnnamedConst except it needs
-    // to return the same thing as `getDeclVAddr`
+pub fn lowerAnonDecl(self: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    // This is basically the same as lowerUnnamedConst.
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
     // const val = decl_val.toValue();
@@ -1694,6 +1689,13 @@ pub fn getAnonDeclVAddr(
     // be used by more than one function, however, its address is being used so we need
     // to put it in some location.
     // ...
+    _ = self;
+    _ = decl_val;
+    _ = src_loc;
+    _ = @panic("TODO: link/Wasm lowerAnonDecl");
+}
+
+pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     _ = wasm;
     _ = decl_val;
     _ = reloc_info;
