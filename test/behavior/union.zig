@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const endian = builtin.cpu.arch.endian();
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
@@ -1660,15 +1661,220 @@ test "union with 128 bit integer" {
     }
 }
 
-test "memset extern union at comptime" {
+test "memset extern union" {
     const U = extern union {
         foo: u8,
+        bar: u32,
     };
-    const u = comptime blk: {
-        var u: U = undefined;
-        @memset(std.mem.asBytes(&u), 0);
-        u.foo = 0;
-        break :blk u;
+
+    const S = struct {
+        fn doTheTest() !void {
+            var u: U = undefined;
+            @memset(std.mem.asBytes(&u), 0);
+            try expectEqual(@as(u8, 0), u.foo);
+            try expectEqual(@as(u32, 0), u.bar);
+        }
     };
-    try expect(u.foo == 0);
+
+    try comptime S.doTheTest();
+    try S.doTheTest();
+}
+
+test "memset packed union" {
+    const U = packed union {
+        a: u32,
+        b: u8,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            var u: U = undefined;
+            @memset(std.mem.asBytes(&u), 42);
+            try expectEqual(@as(u32, 0x2a2a2a2a), u.a);
+            try expectEqual(@as(u8, 0x2a), u.b);
+        }
+    };
+
+    try comptime S.doTheTest();
+
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
+    try S.doTheTest();
+}
+
+fn littleToNativeEndian(comptime T: type, v: T) T {
+    return if (endian == .Little) v else @byteSwap(v);
+}
+
+test "reinterpret extern union" {
+    const U = extern union {
+        foo: u8,
+        baz: u32 align(8),
+        bar: u32,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                // Undefined initialization
+                const u = blk: {
+                    var u: U = undefined;
+                    @memset(std.mem.asBytes(&u), 0);
+                    u.bar = 0xbbbbbbbb;
+                    u.foo = 0x2a;
+                    break :blk u;
+                };
+
+                try expectEqual(@as(u8, 0x2a), u.foo);
+                try expectEqual(littleToNativeEndian(u32, 0xbbbbbb2a), u.bar);
+                try expectEqual(littleToNativeEndian(u32, 0xbbbbbb2a), u.baz);
+            }
+
+            {
+                // Union initialization
+                var u: U = .{
+                    .foo = 0x2a,
+                };
+
+                {
+                    const expected, const mask = switch (endian) {
+                        .Little => .{ 0x2a, 0xff },
+                        .Big => .{ 0x2a000000, 0xff000000 },
+                    };
+
+                    try expectEqual(@as(u8, 0x2a), u.foo);
+                    try expectEqual(@as(u32, expected), u.bar & mask);
+                    try expectEqual(@as(u32, expected), u.baz & mask);
+                }
+
+                // Writing to a larger field
+                u.baz = 0xbbbbbbbb;
+                try expectEqual(@as(u8, 0xbb), u.foo);
+                try expectEqual(@as(u32, 0xbbbbbbbb), u.bar);
+                try expectEqual(@as(u32, 0xbbbbbbbb), u.baz);
+
+                // Writing to the same field
+                u.baz = 0xcccccccc;
+                try expectEqual(@as(u8, 0xcc), u.foo);
+                try expectEqual(@as(u32, 0xcccccccc), u.bar);
+                try expectEqual(@as(u32, 0xcccccccc), u.baz);
+
+                // Writing to a smaller field
+                u.foo = 0xdd;
+                try expectEqual(@as(u8, 0xdd), u.foo);
+                try expectEqual(littleToNativeEndian(u32, 0xccccccdd), u.bar);
+                try expectEqual(littleToNativeEndian(u32, 0xccccccdd), u.baz);
+            }
+        }
+    };
+
+    try comptime S.doTheTest();
+
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
+    try S.doTheTest();
+}
+
+test "reinterpret packed union" {
+    const U = packed union {
+        foo: u8,
+        bar: u29,
+        baz: u64,
+        qux: u12,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                const u = blk: {
+                    var u: U = undefined;
+                    @memset(std.mem.asBytes(&u), 0);
+                    u.baz = 0xbbbbbbbb;
+                    u.qux = 0xe2a;
+                    break :blk u;
+                };
+
+                try expectEqual(@as(u8, 0x2a), u.foo);
+                try expectEqual(@as(u12, 0xe2a), u.qux);
+
+                // https://github.com/ziglang/zig/issues/17360
+                if (@inComptime()) {
+                    try expectEqual(@as(u29, 0x1bbbbe2a), u.bar);
+                    try expectEqual(@as(u64, 0xbbbbbe2a), u.baz);
+                }
+            }
+
+            {
+                // Union initialization
+                var u: U = .{
+                    .qux = 0xe2a,
+                };
+                try expectEqual(@as(u8, 0x2a), u.foo);
+                try expectEqual(@as(u12, 0xe2a), u.qux);
+                try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
+                try expectEqual(@as(u64, 0xe2a), u.baz & 0xfff);
+
+                // Writing to a larger field
+                u.baz = 0xbbbbbbbb;
+                try expectEqual(@as(u8, 0xbb), u.foo);
+                try expectEqual(@as(u12, 0xbbb), u.qux);
+                try expectEqual(@as(u29, 0x1bbbbbbb), u.bar);
+                try expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
+
+                // Writing to the same field
+                u.baz = 0xcccccccc;
+                try expectEqual(@as(u8, 0xcc), u.foo);
+                try expectEqual(@as(u12, 0xccc), u.qux);
+                try expectEqual(@as(u29, 0x0ccccccc), u.bar);
+                try expectEqual(@as(u64, 0xcccccccc), u.baz);
+
+                // Writing to a smaller field
+                u.foo = 0xdd;
+                try expectEqual(@as(u8, 0xdd), u.foo);
+                try expectEqual(@as(u12, 0xcdd), u.qux);
+                try expectEqual(@as(u29, 0x0cccccdd), u.bar);
+                try expectEqual(@as(u64, 0xccccccdd), u.baz);
+            }
+        }
+    };
+
+    try comptime S.doTheTest();
+
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isPPC()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
+    try S.doTheTest();
+}
+
+test "reinterpret packed union inside packed struct" {
+    const U = packed union {
+        a: u7,
+        b: u1,
+    };
+
+    const V = packed struct {
+        lo: U,
+        hi: U,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            var v: V = undefined;
+            @memset(std.mem.asBytes(&v), 0x55);
+            try expectEqual(@as(u7, 0x55), v.lo.a);
+            try expectEqual(@as(u1, 1), v.lo.b);
+            try expectEqual(@as(u7, 0x2a), v.hi.a);
+            try expectEqual(@as(u1, 0), v.hi.b);
+
+            v.lo.b = 0;
+            try expectEqual(@as(u7, 0x54), v.lo.a);
+            try expectEqual(@as(u1, 0), v.lo.b);
+            v.hi.b = 1;
+            try expectEqual(@as(u7, 0x2b), v.hi.a);
+            try expectEqual(@as(u1, 1), v.hi.b);
+        }
+    };
+
+    try comptime S.doTheTest();
+
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    try S.doTheTest();
 }

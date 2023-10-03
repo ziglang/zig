@@ -327,11 +327,19 @@ pub const Value = struct {
             },
             .@"union" => {
                 const pl = val.castTag(.@"union").?.data;
-                return mod.intern(.{ .un = .{
-                    .ty = ty.toIntern(),
-                    .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
-                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod).?, mod),
-                } });
+                if (pl.tag) |pl_tag| {
+                    return mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = try pl_tag.intern(ty.unionTagTypeHypothetical(mod), mod),
+                        .val = try pl.val.intern(ty.unionFieldType(pl_tag, mod).?, mod),
+                    } });
+                } else {
+                    return mod.intern(.{ .un = .{
+                        .ty = ty.toIntern(),
+                        .tag = .none,
+                        .val = try pl.val.intern(try ty.unionBackingType(mod), mod),
+                    } });
+                }
             },
         }
     }
@@ -399,10 +407,7 @@ pub const Value = struct {
 
             .un => |un| Tag.@"union".create(arena, .{
                 // toValue asserts that the value cannot be .none which is valid on unions.
-                .tag = .{
-                    .ip_index = un.tag,
-                    .legacy = undefined,
-                },
+                .tag = if (un.tag == .none) null else un.tag.toValue(),
                 .val = un.val.toValue(),
             }),
 
@@ -709,21 +714,22 @@ pub const Value = struct {
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
                 .Extern => {
-                    const union_obj = mod.typeToUnion(ty).?;
                     if (val.unionTag(mod)) |union_tag| {
+                        const union_obj = mod.typeToUnion(ty).?;
                         const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
                         const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
                         const field_val = try val.fieldValue(mod, field_index);
                         const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
                         return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
                     } else {
-                        const union_size = ty.abiSize(mod);
-                        const array_type = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
-                        return writeToMemory(val.unionValue(mod), array_type, mod, buffer[0..@as(usize, @intCast(union_size))]);
+                        const backing_ty = try ty.unionBackingType(mod);
+                        const byte_count: usize = @intCast(backing_ty.abiSize(mod));
+                        return writeToMemory(val.unionValue(mod), backing_ty, mod, buffer[0..byte_count]);
                     }
                 },
                 .Packed => {
-                    const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
+                    const backing_ty = try ty.unionBackingType(mod);
+                    const byte_count: usize = @intCast(backing_ty.abiSize(mod));
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
@@ -842,9 +848,8 @@ pub const Value = struct {
                             const field_val = try val.fieldValue(mod, field_index);
                             return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                         } else {
-                            const union_bits: u16 = @intCast(ty.bitSize(mod));
-                            const int_ty = try mod.intType(.unsigned, union_bits);
-                            return val.unionValue(mod).writeToPackedMemory(int_ty, mod, buffer, bit_offset);
+                            const backing_ty = try ty.unionBackingType(mod);
+                            return val.unionValue(mod).writeToPackedMemory(backing_ty, mod, buffer, bit_offset);
                         }
                     },
                 }
@@ -1146,10 +1151,8 @@ pub const Value = struct {
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
-                    const union_bits: u16 = @intCast(ty.bitSize(mod));
-                    assert(union_bits != 0);
-                    const int_ty = try mod.intType(.unsigned, union_bits);
-                    const val = (try readFromPackedMemory(int_ty, mod, buffer, bit_offset, arena)).toIntern();
+                    const backing_ty = try ty.unionBackingType(mod);
+                    const val = (try readFromPackedMemory(backing_ty, mod, buffer, bit_offset, arena)).toIntern();
                     return (try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
                         .tag = .none,
@@ -4017,7 +4020,7 @@ pub const Value = struct {
             data: Data,
 
             pub const Data = struct {
-                tag: Value,
+                tag: ?Value,
                 val: Value,
             };
         };

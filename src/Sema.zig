@@ -27258,7 +27258,7 @@ fn unionFieldVal(
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
-            .Packed, .Extern => {
+            .Packed, .Extern => |layout| {
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
@@ -27267,7 +27267,7 @@ fn unionFieldVal(
                     else
                         union_ty.unionFieldType(un.tag.toValue(), mod).?;
 
-                    if (try sema.bitCastVal(block, src, un.val.toValue(), old_ty, field_ty, 0)) |new_val| {
+                    if (try sema.bitCastUnionFieldVal(block, src, un.val.toValue(), old_ty, field_ty, layout)) |new_val| {
                         return Air.internedToRef(new_val.toIntern());
                     }
                 }
@@ -29788,13 +29788,19 @@ fn storePtrVal(
                 error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
                 error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{mut_kit.ty.fmt(mod)}),
             };
-            operand_val.writeToMemory(operand_ty, mod, buffer[reinterpret.byte_offset..]) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ReinterpretDeclRef => unreachable,
-                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
-                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{operand_ty.fmt(mod)}),
-            };
-
+            if (reinterpret.write_packed) {
+                operand_val.writeToPackedMemory(operand_ty, mod, buffer[reinterpret.byte_offset..], 0) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.ReinterpretDeclRef => unreachable,
+                };
+            } else {
+                operand_val.writeToMemory(operand_ty, mod, buffer[reinterpret.byte_offset..]) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.ReinterpretDeclRef => unreachable,
+                    error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+                    error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{operand_ty.fmt(mod)}),
+                };
+            }
             const val = Value.readFromMemory(mut_kit.ty, mod, buffer, sema.arena) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.IllDefinedMemoryLayout => unreachable,
@@ -29826,6 +29832,8 @@ const ComptimePtrMutationKit = struct {
         reinterpret: struct {
             val_ptr: *Value,
             byte_offset: usize,
+            /// If set, write the operand to packed memory
+            write_packed: bool = false,
         },
         /// If the root decl could not be used as parent, this means `ty` is the type that
         /// caused that by not having a well-defined layout.
@@ -30189,21 +30197,43 @@ fn beginComptimePtrMutation(
                             );
                         },
                         .@"union" => {
-                            // We need to set the active field of the union.
-                            const union_tag_ty = base_child_ty.unionTagTypeHypothetical(mod);
-
                             const payload = &val_ptr.castTag(.@"union").?.data;
-                            payload.tag = try mod.enumValueFieldIndex(union_tag_ty, field_index);
+                            const layout = base_child_ty.containerLayout(mod);
 
-                            return beginComptimePtrMutationInner(
-                                sema,
-                                block,
-                                src,
-                                parent.ty.structFieldType(field_index, mod),
-                                &payload.val,
-                                ptr_elem_ty,
-                                parent.mut_decl,
-                            );
+                            const tag_type = base_child_ty.unionTagTypeHypothetical(mod);
+                            const hypothetical_tag = try mod.enumValueFieldIndex(tag_type, field_index);
+                            if (layout == .Auto or (payload.tag != null and hypothetical_tag.eql(payload.tag.?, tag_type, mod))) {
+                                // We need to set the active field of the union.
+                                payload.tag = hypothetical_tag;
+
+                                const field_ty = parent.ty.structFieldType(field_index, mod);
+                                return beginComptimePtrMutationInner(
+                                    sema,
+                                    block,
+                                    src,
+                                    field_ty,
+                                    &payload.val,
+                                    ptr_elem_ty,
+                                    parent.mut_decl,
+                                );
+                            } else {
+                                // Writing to a different field (a different or unknown tag is active) requires reinterpreting
+                                // memory of the entire union, which requires knowing its abiSize.
+                                try sema.resolveTypeLayout(parent.ty);
+
+                                // This union value no longer has a well-defined tag type.
+                                // The reinterpretation will read it back out as .none.
+                                payload.val = try payload.val.unintern(sema.arena, mod);
+                                return ComptimePtrMutationKit{
+                                    .mut_decl = parent.mut_decl,
+                                    .pointee = .{ .reinterpret = .{
+                                        .val_ptr = val_ptr,
+                                        .byte_offset = 0,
+                                        .write_packed = layout == .Packed,
+                                    } },
+                                    .ty = parent.ty,
+                                };
+                            }
                         },
                         .slice => switch (field_index) {
                             Value.slice_ptr_index => return beginComptimePtrMutationInner(
@@ -30704,6 +30734,7 @@ fn bitCastVal(
     // For types with well-defined memory layouts, we serialize them a byte buffer,
     // then deserialize to the new type.
     const abi_size = try sema.usizeCast(block, src, old_ty.abiSize(mod));
+
     const buffer = try sema.gpa.alloc(u8, abi_size);
     defer sema.gpa.free(buffer);
     val.writeToMemory(old_ty, mod, buffer) catch |err| switch (err) {
@@ -30717,6 +30748,63 @@ fn bitCastVal(
         error.OutOfMemory => return error.OutOfMemory,
         error.IllDefinedMemoryLayout => unreachable,
         error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{new_ty.fmt(mod)}),
+    };
+}
+
+fn bitCastUnionFieldVal(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    val: Value,
+    old_ty: Type,
+    field_ty: Type,
+    layout: std.builtin.Type.ContainerLayout,
+) !?Value {
+    const mod = sema.mod;
+    if (old_ty.eql(field_ty, mod)) return val;
+
+    const old_size = try sema.usizeCast(block, src, old_ty.abiSize(mod));
+    const field_size = try sema.usizeCast(block, src, field_ty.abiSize(mod));
+    const endian = mod.getTarget().cpu.arch.endian();
+
+    const buffer = try sema.gpa.alloc(u8, @max(old_size, field_size));
+    defer sema.gpa.free(buffer);
+
+    // Reading a larger value means we need to reinterpret from undefined bytes.
+    const offset = switch (layout) {
+        .Extern => offset: {
+            if (field_size > old_size) @memset(buffer[old_size..], 0xaa);
+            val.writeToMemory(old_ty, mod, buffer) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReinterpretDeclRef => return null,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(mod)}),
+            };
+            break :offset 0;
+        },
+        .Packed => offset: {
+            if (field_size > old_size) {
+                const min_size = @max(old_size, 1);
+                switch (endian) {
+                    .Little => @memset(buffer[min_size - 1 ..], 0xaa),
+                    .Big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
+                }
+            }
+
+            val.writeToPackedMemory(old_ty, mod, buffer, 0) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReinterpretDeclRef => return null,
+            };
+
+            break :offset if (endian == .Big) buffer.len - field_size else 0;
+        },
+        .Auto => unreachable,
+    };
+
+    return Value.readFromMemory(field_ty, mod, buffer[offset..], sema.arena) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.IllDefinedMemoryLayout => unreachable,
+        error.Unimplemented => return sema.fail(block, src, "TODO: implement readFromMemory for type '{}'", .{field_ty.fmt(mod)}),
     };
 }
 
