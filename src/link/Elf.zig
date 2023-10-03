@@ -337,7 +337,6 @@ pub fn deinit(self: *Elf) void {
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-
     const this_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.value;
@@ -347,7 +346,6 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
         .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | elf.R_X86_64_64,
         .r_addend = reloc_info.addend,
     });
-
     return vaddr;
 }
 
@@ -389,6 +387,7 @@ pub fn lowerAnonDecl(self: *Elf, decl_val: InternPool.Index, src_loc: Module.Src
 }
 
 pub fn getAnonDeclVAddr(self: *Elf, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    assert(self.llvm_object == null);
     const sym_index = self.anon_decls.get(decl_val).?;
     const sym = self.symbol(sym_index);
     const vaddr = sym.value;
