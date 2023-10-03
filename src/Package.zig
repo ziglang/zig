@@ -285,7 +285,8 @@ pub fn fetchAndAddDependencies(
     if (manifest.errors.len > 0) {
         const file_path = try directory.join(arena, &.{Manifest.basename});
         for (manifest.errors) |msg| {
-            try Report.addErrorMessage(ast, file_path, error_bundle, 0, msg);
+            const str = try error_bundle.addString(msg.msg);
+            try Report.addErrorMessage(&ast, file_path, error_bundle, 0, str, msg.tok, msg.off);
         }
         return error.PackageFetchFailed;
     }
@@ -465,20 +466,31 @@ pub const Report = struct {
         comptime fmt_string: []const u8,
         fmt_args: anytype,
     ) error{ PackageFetchFailed, OutOfMemory } {
-        const ast = report.ast orelse main.fatal(fmt_string, fmt_args);
+        const msg = try report.error_bundle.printString(fmt_string, fmt_args);
+        return failMsg(report, tok, msg);
+    }
+
+    fn failMsg(
+        report: Report,
+        tok: std.zig.Ast.TokenIndex,
+        msg: u32,
+    ) error{ PackageFetchFailed, OutOfMemory } {
         const gpa = report.error_bundle.gpa;
 
         const file_path = try report.directory.join(gpa, &.{Manifest.basename});
         defer gpa.free(file_path);
 
-        const msg = try std.fmt.allocPrint(gpa, fmt_string, fmt_args);
-        defer gpa.free(msg);
+        const eb = report.error_bundle;
 
-        try addErrorMessage(ast.*, file_path, report.error_bundle, 0, .{
-            .tok = tok,
-            .off = 0,
-            .msg = msg,
-        });
+        if (report.ast) |ast| {
+            try addErrorMessage(ast, file_path, eb, 0, msg, tok, 0);
+        } else {
+            try eb.addRootErrorMessage(.{
+                .msg = msg,
+                .src_loc = .none,
+                .notes_len = 0,
+            });
+        }
 
         return error.PackageFetchFailed;
     }
@@ -488,31 +500,42 @@ pub const Report = struct {
         notes_len: u32,
         msg: Manifest.ErrorMessage,
     ) error{OutOfMemory}!void {
-        const ast = report.ast orelse main.fatal("{s}", .{msg.msg});
-        const gpa = report.error_bundle.gpa;
-        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-        defer gpa.free(file_path);
-        return addErrorMessage(ast.*, file_path, report.error_bundle, notes_len, msg);
+        const eb = report.error_bundle;
+        const msg_str = try eb.addString(msg.msg);
+        if (report.ast) |ast| {
+            const gpa = eb.gpa;
+            const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+            defer gpa.free(file_path);
+            return addErrorMessage(ast, file_path, eb, notes_len, msg_str, msg.tok, msg.off);
+        } else {
+            return eb.addRootErrorMessage(.{
+                .msg = msg_str,
+                .src_loc = .none,
+                .notes_len = notes_len,
+            });
+        }
     }
 
     fn addErrorMessage(
-        ast: std.zig.Ast,
+        ast: *const std.zig.Ast,
         file_path: []const u8,
         eb: *std.zig.ErrorBundle.Wip,
         notes_len: u32,
-        msg: Manifest.ErrorMessage,
+        msg_str: u32,
+        msg_tok: std.zig.Ast.TokenIndex,
+        msg_off: u32,
     ) error{OutOfMemory}!void {
         const token_starts = ast.tokens.items(.start);
-        const start_loc = ast.tokenLocation(0, msg.tok);
+        const start_loc = ast.tokenLocation(0, msg_tok);
 
         try eb.addRootErrorMessage(.{
-            .msg = try eb.addString(msg.msg),
+            .msg = msg_str,
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(file_path),
-                .span_start = token_starts[msg.tok],
-                .span_end = @as(u32, @intCast(token_starts[msg.tok] + ast.tokenSlice(msg.tok).len)),
-                .span_main = token_starts[msg.tok] + msg.off,
-                .line = @as(u32, @intCast(start_loc.line)),
+                .span_start = token_starts[msg_tok],
+                .span_end = @as(u32, @intCast(token_starts[msg_tok] + ast.tokenSlice(msg_tok).len)),
+                .span_main = token_starts[msg_tok] + msg_off,
+                .line = @intCast(start_loc.line),
                 .column = @as(u32, @intCast(start_loc.column)),
                 .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
             }),
@@ -752,9 +775,9 @@ pub const ReadableResource = struct {
                         };
 
                         switch (try rr.getFileType(dep_location_tok, report)) {
-                            .tar => try unpackTarball(prog_reader.reader(), tmp_directory.handle),
-                            .@"tar.gz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, std.compress.gzip),
-                            .@"tar.xz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, std.compress.xz),
+                            .tar => try unpackTarball(allocator, prog_reader.reader(), tmp_directory.handle, dep_location_tok, report),
+                            .@"tar.gz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, dep_location_tok, report, std.compress.gzip),
+                            .@"tar.xz" => try unpackTarballCompressed(allocator, prog_reader, tmp_directory.handle, dep_location_tok, report, std.compress.xz),
                             .git_pack => try unpackGitPack(allocator, &prog_reader, git.parseOid(rr.path) catch unreachable, tmp_directory.handle),
                         }
                     } else {
@@ -1128,6 +1151,8 @@ fn unpackTarballCompressed(
     gpa: Allocator,
     reader: anytype,
     out_dir: fs.Dir,
+    dep_location_tok: std.zig.Ast.TokenIndex,
+    report: Report,
     comptime Compression: type,
 ) !void {
     var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
@@ -1135,11 +1160,21 @@ fn unpackTarballCompressed(
     var decompress = try Compression.decompress(gpa, br.reader());
     defer decompress.deinit();
 
-    return unpackTarball(decompress.reader(), out_dir);
+    return unpackTarball(gpa, decompress.reader(), out_dir, dep_location_tok, report);
 }
 
-fn unpackTarball(reader: anytype, out_dir: fs.Dir) !void {
+fn unpackTarball(
+    gpa: Allocator,
+    reader: anytype,
+    out_dir: fs.Dir,
+    dep_location_tok: std.zig.Ast.TokenIndex,
+    report: Report,
+) !void {
+    var diagnostics: std.tar.Options.Diagnostics = .{ .allocator = gpa };
+    defer diagnostics.deinit();
+
     try std.tar.pipeToFileSystem(out_dir, reader, .{
+        .diagnostics = &diagnostics,
         .strip_components = 1,
         // TODO: we would like to set this to executable_bit_only, but two
         // things need to happen before that:
@@ -1148,6 +1183,36 @@ fn unpackTarball(reader: anytype, out_dir: fs.Dir) !void {
         //    bit on Windows from the ACLs (see the isExecutable function).
         .mode_mode = .ignore,
     });
+
+    if (diagnostics.errors.items.len > 0) {
+        const notes_len: u32 = @intCast(diagnostics.errors.items.len);
+        try report.addErrorWithNotes(notes_len, .{
+            .tok = dep_location_tok,
+            .off = 0,
+            .msg = "unable to unpack tarball",
+        });
+        const eb = report.error_bundle;
+        const notes_start = try eb.reserveNotes(notes_len);
+        for (diagnostics.errors.items, notes_start..) |item, note_i| {
+            switch (item) {
+                .unable_to_create_sym_link => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
+                            info.file_name, info.link_name, @errorName(info.code),
+                        }),
+                    }));
+                },
+                .unsupported_file_type => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
+                            info.file_name, @intFromEnum(info.file_type),
+                        }),
+                    }));
+                },
+            }
+        }
+        return error.InvalidTarball;
+    }
 }
 
 fn unpackGitPack(

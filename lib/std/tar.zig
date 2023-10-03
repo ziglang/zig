@@ -29,6 +29,10 @@ pub const Options = struct {
                 file_name: []const u8,
                 link_name: []const u8,
             },
+            unsupported_file_type: struct {
+                file_name: []const u8,
+                file_type: Header.FileType,
+            },
         };
 
         pub fn deinit(d: *Diagnostics) void {
@@ -37,6 +41,9 @@ pub const Options = struct {
                     .unable_to_create_sym_link => |info| {
                         d.allocator.free(info.file_name);
                         d.allocator.free(info.link_name);
+                    },
+                    .unsupported_file_type => |info| {
+                        d.allocator.free(info.file_name);
                     },
                 }
             }
@@ -50,6 +57,7 @@ pub const Header = struct {
     bytes: *const [512]u8,
 
     pub const FileType = enum(u8) {
+        normal_alias = 0,
         normal = '0',
         hard_link = '1',
         symbolic_link = '2',
@@ -105,8 +113,9 @@ pub const Header = struct {
     }
 
     pub fn fileType(header: Header) FileType {
-        const result = @as(FileType, @enumFromInt(header.bytes[156]));
-        return if (result == @as(FileType, @enumFromInt(0))) .normal else result;
+        const result: FileType = @enumFromInt(header.bytes[156]);
+        if (result == .normal_alias) return .normal;
+        return result;
     }
 
     fn str(header: Header, start: usize, end: usize) []const u8 {
@@ -268,18 +277,21 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 const link_name = header.linkName();
 
                 dir.symLink(link_name, file_name, .{}) catch |err| {
-                    if (options.diagnostics) |d| {
-                        try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
-                            .code = err,
-                            .file_name = try d.allocator.dupe(u8, file_name),
-                            .link_name = try d.allocator.dupe(u8, link_name),
-                        } });
-                    } else {
-                        return error.UnableToCreateSymLink;
-                    }
+                    const d = options.diagnostics orelse return error.UnableToCreateSymLink;
+                    try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
+                        .code = err,
+                        .file_name = try d.allocator.dupe(u8, file_name),
+                        .link_name = try d.allocator.dupe(u8, link_name),
+                    } });
                 };
             },
-            else => return error.TarUnsupportedFileType,
+            else => |file_type| {
+                const d = options.diagnostics orelse return error.TarUnsupportedFileType;
+                try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
+                    .file_name = try d.allocator.dupe(u8, unstripped_file_name),
+                    .file_type = file_type,
+                } });
+            },
         }
     }
 }

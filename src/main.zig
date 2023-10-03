@@ -6610,6 +6610,7 @@ fn cmdFetch(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    const color: Color = .auto;
     var opt_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
 
@@ -6651,10 +6652,17 @@ fn cmdFetch(
     const root_prog_node = progress.start("Fetch", 0);
     defer root_prog_node.end();
 
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
     var report: Package.Report = .{
         .ast = null,
-        .directory = undefined,
-        .error_bundle = undefined,
+        .directory = .{
+            .handle = fs.cwd(),
+            .path = null,
+        },
+        .error_bundle = &wip_errors,
     };
 
     var global_cache_directory: Compilation.Directory = l: {
@@ -6697,14 +6705,22 @@ fn cmdFetch(
     };
     defer readable_resource.deinit(gpa);
 
-    var package_location = try readable_resource.unpack(
+    var package_location = readable_resource.unpack(
         gpa,
         &thread_pool,
         global_cache_directory,
         0,
         report,
         root_prog_node,
-    );
+    ) catch |err| {
+        if (wip_errors.root_list.items.len > 0) {
+            var errors = try wip_errors.toOwnedBundle("");
+            defer errors.deinit(gpa);
+            errors.renderToStdErr(renderOptions(color));
+            process.exit(1);
+        }
+        fatal("unable to unpack '{s}': {s}", .{ url, @errorName(err) });
+    };
     defer package_location.deinit(gpa);
 
     const hex_digest = Package.Manifest.hexDigest(package_location.hash);
