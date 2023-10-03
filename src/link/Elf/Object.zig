@@ -255,7 +255,6 @@ fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".comment")) break :blk true;
         if (mem.startsWith(u8, name, ".llvm_addrsig")) break :blk true;
-        if (mem.startsWith(u8, name, ".eh_frame")) break :blk true;
         if (elf_file.base.options.strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
             mem.startsWith(u8, name, ".debug")) break :blk true;
         break :blk false;
@@ -681,7 +680,7 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
     }
 }
 
-pub fn writeAtoms(self: Object, elf_file: *Elf, output_section_index: u16, buffer: []u8) !void {
+pub fn writeAtoms(self: Object, elf_file: *Elf, output_section_index: u16, buffer: []u8, undefs: anytype) !void {
     const gpa = elf_file.base.allocator;
     const atom_list = self.output_sections.get(output_section_index) orelse return;
     const shdr = elf_file.shdrs.items[output_section_index];
@@ -695,7 +694,11 @@ pub fn writeAtoms(self: Object, elf_file: *Elf, output_section_index: u16, buffe
         const in_code = try self.codeDecompressAlloc(elf_file, atom_index);
         defer gpa.free(in_code);
         @memcpy(out_code, in_code);
-        try atom.resolveRelocs(elf_file, out_code);
+
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+            try atom.resolveRelocsNonAlloc(elf_file, out_code, undefs)
+        else
+            try atom.resolveRelocsAlloc(elf_file, out_code);
     }
 }
 

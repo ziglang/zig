@@ -1316,7 +1316,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const code = try zig_module.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            try atom_ptr.resolveRelocs(self, code);
+            try atom_ptr.resolveRelocsAlloc(self, code);
             try self.base.file.?.pwriteAll(code, file_offset);
         }
 
@@ -3912,6 +3912,16 @@ fn allocateAtoms(self: *Elf) void {
 
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.allocator;
+
+    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
+    defer {
+        var it = undefs.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+        undefs.deinit();
+    }
+
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -3928,11 +3938,13 @@ fn writeAtoms(self: *Elf) !void {
         @memset(buffer, padding_byte);
 
         for (self.objects.items) |index| {
-            try self.file(index).?.object.writeAtoms(self, @intCast(shndx), buffer);
+            try self.file(index).?.object.writeAtoms(self, @intCast(shndx), buffer, &undefs);
         }
 
         try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
     }
+
+    try self.reportUndefined(&undefs);
 }
 
 fn updateSymtabSize(self: *Elf) !void {
@@ -3982,6 +3994,22 @@ fn updateSymtabSize(self: *Elf) !void {
 
 fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.allocator;
+
+    if (self.eh_frame_section_index) |shndx| {
+        const shdr = self.shdrs.items[shndx];
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, shdr.sh_size);
+        defer buffer.deinit();
+        try eh_frame.writeEhFrame(self, buffer.writer());
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+    }
+
+    if (self.eh_frame_hdr_section_index) |shndx| {
+        const shdr = self.shdrs.items[shndx];
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, shdr.sh_size);
+        defer buffer.deinit();
+        try eh_frame.writeEhFrameHdr(self, buffer.writer());
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+    }
 
     if (self.got_section_index) |index| {
         const shdr = self.shdrs.items[index];

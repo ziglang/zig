@@ -321,7 +321,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
             defer gpa.free(contents);
 
             for (cie.relocs(elf_file)) |rel| {
-                const sym = object.symbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
                 try resolveReloc(cie, sym, rel, elf_file, contents);
             }
 
@@ -345,7 +345,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
             );
 
             for (fde.relocs(elf_file)) |rel| {
-                const sym = object.symbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
                 try resolveReloc(fde, sym, rel, elf_file, contents);
             }
 
@@ -396,7 +396,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
             const relocs = fde.relocs(elf_file);
             assert(relocs.len > 0); // Should this be an error? Things are completely broken anyhow if this trips...
             const rel = relocs[0];
-            const sym = object.symbol(rel.r_sym(), elf_file);
+            const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
             const P = @as(i64, @intCast(fde.address(elf_file)));
             const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
             const A = rel.r_addend;
