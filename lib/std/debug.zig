@@ -663,9 +663,9 @@ pub const StackIterator = struct {
         // We are unable to determine validity of memory for freestanding targets
         if (native_os == .freestanding) return true;
 
-        const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
+        const aligned_address = address & ~@as(usize, @intCast((std.heap.pageSize() - 1)));
         if (aligned_address == 0) return false;
-        const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
+        const aligned_memory = @as([*]u8, @ptrFromInt(aligned_address))[0..std.heap.pageSize()];
 
         if (native_os == .windows) {
             var memory_info: windows.MEMORY_BASIC_INFORMATION = undefined;
@@ -1139,7 +1139,7 @@ pub fn readElfDebugInfo(
     build_id: ?[]const u8,
     expected_crc: ?u32,
     parent_sections: *DW.DwarfInfo.SectionArray,
-    parent_mapped_mem: ?[]align(mem.page_size) const u8,
+    parent_mapped_mem: ?[]const u8,
 ) !ModuleDebugInfo {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
@@ -1152,7 +1152,7 @@ pub fn readElfDebugInfo(
         const mapped_mem = try mapWholeFile(elf_file);
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.InvalidDebugInfo;
 
-        const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
+        const hdr: *const elf.Ehdr = @ptrCast(@alignCast(&mapped_mem[0]));
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
@@ -1457,7 +1457,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
-    var buf: [mem.page_size]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     var amt_read = try f.read(buf[0..]);
     const line_start = seek: {
         var current_line_start: usize = 0;
@@ -1557,7 +1557,7 @@ test "printLineFromFileAnyOs" {
 
         const overlap = 10;
         var writer = file.writer();
-        try writer.writeByteNTimes('a', mem.page_size - overlap);
+        try writer.writeByteNTimes('a', std.heap.pageSize() - overlap);
         try writer.writeByte('\n');
         try writer.writeByteNTimes('a', overlap);
 
@@ -1572,10 +1572,16 @@ test "printLineFromFileAnyOs" {
         defer allocator.free(path);
 
         var writer = file.writer();
-        try writer.writeByteNTimes('a', mem.page_size);
+        try writer.writeByteNTimes('a', std.heap.pageSize());
+
+        const expected = try allocator.alloc(u8, std.heap.pageSize() + 1);
+        defer allocator.free(expected);
+
+        @memset(expected, 'a');
+        expected[expected.len - 1] = '\n';
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** mem.page_size) ++ "\n", output.items);
+        try expectEqualStrings(expected, output.items);
         output.clearRetainingCapacity();
     }
     {
@@ -1585,18 +1591,28 @@ test "printLineFromFileAnyOs" {
         defer allocator.free(path);
 
         var writer = file.writer();
-        try writer.writeByteNTimes('a', 3 * mem.page_size);
+        try writer.writeByteNTimes('a', 3 * std.heap.pageSize());
 
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
+        var expected = try allocator.alloc(u8, (3 * std.heap.pageSize()) + 1);
+        defer allocator.free(expected);
+
+        @memset(expected, 'a');
+        expected[expected.len - 1] = '\n';
+
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "\n", output.items);
+        try expectEqualStrings(expected, output.items);
         output.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
+        expected = try allocator.realloc(expected, (3 * std.heap.pageSize()) + 2);
+        @memset(expected, 'a');
+        expected[expected.len - 1] = '\n';
+
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "a\n", output.items);
+        try expectEqualStrings(expected, output.items);
         output.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
@@ -1610,7 +1626,7 @@ test "printLineFromFileAnyOs" {
         defer allocator.free(path);
 
         var writer = file.writer();
-        const real_file_start = 3 * mem.page_size;
+        const real_file_start = 3 * std.heap.pageSize();
         try writer.writeByteNTimes('\n', real_file_start);
         try writer.writeAll("abc\ndef");
 
@@ -1643,7 +1659,7 @@ const MachoSymbol = struct {
 
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
+fn mapWholeFile(file: File) ![]const u8 {
     nosuspend {
         defer file.close();
 
@@ -2132,7 +2148,7 @@ pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         vmaddr_slide: usize,
-        mapped_memory: []align(mem.page_size) const u8,
+        mapped_memory: []const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -2425,8 +2441,8 @@ pub const ModuleDebugInfo = switch (native_os) {
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
-        mapped_memory: []align(mem.page_size) const u8,
-        external_mapped_memory: ?[]align(mem.page_size) const u8,
+        mapped_memory: []const u8,
+        external_mapped_memory: ?[]const u8,
 
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);

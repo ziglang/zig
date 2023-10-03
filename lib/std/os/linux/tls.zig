@@ -299,28 +299,10 @@ pub fn prepareTLS(area: []u8) usize {
         if (tls_tp_points_past_tcb) tls_image.data_offset else tls_image.tcb_offset;
 }
 
-// The main motivation for the size chosen here is this is how much ends up being
-// requested for the thread local variables of the std.crypto.random implementation.
-// I'm not sure why it ends up being so much; the struct itself is only 64 bytes.
-// I think it has to do with being page aligned and LLVM or LLD is not smart enough
-// to lay out the TLS data in a space conserving way. Anyway I think it's fine
-// because it's less than 3 pages of memory, and putting it in the ELF like this
-// is equivalent to moving the mmap call below into the kernel, avoiding syscall
-// overhead.
-var main_thread_tls_buffer: [0x2100]u8 align(mem.page_size) = undefined;
-
 pub fn initStaticTLS(phdrs: []elf.Phdr) void {
     initTLS(phdrs);
 
     const tls_area = blk: {
-        // Fast path for the common case where the TLS data is really small,
-        // avoid an allocation and use our local buffer.
-        if (tls_image.alloc_align <= mem.page_size and
-            tls_image.alloc_size <= main_thread_tls_buffer.len)
-        {
-            break :blk main_thread_tls_buffer[0..tls_image.alloc_size];
-        }
-
         const alloc_tls_area = posix.mmap(
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,

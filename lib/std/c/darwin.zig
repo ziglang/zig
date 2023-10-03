@@ -3184,7 +3184,7 @@ pub const MachTask = extern struct {
         return left;
     }
 
-    fn getPageSize(task: MachTask) MachError!usize {
+    pub fn getPageSize(task: MachTask) MachError!usize {
         if (task.isValid()) {
             var info_count = TASK_VM_INFO_COUNT;
             var vm_info: task_vm_info_data_t = undefined;
@@ -3337,3 +3337,5 @@ pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost
 pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
 pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
 pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+
+pub extern "c" fn getpagesize() c_int;

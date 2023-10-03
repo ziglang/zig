@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const c = @This();
-const page_size = std.mem.page_size;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const wasi = @import("c/wasi.zig");
@@ -1507,6 +1506,8 @@ pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
 
 pub extern "c" fn alarm(seconds: c_uint) c_uint;
 
+pub extern "c" fn sysconf(sc: c_int) c_long;
+
 pub const clock_getres = switch (native_os) {
     .netbsd => private.__clock_getres50,
     else => private.clock_getres,
@@ -1632,9 +1633,9 @@ pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) i
 pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: c.off_t) isize;
 pub extern "c" fn write(fd: c.fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: c.fd_t, buf: [*]const u8, nbyte: usize, offset: c.off_t) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: c.fd_t, offset: c.off_t) *anyopaque;
-pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
-pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
+pub extern "c" fn mmap(addr: ?*anyopaque, len: usize, prot: c_uint, flags: MAP, fd: c.fd_t, offset: c.off_t) *anyopaque;
+pub extern "c" fn munmap(addr: *const anyopaque, len: usize) c_int;
+pub extern "c" fn mprotect(addr: *anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn linkat(oldfd: c.fd_t, oldpath: [*:0]const u8, newfd: c.fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn unlink(path: [*:0]const u8) c_int;
@@ -1922,7 +1923,7 @@ const private = struct {
     extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
     extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
     extern "c" fn gettimeofday(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
-    extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn msync(addr: *const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn nanosleep(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
     extern "c" fn readdir(dir: *c.DIR) ?*c.dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
@@ -1952,7 +1953,7 @@ const private = struct {
     extern "c" fn __getrusage50(who: c_int, usage: *c.rusage) c_int;
     extern "c" fn __gettimeofday50(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
     extern "c" fn __libc_thr_yield() c_int;
-    extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn __msync13(addr: *const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
     extern "c" fn __sigfillset14(set: ?*c.sigset_t) void;

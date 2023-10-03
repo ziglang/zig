@@ -353,6 +353,7 @@ pub const SC = struct {
     pub const accept4 = 18;
     pub const recvmmsg = 19;
     pub const sendmmsg = 20;
+    pub const PAGESIZE = 30;
 };
 
 fn gpRegisterOffset(comptime reg_index: comptime_int) usize {

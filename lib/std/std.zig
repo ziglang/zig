@@ -158,6 +158,8 @@ pub const Options = struct {
     http_disable_tls: bool = false,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    pageSizeFn: ?fn () usize = null,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
