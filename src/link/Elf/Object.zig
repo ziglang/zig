@@ -20,6 +20,7 @@ cies: std.ArrayListUnmanaged(Cie) = .{},
 alive: bool = true,
 num_dynrelocs: u32 = 0,
 
+output_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.Index)) = .{},
 output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn isObject(file: std.fs.File) bool {
@@ -42,6 +43,10 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.comdat_groups.deinit(allocator);
     self.fdes.deinit(allocator);
     self.cies.deinit(allocator);
+    for (self.output_sections.values()) |*list| {
+        list.deinit(allocator);
+    }
+    self.output_sections.deinit(allocator);
 }
 
 pub fn parse(self: *Object, elf_file: *Elf) !void {
@@ -193,7 +198,7 @@ fn addAtom(
     }
 }
 
-pub fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
+fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.strings.getAssumeExists(shdr.sh_name);
         if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
@@ -601,6 +606,30 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
     }
 }
 
+pub fn initOutputSections(self: Object, elf_file: *Elf) !void {
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shdr = atom.inputShdr(elf_file);
+        _ = try self.initOutputSection(elf_file, shdr);
+    }
+}
+
+pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shdr = atom.inputShdr(elf_file);
+        atom.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
+
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        const gpa = elf_file.base.allocator;
+        const gop = try self.output_sections.getOrPut(gpa, atom.output_section_index);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        try gop.value_ptr.append(gpa, atom_index);
+    }
+}
+
 pub fn updateSectionSizes(self: Object, elf_file: *Elf) void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
@@ -637,6 +666,24 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
         if (global.file(elf_file).?.index() != self.index) continue;
         global.value += atom.value;
         global.output_section_index = atom.output_section_index;
+    }
+}
+
+pub fn writeAtoms(self: Object, elf_file: *Elf, output_section_index: u16, buffer: []u8) !void {
+    const gpa = elf_file.base.allocator;
+    const atom_list = self.output_sections.get(output_section_index) orelse return;
+    const shdr = elf_file.shdrs.items[output_section_index];
+    for (atom_list.items) |atom_index| {
+        const atom = elf_file.atom(atom_index).?;
+        assert(atom.flags.alive);
+        const offset = atom.value - shdr.sh_addr;
+        log.debug("writing atom({d}) at 0x{x}", .{ atom_index, shdr.sh_offset + offset });
+        // TODO decompress directly into provided buffer
+        const out_code = buffer[offset..][0..atom.size];
+        const in_code = try self.codeDecompressAlloc(elf_file, atom_index);
+        defer gpa.free(in_code);
+        @memcpy(out_code, in_code);
+        try atom.resolveRelocs(elf_file, out_code);
     }
 }
 

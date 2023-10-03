@@ -1245,6 +1245,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.sortSections();
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.addAtomsToOutputSections(self);
+    }
     try self.updateSectionSizes();
 
     try self.allocateSections();
@@ -1424,7 +1427,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         phdr_table_load.p_filesz = 0;
 
         self.phdr_table_dirty = false;
-    }
+    } else try self.writePhdrs();
 
     if (self.shdr_table_dirty) {
         const shsize: u64 = switch (self.ptr_width) {
@@ -1476,8 +1479,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.shdr_table_dirty = false;
     }
 
+    try self.writeAtoms();
     try self.writeSyntheticSections();
-    try self.writeObjects();
 
     if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -1485,7 +1488,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else {
         log.debug("flushing. no_entry_point_found = false", .{});
         self.error_flags.no_entry_point_found = false;
-        try self.writeElfHeader();
+        try self.writeHeader();
     }
 
     // Dump the state for easy debugging.
@@ -1752,30 +1755,6 @@ fn scanRelocs(self: *Elf) !void {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
             // TODO how can we tell we need to write it again, aka the entry is dirty?
             _ = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
-        }
-    }
-}
-
-fn writeObjects(self: *Elf) !void {
-    const gpa = self.base.allocator;
-
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-
-            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
-            if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue; // TODO we don't yet know how to handle non-alloc sections
-
-            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            log.debug("writing atom({d}) at 0x{x}", .{ atom_ptr.atom_index, file_offset });
-            const code = try object.codeDecompressAlloc(self, atom_ptr.atom_index);
-            defer gpa.free(code);
-
-            try atom_ptr.resolveRelocs(self, code);
-            try self.base.file.?.pwriteAll(code, file_offset);
         }
     }
 }
@@ -2480,7 +2459,14 @@ fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) 
     }
 }
 
-fn writeElfHeader(self: *Elf) !void {
+fn writePhdrs(self: *Elf) !void {
+    const phoff = @sizeOf(elf.Elf64_Ehdr);
+    const phdrs_size = self.phdrs.items.len * @sizeOf(elf.Elf64_Phdr);
+    log.debug("writing program headers from 0x{x} to 0x{x}", .{ phoff, phoff + phdrs_size });
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.phdrs.items), phoff);
+}
+
+fn writeHeader(self: *Elf) !void {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
@@ -2532,7 +2518,11 @@ fn writeElfHeader(self: *Elf) !void {
 
     const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
 
-    const phdr_table_offset = self.phdrs.items[self.phdr_table_index.?].p_offset;
+    // TODO
+    const phdr_table_offset = if (self.phdr_table_index) |ind|
+        self.phdrs.items[ind].p_offset
+    else
+        @sizeOf(elf.Elf64_Ehdr);
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @as(u32, @intCast(e_entry)), endian);
@@ -3401,13 +3391,7 @@ fn initSections(self: *Elf) !void {
     };
 
     for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const shdr = atom_ptr.inputShdr(self);
-            atom_ptr.output_section_index = try object.initOutputSection(self, shdr);
-        }
+        try self.file(index).?.object.initOutputSections(self);
     }
 
     if (self.got.entries.items.len > 0 and self.got_section_index == null) {
@@ -3523,14 +3507,6 @@ fn sortSections(self: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, slice.len);
     for (entries.items) |sorted| {
         self.shdrs.appendAssumeCapacity(slice[sorted.shndx]);
-    }
-
-    for (self.objects.items) |index| {
-        for (self.file(index).?.atoms()) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
-        }
     }
 
     for (&[_]*?u16{
@@ -3888,6 +3864,31 @@ fn allocateSections(self: *Elf) !void {
 fn allocateAtoms(self: *Elf) void {
     for (self.objects.items) |index| {
         self.file(index).?.object.allocateAtoms(self);
+    }
+}
+
+fn writeAtoms(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    for (self.shdrs.items, 0..) |shdr, shndx| {
+        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+
+        log.debug("writing atoms in '{s}' section", .{self.shstrtab.getAssumeExists(shdr.sh_name)});
+
+        const buffer = try gpa.alloc(u8, shdr.sh_size);
+        defer gpa.free(buffer);
+        const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
+            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
+            0xcc // int3
+        else
+            0;
+        @memset(buffer, padding_byte);
+
+        for (self.objects.items) |index| {
+            try self.file(index).?.object.writeAtoms(self, @intCast(shndx), buffer);
+        }
+
+        try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
     }
 }
 
