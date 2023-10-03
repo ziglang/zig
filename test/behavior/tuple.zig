@@ -465,3 +465,15 @@ test "coerce anon tuple to tuple" {
     try expectEqual(x, s[0]);
     try expectEqual(y, s[1]);
 }
+
+test "empty tuple type" {
+    const S = @Type(.{ .Struct = .{
+        .layout = .Auto,
+        .fields = &.{},
+        .decls = &.{},
+        .is_tuple = true,
+    } });
+
+    const s: S = .{};
+    try expect(s.len == 0);
+}
