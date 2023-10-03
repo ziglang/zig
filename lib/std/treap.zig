@@ -225,7 +225,6 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             link.* = null;
 
             // clean up after ourselves
-            node.key = undefined;
             node.priority = 0;
             node.parent = null;
             node.children = [_]?*Node{ null, null };
@@ -256,6 +255,48 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             const link = if (parent) |p| &p.children[@intFromBool(p.children[1] == node)] else &self.root;
             assert(link.* == node);
             link.* = target;
+        }
+
+        pub const InorderIterator = struct {
+            current: ?*Node,
+            previous: ?*Node = null,
+
+            pub fn next(it: *InorderIterator) ?*Node {
+                while (true) {
+                    if (it.current) |current| {
+                        const previous = it.previous;
+                        it.previous = current;
+                        if (previous == current.parent) {
+                            if (current.children[0]) |left_child| {
+                                it.current = left_child;
+                            } else {
+                                if (current.children[1]) |right_child| {
+                                    it.current = right_child;
+                                } else {
+                                    it.current = current.parent;
+                                }
+                                return current;
+                            }
+                        } else if (previous == current.children[0]) {
+                            if (current.children[1]) |right_child| {
+                                it.current = right_child;
+                            } else {
+                                it.current = current.parent;
+                            }
+                            return current;
+                        } else {
+                            std.debug.assert(previous == current.children[1]);
+                            it.current = current.parent;
+                        }
+                    } else {
+                        return null;
+                    }
+                }
+            }
+        };
+
+        pub fn inorderIterator(self: *Self) InorderIterator {
+            return .{ .current = self.root };
         }
     };
 }
@@ -342,6 +383,16 @@ test "std.Treap: insert, find, replace, remove" {
         try testing.expectEqual(entry.key, key);
         try testing.expectEqual(entry.node, node);
         try testing.expectEqual(entry.node, treap.getEntryForExisting(node).node);
+    }
+
+    // in-order iterator check
+    {
+        var it = treap.inorderIterator();
+        var last_key: u64 = 0;
+        while (it.next()) |node| {
+            try std.testing.expect(node.key >= last_key);
+            last_key = node.key;
+        }
     }
 
     // replace check
