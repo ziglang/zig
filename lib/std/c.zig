@@ -49,7 +49,7 @@ pub usingnamespace switch (builtin.os.tag) {
     .openbsd => @import("c/openbsd.zig"),
     .haiku => @import("c/haiku.zig"),
     .hermit => @import("c/hermit.zig"),
-    .solaris => @import("c/solaris.zig"),
+    .solaris, .illumos => @import("c/solaris.zig"),
     .fuchsia => @import("c/fuchsia.zig"),
     .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),

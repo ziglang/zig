@@ -213,11 +213,15 @@ pub const LibCInstallation = struct {
             try self.findNativeIncludeDirPosix(args);
             try self.findNativeCrtBeginDirHaiku(args);
             self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
+        } else if (builtin.target.os.tag.isSolarish()) {
+            // There is only one libc, and its headers/libraries are always in the same spot.
+            self.include_dir = try args.allocator.dupeZ(u8, "/usr/include");
+            self.sys_include_dir = try args.allocator.dupeZ(u8, "/usr/include");
+            self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64");
         } else if (std.process.can_spawn) {
             try self.findNativeIncludeDirPosix(args);
             switch (builtin.target.os.tag) {
                 .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib"),
-                .solaris => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64"),
                 .linux => try self.findNativeCrtDirPosix(args),
                 else => {},
             }

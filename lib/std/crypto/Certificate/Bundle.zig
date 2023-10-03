@@ -64,6 +64,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
         .windows => return rescanWindows(cb, gpa),
+        .solaris, .illumos => return rescanSolaris(cb, gpa, "/etc/ssl/cacert.pem"),
         else => {},
     }
 }
@@ -148,6 +149,15 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
         try cb.bytes.appendSlice(gpa, encoded_cert);
         try cb.parseCert(gpa, decoded_start, now_sec);
     }
+    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
+}
+
+const RescanSolarisError = AddCertsFromFilePathError;
+
+fn rescanSolaris(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanSolarisError!void {
+    cb.bytes.clearRetainingCapacity();
+    cb.map.clearRetainingCapacity();
+    try addCertsFromFilePathAbsolute(cb, gpa, cert_file_path);
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 

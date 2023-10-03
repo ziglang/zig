@@ -218,7 +218,7 @@ pub fn hasValgrindSupport(target: std.Target) bool {
         .aarch64_32,
         .aarch64_be,
         => {
-            return target.os.tag == .linux or target.os.tag == .solaris or
+            return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
                 (target.os.tag == .windows and target.abi != .msvc);
         },
         else => return false,
@@ -493,7 +493,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lc",
             "-lutil",
         },
-        .solaris => &[_][]const u8{
+        .solaris, .illumos => &[_][]const u8{
             "-lm",
             "-lsocket",
             "-lnsl",

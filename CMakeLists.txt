@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
+include(CheckSymbolExists)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
@@ -706,9 +707,25 @@ target_link_libraries(zigcpp LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
+if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+  set(ZIG_HOST_TARGET_OS "macos")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
+  check_symbol_exists(__illumos__ "" ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
+  if (ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
+    set(ZIG_HOST_TARGET_OS "illumos")
+  else()
+    set(ZIG_HOST_TARGET_OS "solaris")
+  endif()
+endif()
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
 if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
-  set(ZIG_HOST_TARGET_ARCH "x86")
+  if (ZIG_HOST_TARGET_OS MATCHES "(solaris|illumos)")
+    set(ZIG_HOST_TARGET_ARCH "x86_64")
+  else()
+    set(ZIG_HOST_TARGET_ARCH "x86")
+  endif()
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
@@ -720,18 +737,12 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
 endif()
 string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
 if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
-  include(CheckSymbolExists)
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
   endif()
 endif()
 string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-
-string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
-if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
-  set(ZIG_HOST_TARGET_OS "macos")
-endif()
 
 if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
@@ -759,6 +770,9 @@ else()
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
     set(ZIG2_LINK_FLAGS "-Wl,--stack,0x10000000")
+  # Solaris/illumos ld(1) does not provide a --stack-size option.
+  elseif(CMAKE_HOST_SOLARIS)
+    unset(ZIG2_LINK_FLAGS)
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
   endif()
@@ -832,7 +846,7 @@ add_custom_command(
 add_executable(zig2 ${ZIG2_C_SOURCE} ${ZIG_COMPILER_RT_C_SOURCE})
 set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
-  LINK_FLAGS ${ZIG2_LINK_FLAGS}
+  LINK_FLAGS "${ZIG2_LINK_FLAGS}"
 )
 target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/stage1")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)

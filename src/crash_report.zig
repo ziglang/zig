@@ -190,7 +190,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
         .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris => @intFromPtr(info.reason.fault.addr),
+        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
         else => @compileError("TODO implement handleSegfaultPosix for new POSIX OS"),
     };
 
