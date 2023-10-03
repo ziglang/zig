@@ -18,6 +18,7 @@ pub const connection_pool_size = std.options.http_connection_pool_size;
 allocator: Allocator,
 ca_bundle: std.crypto.Certificate.Bundle = .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
+
 /// When this is `true`, the next time this client performs an HTTPS request,
 /// it will first rescan the system for root certificates.
 next_https_rescan_certs: bool = true,
@@ -25,7 +26,11 @@ next_https_rescan_certs: bool = true,
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
 
-proxy: ?HttpProxy = null,
+/// This is the proxy that will handle http:// connections. It *must not* be modified when the client has any active connections.
+http_proxy: ?ProxyInformation = null,
+
+/// This is the proxy that will handle https:// connections. It *must not* be modified when the client has any active connections.
+https_proxy: ?ProxyInformation = null,
 
 /// A set of linked lists of connections that can be reused.
 pub const ConnectionPool = struct {
@@ -33,7 +38,7 @@ pub const ConnectionPool = struct {
     pub const Criteria = struct {
         host: []const u8,
         port: u16,
-        is_tls: bool,
+        protocol: Connection.Protocol,
     };
 
     const Queue = std.DoublyLinkedList(Connection);
@@ -55,9 +60,9 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            if ((node.data.protocol == .tls) != criteria.is_tls) continue;
+            if (node.data.protocol != criteria.protocol) continue;
             if (node.data.port != criteria.port) continue;
-            if (!mem.eql(u8, node.data.host, criteria.host)) continue;
+            if (!std.ascii.eqlIgnoreCase(node.data.host, criteria.host)) continue;
 
             pool.acquireUnsafe(node);
             return node;
@@ -84,23 +89,23 @@ pub const ConnectionPool = struct {
 
     /// Tries to release a connection back to the connection pool. This function is threadsafe.
     /// If the connection is marked as closing, it will be closed instead.
-    pub fn release(pool: *ConnectionPool, client: *Client, node: *Node) void {
+    pub fn release(pool: *ConnectionPool, allocator: Allocator, node: *Node) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
         pool.used.remove(node);
 
-        if (node.data.closing) {
-            node.data.deinit(client);
-            return client.allocator.destroy(node);
+        if (node.data.closing or pool.free_size == 0) {
+            node.data.close(allocator);
+            return allocator.destroy(node);
         }
 
         if (pool.free_len >= pool.free_size) {
             const popped = pool.free.popFirst() orelse unreachable;
             pool.free_len -= 1;
 
-            popped.data.deinit(client);
-            client.allocator.destroy(popped);
+            popped.data.close(allocator);
+            allocator.destroy(popped);
         }
 
         if (node.data.proxied) {
@@ -128,7 +133,7 @@ pub const ConnectionPool = struct {
             defer client.allocator.destroy(node);
             next = node.next;
 
-            node.data.deinit(client);
+            node.data.close(client.allocator);
         }
 
         next = pool.used.first;
@@ -136,7 +141,7 @@ pub const ConnectionPool = struct {
             defer client.allocator.destroy(node);
             next = node.next;
 
-            node.data.deinit(client);
+            node.data.close(client.allocator);
         }
 
         pool.* = undefined;
@@ -283,19 +288,15 @@ pub const Connection = struct {
         return Writer{ .context = conn };
     }
 
-    pub fn close(conn: *Connection, client: *const Client) void {
+    pub fn close(conn: *Connection, allocator: Allocator) void {
         if (conn.protocol == .tls) {
             // try to cleanly close the TLS connection, for any server that cares.
             _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
-            client.allocator.destroy(conn.tls_client);
+            allocator.destroy(conn.tls_client);
         }
 
         conn.stream.close();
-    }
-
-    pub fn deinit(conn: *Connection, client: *const Client) void {
-        conn.close(client);
-        client.allocator.free(conn.host);
+        allocator.free(conn.host);
     }
 };
 
@@ -490,7 +491,7 @@ pub const Request = struct {
                 // If the response wasn't fully read, then we need to close the connection.
                 connection.data.closing = true;
             }
-            req.client.connection_pool.release(req.client, connection);
+            req.client.connection_pool.release(req.client.allocator, connection);
         }
 
         req.arena.deinit();
@@ -509,7 +510,7 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
-        req.client.connection_pool.release(req.client, req.connection.?);
+        req.client.connection_pool.release(req.client.allocator, req.connection.?);
         req.connection = null;
 
         const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
@@ -554,24 +555,16 @@ pub const Request = struct {
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
-            try w.writeAll(req.uri.host.?);
-            try w.writeByte(':');
-            try w.print("{}", .{req.uri.port.?});
+            try req.uri.writeToStream(.{ .authority = true }, w);
         } else {
-            if (req.connection.?.data.proxied) {
-                // proxied connections require the full uri
-                if (options.raw_uri) {
-                    try w.print("{+/r}", .{req.uri});
-                } else {
-                    try w.print("{+/}", .{req.uri});
-                }
-            } else {
-                if (options.raw_uri) {
-                    try w.print("{/r}", .{req.uri});
-                } else {
-                    try w.print("{/}", .{req.uri});
-                }
-            }
+            try req.uri.writeToStream(.{
+                .scheme = req.connection.?.data.proxied,
+                .authentication = req.connection.?.data.proxied,
+                .authority = req.connection.?.data.proxied,
+                .path = true,
+                .query = true,
+                .raw = options.raw_uri,
+            }, w);
         }
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
@@ -579,7 +572,7 @@ pub const Request = struct {
 
         if (!req.headers.contains("host")) {
             try w.writeAll("Host: ");
-            try w.writeAll(req.uri.host.?);
+            try req.uri.writeToStream(.{ .authority = true }, w);
             try w.writeAll("\r\n");
         }
 
@@ -634,6 +627,24 @@ pub const Request = struct {
             try w.writeAll(": ");
             try w.writeAll(entry.value);
             try w.writeAll("\r\n");
+        }
+
+        if (req.connection.?.data.proxied) {
+            const proxy_headers: ?http.Headers = switch (req.connection.?.data.protocol) {
+                .plain => if (req.client.http_proxy) |proxy| proxy.headers else null,
+                .tls => if (req.client.https_proxy) |proxy| proxy.headers else null,
+            };
+
+            if (proxy_headers) |headers| {
+                for (headers.list.items) |entry| {
+                    if (entry.value.len == 0) continue;
+
+                    try w.writeAll(entry.name);
+                    try w.writeAll(": ");
+                    try w.writeAll(entry.value);
+                    try w.writeAll("\r\n");
+                }
+            }
         }
 
         try w.writeAll("\r\n");
@@ -893,18 +904,15 @@ pub const Request = struct {
     }
 };
 
-pub const HttpProxy = struct {
-    pub const ProxyAuthentication = union(enum) {
-        basic: []const u8,
-        custom: []const u8,
-    };
+pub const ProxyInformation = struct {
+    allocator: Allocator,
+    headers: http.Headers,
 
     protocol: Connection.Protocol,
     host: []const u8,
-    port: ?u16 = null,
+    port: u16,
 
-    /// The value for the Proxy-Authorization header.
-    auth: ?ProxyAuthentication = null,
+    supports_connect: bool = true,
 };
 
 /// Release all associated resources with the client.
@@ -912,19 +920,115 @@ pub const HttpProxy = struct {
 pub fn deinit(client: *Client) void {
     client.connection_pool.deinit(client);
 
+    if (client.http_proxy) |*proxy| {
+        proxy.allocator.free(proxy.host);
+        proxy.headers.deinit();
+    }
+
+    if (client.https_proxy) |*proxy| {
+        proxy.allocator.free(proxy.host);
+        proxy.headers.deinit();
+    }
+
     client.ca_bundle.deinit(client.allocator);
     client.* = undefined;
 }
 
-pub const ConnectUnproxiedError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
+/// Uses the *_proxy environment variable to set any unset proxies for the client.
+/// This function *must not* be called when the client has any active connections.
+pub fn loadDefaultProxies(client: *Client) !void {
+    if (client.http_proxy == null) http: {
+        const content: []const u8 = if (std.process.hasEnvVarConstant("http_proxy"))
+            try std.process.getEnvVarOwned(client.allocator, "http_proxy")
+        else if (std.process.hasEnvVarConstant("HTTP_PROXY"))
+            try std.process.getEnvVarOwned(client.allocator, "HTTP_PROXY")
+        else if (std.process.hasEnvVarConstant("all_proxy"))
+            try std.process.getEnvVarOwned(client.allocator, "all_proxy")
+        else if (std.process.hasEnvVarConstant("ALL_PROXY"))
+            try std.process.getEnvVarOwned(client.allocator, "ALL_PROXY")
+        else
+            break :http;
+        defer client.allocator.free(content);
+
+        const uri = try Uri.parse(content);
+
+        const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
+        client.http_proxy = .{
+            .allocator = client.allocator,
+            .headers = .{ .allocator = client.allocator },
+
+            .protocol = protocol,
+            .host = if (uri.host) |host| try client.allocator.dupe(u8, host) else return error.UriMissingHost,
+            .port = uri.port orelse switch (protocol) {
+                .plain => 80,
+                .tls => 443,
+            },
+        };
+
+        if (uri.user != null and uri.password != null) {
+            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
+            defer client.allocator.free(unencoded);
+
+            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len));
+            defer client.allocator.free(buffer);
+
+            const result = std.base64.standard.Encoder.encode(buffer, unencoded);
+
+            try client.http_proxy.?.headers.append("proxy-authorization", result);
+        }
+    }
+
+    if (client.https_proxy == null) https: {
+        const content: []const u8 = if (std.process.hasEnvVarConstant("https_proxy"))
+            try std.process.getEnvVarOwned(client.allocator, "https_proxy")
+        else if (std.process.hasEnvVarConstant("HTTPS_PROXY"))
+            try std.process.getEnvVarOwned(client.allocator, "HTTPS_PROXY")
+        else if (std.process.hasEnvVarConstant("all_proxy"))
+            try std.process.getEnvVarOwned(client.allocator, "all_proxy")
+        else if (std.process.hasEnvVarConstant("ALL_PROXY"))
+            try std.process.getEnvVarOwned(client.allocator, "ALL_PROXY")
+        else
+            break :https;
+        defer client.allocator.free(content);
+
+        const uri = try Uri.parse(content);
+
+        const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
+        client.http_proxy = .{
+            .allocator = client.allocator,
+            .headers = .{ .allocator = client.allocator },
+
+            .protocol = protocol,
+            .host = if (uri.host) |host| try client.allocator.dupe(u8, host) else return error.UriMissingHost,
+            .port = uri.port orelse switch (protocol) {
+                .plain => 80,
+                .tls => 443,
+            },
+        };
+
+        if (uri.user != null and uri.password != null) {
+            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
+            defer client.allocator.free(unencoded);
+
+            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len));
+            defer client.allocator.free(buffer);
+
+            const result = std.base64.standard.Encoder.encode(buffer, unencoded);
+
+            try client.https_proxy.?.headers.append("proxy-authorization", result);
+        }
+    }
+}
+
+pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
 /// This function is threadsafe.
-pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectUnproxiedError!*ConnectionPool.Node {
+pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*ConnectionPool.Node {
     if (client.connection_pool.findConnection(.{
         .host = host,
         .port = port,
-        .is_tls = protocol == .tls,
+        .protocol = protocol,
     })) |node|
         return node;
 
@@ -948,8 +1052,8 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
     conn.data = .{
         .stream = stream,
         .tls_client = undefined,
-        .protocol = protocol,
 
+        .protocol = protocol,
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };
@@ -981,7 +1085,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     if (client.connection_pool.findConnection(.{
         .host = path,
         .port = 0,
-        .is_tls = false,
+        .protocol = .plain,
     })) |node|
         return node;
 
@@ -1007,34 +1111,120 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     return conn;
 }
 
-// Prevents a dependency loop in request()
-const ConnectErrorPartial = ConnectUnproxiedError || error{ UnsupportedUrlScheme, ConnectionRefused };
-pub const ConnectError = ConnectErrorPartial || RequestError;
+pub fn connectTunnel(
+    client: *Client,
+    proxy: *ProxyInformation,
+    tunnel_host: []const u8,
+    tunnel_port: u16,
+) !*ConnectionPool.Node {
+    if (!proxy.supports_connect) return error.TunnelNotSupported;
 
-pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*ConnectionPool.Node {
     if (client.connection_pool.findConnection(.{
-        .host = host,
-        .port = port,
-        .is_tls = protocol == .tls,
+        .host = tunnel_host,
+        .port = tunnel_port,
+        .protocol = proxy.protocol,
     })) |node|
         return node;
 
-    if (client.proxy) |proxy| {
-        const proxy_port: u16 = proxy.port orelse switch (proxy.protocol) {
-            .plain => 80,
-            .tls => 443,
+    var maybe_valid = false;
+    _ = tunnel: {
+        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+        errdefer {
+            conn.data.closing = true;
+            client.connection_pool.release(client.allocator, conn);
+        }
+
+        const uri = Uri{
+            .scheme = "http",
+            .user = null,
+            .password = null,
+            .host = tunnel_host,
+            .port = tunnel_port,
+            .path = "",
+            .query = null,
+            .fragment = null,
         };
 
-        const conn = try client.connectUnproxied(proxy.host, proxy_port, proxy.protocol);
-        conn.data.proxied = true;
+        // we can use a small buffer here because a CONNECT response should be very small
+        var buffer: [8096]u8 = undefined;
+
+        var req = client.request(.CONNECT, uri, proxy.headers, .{
+            .handle_redirects = false,
+            .connection = conn,
+            .header_strategy = .{ .static = buffer[0..] },
+        }) catch |err| {
+            std.log.debug("err {}", .{err});
+            break :tunnel err;
+        };
+        defer req.deinit();
+
+        req.start(.{ .raw_uri = true }) catch |err| break :tunnel err;
+        req.wait() catch |err| break :tunnel err;
+
+        if (req.response.status.class() == .server_error) {
+            maybe_valid = true;
+            break :tunnel error.ServerError;
+        }
+
+        if (req.response.status != .ok) break :tunnel error.ConnectionRefused;
+
+        // this connection is now a tunnel, so we can't use it for anything else, it will only be released when the client is de-initialized.
+        req.connection = null;
+
+        client.allocator.free(conn.data.host);
+        conn.data.host = try client.allocator.dupe(u8, tunnel_host);
+        errdefer client.allocator.free(conn.data.host);
+
+        conn.data.port = tunnel_port;
+        conn.data.closing = false;
 
         return conn;
-    } else {
-        return client.connectUnproxied(host, port, protocol);
-    }
+    } catch {
+        // something went wrong with the tunnel
+        proxy.supports_connect = maybe_valid;
+        return error.TunnelNotSupported;
+    };
 }
 
-pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || Connection.WriteError || error{
+// Prevents a dependency loop in request()
+const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, ConnectionRefused };
+pub const ConnectError = ConnectErrorPartial || RequestError;
+
+pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*ConnectionPool.Node {
+    // pointer required so that `supports_connect` can be updated if a CONNECT fails
+    const potential_proxy: ?*ProxyInformation = switch (protocol) {
+        .plain => if (client.http_proxy) |*proxy_info| proxy_info else null,
+        .tls => if (client.https_proxy) |*proxy_info| proxy_info else null,
+    };
+
+    if (potential_proxy) |proxy| {
+        // don't attempt to proxy the proxy thru itself.
+        if (std.mem.eql(u8, proxy.host, host) and proxy.port == port and proxy.protocol == protocol) {
+            return client.connectTcp(host, port, protocol);
+        }
+
+        _ = if (proxy.supports_connect) tunnel: {
+            return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+                error.TunnelNotSupported => break :tunnel,
+                else => |e| return e,
+            };
+        };
+
+        // fall back to using the proxy as a normal http proxy
+        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+        errdefer {
+            conn.data.closing = true;
+            client.connection_pool.release(conn);
+        }
+
+        conn.data.proxied = true;
+        return conn;
+    }
+
+    return client.connectTcp(host, port, protocol);
+}
+
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || Connection.WriteError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 

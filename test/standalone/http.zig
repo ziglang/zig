@@ -226,7 +226,10 @@ pub fn main() !void {
     const server_thread = try std.Thread.spawn(.{}, serverThread, .{&server});
 
     var client = Client{ .allocator = calloc };
+    errdefer client.deinit();
     // defer client.deinit(); handled below
+
+    try client.loadDefaultProxies();
 
     { // read content-length response
         var h = http.Headers{ .allocator = calloc };
@@ -251,7 +254,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read large content-length response
         var h = http.Headers{ .allocator = calloc };
@@ -275,7 +278,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -301,7 +304,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read chunked response
         var h = http.Headers{ .allocator = calloc };
@@ -326,7 +329,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -352,7 +355,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // check trailing headers
         var h = http.Headers{ .allocator = calloc };
@@ -377,7 +380,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send content-length request
         var h = http.Headers{ .allocator = calloc };
@@ -409,7 +412,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read content-length response with connection close
         var h = http.Headers{ .allocator = calloc };
@@ -468,7 +471,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // relative redirect
         var h = http.Headers{ .allocator = calloc };
@@ -492,7 +495,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // redirect from root
         var h = http.Headers{ .allocator = calloc };
@@ -516,7 +519,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // absolute redirect
         var h = http.Headers{ .allocator = calloc };
@@ -540,7 +543,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // too many redirects
         var h = http.Headers{ .allocator = calloc };
@@ -562,7 +565,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // check client without segfault by connection error after redirection
         var h = http.Headers{ .allocator = calloc };
@@ -579,11 +582,14 @@ pub fn main() !void {
         try req.start(.{});
         const result = req.wait();
 
-        try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
+        // a proxy without an upstream is likely to return a 5xx status.
+        if (client.http_proxy == null) {
+            try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
+        }
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // Client.fetch()
         var h = http.Headers{ .allocator = calloc };
