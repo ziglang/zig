@@ -111,7 +111,6 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
-got_addresses_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
@@ -904,9 +903,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         // and grow.
         {
             const dirty_addr = phdr.p_vaddr + phdr.p_memsz;
-            self.got_addresses_dirty = for (self.got.entries.items) |entry| {
+            const got_addresses_dirty = for (self.got.entries.items) |entry| {
                 if (self.symbol(entry.symbol_index).value >= dirty_addr) break true;
             } else false;
+            _ = got_addresses_dirty;
 
             // TODO mark relocs dirty
         }
@@ -1504,8 +1504,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     assert(!self.phdr_table_dirty);
     assert(!self.shdr_table_dirty);
     assert(!self.debug_strtab_dirty);
-    assert(!self.got.dirty);
-    assert(!self.got_addresses_dirty);
 }
 
 const ParseError = error{
@@ -3660,13 +3658,14 @@ fn updateSymtabSize(self: *Elf) !void {
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
-    if (self.got_addresses_dirty) {
-        const shdr = &self.shdrs.items[self.got_section_index.?];
-        var buffer = try std.ArrayList(u8).initCapacity(self.base.allocator, self.got.size(self));
+    const gpa = self.base.allocator;
+
+    if (self.got_section_index) |index| {
+        const shdr = self.shdrs.items[index];
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got.size(self));
         defer buffer.deinit();
-        try self.got.writeAllEntries(self, buffer.writer());
+        try self.got.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
-        self.got_addresses_dirty = false;
     }
 
     if (self.shstrtab_section_index) |index| {

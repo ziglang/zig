@@ -1,7 +1,6 @@
 pub const GotSection = struct {
     entries: std.ArrayListUnmanaged(Entry) = .{},
     needs_rela: bool = false,
-    dirty: bool = false,
     output_symtab_size: Elf.SymtabSize = .{},
 
     pub const Index = u32;
@@ -48,7 +47,6 @@ pub const GotSection = struct {
             break :blk last.cell_index + @as(Index, @intCast(last.len()));
         } else 0;
         entry.* = .{ .tag = undefined, .symbol_index = undefined, .cell_index = cell_index };
-        got.dirty = true;
         return index;
     }
 
@@ -117,11 +115,11 @@ pub const GotSection = struct {
 
     pub fn writeEntry(got: *GotSection, elf_file: *Elf, index: Index) !void {
         const entry_size: u16 = elf_file.archPtrWidthBytes();
-        if (got.dirty) {
-            const needed_size = got.size(elf_file);
-            try elf_file.growAllocSection(elf_file.got_section_index.?, needed_size);
-            got.dirty = false;
-        }
+        // if (got.dirty) {
+        //     const needed_size = got.size(elf_file);
+        //     try elf_file.growAllocSection(elf_file.got_section_index.?, needed_size);
+        //     got.dirty = false;
+        // }
         const endian = elf_file.base.options.target.cpu.arch.endian();
         const entry = got.entries.items[index];
         const shdr = &elf_file.shdrs.items[elf_file.got_section_index.?];
@@ -169,8 +167,7 @@ pub const GotSection = struct {
         }
     }
 
-    pub fn writeAllEntries(got: GotSection, elf_file: *Elf, writer: anytype) !void {
-        assert(!got.dirty);
+    pub fn write(got: GotSection, elf_file: *Elf, writer: anytype) !void {
         const entry_size: u16 = elf_file.archPtrWidthBytes();
         const endian = elf_file.base.options.target.cpu.arch.endian();
         for (got.entries.items) |entry| {
