@@ -3820,7 +3820,7 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollC
 /// or zero if no file descriptor became ready during the requested timeout (milliseconds).
 pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
     while (true) {
-        if (epoll_pwait(epfd, events, timeout, null)) |value| {
+        if (epoll_wait_or_signal(epfd, events, timeout)) |value| {
             return value;
         } else |_| {}
     }
@@ -3830,9 +3830,9 @@ pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
 /// Returns error.SignalInterrupt if interrupted by a signal.
 /// Returns the number of file descriptors ready for the requested I/O,
 /// or zero if no file descriptor became ready during the requested timeout (milliseconds).
-pub fn epoll_pwait(epfd: i32, events: []linux.epoll_event, timeout: i32, sigset: ?*const linux.sigset_t) !usize {
+pub fn epoll_wait_or_signal(epfd: i32, events: []linux.epoll_event, timeout: i32) !usize {
     // TODO get rid of the @intCast
-    const rc = system.epoll_pwait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout, sigset);
+    const rc = system.epoll_pwait(epfd, events.ptr, @as(u32, @intCast(events.len)), timeout, null);
     switch (errno(rc)) {
         .SUCCESS => return @as(usize, @intCast(rc)),
         .INTR => return error.SignalInterrupt,
