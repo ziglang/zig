@@ -622,6 +622,8 @@ test "@intFromPtr on a packed struct field unaligned and nested" {
 }
 
 test "packed struct fields modification" {
+    // Originally reported at https://github.com/ziglang/zig/issues/16615
+
     const Small = packed struct {
         val: u8 = 0,
         lo: u4 = 0,
@@ -989,6 +991,7 @@ test "bitcast back and forth" {
 }
 
 test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
+    // Originally reported at https://github.com/ziglang/zig/issues/14200
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .arm) return error.SkipZigTest;
     const S = struct {
         ps: packed struct { x: i2, y: i2 },
@@ -1002,4 +1005,35 @@ test "field access of packed struct smaller than its abi size inside struct init
     // note: this bug is triggered by the == operator, expectEqual will hide it
     try expect(@as(i2, 0) == s.ps.x);
     try expect(@as(i2, 1) == s.ps.y);
+}
+
+test "modify nested packed struct aligned field" {
+    // Originally reported at https://github.com/ziglang/zig/issues/14632
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const Options = packed struct {
+        foo: bool = false,
+        bar: bool = false,
+        pretty_print: packed struct {
+            enabled: bool = false,
+            num_spaces: u4 = 4,
+            space_char: enum { space, tab } = .space,
+            indent: u8 = 0,
+        } = .{},
+        baz: bool = false,
+    };
+
+    var opts = Options{};
+    opts.pretty_print.indent += 1;
+    try std.testing.expectEqual(@as(u17, 0b00000000100100000), @bitCast(opts));
+    try std.testing.expect(!opts.foo);
+    try std.testing.expect(!opts.bar);
+    try std.testing.expect(!opts.pretty_print.enabled);
+    try std.testing.expectEqual(@as(u4, 4), opts.pretty_print.num_spaces);
+    try std.testing.expectEqual(@as(u8, 1), opts.pretty_print.indent);
+    try std.testing.expect(!opts.baz);
 }

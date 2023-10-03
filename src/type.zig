@@ -3028,12 +3028,6 @@ pub const Type = struct {
         };
     }
 
-    pub fn packedStructFieldByteOffset(ty: Type, field_index: u32, mod: *Module) u32 {
-        const ip = &mod.intern_pool;
-        const struct_type = ip.indexToKey(ty.toIntern()).struct_type;
-        return @divExact(mod.structPackedFieldBitOffset(struct_type, field_index), 8);
-    }
-
     pub const FieldOffset = struct {
         field: usize,
         offset: u64,

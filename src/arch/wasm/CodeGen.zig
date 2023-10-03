@@ -3828,7 +3828,8 @@ fn structFieldPtr(
                 if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
-                break :offset struct_ty.packedStructFieldByteOffset(index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                const struct_type = mod.typeToStruct(struct_ty).?;
+                break :offset @divExact(mod.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .Union => 0,
             else => unreachable,
