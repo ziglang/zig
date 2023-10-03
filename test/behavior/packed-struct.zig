@@ -253,6 +253,79 @@ test "regular in irregular packed struct" {
     try expectEqual(@as(u8, 42), foo.bar.b);
 }
 
+test "nested packed struct unaligned" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+
+    const S1 = packed struct {
+        a: u4,
+        b: u4,
+        c: u8,
+    };
+    const S2 = packed struct {
+        base: u8,
+        p0: S1,
+        bit0: u1,
+        p1: packed struct {
+            a: u8,
+        },
+        p2: packed struct {
+            a: u7,
+            b: u8,
+        },
+        p3: S1,
+
+        var s: @This() = .{
+            .base = 1,
+            .p0 = .{ .a = 2, .b = 3, .c = 4 },
+            .bit0 = 0,
+            .p1 = .{ .a = 5 },
+            .p2 = .{ .a = 6, .b = 7 },
+            .p3 = .{ .a = 8, .b = 9, .c = 10 },
+        };
+    };
+
+    try expect(S2.s.base == 1);
+    try expect(S2.s.p0.a == 2);
+    try expect(S2.s.p0.b == 3);
+    try expect(S2.s.p0.c == 4);
+    try expect(S2.s.bit0 == 0);
+    try expect(S2.s.p1.a == 5);
+    try expect(S2.s.p2.a == 6);
+    try expect(S2.s.p2.b == 7);
+    try expect(S2.s.p3.a == 8);
+    try expect(S2.s.p3.b == 9);
+    try expect(S2.s.p3.c == 10);
+
+    const S3 = packed struct {
+        pad: u8,
+        v: u2,
+        s: packed struct {
+            v: u3,
+            s: packed struct {
+                v: u2,
+                s: packed struct {
+                    bit0: u1,
+                    byte: u8,
+                    bit1: u1,
+                },
+            },
+        },
+        var v0: @This() = .{ .pad = 0, .v = 1, .s = .{ .v = 2, .s = .{ .v = 3, .s = .{ .bit0 = 0, .byte = 4, .bit1 = 1 } } } };
+    };
+
+    try expect(S3.v0.v == 1);
+    try expect(S3.v0.s.v == 2);
+    try expect(S3.v0.s.s.v == 3);
+    try expect(S3.v0.s.s.s.bit0 == 0);
+    try expect(S3.v0.s.s.s.byte == 4);
+    try expect(S3.v0.s.s.s.bit1 == 1);
+}
+
 test "byte-aligned field pointer offsets" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -354,6 +427,45 @@ test "byte-aligned field pointer offsets" {
     try comptime S.doTheTest();
 }
 
+test "nested packed struct field pointers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // ubsan unaligned pointer access
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+
+    const S2 = packed struct {
+        base: u8,
+        p0: packed struct {
+            a: u4,
+            b: u4,
+            c: u8,
+        },
+        bit: u1,
+        p1: packed struct {
+            a: u7,
+            b: u8,
+        },
+
+        var s: @This() = .{ .base = 1, .p0 = .{ .a = 2, .b = 3, .c = 4 }, .bit = 0, .p1 = .{ .a = 5, .b = 6 } };
+    };
+
+    const ptr_base = &S2.s.base;
+    const ptr_p0_a = &S2.s.p0.a;
+    const ptr_p0_b = &S2.s.p0.b;
+    const ptr_p0_c = &S2.s.p0.c;
+    const ptr_p1_a = &S2.s.p1.a;
+    const ptr_p1_b = &S2.s.p1.b;
+    try expectEqual(@as(u8, 1), ptr_base.*);
+    try expectEqual(@as(u4, 2), ptr_p0_a.*);
+    try expectEqual(@as(u4, 3), ptr_p0_b.*);
+    try expectEqual(@as(u8, 4), ptr_p0_c.*);
+    try expectEqual(@as(u7, 5), ptr_p1_a.*);
+    try expectEqual(@as(u8, 6), ptr_p1_b.*);
+}
+
 test "load pointer from packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -380,6 +492,7 @@ test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (native_endian != .Little) return error.SkipZigTest;
 
     const S = struct {
         const P = packed struct {
@@ -387,6 +500,7 @@ test "@intFromPtr on a packed struct field" {
             y: u8,
             z: u32,
         };
+
         var p0: P = P{
             .x = 1,
             .y = 2,
@@ -394,6 +508,140 @@ test "@intFromPtr on a packed struct field" {
         };
     };
     try expect(@intFromPtr(&S.p0.z) - @intFromPtr(&S.p0.x) == 2);
+}
+
+test "@intFromPtr on a packed struct field unaligned and nested" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+
+    const S1 = packed struct {
+        a: u4,
+        b: u4,
+        c: u8,
+    };
+    const S2 = packed struct {
+        base: u8,
+        p0: S1,
+        bit0: u1,
+        p1: packed struct {
+            a: u8,
+        },
+        p2: packed struct {
+            a: u7,
+            b: u8,
+        },
+        p3: S1,
+
+        var s: @This() = .{
+            .base = 1,
+            .p0 = .{ .a = 2, .b = 3, .c = 4 },
+            .bit0 = 0,
+            .p1 = .{ .a = 5 },
+            .p2 = .{ .a = 6, .b = 7 },
+            .p3 = .{ .a = 8, .b = 9, .c = 10 },
+        };
+    };
+
+    switch (comptime @alignOf(S2)) {
+        4 => {
+            comptime assert(@TypeOf(&S2.s.base) == *align(4) u8);
+            comptime assert(@TypeOf(&S2.s.p0.a) == *align(1:0:2) u4);
+            comptime assert(@TypeOf(&S2.s.p0.b) == *align(1:4:2) u4);
+            comptime assert(@TypeOf(&S2.s.p0.c) == *u8);
+            comptime assert(@TypeOf(&S2.s.bit0) == *align(4:24:8) u1);
+            comptime assert(@TypeOf(&S2.s.p1.a) == *align(4:25:8) u8);
+            comptime assert(@TypeOf(&S2.s.p2.a) == *align(4:33:8) u7);
+            comptime assert(@TypeOf(&S2.s.p2.b) == *u8);
+            comptime assert(@TypeOf(&S2.s.p3.a) == *align(2:0:2) u4);
+            comptime assert(@TypeOf(&S2.s.p3.b) == *align(2:4:2) u4);
+            comptime assert(@TypeOf(&S2.s.p3.c) == *u8);
+        },
+        8 => {
+            comptime assert(@TypeOf(&S2.s.base) == *align(8) u8);
+            comptime assert(@TypeOf(&S2.s.p0.a) == *align(1:0:2) u4);
+            comptime assert(@TypeOf(&S2.s.p0.b) == *align(1:4:2) u4);
+            comptime assert(@TypeOf(&S2.s.p0.c) == *u8);
+            comptime assert(@TypeOf(&S2.s.bit0) == *align(8:24:8) u1);
+            comptime assert(@TypeOf(&S2.s.p1.a) == *align(8:25:8) u8);
+            comptime assert(@TypeOf(&S2.s.p2.a) == *align(8:33:8) u7);
+            comptime assert(@TypeOf(&S2.s.p2.b) == *u8);
+            comptime assert(@TypeOf(&S2.s.p3.a) == *align(2:0:2) u4);
+            comptime assert(@TypeOf(&S2.s.p3.b) == *align(2:4:2) u4);
+            comptime assert(@TypeOf(&S2.s.p3.c) == *u8);
+        },
+        else => {},
+    }
+    try expect(@intFromPtr(&S2.s.base) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p0.a) - @intFromPtr(&S2.s) == 1);
+    try expect(@intFromPtr(&S2.s.p0.b) - @intFromPtr(&S2.s) == 1);
+    try expect(@intFromPtr(&S2.s.p0.c) - @intFromPtr(&S2.s) == 2);
+    try expect(@intFromPtr(&S2.s.bit0) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p1.a) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p2.a) - @intFromPtr(&S2.s) == 0);
+    try expect(@intFromPtr(&S2.s.p2.b) - @intFromPtr(&S2.s) == 5);
+    try expect(@intFromPtr(&S2.s.p3.a) - @intFromPtr(&S2.s) == 6);
+    try expect(@intFromPtr(&S2.s.p3.b) - @intFromPtr(&S2.s) == 6);
+    try expect(@intFromPtr(&S2.s.p3.c) - @intFromPtr(&S2.s) == 7);
+
+    const S3 = packed struct {
+        pad: u8,
+        v: u2,
+        s: packed struct {
+            v: u3,
+            s: packed struct {
+                v: u2,
+                s: packed struct {
+                    bit0: u1,
+                    byte: u8,
+                    bit1: u1,
+                },
+            },
+        },
+        var v0: @This() = .{ .pad = 0, .v = 1, .s = .{ .v = 2, .s = .{ .v = 3, .s = .{ .bit0 = 0, .byte = 4, .bit1 = 1 } } } };
+    };
+
+    comptime assert(@TypeOf(&S3.v0.v) == *align(4:8:4) u2);
+    comptime assert(@TypeOf(&S3.v0.s.v) == *align(4:10:4) u3);
+    comptime assert(@TypeOf(&S3.v0.s.s.v) == *align(4:13:4) u2);
+    comptime assert(@TypeOf(&S3.v0.s.s.s.bit0) == *align(4:15:4) u1);
+    comptime assert(@TypeOf(&S3.v0.s.s.s.byte) == *align(2) u8);
+    comptime assert(@TypeOf(&S3.v0.s.s.s.bit1) == *align(4:24:4) u1);
+    try expect(@intFromPtr(&S3.v0.v) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.v) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.s) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.s.v) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.s.s) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.s.s.bit0) - @intFromPtr(&S3.v0) == 0);
+    try expect(@intFromPtr(&S3.v0.s.s.s.byte) - @intFromPtr(&S3.v0) == 2);
+    try expect(@intFromPtr(&S3.v0.s.s.s.bit1) - @intFromPtr(&S3.v0) == 0);
+}
+
+test "packed struct fields modification" {
+    // Originally reported at https://github.com/ziglang/zig/issues/16615
+
+    const Small = packed struct {
+        val: u8 = 0,
+        lo: u4 = 0,
+        hi: u4 = 0,
+
+        var p: @This() = undefined;
+    };
+    Small.p = .{
+        .val = 0x12,
+        .lo = 3,
+        .hi = 4,
+    };
+    try expect(@as(u16, @bitCast(Small.p)) == 0x4312);
+
+    Small.p.val -= Small.p.lo;
+    Small.p.val += Small.p.hi;
+    Small.p.hi -= Small.p.lo;
+    try expect(@as(u16, @bitCast(Small.p)) == 0x1313);
 }
 
 test "optional pointer in packed struct" {
@@ -410,7 +658,7 @@ test "optional pointer in packed struct" {
 
 test "nested packed struct field access test" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO packed structs larger than 64 bits
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -562,7 +810,7 @@ test "nested packed struct at non-zero offset 2" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO packed structs larger than 64 bits
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
@@ -700,7 +948,6 @@ test "packed struct initialized in bitcast" {
 test "pointer to container level packed struct field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -727,7 +974,6 @@ test "store undefined to packed result location" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     var x: u4 = 0;
     var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
@@ -742,4 +988,52 @@ test "bitcast back and forth" {
     const s2: S = @bitCast(u);
     try expect(s.one == s2.one);
     try expect(s.two == s2.two);
+}
+
+test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
+    // Originally reported at https://github.com/ziglang/zig/issues/14200
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .arm) return error.SkipZigTest;
+    const S = struct {
+        ps: packed struct { x: i2, y: i2 },
+
+        fn init(cond: bool) @This() {
+            return .{ .ps = .{ .x = 0, .y = if (cond) 1 else 0 } };
+        }
+    };
+
+    var s = S.init(true);
+    // note: this bug is triggered by the == operator, expectEqual will hide it
+    try expect(@as(i2, 0) == s.ps.x);
+    try expect(@as(i2, 1) == s.ps.y);
+}
+
+test "modify nested packed struct aligned field" {
+    // Originally reported at https://github.com/ziglang/zig/issues/14632
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const Options = packed struct {
+        foo: bool = false,
+        bar: bool = false,
+        pretty_print: packed struct {
+            enabled: bool = false,
+            num_spaces: u4 = 4,
+            space_char: enum { space, tab } = .space,
+            indent: u8 = 0,
+        } = .{},
+        baz: bool = false,
+    };
+
+    var opts = Options{};
+    opts.pretty_print.indent += 1;
+    try std.testing.expectEqual(@as(u17, 0b00000000100100000), @bitCast(opts));
+    try std.testing.expect(!opts.foo);
+    try std.testing.expect(!opts.bar);
+    try std.testing.expect(!opts.pretty_print.enabled);
+    try std.testing.expectEqual(@as(u4, 4), opts.pretty_print.num_spaces);
+    try std.testing.expectEqual(@as(u8, 1), opts.pretty_print.indent);
+    try std.testing.expect(!opts.baz);
 }

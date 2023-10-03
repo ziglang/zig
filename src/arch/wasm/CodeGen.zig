@@ -3090,12 +3090,19 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
             return func.lowerParentPtr(elem.base.toValue(), @as(u32, @intCast(elem_offset + offset)));
         },
         .field => |field| {
-            const parent_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
+            const parent_ptr_ty = mod.intern_pool.typeOf(field.base).toType();
+            const parent_ty = parent_ptr_ty.childType(mod);
+            const field_index: u32 = @intCast(field.index);
 
             const field_offset = switch (parent_ty.zigTypeTag(mod)) {
-                .Struct => switch (parent_ty.containerLayout(mod)) {
-                    .Packed => parent_ty.packedStructFieldByteOffset(@as(usize, @intCast(field.index)), mod),
-                    else => parent_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod),
+                .Struct => blk: {
+                    if (mod.typeToPackedStruct(parent_ty)) |struct_type| {
+                        if (ptr.ty.toType().ptrInfo(mod).packed_offset.host_size == 0)
+                            break :blk @divExact(mod.structPackedFieldBitOffset(struct_type, field_index) + parent_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8)
+                        else
+                            break :blk 0;
+                    }
+                    break :blk parent_ty.structFieldOffset(field_index, mod);
                 },
                 .Union => switch (parent_ty.containerLayout(mod)) {
                     .Packed => 0,
@@ -3821,7 +3828,8 @@ fn structFieldPtr(
                 if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
-                break :offset struct_ty.packedStructFieldByteOffset(index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                const struct_type = mod.typeToStruct(struct_ty).?;
+                break :offset @divExact(mod.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .Union => 0,
             else => unreachable,

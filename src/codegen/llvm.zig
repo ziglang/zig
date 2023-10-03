@@ -4,7 +4,6 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.codegen);
 const math = std.math;
-const native_endian = builtin.cpu.arch.endian();
 const DW = std.dwarf;
 
 const Builder = @import("llvm/Builder.zig");
@@ -3770,7 +3769,7 @@ pub const Object = struct {
                     .opt_payload,
                     .elem,
                     .field,
-                    => try o.lowerParentPtr(val, ty.ptrInfo(mod).packed_offset.bit_offset % 8 == 0),
+                    => try o.lowerParentPtr(val),
                     .comptime_field => unreachable,
                 };
                 switch (ptr.len) {
@@ -4230,15 +4229,16 @@ pub const Object = struct {
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
 
-    fn lowerParentPtr(o: *Object, ptr_val: Value, byte_aligned: bool) Allocator.Error!Builder.Constant {
+    fn lowerParentPtr(o: *Object, ptr_val: Value) Allocator.Error!Builder.Constant {
         const mod = o.module;
         const ip = &mod.intern_pool;
-        return switch (ip.indexToKey(ptr_val.toIntern()).ptr.addr) {
+        const ptr = ip.indexToKey(ptr_val.toIntern()).ptr;
+        return switch (ptr.addr) {
             .decl => |decl| o.lowerParentPtrDecl(decl),
             .mut_decl => |mut_decl| o.lowerParentPtrDecl(mut_decl.decl),
             .int => |int| try o.lowerIntAsPtr(int),
             .eu_payload => |eu_ptr| {
-                const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue());
 
                 const eu_ty = ip.typeOf(eu_ptr).toType().childType(mod);
                 const payload_ty = eu_ty.errorUnionPayload(mod);
@@ -4256,7 +4256,7 @@ pub const Object = struct {
                 });
             },
             .opt_payload => |opt_ptr| {
-                const parent_ptr = try o.lowerParentPtr(opt_ptr.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(opt_ptr.toValue());
 
                 const opt_ty = ip.typeOf(opt_ptr).toType().childType(mod);
                 const payload_ty = opt_ty.optionalChild(mod);
@@ -4274,7 +4274,7 @@ pub const Object = struct {
             },
             .comptime_field => unreachable,
             .elem => |elem_ptr| {
-                const parent_ptr = try o.lowerParentPtr(elem_ptr.base.toValue(), true);
+                const parent_ptr = try o.lowerParentPtr(elem_ptr.base.toValue());
                 const elem_ty = ip.typeOf(elem_ptr.base).toType().elemType2(mod);
 
                 return o.builder.gepConst(.inbounds, try o.lowerType(elem_ty), parent_ptr, null, &.{
@@ -4282,9 +4282,9 @@ pub const Object = struct {
                 });
             },
             .field => |field_ptr| {
-                const parent_ptr = try o.lowerParentPtr(field_ptr.base.toValue(), byte_aligned);
-                const parent_ty = ip.typeOf(field_ptr.base).toType().childType(mod);
-
+                const parent_ptr = try o.lowerParentPtr(field_ptr.base.toValue());
+                const parent_ptr_ty = ip.typeOf(field_ptr.base).toType();
+                const parent_ty = parent_ptr_ty.childType(mod);
                 const field_index: u32 = @intCast(field_ptr.index);
                 switch (parent_ty.zigTypeTag(mod)) {
                     .Union => {
@@ -4309,22 +4309,14 @@ pub const Object = struct {
                     },
                     .Struct => {
                         if (mod.typeToPackedStruct(parent_ty)) |struct_type| {
-                            if (!byte_aligned) return parent_ptr;
+                            const ptr_info = ptr.ty.toType().ptrInfo(mod);
+                            if (ptr_info.packed_offset.host_size != 0) return parent_ptr;
+
+                            const parent_ptr_info = parent_ptr_ty.ptrInfo(mod);
+                            const bit_offset = mod.structPackedFieldBitOffset(struct_type, field_index) + parent_ptr_info.packed_offset.bit_offset;
                             const llvm_usize = try o.lowerType(Type.usize);
-                            const base_addr =
-                                try o.builder.castConst(.ptrtoint, parent_ptr, llvm_usize);
-                            // count bits of fields before this one
-                            // TODO https://github.com/ziglang/zig/issues/17178
-                            const prev_bits = b: {
-                                var b: usize = 0;
-                                for (0..field_index) |i| {
-                                    const field_ty = struct_type.field_types.get(ip)[i].toType();
-                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                    b += @intCast(field_ty.bitSize(mod));
-                                }
-                                break :b b;
-                            };
-                            const byte_offset = try o.builder.intConst(llvm_usize, prev_bits / 8);
+                            const base_addr = try o.builder.castConst(.ptrtoint, parent_ptr, llvm_usize);
+                            const byte_offset = try o.builder.intConst(llvm_usize, @divExact(bit_offset, 8));
                             const field_addr = try o.builder.binConst(.add, base_addr, byte_offset);
                             return o.builder.castConst(.inttoptr, field_addr, .ptr);
                         }
@@ -10148,6 +10140,7 @@ pub const FuncGen = struct {
                     const result_ty = self.typeOfIndex(inst);
                     const result_ty_info = result_ty.ptrInfo(mod);
                     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
+                    const struct_type = mod.typeToStruct(struct_ty).?;
 
                     if (result_ty_info.packed_offset.host_size != 0) {
                         // From LLVM's perspective, a pointer to a packed struct and a pointer
@@ -10159,7 +10152,7 @@ pub const FuncGen = struct {
 
                     // We have a pointer to a packed struct field that happens to be byte-aligned.
                     // Offset our operand pointer by the correct number of bytes.
-                    const byte_offset = struct_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                    const byte_offset = @divExact(mod.structPackedFieldBitOffset(struct_type, field_index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
                     if (byte_offset == 0) return struct_ptr;
                     const usize_ty = try o.lowerType(Type.usize);
                     const llvm_index = try o.builder.intValue(usize_ty, byte_offset);

@@ -5774,14 +5774,15 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const ptr_container_ty_info = ptr_container_ty.ptrInfo(mod);
     const container_ty = ptr_container_ty.childType(mod);
 
-    const field_offset: i32 = @intCast(switch (container_ty.containerLayout(mod)) {
-        .Auto, .Extern => container_ty.structFieldOffset(index, mod),
-        .Packed => if (container_ty.zigTypeTag(mod) == .Struct and
-            ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
-            container_ty.packedStructFieldByteOffset(index, mod) + @divExact(ptr_container_ty_info.packed_offset.bit_offset, 8)
-        else
-            0,
-    });
+    const field_offset: i32 = blk: {
+        if (mod.typeToPackedStruct(container_ty)) |struct_type| {
+            break :blk if (ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
+                @divExact(mod.structPackedFieldBitOffset(struct_type, index) + ptr_container_ty_info.packed_offset.bit_offset, 8)
+            else
+                0;
+        }
+        break :blk @intCast(container_ty.structFieldOffset(index, mod));
+    };
 
     const src_mcv = try self.resolveInst(operand);
     const dst_mcv = if (switch (src_mcv) {

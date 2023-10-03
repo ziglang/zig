@@ -5269,22 +5269,26 @@ fn fieldLocation(
     const ip = &mod.intern_pool;
     const container_ty = container_ptr_ty.childType(mod);
     return switch (container_ty.zigTypeTag(mod)) {
-        .Struct => switch (container_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index_usize| {
+        .Struct => blk: {
+            if (mod.typeToPackedStruct(container_ty)) |struct_type| {
+                if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
+                    break :blk .{ .byte_offset = @divExact(mod.structPackedFieldBitOffset(struct_type, field_index) + container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
+                else
+                    break :blk .begin;
+            }
+
+            for (field_index..container_ty.structFieldCount(mod)) |next_field_index_usize| {
                 const next_field_index: u32 = @intCast(next_field_index_usize);
                 if (container_ty.structFieldIsComptime(next_field_index, mod)) continue;
                 const field_ty = container_ty.structFieldType(next_field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                break .{ .field = if (container_ty.isSimpleTuple(mod))
+                break :blk .{ .field = if (container_ty.isSimpleTuple(mod))
                     .{ .field = next_field_index }
                 else
                     .{ .identifier = ip.stringToSlice(container_ty.legacyStructFieldName(next_field_index, mod)) } };
-            } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
-            .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
-                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
-            else
-                .begin,
+            }
+            break :blk if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin;
         },
         .Union => {
             const union_obj = mod.typeToUnion(container_ty).?;
