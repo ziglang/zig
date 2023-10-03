@@ -145,7 +145,7 @@ pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
-        if (try atom.scanRelocsRequiresCode(elf_file)) {
+        if (atom.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
             // Perhaps it would make sense to save the code until flushModule where we
             // would free all of generated code?

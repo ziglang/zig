@@ -1235,7 +1235,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
-    try self.resolveSymbols();
+    self.resolveSymbols();
+    self.markEhFrameAtomsDead();
     self.markImportsExports();
     self.claimUnresolved();
 
@@ -1610,7 +1611,7 @@ fn parseArchive(
 /// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
-fn resolveSymbols(self: *Elf) error{Overflow}!void {
+fn resolveSymbols(self: *Elf) void {
     // Resolve symbols in the ZigModule. For now, we assume that it's always live.
     if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
@@ -1652,11 +1653,11 @@ fn resolveSymbols(self: *Elf) error{Overflow}!void {
             const cg = self.comdatGroup(cg_index);
             const cg_owner = self.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) {
-                for (try object.comdatGroupMembers(cg.shndx)) |shndx| {
+                for (object.comdatGroupMembers(cg.shndx)) |shndx| {
                     const atom_index = object.atoms.items[shndx];
                     if (self.atom(atom_index)) |atom_ptr| {
                         atom_ptr.flags.alive = false;
-                        // atom_ptr.markFdesDead(self);
+                        atom_ptr.markFdesDead(self);
                     }
                 }
             }
@@ -1677,6 +1678,14 @@ fn markLive(self: *Elf) void {
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
+    }
+}
+
+fn markEhFrameAtomsDead(self: *Elf) void {
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        file_ptr.object.markEhFrameAtomsDead(self);
     }
 }
 
@@ -3389,9 +3398,31 @@ fn initSections(self: *Elf) !void {
         .p32 => true,
         .p64 => false,
     };
+    const ptr_size = self.ptrWidthBytes();
 
     for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
+    }
+
+    const needs_eh_frame = for (self.objects.items) |index| {
+        if (self.file(index).?.object.cies.items.len > 0) break true;
+    } else false;
+    if (needs_eh_frame) {
+        self.eh_frame_section_index = try self.addSection(.{
+            .name = ".eh_frame",
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC,
+            .addralign = ptr_size,
+        });
+
+        if (self.base.options.eh_frame_hdr) {
+            self.eh_frame_hdr_section_index = try self.addSection(.{
+                .name = ".eh_frame_hdr",
+                .type = elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC,
+                .addralign = ptr_size,
+            });
+        }
     }
 
     if (self.got.entries.items.len > 0 and self.got_section_index == null) {
@@ -3399,7 +3430,7 @@ fn initSections(self: *Elf) !void {
             .name = ".got",
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .addralign = self.ptrWidthBytes(),
+            .addralign = ptr_size,
         });
     }
 
@@ -3531,6 +3562,18 @@ fn sortSections(self: *Elf) !void {
 fn updateSectionSizes(self: *Elf) !void {
     for (self.objects.items) |index| {
         self.file(index).?.object.updateSectionSizes(self);
+    }
+
+    if (self.eh_frame_section_index) |index| {
+        const shdr = &self.shdrs.items[index];
+        shdr.sh_size = try eh_frame.calcEhFrameSize(self);
+        shdr.sh_addralign = @alignOf(u64);
+    }
+
+    if (self.eh_frame_hdr_section_index) |index| {
+        const shdr = &self.shdrs.items[index];
+        shdr.sh_size = eh_frame.calcEhFrameHdrSize(self);
+        shdr.sh_addralign = @alignOf(u32);
     }
 
     if (self.got_section_index) |index| {
@@ -4937,6 +4980,7 @@ const math = std.math;
 const mem = std.mem;
 
 const codegen = @import("../codegen.zig");
+const eh_frame = @import("Elf/eh_frame.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;

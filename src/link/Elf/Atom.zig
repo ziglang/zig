@@ -49,7 +49,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
     return elf_file.file(self.file_index);
 }
 
-pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
+pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
     const object = self.file(elf_file).?.object;
     return object.shdrs.items[self.input_section_index];
 }
@@ -272,12 +272,24 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     self.* = .{};
 }
 
-pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.Elf64_Rela {
+pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
     return switch (self.file(elf_file).?) {
         .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
         else => unreachable,
     };
+}
+
+pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
+    if (self.fde_start == self.fde_end) return &[0]Fde{};
+    const object = self.file(elf_file).?.object;
+    return object.fdes.items[self.fde_start..self.fde_end];
+}
+
+pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
+    for (self.fdes(elf_file)) |*fde| {
+        fde.alive = false;
+    }
 }
 
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
@@ -296,8 +308,8 @@ pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
     zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
-pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) error{Overflow}!bool {
-    for (try self.relocs(elf_file)) |rel| {
+pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
+    for (self.relocs(elf_file)) |rel| {
         if (rel.r_type() == elf.R_X86_64_GOTTPOFF) return true;
     }
     return false;
@@ -306,7 +318,7 @@ pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) error{Overflow}!bool {
 pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
     const is_dyn_lib = elf_file.isDynLib();
     const file_ptr = self.file(elf_file).?;
-    const rels = try self.relocs(elf_file);
+    const rels = self.relocs(elf_file);
     var i: usize = 0;
     while (i < rels.len) : (i += 1) {
         const rel = rels[i];
@@ -456,7 +468,7 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();
 
-    const rels = try self.relocs(elf_file);
+    const rels = self.relocs(elf_file);
     var i: usize = 0;
     while (i < rels.len) : (i += 1) {
         const rel = rels[i];
@@ -841,11 +853,14 @@ const x86_64 = struct {
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
+const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
 
 const Allocator = std.mem.Allocator;
 const Atom = @This();
 const Elf = @import("../Elf.zig");
+const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
+const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
