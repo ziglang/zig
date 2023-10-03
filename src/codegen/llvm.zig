@@ -7487,7 +7487,7 @@ pub const FuncGen = struct {
         for (body_tail[1..]) |body_inst| {
             switch (air_tags[@intFromEnum(body_inst)]) {
                 .ret => return true,
-                .dbg_block_begin, .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_end => continue,
                 else => return false,
             }
         }
