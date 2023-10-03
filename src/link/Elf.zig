@@ -1762,8 +1762,8 @@ fn scanRelocs(self: *Elf) !void {
     for (self.symbols.items, 0..) |*sym, sym_index| {
         if (sym.flags.needs_got) {
             log.debug("'{s}' needs GOT", .{sym.name(self)});
-            // TODO how can we tell we need to write it again, aka the entry is dirty?
-            _ = try sym.getOrCreateGotEntry(@intCast(sym_index), self);
+            _ = try self.got.addGotSymbol(@intCast(sym_index), self);
+            sym.flags.has_got = true;
         }
     }
 }
