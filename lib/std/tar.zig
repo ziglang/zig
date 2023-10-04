@@ -3,6 +3,8 @@ pub const Options = struct {
     strip_components: u32 = 0,
     /// How to handle the "mode" property of files from within the tar file.
     mode_mode: ModeMode = .executable_bit_only,
+    /// Prevents creation of empty directories.
+    exclude_empty_directories: bool = false,
     /// Provide this to receive detailed error messages.
     /// When this is provided, some errors which would otherwise be returned immediately
     /// will instead be added to this structure. The API user must check the errors
@@ -201,7 +203,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         switch (header.fileType()) {
             .directory => {
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
-                if (file_name.len != 0) {
+                if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
