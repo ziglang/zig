@@ -22,6 +22,9 @@ shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
 phdr_to_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
 /// File offset into the shdr table.
 shdr_table_offset: ?u64 = null,
+/// Table of lists of atoms per output section.
+/// This table is not used to track incrementally generated atoms.
+output_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.Index)) = .{},
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -61,6 +64,7 @@ strtab: StringTable(.strtab) = .{},
 
 /// Representation of the GOT table as committed to the file.
 got: GotSection = .{},
+rela_dyn: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 
 /// Tracked section headers
 text_section_index: ?u16 = null,
@@ -108,6 +112,9 @@ symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
+
+has_text_reloc: bool = false,
+num_ifunc_dynrelocs: usize = 0,
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
@@ -317,6 +324,10 @@ pub fn deinit(self: *Elf) void {
     self.shdrs.deinit(gpa);
     self.phdr_to_shdr_table.deinit(gpa);
     self.phdrs.deinit(gpa);
+    for (self.output_sections.values()) |*list| {
+        list.deinit(gpa);
+    }
+    self.output_sections.deinit(gpa);
     self.shstrtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.symbols.deinit(gpa);
@@ -358,6 +369,7 @@ pub fn deinit(self: *Elf) void {
     self.comdat_groups.deinit(gpa);
     self.comdat_groups_owners.deinit(gpa);
     self.comdat_groups_table.deinit(gpa);
+    self.rela_dyn.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1249,6 +1261,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     for (self.objects.items) |index| {
         try self.file(index).?.object.addAtomsToOutputSections(self);
     }
+    try self.sortInitFini();
     try self.updateSectionSizes();
 
     try self.allocateSections();
@@ -1316,7 +1329,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             const code = try zig_module.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
-            try atom_ptr.resolveRelocsAlloc(self, code);
+            atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
+                // TODO
+                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
+                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
+                },
+                else => |e| return e,
+            };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
 
@@ -3460,6 +3479,69 @@ fn initSections(self: *Elf) !void {
     }
 }
 
+fn sortInitFini(self: *Elf) !void {
+    const gpa = self.base.allocator;
+
+    const Entry = struct {
+        priority: i32,
+        atom_index: Atom.Index,
+
+        pub fn lessThan(ctx: void, lhs: @This(), rhs: @This()) bool {
+            _ = ctx;
+            return lhs.priority < rhs.priority;
+        }
+    };
+
+    for (self.shdrs.items, 0..) |*shdr, shndx| {
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+
+        var is_init_fini = false;
+        var is_ctor_dtor = false;
+        switch (shdr.sh_type) {
+            elf.SHT_PREINIT_ARRAY,
+            elf.SHT_INIT_ARRAY,
+            elf.SHT_FINI_ARRAY,
+            => is_init_fini = true,
+            else => {
+                const name = self.shstrtab.getAssumeExists(shdr.sh_name);
+                is_ctor_dtor = mem.indexOf(u8, name, ".ctors") != null or mem.indexOf(u8, name, ".dtors") != null;
+            },
+        }
+
+        if (!is_init_fini and !is_ctor_dtor) continue;
+
+        const atom_list = self.output_sections.getPtr(@intCast(shndx)) orelse continue;
+
+        var entries = std.ArrayList(Entry).init(gpa);
+        try entries.ensureTotalCapacityPrecise(atom_list.items.len);
+        defer entries.deinit();
+
+        for (atom_list.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            const object = atom_ptr.file(self).?.object;
+            const priority = blk: {
+                if (is_ctor_dtor) {
+                    if (mem.indexOf(u8, object.path, "crtbegin") != null) break :blk std.math.minInt(i32);
+                    if (mem.indexOf(u8, object.path, "crtend") != null) break :blk std.math.maxInt(i32);
+                }
+                const default: i32 = if (is_ctor_dtor) -1 else std.math.maxInt(i32);
+                const name = atom_ptr.name(self);
+                var it = mem.splitBackwards(u8, name, ".");
+                const priority = std.fmt.parseUnsigned(u16, it.first(), 10) catch default;
+                break :blk priority;
+            };
+            entries.appendAssumeCapacity(.{ .priority = priority, .atom_index = atom_index });
+        }
+
+        mem.sort(Entry, entries.items, {}, Entry.lessThan);
+
+        atom_list.clearRetainingCapacity();
+        for (entries.items) |entry| {
+            atom_list.appendAssumeCapacity(entry.atom_index);
+        }
+    }
+}
+
 fn sectionRank(self: *Elf, shdr: elf.Elf64_Shdr) u8 {
     const name = self.shstrtab.getAssumeExists(shdr.sh_name);
     const flags = shdr.sh_flags;
@@ -3926,6 +4008,8 @@ fn writeAtoms(self: *Elf) !void {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
 
+        const atom_list = self.output_sections.get(@intCast(shndx)) orelse continue;
+
         log.debug("writing atoms in '{s}' section", .{self.shstrtab.getAssumeExists(shdr.sh_name)});
 
         const buffer = try gpa.alloc(u8, shdr.sh_size);
@@ -3937,8 +4021,32 @@ fn writeAtoms(self: *Elf) !void {
             0;
         @memset(buffer, padding_byte);
 
-        for (self.objects.items) |index| {
-            try self.file(index).?.object.writeAtoms(self, @intCast(shndx), buffer, &undefs);
+        for (atom_list.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            assert(atom_ptr.flags.alive);
+
+            const object = atom_ptr.file(self).?.object;
+            const offset = atom_ptr.value - shdr.sh_addr;
+
+            log.debug("writing atom({d}) at 0x{x}", .{ atom_index, shdr.sh_offset + offset });
+
+            // TODO decompress directly into provided buffer
+            const out_code = buffer[offset..][0..atom_ptr.size];
+            const in_code = try object.codeDecompressAlloc(self, atom_index);
+            defer gpa.free(in_code);
+            @memcpy(out_code, in_code);
+
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) {
+                try atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs);
+            } else {
+                atom_ptr.resolveRelocsAlloc(self, out_code) catch |err| switch (err) {
+                    // TODO
+                    error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
+                        log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
+                    },
+                    else => |e| return e,
+                };
+            }
         }
 
         try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
@@ -4495,9 +4603,58 @@ pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
     } else return null;
 }
 
-pub fn calcNumIRelativeRelocs(self: *Elf) u64 {
-    _ = self;
-    unreachable; // TODO
+const RelaDyn = struct {
+    offset: u64,
+    sym: u64 = 0,
+    type: u32,
+    addend: i64 = 0,
+};
+
+pub fn addRelaDyn(self: *Elf, opts: RelaDyn) !void {
+    try self.rela_dyn.ensureUnusedCapacity(self.base.alloctor, 1);
+    self.addRelaDynAssumeCapacity(opts);
+}
+
+pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
+    self.rela_dyn.appendAssumeCapacity(.{
+        .r_offset = opts.offset,
+        .r_info = (opts.sym << 32) | opts.type,
+        .r_addend = opts.addend,
+    });
+}
+
+fn sortRelaDyn(self: *Elf) void {
+    const Sort = struct {
+        fn rank(rel: elf.Elf64_Rela) u2 {
+            return switch (rel.r_type()) {
+                elf.R_X86_64_RELATIVE => 0,
+                elf.R_X86_64_IRELATIVE => 2,
+                else => 1,
+            };
+        }
+
+        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            _ = ctx;
+            if (rank(lhs) == rank(rhs)) {
+                if (lhs.r_sym() == rhs.r_sym()) return lhs.r_offset < rhs.r_offset;
+                return lhs.r_sym() < rhs.r_sym();
+            }
+            return rank(lhs) < rank(rhs);
+        }
+    };
+    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, {}, Sort.lessThan);
+}
+
+fn calcNumIRelativeRelocs(self: *Elf) usize {
+    var count: usize = self.num_ifunc_dynrelocs;
+
+    for (self.got.entries.items) |entry| {
+        if (entry.tag != .got) continue;
+        const sym = self.symbol(entry.symbol_index);
+        if (sym.isIFunc(self)) count += 1;
+    }
+
+    return count;
 }
 
 pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {

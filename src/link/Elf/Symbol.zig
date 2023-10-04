@@ -128,23 +128,26 @@ pub fn getOrCreateGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf)
     return .{ .found_existing = false, .index = index };
 }
 
-// pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
-//     if (!symbol.flags.tlsgd) return 0;
-//     const extra = symbol.getExtra(elf_file).?;
-//     return elf_file.getGotEntryAddress(extra.tlsgd);
-// }
+pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_tlsgd) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const entry = elf_file.got.entries.items[extras.tlsgd];
+    return entry.address(elf_file);
+}
 
-// pub fn gotTpAddress(symbol: Symbol, elf_file: *Elf) u64 {
-//     if (!symbol.flags.gottp) return 0;
-//     const extra = symbol.getExtra(elf_file).?;
-//     return elf_file.getGotEntryAddress(extra.gottp);
-// }
+pub fn gotTpAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_gottp) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const entry = elf_file.got.entries.items[extras.gottp];
+    return entry.address(elf_file);
+}
 
-// pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) u64 {
-//     if (!symbol.flags.tlsdesc) return 0;
-//     const extra = symbol.getExtra(elf_file).?;
-//     return elf_file.getGotEntryAddress(extra.tlsdesc);
-// }
+pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_tlsdesc) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const entry = elf_file.got.entries.items[extras.tlsdesc];
+    return entry.address(elf_file);
+}
 
 // pub fn alignment(symbol: Symbol, elf_file: *Elf) !u64 {
 //     const file = symbol.getFile(elf_file) orelse return 0;
@@ -318,12 +321,12 @@ pub const Flags = packed struct {
 
     /// Whether the symbol contains PLT indirection.
     needs_plt: bool = false,
-    plt: bool = false,
+    has_plt: bool = false,
     /// Whether the PLT entry is canonical.
     is_canonical: bool = false,
 
     /// Whether the symbol contains COPYREL directive.
-    copy_rel: bool = false,
+    needs_copy_rel: bool = false,
     has_copy_rel: bool = false,
     has_dynamic: bool = false,
 
@@ -336,7 +339,8 @@ pub const Flags = packed struct {
     has_gottp: bool = false,
 
     /// Whether the symbol contains TLSDESC indirection.
-    tlsdesc: bool = false,
+    needs_tlsdesc: bool = false,
+    has_tlsdesc: bool = false,
 };
 
 pub const Extra = struct {

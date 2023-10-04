@@ -1,9 +1,15 @@
 pub const GotSection = struct {
     entries: std.ArrayListUnmanaged(Entry) = .{},
-    needs_rela: bool = false,
     output_symtab_size: Elf.SymtabSize = .{},
+    tlsld_index: ?u32 = null,
+    flags: Flags = .{},
 
     pub const Index = u32;
+
+    const Flags = packed struct {
+        needs_rela: bool = false,
+        needs_tlsld: bool = false,
+    };
 
     const Tag = enum {
         got,
@@ -57,7 +63,7 @@ pub const GotSection = struct {
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
         if (symbol.flags.import or symbol.isIFunc(elf_file) or (elf_file.base.options.pic and !symbol.isAbs(elf_file)))
-            got.needs_rela = true;
+            got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.got = index;
