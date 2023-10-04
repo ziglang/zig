@@ -1,3 +1,4 @@
+pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
 
@@ -50,6 +51,7 @@ pub const multihash_len = 1 + 1 + Hash.digest_length;
 name: []const u8,
 version: std.SemanticVersion,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+paths: std.StringArrayHashMapUnmanaged(void),
 
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
@@ -74,11 +76,13 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .name = undefined,
         .version = undefined,
         .dependencies = .{},
+        .paths = .{},
         .buf = .{},
     };
     defer p.buf.deinit(gpa);
     defer p.errors.deinit(gpa);
     defer p.dependencies.deinit(gpa);
+    defer p.paths.deinit(gpa);
 
     p.parseRoot(main_node_index) catch |err| switch (err) {
         error.ParseFailure => assert(p.errors.items.len > 0),
@@ -89,6 +93,7 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .name = p.name,
         .version = p.version,
         .dependencies = try p.dependencies.clone(p.arena),
+        .paths = try p.paths.clone(p.arena),
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
         .arena_state = arena_instance.state,
     };
@@ -143,6 +148,7 @@ const Parse = struct {
     name: []const u8,
     version: std.SemanticVersion,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+    paths: std.StringArrayHashMapUnmanaged(void),
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -158,6 +164,7 @@ const Parse = struct {
 
         var have_name = false;
         var have_version = false;
+        var have_included_paths = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -167,6 +174,8 @@ const Parse = struct {
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "dependencies")) {
                 try parseDependencies(p, field_init);
+            } else if (mem.eql(u8, field_name, "paths")) {
+                try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseString(p, field_init);
                 have_name = true;
@@ -189,6 +198,10 @@ const Parse = struct {
 
         if (!have_version) {
             try appendError(p, main_token, "missing top-level 'version' field", .{});
+        }
+
+        if (!have_included_paths) {
+            try appendError(p, main_token, "missing top-level 'paths' field", .{});
         }
     }
 
@@ -275,6 +288,23 @@ const Parse = struct {
         }
 
         return dep;
+    }
+
+    fn parseIncludedPaths(p: *Parse, node: Ast.Node.Index) !void {
+        const ast = p.ast;
+        const main_tokens = ast.nodes.items(.main_token);
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const array_init = ast.fullArrayInit(&buf, node) orelse {
+            const tok = main_tokens[node];
+            return fail(p, tok, "expected paths expression to be a struct", .{});
+        };
+
+        for (array_init.ast.elements) |elem_node| {
+            const path_string = try parseString(p, elem_node);
+            const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
+            try p.paths.put(p.gpa, normalized, {});
+        }
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
