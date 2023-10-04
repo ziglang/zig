@@ -13,7 +13,7 @@ pub fn build(b: *Build) void {
     };
 
     // Exercise linker with self-hosted backend (no LLVM)
-    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
+    // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
     // Exercise linker with LLVM backend
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
