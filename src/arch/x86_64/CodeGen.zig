@@ -807,7 +807,7 @@ pub fn generate(
         .lower = .{
             .allocator = bin_file.allocator,
             .mir = mir,
-            .target = &bin_file.options.target,
+            .cc = abi.resolveCallingConvention(fn_info.cc, function.target.*),
             .src_loc = src_loc,
         },
         .bin_file = bin_file,
@@ -893,7 +893,7 @@ pub fn generateLazy(
         .lower = .{
             .allocator = bin_file.allocator,
             .mir = mir,
-            .target = &bin_file.options.target,
+            .cc = abi.resolveCallingConvention(.Unspecified, function.target.*),
             .src_loc = src_loc,
         },
         .bin_file = bin_file,
@@ -980,6 +980,7 @@ fn formatWipMir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
+    const mod = data.self.bin_file.options.module.?;
     var lower = Lower{
         .allocator = data.self.gpa,
         .mir = .{
@@ -987,7 +988,7 @@ fn formatWipMir(
             .extra = data.self.mir_extra.items,
             .frame_locs = (std.MultiArrayList(Mir.FrameLoc){}).slice(),
         },
-        .target = data.self.target,
+        .cc = mod.typeToFunc(data.self.fn_type).?.cc,
         .src_loc = data.self.src_loc,
     };
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
@@ -1680,7 +1681,7 @@ fn gen(self: *Self) InnerError!void {
         try self.asmRegister(.{ ._, .pop }, .rbp);
         try self.asmOpOnly(.{ ._, .ret });
 
-        const frame_layout = try self.computeFrameLayout();
+        const frame_layout = try self.computeFrameLayout(cc);
         const need_frame_align = frame_layout.stack_mask != math.maxInt(u32);
         const need_stack_adjust = frame_layout.stack_adjust > 0;
         const need_save_reg = frame_layout.save_reg_list.count() > 0;
@@ -2075,7 +2076,8 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             const enum_ty = lazy_sym.ty;
             wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(self.bin_file.options.module.?)});
 
-            const param_regs = abi.getCAbiIntParamRegs(self.target.*);
+            const resolved_cc = abi.resolveCallingConvention(.Unspecified, self.target.*);
+            const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
             const param_locks = self.register_manager.lockRegsAssumeUnused(2, param_regs[0..2].*);
             defer for (param_locks) |lock| self.register_manager.unlockReg(lock);
 
@@ -2208,7 +2210,7 @@ fn setFrameLoc(
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
 }
 
-fn computeFrameLayout(self: *Self) !FrameLayout {
+fn computeFrameLayout(self: *Self, cc: std.builtin.CallingConvention) !FrameLayout {
     const frame_allocs_len = self.frame_allocs.len;
     try self.frame_locs.resize(self.gpa, frame_allocs_len);
     const stack_frame_order = try self.gpa.alloc(FrameIndex, frame_allocs_len - FrameIndex.named_count);
@@ -2240,7 +2242,8 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     // Create list of registers to save in the prologue.
     // TODO handle register classes
     var save_reg_list = Mir.RegisterList{};
-    const callee_preserved_regs = abi.getCalleePreservedRegs(self.target.*);
+    const callee_preserved_regs =
+        abi.getCalleePreservedRegs(abi.resolveCallingConvention(cc, self.target.*));
     for (callee_preserved_regs) |reg| {
         if (self.register_manager.isRegAllocated(reg)) {
             save_reg_list.push(callee_preserved_regs, reg);
@@ -8477,8 +8480,7 @@ fn genCall(self: *Self, info: union(enum) {
     try arg_locks.ensureTotalCapacity(16);
     defer for (arg_locks.items) |arg_lock| if (arg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    var call_info =
-        try self.resolveCallingConventionValues(fn_info, var_args, .call_frame);
+    var call_info = try self.resolveCallingConventionValues(fn_info, var_args, .call_frame);
     defer call_info.deinit(self);
 
     // We need a properly aligned and sized call frame to be able to call this function.
@@ -8497,7 +8499,9 @@ fn genCall(self: *Self, info: union(enum) {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillRegisters(abi.getCallerPreservedRegs(self.target.*));
+    try self.spillRegisters(abi.getCallerPreservedRegs(
+        abi.resolveCallingConvention(fn_info.cc, self.target.*),
+    ));
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
@@ -11727,6 +11731,7 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const inst_ty = self.typeOfIndex(inst);
     const enum_ty = self.typeOf(un_op);
+    const resolved_cc = abi.resolveCallingConvention(.Unspecified, self.target.*);
 
     // We need a properly aligned and sized call frame to be able to call this function.
     {
@@ -11744,9 +11749,9 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillRegisters(abi.getCallerPreservedRegs(self.target.*));
+    try self.spillRegisters(abi.getCallerPreservedRegs(resolved_cc));
 
-    const param_regs = abi.getCAbiIntParamRegs(self.target.*);
+    const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
 
     const dst_mcv = try self.allocRegOrMem(inst, false);
     try self.genSetReg(param_regs[0], Type.usize, dst_mcv.address());
@@ -12523,23 +12528,25 @@ fn resolveCallingConventionValues(
 
     const ret_ty = fn_info.return_type.toType();
 
+    const resolved_cc = abi.resolveCallingConvention(cc, self.target.*);
     switch (cc) {
         .Naked => {
             assert(result.args.len == 0);
             result.return_value = InstTracking.init(.unreach);
             result.stack_align = .@"8";
         },
-        .C => {
+        .C, .SysV, .Win64 => {
             var param_reg_i: usize = 0;
             var param_sse_reg_i: usize = 0;
             result.stack_align = .@"16";
 
-            switch (self.target.os.tag) {
-                .windows => {
+            switch (resolved_cc) {
+                .SysV => {},
+                .Win64 => {
                     // Align the stack to 16bytes before allocating shadow stack space (if any).
                     result.stack_byte_count += @intCast(4 * Type.usize.abiSize(mod));
                 },
-                else => {},
+                else => unreachable,
             }
 
             // Return values
@@ -12549,13 +12556,14 @@ fn resolveCallingConventionValues(
                 // TODO: is this even possible for C calling convention?
                 result.return_value = InstTracking.init(.none);
             } else {
-                const classes = switch (self.target.os.tag) {
-                    .windows => &[1]abi.Class{abi.classifyWindows(ret_ty, mod)},
-                    else => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
+                const classes = switch (resolved_cc) {
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
+                    .Win64 => &[1]abi.Class{abi.classifyWindows(ret_ty, mod)},
+                    else => unreachable,
                 };
                 for (
                     classes,
-                    abi.getCAbiIntReturnRegs(self.target.*)[0..classes.len],
+                    abi.getCAbiIntReturnRegs(resolved_cc)[0..classes.len],
                     0..,
                 ) |class, ret_reg, ret_reg_i| {
                     result.return_value = switch (classes[0]) {
@@ -12577,7 +12585,7 @@ fn resolveCallingConventionValues(
                         .memory => switch (ret_reg_i) {
                             0 => ret: {
                                 const ret_indirect_reg =
-                                    abi.getCAbiIntParamRegs(self.target.*)[param_reg_i];
+                                    abi.getCAbiIntParamRegs(resolved_cc)[param_reg_i];
                                 param_reg_i += 1;
                                 break :ret .{
                                     .short = .{ .indirect = .{ .reg = ret_reg } },
@@ -12603,8 +12611,8 @@ fn resolveCallingConventionValues(
                 };
                 for (classes, 0..) |class, class_i| {
                     switch (class) {
-                        .integer => if (param_reg_i < abi.getCAbiIntParamRegs(self.target.*).len) {
-                            const param_reg = abi.getCAbiIntParamRegs(self.target.*)[param_reg_i];
+                        .integer => if (param_reg_i < abi.getCAbiIntParamRegs(resolved_cc).len) {
+                            const param_reg = abi.getCAbiIntParamRegs(resolved_cc)[param_reg_i];
                             param_reg_i += 1;
 
                             arg.* = switch (class_i) {
@@ -12661,13 +12669,13 @@ fn resolveCallingConventionValues(
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 result.return_value = InstTracking.init(.none);
             } else {
-                const ret_reg = abi.getCAbiIntReturnRegs(self.target.*)[0];
+                const ret_reg = abi.getCAbiIntReturnRegs(resolved_cc)[0];
                 const ret_ty_size: u31 = @intCast(ret_ty.abiSize(mod));
                 if (ret_ty_size <= 8 and !ret_ty.isRuntimeFloat()) {
                     const aliased_reg = registerAlias(ret_reg, ret_ty_size);
                     result.return_value = .{ .short = .{ .register = aliased_reg }, .long = .none };
                 } else {
-                    const ret_indirect_reg = abi.getCAbiIntParamRegs(self.target.*)[0];
+                    const ret_indirect_reg = abi.getCAbiIntParamRegs(resolved_cc)[0];
                     result.return_value = .{
                         .short = .{ .indirect = .{ .reg = ret_reg } },
                         .long = .{ .indirect = .{ .reg = ret_indirect_reg } },

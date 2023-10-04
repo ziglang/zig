@@ -463,31 +463,48 @@ pub const Win64 = struct {
     pub const c_abi_int_return_regs = [_]Register{.rax};
 };
 
-pub fn getCalleePreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.callee_preserved_regs,
-        else => &SysV.callee_preserved_regs,
+pub fn resolveCallingConvention(
+    cc: std.builtin.CallingConvention,
+    target: std.Target,
+) std.builtin.CallingConvention {
+    return switch (cc) {
+        .Unspecified, .C => switch (target.os.tag) {
+            else => .SysV,
+            .windows => .Win64,
+        },
+        else => cc,
     };
 }
 
-pub fn getCallerPreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.caller_preserved_regs,
-        else => &SysV.caller_preserved_regs,
+pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.callee_preserved_regs,
+        .Win64 => &Win64.callee_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntParamRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_param_regs,
-        else => &SysV.c_abi_int_param_regs,
+pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.caller_preserved_regs,
+        .Win64 => &Win64.caller_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntReturnRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_return_regs,
-        else => &SysV.c_abi_int_return_regs,
+pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_param_regs,
+        .Win64 => &Win64.c_abi_int_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_return_regs,
+        .Win64 => &Win64.c_abi_int_return_regs,
+        else => unreachable,
     };
 }
 
@@ -524,7 +541,6 @@ pub const RegisterClass = struct {
 
 const builtin = @import("builtin");
 const std = @import("std");
-const Target = std.Target;
 const assert = std.debug.assert;
 const testing = std.testing;
 
