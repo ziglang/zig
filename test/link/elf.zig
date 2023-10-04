@@ -94,34 +94,36 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         test_step.dependOn(&check.step);
     }
 
-    // {
-    //     const exe = cc(b, opts);
-    //     exe.addFileSource(obj_out.file);
-    //     exe.addArg("-Wl,-gc-sections");
+    {
+        const exe = addExecutable(b, opts);
+        exe.addObject(obj);
+        exe.link_gc_sections = true;
+        exe.is_linking_libc = true;
+        exe.is_linking_libcpp = true;
 
-    //     const run = exe.run();
-    //     run.expectStdOutEqual("1 2\n");
-    //     test_step.dependOn(run.step());
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
 
-    //     const check = exe.check();
-    //     check.checkInSymtab();
-    //     check.checkContains("live_var1");
-    //     check.checkInSymtab();
-    //     check.checkContains("live_var2");
-    //     check.checkInSymtab();
-    //     check.checkNotPresent("dead_var1");
-    //     check.checkInSymtab();
-    //     check.checkNotPresent("dead_var2");
-    //     check.checkInSymtab();
-    //     check.checkContains("live_fn1");
-    //     check.checkInSymtab();
-    //     check.checkContains("live_fn2");
-    //     check.checkInSymtab();
-    //     check.checkNotPresent("dead_fn1");
-    //     check.checkInSymtab();
-    //     check.checkNotPresent("dead_fn2");
-    //     test_step.dependOn(&check.step);
-    // }
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn2");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
