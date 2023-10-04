@@ -1172,7 +1172,7 @@ pub const Index = u32;
 
 pub const Flags = packed struct {
     /// Specifies whether this atom is alive or has been garbage collected.
-    alive: bool = false,
+    alive: bool = true,
 
     /// Specifies if the atom has been visited during garbage collection.
     visited: bool = false,

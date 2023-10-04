@@ -130,7 +130,10 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     continue;
                 }
 
-                const group_signature_off = try self.strings.insert(elf_file.base.allocator, group_signature);
+                // Note the assumption about a global strtab used here to disambiguate common
+                // COMDAT owners.
+                const gpa = elf_file.base.allocator;
+                const group_signature_off = try elf_file.strtab.insert(gpa, group_signature);
                 const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature_off);
                 const comdat_group_index = try elf_file.addComdatGroup();
                 const comdat_group = elf_file.comdatGroup(comdat_group_index);
@@ -138,7 +141,7 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     .owner = gop.index,
                     .shndx = shndx,
                 };
-                try self.comdat_groups.append(elf_file.base.allocator, comdat_group_index);
+                try self.comdat_groups.append(gpa, comdat_group_index);
             },
 
             elf.SHT_SYMTAB_SHNDX => @panic("TODO SHT_SYMTAB_SHNDX"),
@@ -184,7 +187,6 @@ fn addAtom(
     atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
     atom.file_index = self.index;
     atom.input_section_index = shndx;
-    atom.flags.alive = true;
     self.atoms.items[shndx] = atom_index;
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
