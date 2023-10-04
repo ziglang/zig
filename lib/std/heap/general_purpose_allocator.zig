@@ -541,10 +541,14 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         fn searchBucket(
             buckets: *Buckets,
             addr: usize,
+            current_bucket: ?*BucketHeader,
         ) ?*BucketHeader {
-            const search_page = mem.alignBackward(usize, addr, page_size);
+            const search_page: [*]align(page_size) u8 = @ptrFromInt(mem.alignBackward(usize, addr, page_size));
+            if (current_bucket != null and current_bucket.?.page == search_page) {
+                return current_bucket;
+            }
             var search_header: BucketHeader = undefined;
-            search_header.page = @ptrFromInt(search_page);
+            search_header.page = search_page;
             const entry = buckets.getEntryFor(&search_header);
             return if (entry.node) |node| node.key else null;
         }
@@ -712,7 +716,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var bucket_index = math.log2(size_class_hint);
             var size_class: usize = size_class_hint;
             const bucket = while (bucket_index < small_bucket_count) : (bucket_index += 1) {
-                if (searchBucket(&self.buckets[bucket_index], @intFromPtr(old_mem.ptr))) |bucket| {
+                if (searchBucket(&self.buckets[bucket_index], @intFromPtr(old_mem.ptr), self.cur_buckets[bucket_index])) |bucket| {
                     break bucket;
                 }
                 size_class *= 2;
@@ -720,7 +724,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 if (config.retain_metadata) {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
-                        if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr))) |bucket| {
+                        if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
@@ -830,7 +834,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var bucket_index = math.log2(size_class_hint);
             var size_class: usize = size_class_hint;
             const bucket = while (bucket_index < small_bucket_count) : (bucket_index += 1) {
-                if (searchBucket(&self.buckets[bucket_index], @intFromPtr(old_mem.ptr))) |bucket| {
+                if (searchBucket(&self.buckets[bucket_index], @intFromPtr(old_mem.ptr), self.cur_buckets[bucket_index])) |bucket| {
                     break bucket;
                 }
                 size_class *= 2;
@@ -838,7 +842,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 if (config.retain_metadata) {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
-                        if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr))) |bucket| {
+                        if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
@@ -1387,10 +1391,10 @@ test "double frees" {
     const index: usize = 6;
     const size_class: usize = @as(usize, 1) << 6;
     const small = try allocator.alloc(u8, size_class);
-    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(small.ptr)) != null);
+    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(small.ptr), gpa.cur_buckets[index]) != null);
     allocator.free(small);
-    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(small.ptr)) == null);
-    try std.testing.expect(GPA.searchBucket(&gpa.empty_buckets, @intFromPtr(small.ptr)) != null);
+    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(small.ptr), gpa.cur_buckets[index]) == null);
+    try std.testing.expect(GPA.searchBucket(&gpa.empty_buckets, @intFromPtr(small.ptr), null) != null);
 
     // detect a large allocation double free
     const large = try allocator.alloc(u8, 2 * page_size);
@@ -1408,7 +1412,7 @@ test "double frees" {
     // check that flushing retained metadata doesn't disturb live allocations
     gpa.flushRetainedMetadata();
     try std.testing.expect(gpa.empty_buckets.root == null);
-    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(normal_small.ptr)) != null);
+    try std.testing.expect(GPA.searchBucket(&gpa.buckets[index], @intFromPtr(normal_small.ptr), gpa.cur_buckets[index]) != null);
     try std.testing.expect(gpa.large_allocations.contains(@intFromPtr(normal_large.ptr)));
     try std.testing.expect(!gpa.large_allocations.contains(@intFromPtr(large.ptr)));
 }
