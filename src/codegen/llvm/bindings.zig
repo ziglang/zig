@@ -919,6 +919,7 @@ pub const TargetMachine = opaque {
         Reloc: RelocMode,
         CodeModel: CodeModel,
         function_sections: bool,
+        data_sections: bool,
         float_abi: ABIType,
         abi_name: ?[*:0]const u8,
     ) *TargetMachine;

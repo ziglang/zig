@@ -139,6 +139,7 @@ pub const Options = struct {
     link_libunwind: bool,
     darwin_sdk_layout: ?DarwinSdkLayout,
     function_sections: bool,
+    data_sections: bool,
     no_builtin: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
