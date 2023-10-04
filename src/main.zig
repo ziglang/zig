@@ -4714,7 +4714,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         defer if (cleanup_build_dir) |*dir| dir.close();
 
         const cwd_path = try process.getCwdAlloc(arena);
-        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else "build.zig";
+        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else Package.build_zig_basename;
         const build_directory: Compilation.Directory = blk: {
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
