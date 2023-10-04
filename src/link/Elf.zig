@@ -53,7 +53,7 @@ phdr_load_tls_data_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with TLS zerofill data.
 phdr_load_tls_zerofill_index: ?u16 = null,
 
-entry_addr: ?u64 = null,
+entry_index: ?Symbol.Index = null,
 page_size: u32,
 default_sym_version: elf.Elf64_Versym,
 
@@ -665,7 +665,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .alignment = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
-        self.entry_addr = null;
     }
 
     if (self.phdr_got_index == null) {
@@ -1283,9 +1282,29 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
-    try self.addLinkerDefinedSymbols();
     self.markEhFrameAtomsDead();
     self.markImportsExports();
+
+    // Look for entry address in objects if not set by the incremental compiler.
+    if (self.entry_index == null) {
+        const entry: ?[]const u8 = entry: {
+            if (self.base.options.entry) |entry| break :entry entry;
+            if (!self.isDynLib()) break :entry "_start";
+            break :entry null;
+        };
+        self.entry_index = if (entry) |name| self.globalByName(name) else null;
+    }
+
+    const gc_sections = self.base.options.gc_sections orelse false;
+    if (gc_sections) {
+        try gc.gcAtoms(self);
+
+        // if (self.base.options.print_gc_sections) {
+        //     try gc.dumpPrunedAtoms(self);
+        // }
+    }
+
+    try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
 
     // Scan and create missing synthetic entries such as GOT indirection.
@@ -1308,19 +1327,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // State can be dumped via `--debug-log link_state`.
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
-    }
-
-    // Look for entry address in objects if not set by the incremental compiler.
-    if (self.entry_addr == null) {
-        const entry: ?[]const u8 = entry: {
-            if (self.base.options.entry) |entry| break :entry entry;
-            if (!self.isDynLib()) break :entry "_start";
-            break :entry null;
-        };
-        self.entry_addr = if (entry) |name| entry_addr: {
-            const global_index = self.globalByName(name) orelse break :entry_addr null;
-            break :entry_addr self.symbol(global_index).value;
-        } else null;
     }
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
@@ -1538,7 +1544,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
-    if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
+    if (self.entry_index == null and self.base.options.effectiveOutputMode() == .Exe) {
         log.debug("flushing. no_entry_point_found = true", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
@@ -2580,7 +2586,7 @@ fn writeHeader(self: *Elf) !void {
     mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
     index += 4;
 
-    const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
+    const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).value else 0;
 
     // TODO
     const phdr_table_offset = if (self.phdr_table_index) |ind|
@@ -3199,13 +3205,7 @@ pub fn updateDeclExports(
         }
         const stb_bits: u8 = switch (exp.opts.linkage) {
             .Internal => elf.STB_LOCAL,
-            .Strong => blk: {
-                const entry_name = self.base.options.entry orelse "_start";
-                if (mem.eql(u8, exp_name, entry_name)) {
-                    self.entry_addr = decl_sym.value;
-                }
-                break :blk elf.STB_GLOBAL;
-            },
+            .Strong => elf.STB_GLOBAL,
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
@@ -4693,6 +4693,16 @@ fn calcNumIRelativeRelocs(self: *Elf) usize {
     return count;
 }
 
+pub fn isCIdentifier(name: []const u8) bool {
+    if (name.len == 0) return false;
+    const first_c = name[0];
+    if (!std.ascii.isAlphabetic(first_c) and first_c != '_') return false;
+    for (name[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
+    }
+    return true;
+}
+
 pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
     if (atom_index == 0) return null;
     assert(atom_index < self.atoms.items.len);
@@ -5202,6 +5212,7 @@ const mem = std.mem;
 
 const codegen = @import("../codegen.zig");
 const eh_frame = @import("Elf/eh_frame.zig");
+const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;

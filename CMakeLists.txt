@@ -595,6 +595,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigModule.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/file.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/gc.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/synthetic_sections.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"

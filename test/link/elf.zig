@@ -60,6 +60,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         \\}
     );
     obj.link_function_sections = true;
+    obj.link_data_sections = true;
     obj.is_linking_libc = true;
     obj.is_linking_libcpp = true;
 
