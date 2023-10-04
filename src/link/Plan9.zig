@@ -211,6 +211,31 @@ pub const Atom = struct {
     }
 };
 
+/// the plan9 debuginfo output is a bytecode with 4 opcodes
+/// assume all numbers/variables are bytes
+/// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
+/// x when x < 65 -> add x to line offset
+/// x when x < 129 -> subtract 64 from x and subtract it from the line offset
+/// x -> subtract 129 from x, multiply it by the quanta of the instruction size
+/// (1 on x86_64), and add it to the pc
+/// after every opcode, add the quanta of the instruction size to the pc
+pub const DebugInfoOutput = struct {
+    /// the actual opcodes
+    dbg_line: std.ArrayList(u8),
+    /// what line the debuginfo starts on
+    /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+    start_line: ?u32,
+    /// what the line count ends on after codegen
+    /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+    end_line: u32,
+    /// the last pc change op
+    /// This is very useful for adding quanta
+    /// to it if its not actually the last one.
+    pcop_change_index: ?u32,
+    /// cached pc quanta
+    pc_quanta: u8,
+};
+
 const DeclMetadata = struct {
     index: Atom.Index,
     exports: std.ArrayListUnmanaged(usize) = .{},
@@ -376,11 +401,15 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_line_buffer.deinit();
-    var start_line: ?u32 = null;
-    var end_line: u32 = undefined;
-    var pcop_change_index: ?u32 = null;
+    var dbg_info_output: DebugInfoOutput = .{
+        .dbg_line = std.ArrayList(u8).init(self.base.allocator),
+        .start_line = null,
+        .end_line = undefined,
+        .pcop_change_index = null,
+        // we have already checked the target in the linker to make sure it is compatable
+        .pc_quanta = aout.getPCQuant(self.base.options.target.cpu.arch) catch unreachable,
+    };
+    defer dbg_info_output.dbg_line.deinit();
 
     const res = try codegen.generateFunction(
         &self.base,
@@ -389,14 +418,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
         air,
         liveness,
         &code_buffer,
-        .{
-            .plan9 = .{
-                .dbg_line = &dbg_line_buffer,
-                .end_line = &end_line,
-                .start_line = &start_line,
-                .pcop_change_index = &pcop_change_index,
-            },
-        },
+        .{ .plan9 = &dbg_info_output },
     );
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
@@ -412,9 +434,9 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     };
     const out: FnDeclOutput = .{
         .code = code,
-        .lineinfo = try dbg_line_buffer.toOwnedSlice(),
-        .start_line = start_line.?,
-        .end_line = end_line,
+        .lineinfo = try dbg_info_output.dbg_line.toOwnedSlice(),
+        .start_line = dbg_info_output.start_line.?,
+        .end_line = dbg_info_output.end_line,
     };
     try self.putFn(decl_index, out);
     return self.updateFinish(decl_index);
