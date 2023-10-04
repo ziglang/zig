@@ -1069,10 +1069,11 @@ pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link
     if (use_lld) {
         return self.linkWithLLD(comp, prog_node);
     }
-    switch (self.base.options.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp, prog_node),
-        .Lib => return error.TODOImplementWritingLibFiles,
+    if (self.base.options.output_mode == .Lib and self.isStatic()) {
+        // TODO writing static library files
+        return error.TODOImplementWritingLibFiles;
     }
+    try self.flushModule(comp, prog_node);
 }
 
 pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -1098,21 +1099,44 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const target = self.base.options.target;
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, path });
+        } else {
+            break :blk path;
+        }
+    } else null;
+
+    if (self.base.options.output_mode == .Obj and self.zig_module_index == null) {
+        // TODO this will become -r route I guess. For now, just copy the object file.
+        const the_object_path = blk: {
+            if (self.base.options.objects.len != 0) {
+                break :blk self.base.options.objects[0].path;
+            }
+
+            if (comp.c_object_table.count() != 0)
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
+
+            if (module_obj_path) |p|
+                break :blk p;
+
+            // TODO I think this is unreachable. Audit this situation when solving the above TODO
+            // regarding eliding redundant object -> object transformations.
+            return error.NoObjectsToLink;
+        };
+        // This can happen when using --enable-cache and using the stage1 backend. In this case
+        // we can skip the file copy.
+        if (!mem.eql(u8, the_object_path, full_out_path)) {
+            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
+        }
+        return;
+    }
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
     var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
 
-    if (self.base.intermediary_basename) |path| {
-        const full_path = blk: {
-            if (fs.path.dirname(full_out_path)) |dirname| {
-                break :blk try fs.path.join(arena, &.{ dirname, path });
-            } else {
-                break :blk path;
-            }
-        };
-        try positionals.append(.{ .path = full_path });
-    }
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
     try positionals.ensureUnusedCapacity(self.base.options.objects.len);
     positionals.appendSliceAssumeCapacity(self.base.options.objects);

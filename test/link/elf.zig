@@ -17,6 +17,7 @@ pub fn build(b: *Build) void {
 
     // Exercise linker with LLVM backend
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
+    elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
@@ -34,6 +35,93 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testGcSections(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "gc-sections", opts);
+
+    const obj = addObject(b, opts);
+    addCppSourceBytes(obj,
+        \\#include <stdio.h>
+        \\int two() { return 2; }
+        \\int live_var1 = 1;
+        \\int live_var2 = two();
+        \\int dead_var1 = 3;
+        \\int dead_var2 = 4;
+        \\void live_fn1() {}
+        \\void live_fn2() { live_fn1(); }
+        \\void dead_fn1() {}
+        \\void dead_fn2() { dead_fn1(); }
+        \\int main() {
+        \\  printf("%d %d\n", live_var1, live_var2);
+        \\  live_fn2();
+        \\}
+    );
+    obj.link_function_sections = true;
+    obj.is_linking_libc = true;
+    obj.is_linking_libcpp = true;
+
+    {
+        const exe = addExecutable(b, opts);
+        exe.addObject(obj);
+        exe.link_gc_sections = false;
+        exe.is_linking_libc = true;
+        exe.is_linking_libcpp = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkContains("dead_var1");
+        check.checkInSymtab();
+        check.checkContains("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkContains("dead_fn1");
+        check.checkInSymtab();
+        check.checkContains("dead_fn2");
+        test_step.dependOn(&check.step);
+    }
+
+    // {
+    //     const exe = cc(b, opts);
+    //     exe.addFileSource(obj_out.file);
+    //     exe.addArg("-Wl,-gc-sections");
+
+    //     const run = exe.run();
+    //     run.expectStdOutEqual("1 2\n");
+    //     test_step.dependOn(run.step());
+
+    //     const check = exe.check();
+    //     check.checkInSymtab();
+    //     check.checkContains("live_var1");
+    //     check.checkInSymtab();
+    //     check.checkContains("live_var2");
+    //     check.checkInSymtab();
+    //     check.checkNotPresent("dead_var1");
+    //     check.checkInSymtab();
+    //     check.checkNotPresent("dead_var2");
+    //     check.checkInSymtab();
+    //     check.checkContains("live_fn1");
+    //     check.checkInSymtab();
+    //     check.checkContains("live_fn2");
+    //     check.checkInSymtab();
+    //     check.checkNotPresent("dead_fn1");
+    //     check.checkInSymtab();
+    //     check.checkNotPresent("dead_fn2");
+    //     test_step.dependOn(&check.step);
+    // }
 
     return test_step;
 }
@@ -175,6 +263,16 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
 fn addExecutable(b: *Build, opts: Options) *Compile {
     return b.addExecutable(.{
         .name = "test",
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = opts.use_llvm,
+        .use_lld = false,
+    });
+}
+
+fn addObject(b: *Build, opts: Options) *Compile {
+    return b.addObject(.{
+        .name = "a.o",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
