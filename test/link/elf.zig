@@ -18,6 +18,7 @@ pub fn build(b: *Build) void {
     // Exercise linker with LLVM backend
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
+    elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 }
@@ -38,7 +39,7 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
 }
 
 fn testLinkingC(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "linking-c-static", opts);
+    const test_step = addTestStep(b, "linking-c", opts);
 
     const exe = addExecutable(b, opts);
     addCSourceBytes(exe,
@@ -49,6 +50,36 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
         \\}
     );
     exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello World!\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("header");
+    check.checkExact("type EXEC");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkNotPresent("name .dynamic");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinkingCpp(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-cpp", opts);
+
+    const exe = addExecutable(b, opts);
+    addCppSourceBytes(exe,
+        \\#include <iostream>
+        \\int main() {
+        \\  std::cout << "Hello World!" << std::endl;
+        \\  return 0;
+        \\}
+    );
+    exe.is_linking_libc = true;
+    exe.is_linking_libcpp = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
@@ -168,6 +199,12 @@ fn addZigSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
 fn addCSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.c", bytes);
+    comp.addCSourceFile(.{ .file = file, .flags = &.{} });
+}
+
+fn addCppSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+    const b = comp.step.owner;
+    const file = WriteFile.create(b).add("a.cpp", bytes);
     comp.addCSourceFile(.{ .file = file, .flags = &.{} });
 }
 
