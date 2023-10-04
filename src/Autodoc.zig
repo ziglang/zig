@@ -1547,7 +1547,6 @@ fn walkInstruction(
             };
         },
 
-        // @check array_cat and array_mul
         .add,
         .addwrap,
         .add_sat,
@@ -1564,9 +1563,8 @@ fn walkInstruction(
         .bit_or,
         .bit_and,
         .xor,
-        // @check still not working when applied in std
-        // .array_cat,
-        // .array_mul,
+        .array_cat,
+        .array_mul,
         => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
@@ -2881,7 +2879,9 @@ fn walkInstruction(
                 .expr = .{ .@"struct" = field_vals },
             };
         },
-        .struct_init_empty => {
+        .struct_init_empty,
+        .struct_init_empty_result,
+        => {
             const un_node = data[inst_index].un_node;
 
             var operand: DocData.WalkResult = try self.walkRef(
