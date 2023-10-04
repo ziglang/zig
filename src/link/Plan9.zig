@@ -82,6 +82,8 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 
 lazy_syms: LazySymbolTable = .{},
 
+anon_decls: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+
 relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .{},
 hdr: aout.ExecHdr = undefined,
 
@@ -166,6 +168,9 @@ pub const Atom = struct {
             code_len: usize,
             decl_index: Module.Decl.Index,
         },
+        fn fromSlice(slice: []u8) CodePtr {
+            return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
+        }
         fn getCode(self: CodePtr, plan9: *const Plan9) []u8 {
             const mod = plan9.base.options.module.?;
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
@@ -608,8 +613,9 @@ fn atomCount(self: *Plan9) usize {
     while (it_lazy.next()) |kv| {
         lazy_atom_count += kv.value_ptr.numberOfAtoms();
     }
+    const anon_atom_count = self.anon_decls.count();
     const extern_atom_count = self.externCount();
-    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count;
+    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count + anon_atom_count;
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -790,6 +796,27 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 const atom = self.getAtomPtr(atom_idx);
                 const code = atom.code.getOwnedCode().?; // unnamed consts must own their code
                 log.debug("write unnamed const: ({s})", .{self.syms.items[atom.sym_index.?].name});
+                foff += code.len;
+                iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+                iovecs_i += 1;
+                const off = self.getAddr(data_i, .d);
+                data_i += code.len;
+                atom.offset = off;
+                if (!self.sixtyfour_bit) {
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                }
+                self.syms.items[atom.sym_index.?].value = off;
+            }
+        }
+        // the anon decls
+        {
+            var it_anon = self.anon_decls.iterator();
+            while (it_anon.next()) |kv| {
+                const atom = self.getAtomPtr(kv.value_ptr.*);
+                const code = atom.code.getOwnedCode().?;
+                log.debug("write anon decl: {s}", .{self.syms.items[atom.sym_index.?].name});
                 foff += code.len;
                 iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
                 iovecs_i += 1;
@@ -1196,6 +1223,11 @@ pub fn deinit(self: *Plan9) void {
     while (itd.next()) |entry| {
         gpa.free(entry.value_ptr.*);
     }
+    var it_anon = self.anon_decls.iterator();
+    while (it_anon.next()) |entry| {
+        const sym_index = self.getAtom(entry.value_ptr.*).sym_index.?;
+        gpa.free(self.syms.items[sym_index].name);
+    }
     self.data_decl_table.deinit(gpa);
     self.syms.deinit(gpa);
     self.got_index_free_list.deinit(gpa);
@@ -1410,6 +1442,63 @@ pub fn getDeclVAddr(
     // otherwise, we just add a relocation
     const atom_index = try self.seeDecl(decl_index);
     // the parent_atom_index in this case is just the decl_index of the parent
+    try self.addReloc(reloc_info.parent_atom_index, .{
+        .target = atom_index,
+        .offset = reloc_info.offset,
+        .addend = reloc_info.addend,
+    });
+    return undefined;
+}
+
+pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    // This is basically the same as lowerUnnamedConst.
+    // example:
+    // const ty = mod.intern_pool.typeOf(decl_val).toType();
+    // const val = decl_val.toValue();
+    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
+    // It doesn't have an owner decl because it's just an unnamed constant that might
+    // be used by more than one function, however, its address is being used so we need
+    // to put it in some location.
+    // ...
+    const gpa = self.base.allocator;
+    var gop = try self.anon_decls.getOrPut(gpa, decl_val);
+    const mod = self.base.options.module.?;
+    if (!gop.found_existing) {
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const val = decl_val.toValue();
+        const tv = TypedValue{ .ty = ty, .val = val };
+        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
+
+        const index = try self.createAtom();
+        const got_index = self.allocateGotIndex();
+        gop.value_ptr.* = index;
+        // we need to free name latex
+        var code_buffer = std.ArrayList(u8).init(gpa);
+        const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| return .{ .fail = em },
+        };
+        const atom_ptr = self.getAtomPtr(index);
+        atom_ptr.* = .{
+            .type = .d,
+            .offset = undefined,
+            .sym_index = null,
+            .got_index = got_index,
+            .code = Atom.CodePtr.fromSlice(code),
+        };
+        _ = try atom_ptr.getOrCreateSymbolTableEntry(self);
+        self.syms.items[atom_ptr.sym_index.?] = .{
+            .type = .d,
+            .value = undefined,
+            .name = name,
+        };
+    }
+    return .ok;
+}
+
+pub fn getAnonDeclVAddr(self: *Plan9, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    const atom_index = self.anon_decls.get(decl_val).?;
     try self.addReloc(reloc_info.parent_atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,

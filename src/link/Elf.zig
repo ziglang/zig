@@ -155,12 +155,14 @@ last_atom_and_free_list_table: std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFre
 /// value assigned to label `foo` is an unnamed constant belonging/associated
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_consts: UnnamedConstTable = .{},
+anon_decls: AnonDeclTable = .{},
 
 comdat_groups: std.ArrayListUnmanaged(ComdatGroup) = .{},
 comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
 comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
 
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Symbol.Index);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 /// When allocating, the ideal_capacity is calculated by
@@ -321,6 +323,7 @@ pub fn deinit(self: *Elf) void {
         }
         self.unnamed_consts.deinit(gpa);
     }
+    self.anon_decls.deinit(gpa);
 
     if (self.dwarf) |*dw| {
         dw.deinit();
@@ -334,7 +337,6 @@ pub fn deinit(self: *Elf) void {
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-
     const this_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.value;
@@ -344,7 +346,57 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
         .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | elf.R_X86_64_64,
         .r_addend = reloc_info.addend,
     });
+    return vaddr;
+}
 
+pub fn lowerAnonDecl(self: *Elf, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    // This is basically the same as lowerUnnamedConst.
+    // example:
+    // const ty = mod.intern_pool.typeOf(decl_val).toType();
+    // const val = decl_val.toValue();
+    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
+    // It doesn't have an owner decl because it's just an unnamed constant that might
+    // be used by more than one function, however, its address is being used so we need
+    // to put it in some location.
+    // ...
+    const gpa = self.base.allocator;
+    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
+    if (!gop.found_existing) {
+        const mod = self.base.options.module.?;
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const val = decl_val.toValue();
+        const tv = TypedValue{ .ty = ty, .val = val };
+        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
+        defer gpa.free(name);
+        const res = self.lowerConst(name, tv, self.rodata_section_index.?, src_loc) catch |err| switch (err) {
+            else => {
+                // TODO improve error message
+                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
+                    @errorName(err),
+                });
+                return .{ .fail = em };
+            },
+        };
+        const sym_index = switch (res) {
+            .ok => |sym_index| sym_index,
+            .fail => |em| return .{ .fail = em },
+        };
+        gop.value_ptr.* = sym_index;
+    }
+    return .ok;
+}
+
+pub fn getAnonDeclVAddr(self: *Elf, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    assert(self.llvm_object == null);
+    const sym_index = self.anon_decls.get(decl_val).?;
+    const sym = self.symbol(sym_index);
+    const vaddr = sym.value;
+    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
+    try parent_atom.addReloc(self, .{
+        .r_offset = reloc_info.offset,
+        .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | elf.R_X86_64_64,
+        .r_addend = reloc_info.addend,
+    });
     return vaddr;
 }
 
@@ -3105,36 +3157,19 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
 
 pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
     const gpa = self.base.allocator;
-
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
-
     const mod = self.base.options.module.?;
     const gop = try self.unnamed_consts.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-
     const decl = mod.declPtr(decl_index);
-    const name_str_index = blk: {
-        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-        const index = unnamed_consts.items.len;
-        const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
-        defer gpa.free(name);
-        break :blk try self.strtab.insert(gpa, name);
-    };
-
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const sym_index = try zig_module.addAtom(self);
-
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
-        .none = {},
-    }, .{
-        .parent_atom_index = sym_index,
-    });
-    const code = switch (res) {
-        .ok => code_buffer.items,
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const index = unnamed_consts.items.len;
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    defer gpa.free(name);
+    const sym_index = switch (try self.lowerConst(name, typed_value, self.rodata_section_index.?, decl.srcLoc(mod))) {
+        .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
@@ -3142,13 +3177,48 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
             return error.CodegenFail;
         },
     };
+    const sym = self.symbol(sym_index);
+    try unnamed_consts.append(gpa, sym.atom_index);
+    return sym_index;
+}
 
-    const required_alignment = typed_value.ty.abiAlignment(mod);
-    const shdr_index = self.rodata_section_index.?;
-    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
+const LowerConstResult = union(enum) {
+    ok: Symbol.Index,
+    fail: *Module.ErrorMsg,
+};
+
+fn lowerConst(
+    self: *Elf,
+    name: []const u8,
+    tv: TypedValue,
+    output_section_index: u16,
+    src_loc: Module.SrcLoc,
+) !LowerConstResult {
+    const gpa = self.base.allocator;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const mod = self.base.options.module.?;
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const sym_index = try zig_module.addAtom(self);
+
+    const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{
+        .none = {},
+    }, .{
+        .parent_atom_index = sym_index,
+    });
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| return .{ .fail = em },
+    };
+
+    const required_alignment = tv.ty.abiAlignment(mod);
+    const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     const local_sym = self.symbol(sym_index);
+    const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
-    local_sym.output_section_index = self.rodata_section_index.?;
+    local_sym.output_section_index = output_section_index;
     const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
@@ -3158,21 +3228,20 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
-    atom_ptr.output_section_index = self.rodata_section_index.?;
+    atom_ptr.output_section_index = output_section_index;
 
     try atom_ptr.allocate(self);
+    // TODO rename and re-audit this method
     errdefer self.freeDeclMetadata(sym_index);
 
     local_sym.value = atom_ptr.value;
     local_esym.st_value = atom_ptr.value;
 
-    try unnamed_consts.append(gpa, atom_ptr.atom_index);
-
     const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.shdrs.items[shdr_index].sh_offset + section_offset;
+    const file_offset = self.shdrs.items[output_section_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
-    return sym_index;
+    return .{ .ok = sym_index };
 }
 
 pub fn updateDeclExports(

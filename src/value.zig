@@ -1565,12 +1565,14 @@ pub const Value = struct {
     }
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
-        const ptr = mod.intern_pool.indexToKey(val.toIntern()).ptr;
+        const ip = &mod.intern_pool;
+        const ptr = ip.indexToKey(val.toIntern()).ptr;
         return switch (ptr.len) {
-            .none => switch (mod.intern_pool.indexToKey(switch (ptr.addr) {
+            .none => switch (ip.indexToKey(switch (ptr.addr) {
                 .decl => |decl| mod.declPtr(decl).ty.toIntern(),
                 .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
-                .comptime_field => |comptime_field| mod.intern_pool.typeOf(comptime_field),
+                .anon_decl => |anon_decl| ip.typeOf(anon_decl),
+                .comptime_field => |comptime_field| ip.typeOf(comptime_field),
                 else => unreachable,
             })) {
                 .array_type => |array_type| array_type.len,
@@ -1602,6 +1604,7 @@ pub const Value = struct {
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
+                    .anon_decl => |anon_decl| anon_decl.toValue().maybeElemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
                         .toValue().maybeElemValue(mod, index),
                     .int, .eu_payload => null,

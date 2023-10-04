@@ -3075,6 +3075,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
         .decl => |decl_index| {
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
+        .anon_decl => |ad| return func.lowerAnonDeclRef(ad, offset),
         .mut_decl => |mut_decl| {
             const decl_index = mut_decl.decl;
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
@@ -3136,6 +3137,32 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.In
     try mod.markDeclAlive(decl);
     const ptr_ty = try mod.singleMutPtrType(decl.ty);
     return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
+}
+
+fn lowerAnonDeclRef(func: *CodeGen, anon_decl: InternPool.Index, offset: u32) InnerError!WValue {
+    const mod = func.bin_file.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(anon_decl).toType();
+
+    const is_fn_body = ty.zigTypeTag(mod) == .Fn;
+    if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        return WValue{ .imm32 = 0xaaaaaaaa };
+    }
+
+    const res = try func.bin_file.lowerAnonDecl(anon_decl, func.decl.srcLoc(mod));
+    switch (res) {
+        .ok => {},
+        .fail => |em| {
+            func.err_msg = em;
+            return error.CodegenFail;
+        },
+    }
+    const target_atom_index = func.bin_file.anon_decls.get(anon_decl).?;
+    const target_sym_index = func.bin_file.getAtom(target_atom_index).getSymbolIndex().?;
+    if (is_fn_body) {
+        return WValue{ .function_index = target_sym_index };
+    } else if (offset == 0) {
+        return WValue{ .memory = target_sym_index };
+    } else return WValue{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
 fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
@@ -3305,6 +3332,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
             .int => |int| return func.lowerConstant(int.toValue(), ip.typeOf(int).toType()),
             .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
+            .anon_decl => |ad| return func.lowerAnonDeclRef(ad, 0),
             else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
         },
         .opt => if (ty.optionalReprIsPayload(mod)) {

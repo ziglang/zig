@@ -937,6 +937,36 @@ pub const File = struct {
         }
     }
 
+    pub const LowerResult = @import("codegen.zig").Result;
+
+    pub fn lowerAnonDecl(base: *File, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !LowerResult {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .elf => return @fieldParentPtr(Elf, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .c => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .spirv => unreachable,
+            .nvptx => unreachable,
+        }
+    }
+
+    pub fn getAnonDeclVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .elf => return @fieldParentPtr(Elf, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .macho => return @fieldParentPtr(MachO, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .c => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .spirv => unreachable,
+            .nvptx => unreachable,
+        }
+    }
+
     /// This function is called by the frontend before flush(). It communicates that
     /// `options.bin_file.emit` directory needs to be renamed from
     /// `[zig-cache]/tmp/[random]` to `[zig-cache]/o/[digest]`.

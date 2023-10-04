@@ -109,9 +109,6 @@ comptime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternP
 /// This memory lives until the Module is destroyed.
 tmp_hack_arena: std.heap.ArenaAllocator,
 
-/// This is currently only used for string literals.
-memoized_decls: std.AutoHashMapUnmanaged(InternPool.Index, Decl.Index) = .{},
-
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -2627,7 +2624,6 @@ pub fn deinit(mod: *Module) void {
     mod.global_assembly.deinit(gpa);
     mod.reference_table.deinit(gpa);
 
-    mod.memoized_decls.deinit(gpa);
     mod.intern_pool.deinit(gpa);
     mod.tmp_hack_arena.deinit();
 
@@ -5814,6 +5810,7 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
         .ptr => |ptr| {
             switch (ptr.addr) {
                 .decl => |decl| try mod.markDeclIndexAlive(decl),
+                .anon_decl => {},
                 .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
                 .int, .comptime_field => {},
                 .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(parent.toValue()),

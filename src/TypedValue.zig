@@ -321,6 +321,15 @@ pub fn print(
                             .val = decl.val,
                         }, writer, level - 1, mod);
                     },
+                    .anon_decl => |decl_val| {
+                        if (level == 0) return writer.print("(anon decl '{d}')", .{
+                            @intFromEnum(decl_val),
+                        });
+                        return print(.{
+                            .ty = ip.typeOf(decl_val).toType(),
+                            .val = decl_val.toValue(),
+                        }, writer, level - 1, mod);
+                    },
                     .mut_decl => |mut_decl| {
                         const decl = mod.declPtr(mut_decl.decl);
                         if (level == 0) return writer.print("(mut decl '{}')", .{decl.name.fmt(ip)});
