@@ -955,6 +955,7 @@ pub const Object = struct {
                 reloc_mode,
                 code_model,
                 options.function_sections,
+                options.data_sections,
                 float_abi,
                 if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
             );

@@ -623,6 +623,7 @@ pub const InitOptions = struct {
     formatted_panics: ?bool = null,
     rdynamic: bool = false,
     function_sections: bool = false,
+    data_sections: bool = false,
     no_builtin: bool = false,
     is_native_os: bool,
     is_native_abi: bool,
@@ -1193,6 +1194,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
+        cache.hash.add(options.data_sections);
         cache.hash.add(options.no_builtin);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
@@ -1572,6 +1574,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
             .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
             .no_builtin = options.no_builtin,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
@@ -4903,6 +4906,10 @@ pub fn addCCArgs(
         try argv.append("-ffunction-sections");
     }
 
+    if (comp.bin_file.options.data_sections) {
+        try argv.append("-fdata-sections");
+    }
+
     if (comp.bin_file.options.no_builtin) {
         try argv.append("-fno-builtin");
     }
@@ -6405,6 +6412,7 @@ fn buildOutputFromZig(
         .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
+        .data_sections = true,
         .no_builtin = true,
         .want_sanitize_c = false,
         .want_stack_check = false,

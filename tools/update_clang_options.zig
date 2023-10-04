@@ -333,6 +333,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_function_sections",
     },
     .{
+        .name = "fdata-sections",
+        .ident = "data_sections",
+    },
+    .{
+        .name = "fno-data-sections",
+        .ident = "no_data_sections",
+    },
+    .{
         .name = "fbuiltin",
         .ident = "builtin",
     },

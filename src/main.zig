@@ -453,6 +453,8 @@ const usage_build_generic =
     \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
+    \\  -fdata-sections           Places each data in a separate section
+    \\  -fno-data-sections        All data go into same section
     \\  -fstrip                   Omit debug symbols
     \\  -fno-strip                Keep debug symbols
     \\  -fformatted-panics        Enable formatted safety panics
@@ -793,6 +795,7 @@ fn buildOutputType(
     var strip: ?bool = null;
     var formatted_panics: ?bool = null;
     var function_sections = false;
+    var data_sections = false;
     var no_builtin = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
@@ -1459,6 +1462,10 @@ fn buildOutputType(
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "-fno-function-sections")) {
                         function_sections = false;
+                    } else if (mem.eql(u8, arg, "-fdata-sections")) {
+                        data_sections = true;
+                    } else if (mem.eql(u8, arg, "-fno-data-sections")) {
+                        data_sections = false;
                     } else if (mem.eql(u8, arg, "-fbuiltin")) {
                         no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
@@ -1780,6 +1787,8 @@ fn buildOutputType(
                     .no_omit_frame_pointer => omit_frame_pointer = false,
                     .function_sections => function_sections = true,
                     .no_function_sections => function_sections = false,
+                    .data_sections => data_sections = true,
+                    .no_data_sections => data_sections = false,
                     .builtin => no_builtin = false,
                     .no_builtin => no_builtin = true,
                     .color_diagnostics => color = .on,
@@ -3475,6 +3484,7 @@ fn buildOutputType(
         .formatted_panics = formatted_panics,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
+        .data_sections = data_sections,
         .no_builtin = no_builtin,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
@@ -5589,6 +5599,8 @@ pub const ClangArgIterator = struct {
         no_omit_frame_pointer,
         function_sections,
         no_function_sections,
+        data_sections,
+        no_data_sections,
         builtin,
         no_builtin,
         color_diagnostics,
