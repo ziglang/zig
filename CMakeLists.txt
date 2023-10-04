@@ -265,7 +265,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/io/find_byte_writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/fixed_buffer_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/limited_reader.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/io/reader.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/io/Reader.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/seekable_stream.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/json.zig"
