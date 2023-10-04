@@ -156,7 +156,7 @@ pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
 pub usingnamespace if (switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
-    .stage2_x86_64, .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
 }) struct {
     /// See `std.elf` for the constants.

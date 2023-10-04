@@ -566,6 +566,7 @@ pub const DeclState = struct {
 
     pub const DbgInfoLoc = union(enum) {
         register: u8,
+        register_pair: [2]u8,
         stack: struct {
             fp_register: u8,
             offset: i32,
@@ -608,6 +609,42 @@ pub const DeclState = struct {
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.regx);
                     leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                }
+            },
+            .register_pair => |regs| {
+                const reg_bits = self.mod.getTarget().ptrBitWidth();
+                const reg_bytes = @as(u8, @intCast(@divExact(reg_bits, 8)));
+                const abi_size = ty.abiSize(self.mod);
+                try dbg_info.ensureUnusedCapacity(10);
+                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                for (regs, 0..) |reg, reg_i| {
+                    if (reg < 32) {
+                        expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
+                    } else {
+                        expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
+                        leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                    }
+                    expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
+                    leb128.writeULEB128(
+                        expr_len.writer(),
+                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
+                    ) catch unreachable;
+                }
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                for (regs, 0..) |reg, reg_i| {
+                    if (reg < 32) {
+                        dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
+                    } else {
+                        dbg_info.appendAssumeCapacity(DW.OP.regx);
+                        leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                    }
+                    dbg_info.appendAssumeCapacity(DW.OP.piece);
+                    leb128.writeULEB128(
+                        dbg_info.writer(),
+                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
+                    ) catch unreachable;
                 }
             },
             .stack => |info| {
@@ -676,7 +713,7 @@ pub const DeclState = struct {
 
         switch (loc) {
             .register => |reg| {
-                try dbg_info.ensureUnusedCapacity(4);
+                try dbg_info.ensureUnusedCapacity(3);
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 if (reg < 32) {
@@ -691,6 +728,42 @@ pub const DeclState = struct {
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.regx);
                     leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                }
+            },
+
+            .register_pair => |regs| {
+                const reg_bits = self.mod.getTarget().ptrBitWidth();
+                const reg_bytes = @as(u8, @intCast(@divExact(reg_bits, 8)));
+                const abi_size = child_ty.abiSize(self.mod);
+                try dbg_info.ensureUnusedCapacity(9);
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                for (regs, 0..) |reg, reg_i| {
+                    if (reg < 32) {
+                        expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
+                    } else {
+                        expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
+                        leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                    }
+                    expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
+                    leb128.writeULEB128(
+                        expr_len.writer(),
+                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
+                    ) catch unreachable;
+                }
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                for (regs, 0..) |reg, reg_i| {
+                    if (reg < 32) {
+                        dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
+                    } else {
+                        dbg_info.appendAssumeCapacity(DW.OP.regx);
+                        leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                    }
+                    dbg_info.appendAssumeCapacity(DW.OP.piece);
+                    leb128.writeULEB128(
+                        dbg_info.writer(),
+                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
+                    ) catch unreachable;
                 }
             },
 
