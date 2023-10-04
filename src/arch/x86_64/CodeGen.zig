@@ -7962,10 +7962,10 @@ fn genBinOpMir(
                 .air_ref,
                 => unreachable,
                 .immediate,
+                .eflags,
                 .register,
                 .register_pair,
                 .register_offset,
-                .eflags,
                 .indirect,
                 .lea_direct,
                 .lea_got,
@@ -8750,33 +8750,122 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                             .lt, .gte => {},
                             .lte, .gt => unreachable,
                             .eq, .neq => {
-                                const dst_addr_mcv: MCValue = switch (dst_mcv) {
-                                    .memory, .indirect, .load_frame => dst_mcv.address(),
-                                    else => .{ .register = try self.copyToTmpRegister(
-                                        Type.usize,
-                                        dst_mcv.address(),
-                                    ) },
-                                };
-                                const dst_addr_lock = if (dst_addr_mcv.getReg()) |reg|
-                                    self.register_manager.lockReg(reg)
-                                else
-                                    null;
-                                defer if (dst_addr_lock) |lock| self.register_manager.unlockReg(lock);
+                                const OpInfo = ?struct { addr_reg: Register, addr_lock: RegisterLock };
 
-                                const src_addr_mcv: MCValue = switch (src_mcv) {
-                                    .memory, .indirect, .load_frame => src_mcv.address(),
-                                    else => .{ .register = try self.copyToTmpRegister(
-                                        Type.usize,
-                                        src_mcv.address(),
-                                    ) },
+                                const resolved_dst_mcv = switch (dst_mcv) {
+                                    else => dst_mcv,
+                                    .air_ref => |dst_ref| try self.resolveInst(dst_ref),
                                 };
-                                const src_addr_lock = if (src_addr_mcv.getReg()) |reg|
-                                    self.register_manager.lockReg(reg)
-                                else
-                                    null;
-                                defer if (src_addr_lock) |lock| self.register_manager.unlockReg(lock);
+                                const dst_info: OpInfo = switch (resolved_dst_mcv) {
+                                    .none,
+                                    .unreach,
+                                    .dead,
+                                    .undef,
+                                    .immediate,
+                                    .eflags,
+                                    .register,
+                                    .register_offset,
+                                    .register_overflow,
+                                    .indirect,
+                                    .lea_direct,
+                                    .lea_got,
+                                    .lea_tlv,
+                                    .lea_frame,
+                                    .reserved_frame,
+                                    .air_ref,
+                                    => unreachable,
+                                    .register_pair, .load_frame => null,
+                                    .memory, .load_got, .load_direct, .load_tlv => dst: {
+                                        switch (resolved_dst_mcv) {
+                                            .memory => |addr| if (math.cast(
+                                                i32,
+                                                @as(i64, @bitCast(addr)),
+                                            ) != null and math.cast(
+                                                i32,
+                                                @as(i64, @bitCast(addr)) + abi_size - 8,
+                                            ) != null) break :dst null,
+                                            .load_got, .load_direct, .load_tlv => {},
+                                            else => unreachable,
+                                        }
 
-                                const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+                                        const dst_addr_reg =
+                                            (try self.register_manager.allocReg(null, gp)).to64();
+                                        const dst_addr_lock =
+                                            self.register_manager.lockRegAssumeUnused(dst_addr_reg);
+                                        errdefer self.register_manager.unlockReg(dst_addr_lock);
+
+                                        try self.genSetReg(
+                                            dst_addr_reg,
+                                            Type.usize,
+                                            resolved_dst_mcv.address(),
+                                        );
+                                        break :dst .{
+                                            .addr_reg = dst_addr_reg,
+                                            .addr_lock = dst_addr_lock,
+                                        };
+                                    },
+                                };
+                                defer if (dst_info) |info|
+                                    self.register_manager.unlockReg(info.addr_lock);
+
+                                const resolved_src_mcv = switch (src_mcv) {
+                                    else => src_mcv,
+                                    .air_ref => |src_ref| try self.resolveInst(src_ref),
+                                };
+                                const src_info: OpInfo = switch (resolved_src_mcv) {
+                                    .none,
+                                    .unreach,
+                                    .dead,
+                                    .undef,
+                                    .immediate,
+                                    .eflags,
+                                    .register,
+                                    .register_offset,
+                                    .register_overflow,
+                                    .indirect,
+                                    .lea_direct,
+                                    .lea_got,
+                                    .lea_tlv,
+                                    .lea_frame,
+                                    .reserved_frame,
+                                    .air_ref,
+                                    => unreachable,
+                                    .register_pair, .load_frame => null,
+                                    .memory, .load_got, .load_direct, .load_tlv => src: {
+                                        switch (resolved_src_mcv) {
+                                            .memory => |addr| if (math.cast(
+                                                i32,
+                                                @as(i64, @bitCast(addr)),
+                                            ) != null and math.cast(
+                                                i32,
+                                                @as(i64, @bitCast(addr)) + abi_size - 8,
+                                            ) != null) break :src null,
+                                            .load_got, .load_direct, .load_tlv => {},
+                                            else => unreachable,
+                                        }
+
+                                        const src_addr_reg =
+                                            (try self.register_manager.allocReg(null, gp)).to64();
+                                        const src_addr_lock =
+                                            self.register_manager.lockRegAssumeUnused(src_addr_reg);
+                                        errdefer self.register_manager.unlockReg(src_addr_lock);
+
+                                        try self.genSetReg(
+                                            src_addr_reg,
+                                            Type.usize,
+                                            resolved_src_mcv.address(),
+                                        );
+                                        break :src .{
+                                            .addr_reg = src_addr_reg,
+                                            .addr_lock = src_addr_lock,
+                                        };
+                                    },
+                                };
+                                defer if (src_info) |info|
+                                    self.register_manager.unlockReg(info.addr_lock);
+
+                                const regs =
+                                    try self.register_manager.allocRegs(2, .{ null, null }, gp);
                                 const acc_reg = regs[0].to64();
                                 const locks = self.register_manager.lockRegsAssumeUnused(2, regs);
                                 defer for (locks) |lock| self.register_manager.unlockReg(lock);
@@ -8784,18 +8873,52 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                 const limbs_len = std.math.divCeil(u16, abi_size, 8) catch unreachable;
                                 var limb_i: u16 = 0;
                                 while (limb_i < limbs_len) : (limb_i += 1) {
+                                    const off = limb_i * 8;
                                     const tmp_reg = regs[@min(limb_i, 1)].to64();
-                                    try self.genSetReg(
-                                        tmp_reg,
-                                        Type.usize,
-                                        dst_addr_mcv.offset(limb_i * 8).deref(),
-                                    );
+
+                                    try self.genSetReg(tmp_reg, Type.usize, if (dst_info) |info| .{
+                                        .indirect = .{ .reg = info.addr_reg, .off = off },
+                                    } else switch (resolved_dst_mcv) {
+                                        .register_pair => |dst_regs| .{ .register = dst_regs[limb_i] },
+                                        .memory => |dst_addr| .{
+                                            .memory = @bitCast(@as(i64, @bitCast(dst_addr)) + off),
+                                        },
+                                        .indirect => |reg_off| .{ .indirect = .{
+                                            .reg = reg_off.reg,
+                                            .off = reg_off.off + off,
+                                        } },
+                                        .load_frame => |frame_addr| .{ .load_frame = .{
+                                            .index = frame_addr.index,
+                                            .off = frame_addr.off + off,
+                                        } },
+                                        else => unreachable,
+                                    });
+
                                     try self.genBinOpMir(
                                         .{ ._, .xor },
                                         Type.usize,
                                         .{ .register = tmp_reg },
-                                        src_addr_mcv.offset(limb_i * 8).deref(),
+                                        if (src_info) |info| .{
+                                            .indirect = .{ .reg = info.addr_reg, .off = off },
+                                        } else switch (resolved_src_mcv) {
+                                            .register_pair => |src_regs| .{
+                                                .register = src_regs[limb_i],
+                                            },
+                                            .memory => |src_addr| .{
+                                                .memory = @bitCast(@as(i64, @bitCast(src_addr)) + off),
+                                            },
+                                            .indirect => |reg_off| .{ .indirect = .{
+                                                .reg = reg_off.reg,
+                                                .off = reg_off.off + off,
+                                            } },
+                                            .load_frame => |frame_addr| .{ .load_frame = .{
+                                                .index = frame_addr.index,
+                                                .off = frame_addr.off + off,
+                                            } },
+                                            else => unreachable,
+                                        },
                                     );
+
                                     if (limb_i > 0) try self.asmRegisterRegister(
                                         .{ ._, .@"or" },
                                         acc_reg,
