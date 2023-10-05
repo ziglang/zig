@@ -10315,15 +10315,18 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
                 .off = -dst_reg_off.off,
             } },
         }),
-        .register_pair => |dst_regs| switch (src_mcv) {
-            .register_pair => |src_regs| for (dst_regs, src_regs) |dst_reg, src_reg|
-                try self.genSetReg(dst_reg, Type.usize, .{ .register = src_reg }),
-            else => for (dst_regs, 0..) |dst_reg, dst_reg_i| try self.genSetReg(
+        .register_pair => |dst_regs| for (dst_regs, 0..) |dst_reg, dst_reg_i| switch (src_mcv) {
+            .register_pair => |src_regs| try self.genSetReg(
+                dst_reg,
+                Type.usize,
+                .{ .register = src_regs[dst_reg_i] },
+            ),
+            else => try self.genSetReg(
                 dst_reg,
                 Type.usize,
                 src_mcv.address().offset(@intCast(dst_reg_i * 8)).deref(),
             ),
-            .air_ref => |src_ref| try self.genCopy(ty, dst_mcv, try self.resolveInst(src_ref)),
+            .air_ref => |src_ref| return self.genCopy(ty, dst_mcv, try self.resolveInst(src_ref)),
         },
         .indirect => |reg_off| try self.genSetMem(.{ .reg = reg_off.reg }, reg_off.off, ty, src_mcv),
         .memory, .load_direct, .load_got, .load_tlv => {
@@ -12536,7 +12539,9 @@ fn resolveCallingConventionValues(
             result.stack_align = .@"8";
         },
         .C, .SysV, .Win64 => {
-            var param_reg_i: usize = 0;
+            var ret_int_reg_i: usize = 0;
+            var ret_sse_reg_i: usize = 0;
+            var param_int_reg_i: usize = 0;
             var param_sse_reg_i: usize = 0;
             result.stack_align = .@"16";
 
@@ -12556,97 +12561,134 @@ fn resolveCallingConventionValues(
                 // TODO: is this even possible for C calling convention?
                 result.return_value = InstTracking.init(.none);
             } else {
+                var ret_tracking: [2]InstTracking = undefined;
+                var ret_tracking_i: usize = 0;
+
                 const classes = switch (resolved_cc) {
                     .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
                     .Win64 => &[1]abi.Class{abi.classifyWindows(ret_ty, mod)},
                     else => unreachable,
                 };
-                for (
-                    classes,
-                    abi.getCAbiIntReturnRegs(resolved_cc)[0..classes.len],
-                    0..,
-                ) |class, ret_reg, ret_reg_i| {
-                    result.return_value = switch (class) {
-                        .integer => switch (ret_reg_i) {
-                            0 => InstTracking.init(.{ .register = registerAlias(
-                                ret_reg,
-                                @intCast(@min(ret_ty.abiSize(mod), 8)),
-                            ) }),
-                            1 => InstTracking.init(.{ .register_pair = .{
-                                result.return_value.short.register,
-                                registerAlias(ret_reg, @intCast(ret_ty.abiSize(mod) - 8)),
-                            } }),
-                            else => return self.fail("TODO handle multiple classes per type", .{}),
-                        },
-                        .float, .sse => switch (ret_reg_i) {
-                            0 => InstTracking.init(.{ .register = .xmm0 }),
-                            else => return self.fail("TODO handle multiple classes per type", .{}),
-                        },
-                        .sseup => continue,
-                        .memory => switch (ret_reg_i) {
-                            0 => ret: {
-                                const ret_indirect_reg =
-                                    abi.getCAbiIntParamRegs(resolved_cc)[param_reg_i];
-                                param_reg_i += 1;
-                                break :ret .{
-                                    .short = .{ .indirect = .{ .reg = ret_reg } },
-                                    .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
-                                };
-                            },
-                            else => return self.fail("TODO handle multiple classes per type", .{}),
-                        },
-                        else => return self.fail("TODO handle calling convention class {s}", .{
-                            @tagName(class),
-                        }),
-                    };
-                }
+                for (classes) |class| switch (class) {
+                    .integer => {
+                        const ret_int_reg = registerAlias(
+                            abi.getCAbiIntReturnRegs(resolved_cc)[ret_int_reg_i],
+                            @intCast(@min(ret_ty.abiSize(mod), 8)),
+                        );
+                        ret_int_reg_i += 1;
+
+                        ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_int_reg });
+                        ret_tracking_i += 1;
+                    },
+                    .sse, .float, .float_combine, .win_i128 => {
+                        const ret_sse_reg = registerAlias(
+                            abi.getCAbiSseReturnRegs(resolved_cc)[ret_sse_reg_i],
+                            @intCast(ret_ty.abiSize(mod)),
+                        );
+                        ret_sse_reg_i += 1;
+
+                        ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_sse_reg });
+                        ret_tracking_i += 1;
+                    },
+                    .sseup => assert(ret_tracking[ret_tracking_i - 1].short.register.class() == .sse),
+                    .x87 => {
+                        ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = .st0 });
+                        ret_tracking_i += 1;
+                    },
+                    .x87up => assert(ret_tracking[ret_tracking_i - 1].short.register.class() == .x87),
+                    .complex_x87 => {
+                        ret_tracking[ret_tracking_i] =
+                            InstTracking.init(.{ .register_pair = .{ .st0, .st1 } });
+                        ret_tracking_i += 1;
+                    },
+                    .memory => {
+                        const ret_int_reg = abi.getCAbiIntReturnRegs(resolved_cc)[ret_int_reg_i].to64();
+                        ret_int_reg_i += 1;
+                        const ret_indirect_reg = abi.getCAbiIntParamRegs(resolved_cc)[param_int_reg_i];
+                        param_int_reg_i += 1;
+
+                        ret_tracking[ret_tracking_i] = .{
+                            .short = .{ .indirect = .{ .reg = ret_int_reg } },
+                            .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
+                        };
+                        ret_tracking_i += 1;
+                    },
+                    .none => unreachable,
+                };
+                result.return_value = switch (ret_tracking_i) {
+                    else => unreachable,
+                    1 => ret_tracking[0],
+                    2 => InstTracking.init(.{ .register_pair = .{
+                        ret_tracking[0].short.register, ret_tracking[1].short.register,
+                    } }),
+                };
             }
 
             // Input params
             for (param_types, result.args) |ty, *arg| {
                 assert(ty.hasRuntimeBitsIgnoreComptime(mod));
+                switch (resolved_cc) {
+                    .SysV => {},
+                    .Win64 => {
+                        param_int_reg_i = @max(param_int_reg_i, param_sse_reg_i);
+                        param_sse_reg_i = param_int_reg_i;
+                    },
+                    else => unreachable,
+                }
+
+                var arg_mcv: [2]MCValue = undefined;
+                var arg_mcv_i: usize = 0;
 
                 const classes = switch (self.target.os.tag) {
                     .windows => &[1]abi.Class{abi.classifyWindows(ty, mod)},
                     else => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
                 };
-                for (classes, 0..) |class, class_i| {
-                    switch (class) {
-                        .integer => if (param_reg_i < abi.getCAbiIntParamRegs(resolved_cc).len) {
-                            const param_reg = abi.getCAbiIntParamRegs(resolved_cc)[param_reg_i];
-                            param_reg_i += 1;
+                for (classes) |class| switch (class) {
+                    .integer => {
+                        const param_int_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                        if (param_int_reg_i >= param_int_regs.len) break;
 
-                            arg.* = switch (class_i) {
-                                0 => .{ .register = param_reg },
-                                1 => .{ .register_pair = .{ arg.register, param_reg } },
-                                else => return self.fail("TODO handle multiple classes per type", .{}),
-                            };
-                        } else break,
-                        .float, .sse => switch (self.target.os.tag) {
-                            .windows => if (param_reg_i < 4) {
-                                if (class_i > 0)
-                                    return self.fail("TODO handle multiple classes per type", .{});
-                                arg.* = .{
-                                    .register = @enumFromInt(@intFromEnum(Register.xmm0) + param_reg_i),
-                                };
-                                param_reg_i += 1;
-                            } else break,
-                            else => if (param_sse_reg_i < 8) {
-                                if (class_i > 0)
-                                    return self.fail("TODO handle multiple classes per type", .{});
-                                arg.* = .{ .register = @enumFromInt(
-                                    @intFromEnum(Register.xmm0) + param_sse_reg_i,
-                                ) };
-                                param_sse_reg_i += 1;
-                            } else break,
-                        },
-                        .sseup => {},
-                        .memory => break,
-                        else => return self.fail("TODO handle calling convention class {s}", .{
-                            @tagName(class),
-                        }),
-                    }
-                } else continue;
+                        const param_int_reg = registerAlias(
+                            abi.getCAbiIntParamRegs(resolved_cc)[param_int_reg_i],
+                            @intCast(@min(ty.abiSize(mod), 8)),
+                        );
+                        param_int_reg_i += 1;
+
+                        arg_mcv[arg_mcv_i] = .{ .register = param_int_reg };
+                        arg_mcv_i += 1;
+                    },
+                    .sse, .float, .float_combine => {
+                        const param_sse_regs = abi.getCAbiSseParamRegs(resolved_cc);
+                        if (param_sse_reg_i >= param_sse_regs.len) break;
+
+                        const param_sse_reg = registerAlias(
+                            abi.getCAbiSseParamRegs(resolved_cc)[param_sse_reg_i],
+                            @intCast(ty.abiSize(mod)),
+                        );
+                        param_sse_reg_i += 1;
+
+                        arg_mcv[arg_mcv_i] = .{ .register = param_sse_reg };
+                        arg_mcv_i += 1;
+                    },
+                    .sseup => assert(arg_mcv[arg_mcv_i - 1].register.class() == .sse),
+                    .x87, .x87up, .complex_x87, .memory => break,
+                    .none => unreachable,
+                    .win_i128 => {
+                        const param_int_reg =
+                            abi.getCAbiIntParamRegs(resolved_cc)[param_int_reg_i].to64();
+                        param_int_reg_i += 1;
+
+                        arg_mcv[arg_mcv_i] = .{ .indirect = .{ .reg = param_int_reg } };
+                        arg_mcv_i += 1;
+                    },
+                } else {
+                    arg.* = switch (arg_mcv_i) {
+                        else => unreachable,
+                        1 => arg_mcv[0],
+                        2 => .{ .register_pair = .{ arg_mcv[0].register, arg_mcv[1].register } },
+                    };
+                    continue;
+                }
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
                 const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
@@ -12746,7 +12788,10 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             reg
         else
             unreachable,
-        .x87 => unreachable,
+        .x87 => if (size_bytes == 16)
+            reg
+        else
+            unreachable,
         .mmx => if (size_bytes <= 8)
             reg
         else

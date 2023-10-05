@@ -447,7 +447,9 @@ pub const SysV = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..2].*;
 };
 
 pub const Win64 = struct {
@@ -460,7 +462,9 @@ pub const Win64 = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
     pub const c_abi_int_return_regs = [_]Register{.rax};
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..1].*;
 };
 
 pub fn resolveCallingConvention(
@@ -500,10 +504,26 @@ pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
     };
 }
 
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_param_regs,
+        .Win64 => &Win64.c_abi_sse_param_regs,
+        else => unreachable,
+    };
+}
+
 pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
     return switch (cc) {
         .SysV => &SysV.c_abi_int_return_regs,
         .Win64 => &Win64.c_abi_int_return_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_return_regs,
+        .Win64 => &Win64.c_abi_sse_return_regs,
         else => unreachable,
     };
 }
