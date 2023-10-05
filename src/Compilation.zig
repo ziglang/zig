@@ -4607,63 +4607,18 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
-        var temp_strings = std.ArrayList([]const u8).init(comp.gpa);
-        defer {
-            for (temp_strings.items) |temp_string| {
-                comp.gpa.free(temp_string);
-            }
-            temp_strings.deinit();
-        }
 
         // TODO: support options.preprocess == .no and .only
         //       alternatively, error if those options are used
-        try argv.appendSlice(&[_][]const u8{
-            self_exe_path,
-            "clang",
-            "-E", // preprocessor only
-            "--comments",
-            "-fuse-line-directives", // #line <num> instead of # <num>
-            "-xc", // output c
-            "-Werror=null-character", // error on null characters instead of converting them to spaces
-            "-fms-compatibility", // Allow things like "header.h" to be resolved relative to the 'root' .rc file, among other things
-            "-DRC_INVOKED", // https://learn.microsoft.com/en-us/windows/win32/menurc/predefined-macros
+        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
+
+        try resinator.preprocess.appendClangArgs(arena, &argv, options, .{
+            .clang_target = null, // handled by addCCArgs
+            .system_include_paths = &.{}, // handled by addCCArgs
+            .needs_gnu_workaround = comp.getTarget().isGnu(),
+            .nostdinc = false, // handled by addCCArgs
         });
-        // Using -fms-compatibility and targeting the gnu abi interact in a strange way:
-        // - Targeting the GNU abi stops _MSC_VER from being defined
-        // - Passing -fms-compatibility stops __GNUC__ from being defined
-        // Neither being defined is a problem for things like things like MinGW's
-        // vadefs.h, which will fail during preprocessing if neither are defined.
-        // So, when targeting the GNU abi, we need to force __GNUC__ to be defined.
-        //
-        // TODO: This is a workaround that should be removed if possible.
-        if (comp.getTarget().isGnu()) {
-            // This is the same default gnuc version that Clang uses:
-            // https://github.com/llvm/llvm-project/blob/4b5366c9512aa273a5272af1d833961e1ed156e7/clang/lib/Driver/ToolChains/Clang.cpp#L6738
-            try argv.append("-fgnuc-version=4.2.1");
-        }
-        for (options.extra_include_paths.items) |extra_include_path| {
-            try argv.append("--include-directory");
-            try argv.append(extra_include_path);
-        }
-        var symbol_it = options.symbols.iterator();
-        while (symbol_it.next()) |entry| {
-            switch (entry.value_ptr.*) {
-                .define => |value| {
-                    try argv.append("-D");
-                    const define_arg = arg: {
-                        const arg = try std.fmt.allocPrint(comp.gpa, "{s}={s}", .{ entry.key_ptr.*, value });
-                        errdefer comp.gpa.free(arg);
-                        try temp_strings.append(arg);
-                        break :arg arg;
-                    };
-                    try argv.append(define_arg);
-                },
-                .undefine => {
-                    try argv.append("-U");
-                    try argv.append(entry.key_ptr.*);
-                },
-            }
-        }
+
         try argv.append(win32_resource.src.src_path);
         try argv.appendSlice(&[_][]const u8{
             "-o",

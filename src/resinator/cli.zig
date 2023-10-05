@@ -8,8 +8,8 @@ const lex = @import("lex.zig");
 /// This is what /SL 100 will set the maximum string literal length to
 pub const max_string_literal_length_100_percent = 8192;
 
-pub const usage_string =
-    \\Usage: resinator [options] [--] <INPUT> [<OUTPUT>]
+pub const usage_string_after_command_name =
+    \\ [options] [--] <INPUT> [<OUTPUT>]
     \\
     \\The sequence -- can be used to signify when to stop parsing options.
     \\This is necessary when the input path begins with a forward slash.
@@ -56,6 +56,12 @@ pub const usage_string =
     \\Note: For compatibility reasons, all custom options start with :
     \\
 ;
+
+pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
+    try writer.writeAll("Usage: ");
+    try writer.writeAll(command_name);
+    try writer.writeAll(usage_string_after_command_name);
+}
 
 pub const Diagnostics = struct {
     errors: std.ArrayListUnmanaged(ErrorDetails) = .{},
