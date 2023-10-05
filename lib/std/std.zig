@@ -285,7 +285,7 @@ pub const options = struct {
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
-    /// 
+    ///
     /// This will likely reduce the size of the binary, but it will also make it impossible to
     /// make a HTTPS connection.
     pub const http_disable_tls = if (@hasDecl(options_override, "http_disable_tls"))
