@@ -9,7 +9,7 @@ pub const DynamicSection = struct {
 
     pub fn addNeeded(dt: *DynamicSection, shared: *SharedObject, elf_file: *Elf) !void {
         const gpa = elf_file.base.allocator;
-        const off = try elf_file.dynstrtab.insert(gpa, shared.getSoname());
+        const off = try elf_file.dynstrtab.insert(gpa, shared.soname());
         try dt.needed.append(gpa, off);
     }
 

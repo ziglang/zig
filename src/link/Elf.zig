@@ -269,6 +269,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     // Append null byte to string tables
     try self.shstrtab.buffer.append(allocator, 0);
     try self.strtab.buffer.append(allocator, 0);
+    try self.dynstrtab.buffer.append(allocator, 0);
 
     if (options.module != null and !options.use_llvm) {
         if (!options.strip) {
@@ -1384,6 +1385,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try self.file(index).?.object.addAtomsToOutputSections(self);
     }
     try self.sortInitFini();
+    try self.setDynamicSection();
+    self.sortDynamicSymtab();
+    try self.setHashSections();
+    try self.setVersionSymtab();
     try self.updateSectionSizes();
 
     try self.allocateSections();
@@ -3748,6 +3753,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_DYNSYM,
             .addralign = @alignOf(elf.Elf64_Sym),
             .entsize = @sizeOf(elf.Elf64_Sym),
+            .info = 1,
         });
         self.hash_section_index = try self.addSection(.{
             .name = ".hash",
@@ -3870,6 +3876,52 @@ fn sortInitFini(self: *Elf) !void {
         for (entries.items) |entry| {
             atom_list.appendAssumeCapacity(entry.atom_index);
         }
+    }
+}
+
+fn setDynamicSection(self: *Elf) !void {
+    if (self.dynamic_section_index == null) return;
+
+    for (self.shared_objects.items) |index| {
+        const shared_object = self.file(index).?.shared_object;
+        if (!shared_object.alive) continue;
+        try self.dynamic.addNeeded(shared_object, self);
+    }
+
+    if (self.base.options.soname) |soname| {
+        try self.dynamic.setSoname(soname, self);
+    }
+
+    try self.dynamic.setRpath(self.base.options.rpath_list, self);
+}
+
+fn sortDynamicSymtab(self: *Elf) void {
+    if (self.gnu_hash_section_index == null) return;
+    self.dynsym.sort(self);
+}
+
+fn setVersionSymtab(self: *Elf) !void {
+    if (self.versym_section_index == null) return;
+    try self.versym.resize(self.base.allocator, self.dynsym.count());
+    self.versym.items[0] = elf.VER_NDX_LOCAL;
+    for (self.dynsym.entries.items, 1..) |entry, i| {
+        const sym = self.symbol(entry.symbol_index);
+        self.versym.items[i] = sym.version_index;
+    }
+
+    if (self.verneed_section_index) |shndx| {
+        try self.verneed.generate(self);
+        const shdr = &self.shdrs.items[shndx];
+        shdr.sh_info = @as(u32, @intCast(self.verneed.verneed.items.len));
+    }
+}
+
+fn setHashSections(self: *Elf) !void {
+    if (self.hash_section_index != null) {
+        try self.hash.generate(self);
+    }
+    if (self.gnu_hash_section_index != null) {
+        try self.gnu_hash.calcSize(self);
     }
 }
 
