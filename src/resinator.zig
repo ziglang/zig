@@ -17,6 +17,7 @@ pub const lang = @import("resinator/lang.zig");
 pub const lex = @import("resinator/lex.zig");
 pub const literals = @import("resinator/literals.zig");
 pub const parse = @import("resinator/parse.zig");
+pub const preprocess = @import("resinator/preprocess.zig");
 pub const rc = @import("resinator/rc.zig");
 pub const res = @import("resinator/res.zig");
 pub const source_mapping = @import("resinator/source_mapping.zig");
