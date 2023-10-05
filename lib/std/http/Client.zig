@@ -420,13 +420,7 @@ pub const Response = struct {
 
             if (trailing) continue;
 
-            if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
-                const content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
-
-                if (res.content_length != null and res.content_length != content_length) return error.HttpHeadersInvalid;
-
-                res.content_length = content_length;
-            } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
+            if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
                 // Transfer-Encoding: second, first
                 // Transfer-Encoding: deflate, chunked
                 var iter = mem.splitBackwardsScalar(u8, header_value, ',');
@@ -458,6 +452,12 @@ pub const Response = struct {
                 }
 
                 if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
+            } else if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
+                const content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
+
+                if (res.content_length != null and res.content_length != content_length) return error.HttpHeadersInvalid;
+
+                res.content_length = content_length;
             } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
                 if (res.transfer_compression != null) return error.HttpHeadersInvalid;
 
@@ -658,17 +658,17 @@ pub const Request = struct {
                 .none => {},
             }
         } else {
-            if (has_content_length) {
-                const content_length = std.fmt.parseInt(u64, req.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
-
-                req.transfer_encoding = .{ .content_length = content_length };
-            } else if (has_transfer_encoding) {
+            if (has_transfer_encoding) {
                 const transfer_encoding = req.headers.getFirstValue("transfer-encoding").?;
                 if (std.mem.eql(u8, transfer_encoding, "chunked")) {
                     req.transfer_encoding = .chunked;
                 } else {
                     return error.UnsupportedTransferEncoding;
                 }
+            } else if (has_content_length) {
+                const content_length = std.fmt.parseInt(u64, req.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
+
+                req.transfer_encoding = .{ .content_length = content_length };
             } else {
                 req.transfer_encoding = .none;
             }
