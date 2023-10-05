@@ -2568,7 +2568,7 @@ fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
                 80, 128 => true,
                 else => unreachable,
             },
-            80 => switch (dst_bits) {
+            80 => switch (src_bits) {
                 128 => true,
                 else => unreachable,
             },
@@ -10278,6 +10278,8 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
 }
 
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError!void {
+    const mod = self.bin_file.options.module.?;
+
     const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
@@ -10315,18 +10317,31 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
                 .off = -dst_reg_off.off,
             } },
         }),
-        .register_pair => |dst_regs| for (dst_regs, 0..) |dst_reg, dst_reg_i| switch (src_mcv) {
-            .register_pair => |src_regs| try self.genSetReg(
-                dst_reg,
-                Type.usize,
-                .{ .register = src_regs[dst_reg_i] },
-            ),
-            else => try self.genSetReg(
-                dst_reg,
-                Type.usize,
-                src_mcv.address().offset(@intCast(dst_reg_i * 8)).deref(),
-            ),
-            .air_ref => |src_ref| return self.genCopy(ty, dst_mcv, try self.resolveInst(src_ref)),
+        .register_pair => |dst_regs| {
+            switch (src_mcv) {
+                .air_ref => |src_ref| return self.genCopy(ty, dst_mcv, try self.resolveInst(src_ref)),
+                else => {},
+            }
+            const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+            for (dst_regs, classes, 0..) |dst_reg, class, dst_reg_i| {
+                const class_ty = switch (class) {
+                    .integer => Type.usize,
+                    .sse => Type.f64,
+                    else => unreachable,
+                };
+                switch (src_mcv) {
+                    .register_pair => |src_regs| try self.genSetReg(
+                        dst_reg,
+                        class_ty,
+                        .{ .register = src_regs[dst_reg_i] },
+                    ),
+                    else => try self.genSetReg(
+                        dst_reg,
+                        class_ty,
+                        src_mcv.address().offset(@intCast(dst_reg_i * 8)).deref(),
+                    ),
+                }
+            }
         },
         .indirect => |reg_off| try self.genSetMem(.{ .reg = reg_off.reg }, reg_off.off, ty, src_mcv),
         .memory, .load_direct, .load_got, .load_tlv => {
@@ -12566,7 +12581,7 @@ fn resolveCallingConventionValues(
 
                 const classes = switch (resolved_cc) {
                     .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
-                    .Win64 => &[1]abi.Class{abi.classifyWindows(ret_ty, mod)},
+                    .Win64 => &.{abi.classifyWindows(ret_ty, mod)},
                     else => unreachable,
                 };
                 for (classes) |class| switch (class) {
@@ -12639,9 +12654,10 @@ fn resolveCallingConventionValues(
                 var arg_mcv: [2]MCValue = undefined;
                 var arg_mcv_i: usize = 0;
 
-                const classes = switch (self.target.os.tag) {
-                    .windows => &[1]abi.Class{abi.classifyWindows(ty, mod)},
-                    else => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
+                const classes = switch (resolved_cc) {
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
+                    .Win64 => &.{abi.classifyWindows(ty, mod)},
+                    else => unreachable,
                 };
                 for (classes) |class| switch (class) {
                     .integer => {
