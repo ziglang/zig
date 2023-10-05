@@ -137,7 +137,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                 return result;
             },
             128 => {
-                // "Arguments of types__float128, _Decimal128 and__m128 are
+                // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
                 if (ctx == .other) {
@@ -213,9 +213,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
             if (struct_type.layout == .Packed) {
-                assert(ty_size <= 128);
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
@@ -331,9 +331,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             const union_obj = mod.typeToUnion(ty).?;
             const ty_size = mod.unionAbiSize(union_obj);
             if (union_obj.getLayout(ip) == .Packed) {
-                assert(ty_size <= 128);
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
@@ -422,11 +422,11 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         },
         .Array => {
             const ty_size = ty.abiSize(mod);
-            if (ty_size <= 64) {
+            if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
             }
-            if (ty_size <= 128) {
+            if (ty_size <= 16) {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;
