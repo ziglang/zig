@@ -12566,7 +12566,7 @@ fn resolveCallingConventionValues(
                     abi.getCAbiIntReturnRegs(resolved_cc)[0..classes.len],
                     0..,
                 ) |class, ret_reg, ret_reg_i| {
-                    result.return_value = switch (classes[0]) {
+                    result.return_value = switch (class) {
                         .integer => switch (ret_reg_i) {
                             0 => InstTracking.init(.{ .register = registerAlias(
                                 ret_reg,
@@ -12582,6 +12582,7 @@ fn resolveCallingConventionValues(
                             0 => InstTracking.init(.{ .register = .xmm0 }),
                             else => return self.fail("TODO handle multiple classes per type", .{}),
                         },
+                        .sseup => continue,
                         .memory => switch (ret_reg_i) {
                             0 => ret: {
                                 const ret_indirect_reg =
@@ -12602,7 +12603,7 @@ fn resolveCallingConventionValues(
             }
 
             // Input params
-            next_param: for (param_types, result.args) |ty, *arg| {
+            for (param_types, result.args) |ty, *arg| {
                 assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
                 const classes = switch (self.target.os.tag) {
@@ -12620,7 +12621,6 @@ fn resolveCallingConventionValues(
                                 1 => .{ .register_pair = .{ arg.register, param_reg } },
                                 else => return self.fail("TODO handle multiple classes per type", .{}),
                             };
-                            continue;
                         } else break,
                         .float, .sse => switch (self.target.os.tag) {
                             .windows => if (param_reg_i < 4) {
@@ -12630,7 +12630,6 @@ fn resolveCallingConventionValues(
                                     .register = @enumFromInt(@intFromEnum(Register.xmm0) + param_reg_i),
                                 };
                                 param_reg_i += 1;
-                                continue;
                             } else break,
                             else => if (param_sse_reg_i < 8) {
                                 if (class_i > 0)
@@ -12639,15 +12638,15 @@ fn resolveCallingConventionValues(
                                     @intFromEnum(Register.xmm0) + param_sse_reg_i,
                                 ) };
                                 param_sse_reg_i += 1;
-                                continue;
                             } else break,
                         },
+                        .sseup => {},
                         .memory => break,
                         else => return self.fail("TODO handle calling convention class {s}", .{
                             @tagName(class),
                         }),
                     }
-                } else continue :next_param;
+                } else continue;
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
                 const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
