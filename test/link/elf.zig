@@ -16,6 +16,7 @@ pub fn build(b: *Build) void {
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
     // Exercise linker with LLVM backend
+    elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
     elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
@@ -24,12 +25,39 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 }
 
+fn testCommonSymbols(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "common-symbols", opts);
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\int foo;
+        \\int bar;
+        \\int baz = 42;
+    , &.{"-fcommon"});
+    addCSourceBytes(exe,
+        \\#include<stdio.h>
+        \\int foo;
+        \\int bar = 5;
+        \\int baz;
+        \\int main() {
+        \\  printf("%d %d %d\n", foo, bar, baz);
+        \\}
+    , &.{"-fcommon"});
+    exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("0 5 42\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testEmptyObject(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "empty-object", opts);
 
     const exe = addExecutable(b, opts);
-    addCSourceBytes(exe, "int main() { return 0; }");
-    addCSourceBytes(exe, "");
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    addCSourceBytes(exe, "", &.{});
     exe.is_linking_libc = true;
 
     const run = addRunArtifact(exe);
@@ -58,7 +86,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         \\  printf("%d %d\n", live_var1, live_var2);
         \\  live_fn2();
         \\}
-    );
+    , &.{});
     obj.link_function_sections = true;
     obj.link_data_sections = true;
     obj.is_linking_libc = true;
@@ -139,7 +167,7 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
         \\  printf("Hello World!\n");
         \\  return 0;
         \\}
-    );
+    , &.{});
     exe.is_linking_libc = true;
 
     const run = addRunArtifact(exe);
@@ -168,7 +196,7 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
         \\  std::cout << "Hello World!" << std::endl;
         \\  return 0;
         \\}
-    );
+    , &.{});
     exe.is_linking_libc = true;
     exe.is_linking_libcpp = true;
 
@@ -231,7 +259,7 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %c\n", a, b, c);
         \\  return 0;
         \\}
-    );
+    , &.{});
     exe.is_linking_libc = true;
 
     const run = addRunArtifact(exe);
@@ -297,16 +325,16 @@ fn addZigSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
     comp.root_src = file;
 }
 
-fn addCSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+fn addCSourceBytes(comp: *Compile, comptime bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.c", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = &.{} });
+    comp.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
-fn addCppSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+fn addCppSourceBytes(comp: *Compile, comptime bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.cpp", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = &.{} });
+    comp.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
 fn addAsmSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
