@@ -11,6 +11,11 @@ pub fn build(b: *Build) void {
         .os_tag = .linux,
         .abi = .musl,
     };
+    const glibc_target = CrossTarget{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .gnu,
+    };
 
     // Exercise linker with self-hosted backend (no LLVM)
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
@@ -24,6 +29,10 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
+
+    for (&[_]CrossTarget{ glibc_target, musl_target }) |target| {
+        elf_step.dependOn(testDsoPlt(b, .{ .target = target }));
+    }
 }
 
 fn testCommonSymbols(b: *Build, opts: Options) *Step {
@@ -118,6 +127,46 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("5 0 7 2\n");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testDsoPlt(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "dso-plt", opts);
+
+    const dso = addSharedLibrary(b, opts);
+    addCSourceBytes(dso,
+        \\#include<stdio.h>
+        \\void world() {
+        \\  printf("world\n");
+        \\}
+        \\void real_hello() {
+        \\  printf("Hello ");
+        \\  world();
+        \\}
+        \\void hello() {
+        \\  real_hello();
+        \\}
+    , &.{"-fPIC"});
+    dso.is_linking_libc = true;
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\#include<stdio.h>
+        \\void world() {
+        \\  printf("WORLD\n");
+        \\}
+        \\void hello();
+        \\int main() {
+        \\  hello();
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello WORLD\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -388,6 +437,16 @@ fn addStaticLibrary(b: *Build, opts: Options) *Compile {
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = true,
+    });
+}
+
+fn addSharedLibrary(b: *Build, opts: Options) *Compile {
+    return b.addSharedLibrary(.{
+        .name = "a.so",
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = opts.use_llvm,
+        .use_lld = false,
     });
 }
 
