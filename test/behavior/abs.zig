@@ -97,7 +97,7 @@ test "@abs floats" {
     try comptime testAbsFloats(f80);
     if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_wasm) try testAbsFloats(f80);
     try comptime testAbsFloats(f128);
-    if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_wasm) try testAbsFloats(f128);
+    if (builtin.zig_backend != .stage2_wasm) try testAbsFloats(f128);
 }
 
 fn testAbsFloats(comptime T: type) !void {

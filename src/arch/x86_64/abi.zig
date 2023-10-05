@@ -137,7 +137,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                 return result;
             },
             128 => {
-                // "Arguments of types__float128, _Decimal128 and__m128 are
+                // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
                 if (ctx == .other) {
@@ -213,9 +213,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
             if (struct_type.layout == .Packed) {
-                assert(ty_size <= 128);
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
@@ -331,9 +331,9 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             const union_obj = mod.typeToUnion(ty).?;
             const ty_size = mod.unionAbiSize(union_obj);
             if (union_obj.getLayout(ip) == .Packed) {
-                assert(ty_size <= 128);
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
@@ -422,11 +422,11 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         },
         .Array => {
             const ty_size = ty.abiSize(mod);
-            if (ty_size <= 64) {
+            if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
             }
-            if (ty_size <= 128) {
+            if (ty_size <= 16) {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;
@@ -447,7 +447,9 @@ pub const SysV = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..2].*;
 };
 
 pub const Win64 = struct {
@@ -460,34 +462,69 @@ pub const Win64 = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
     pub const c_abi_int_return_regs = [_]Register{.rax};
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..1].*;
 };
 
-pub fn getCalleePreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.callee_preserved_regs,
-        else => &SysV.callee_preserved_regs,
+pub fn resolveCallingConvention(
+    cc: std.builtin.CallingConvention,
+    target: std.Target,
+) std.builtin.CallingConvention {
+    return switch (cc) {
+        .Unspecified, .C => switch (target.os.tag) {
+            else => .SysV,
+            .windows => .Win64,
+        },
+        else => cc,
     };
 }
 
-pub fn getCallerPreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.caller_preserved_regs,
-        else => &SysV.caller_preserved_regs,
+pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.callee_preserved_regs,
+        .Win64 => &Win64.callee_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntParamRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_param_regs,
-        else => &SysV.c_abi_int_param_regs,
+pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.caller_preserved_regs,
+        .Win64 => &Win64.caller_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntReturnRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_return_regs,
-        else => &SysV.c_abi_int_return_regs,
+pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_param_regs,
+        .Win64 => &Win64.c_abi_int_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_param_regs,
+        .Win64 => &Win64.c_abi_sse_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_return_regs,
+        .Win64 => &Win64.c_abi_int_return_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_return_regs,
+        .Win64 => &Win64.c_abi_sse_return_regs,
+        else => unreachable,
     };
 }
 
@@ -524,7 +561,6 @@ pub const RegisterClass = struct {
 
 const builtin = @import("builtin");
 const std = @import("std");
-const Target = std.Target;
 const assert = std.debug.assert;
 const testing = std.testing;
 

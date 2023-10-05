@@ -2,7 +2,7 @@
 
 allocator: Allocator,
 mir: Mir,
-target: *const std.Target,
+cc: std.builtin.CallingConvention,
 err_msg: ?*ErrorMsg = null,
 src_loc: Module.SrcLoc,
 result_insts_len: u8 = undefined,
@@ -552,15 +552,13 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
 }
 
 fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
-    const callee_preserved_regs = abi.getCalleePreservedRegs(lower.target.*);
+    const callee_preserved_regs = abi.getCalleePreservedRegs(lower.cc);
     var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
         .push => .reverse,
         .pop => .forward,
         else => unreachable,
     } });
-    while (it.next()) |i| try lower.emit(.none, mnemonic, &.{.{
-        .reg = callee_preserved_regs[i],
-    }});
+    while (it.next()) |i| try lower.emit(.none, mnemonic, &.{.{ .reg = callee_preserved_regs[i] }});
 }
 
 const page_size: i32 = 1 << 12;

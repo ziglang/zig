@@ -40,28 +40,7 @@ pub const CodeGenError = error{
 
 pub const DebugInfoOutput = union(enum) {
     dwarf: *link.File.Dwarf.DeclState,
-    /// the plan9 debuginfo output is a bytecode with 4 opcodes
-    /// assume all numbers/variables are bytes
-    /// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
-    /// x when x < 65 -> add x to line offset
-    /// x when x < 129 -> subtract 64 from x and subtract it from the line offset
-    /// x -> subtract 129 from x, multiply it by the quanta of the instruction size
-    /// (1 on x86_64), and add it to the pc
-    /// after every opcode, add the quanta of the instruction size to the pc
-    plan9: struct {
-        /// the actual opcodes
-        dbg_line: *std.ArrayList(u8),
-        /// what line the debuginfo starts on
-        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
-        start_line: *?u32,
-        /// what the line count ends on after codegen
-        /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
-        end_line: *u32,
-        /// the last pc change op
-        /// This is very useful for adding quanta
-        /// to it if its not actually the last one.
-        pcop_change_index: *?u32,
-    },
+    plan9: *link.File.Plan9.DebugInfoOutput,
     none,
 };
 
