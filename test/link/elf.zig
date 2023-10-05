@@ -17,6 +17,7 @@ pub fn build(b: *Build) void {
 
     // Exercise linker with LLVM backend
     elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
+    elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
     elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
@@ -48,6 +49,75 @@ fn testCommonSymbols(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("0 5 42\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "common-symbols-in-archive", opts);
+
+    const a_o = addObject(b, opts);
+    addCSourceBytes(a_o,
+        \\#include <stdio.h>
+        \\int foo;
+        \\int bar;
+        \\extern int baz;
+        \\__attribute__((weak)) int two();
+        \\int main() {
+        \\  printf("%d %d %d %d\n", foo, bar, baz, two ? two() : -1);
+        \\}
+    , &.{"-fcommon"});
+    a_o.is_linking_libc = true;
+
+    const b_o = addObject(b, opts);
+    addCSourceBytes(b_o, "int foo = 5;", &.{"-fcommon"});
+
+    {
+        const c_o = addObject(b, opts);
+        addCSourceBytes(c_o,
+            \\int bar;
+            \\int two() { return 2; }
+        , &.{"-fcommon"});
+
+        const d_o = addObject(b, opts);
+        addCSourceBytes(d_o, "int baz;", &.{"-fcommon"});
+
+        const lib = addStaticLibrary(b, opts);
+        lib.addObject(b_o);
+        lib.addObject(c_o);
+        lib.addObject(d_o);
+
+        const exe = addExecutable(b, opts);
+        exe.addObject(a_o);
+        exe.linkLibrary(lib);
+        exe.is_linking_libc = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("5 0 0 -1\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const e_o = addObject(b, opts);
+        addCSourceBytes(e_o,
+            \\int bar = 0;
+            \\int baz = 7;
+            \\int two() { return 2; }
+        , &.{"-fcommon"});
+
+        const lib = addStaticLibrary(b, opts);
+        lib.addObject(b_o);
+        lib.addObject(e_o);
+
+        const exe = addExecutable(b, opts);
+        exe.addObject(a_o);
+        exe.linkLibrary(lib);
+        exe.is_linking_libc = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("5 0 7 2\n");
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
@@ -308,6 +378,16 @@ fn addObject(b: *Build, opts: Options) *Compile {
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = false,
+    });
+}
+
+fn addStaticLibrary(b: *Build, opts: Options) *Compile {
+    return b.addStaticLibrary(.{
+        .name = "a.a",
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = opts.use_llvm,
+        .use_lld = true,
     });
 }
 
