@@ -196,33 +196,29 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
     return len;
 }
 
-// Ported from go, which is licensed under a BSD-3 license.
-// https://golang.org/LICENSE
-//
-// https://golang.org/src/unicode/utf8/utf8.go
-/// Returns true if the input consists entirely of UTF-8 runes
+/// Returns true if the input consists entirely of UTF-8 codepoints
 pub fn utf8ValidateSlice(input: []const u8) bool {
-    var p = input;
+    var remaining = input;
 
     // Fast path. Check for and skip 8 bytes of ASCII characters per iteration.
-    while (p.len >= 8) {
-        const first32 = mem.readIntLittle(u32, p[0..4]);
-        const second32 = mem.readIntLittle(u32, p[4..8]);
+    while (remaining.len >= 8) {
+        const first32 = mem.readIntLittle(u32, remaining[0..4]);
+        const second32 = mem.readIntLittle(u32, remaining[4..8]);
         if ((first32 | second32) & 0x80808080 != 0) {
             // Found a non ASCII byte
             break;
         }
-        p = p[8..];
+        remaining = remaining[8..];
     }
 
-    const rune_self = 0x80;
-    const locb = 0b10000000;
-    const hicb = 0b10111111;
+    // default lowest and highest continuation byte
+    const lo_cb = 0b10000000;
+    const hi_cb = 0b10111111;
 
-    // These names of these constants are chosen to give nice alignment in the
-    // table below. The first nibble is an index into acceptRanges or F for
-    // special one-byte cases. The second nibble is the Rune length or the
-    // Status for the special one-byte case.
+    const min_non_ascii_codepoint = 0x80;
+
+    // The first nibble is used to identify the continuation byte range to
+    // accept. The second nibble is the size.
     const xx = 0xF1; // invalid: size 1
     const as = 0xF0; // ASCII: size 1
     const s1 = 0x02; // accept 0, size 2
@@ -233,7 +229,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
     const s6 = 0x04; // accept 0, size 4
     const s7 = 0x44; // accept 4, size 4
 
-    // information about the first byte in a UTF-8 sequence.
+    // Information about the first byte in a UTF-8 sequence.
     const first = comptime ([_]u8{as} ** 128) ++ ([_]u8{xx} ** 64) ++ [_]u8{
         xx, xx, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
         s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1, s1,
@@ -241,28 +237,31 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
         s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx,
     };
 
-    var n = p.len;
+    var n = remaining.len;
     var i: usize = 0;
     while (i < n) {
-        const pi = p[i];
-        if (pi < rune_self) {
+        const first_byte = remaining[i];
+        if (first_byte < min_non_ascii_codepoint) {
             i += 1;
             continue;
         }
 
-        const x = first[pi];
-        if (x == xx) {
+        const info = first[first_byte];
+        if (info == xx) {
             return false; // Illegal starter byte.
         }
 
-        const size = x & 7;
+        const size = info & 7;
         if (i + size > n) {
             return false; // Short or invalid.
         }
 
-        var accept_lo: u8 = locb;
-        var accept_hi: u8 = hicb;
-        switch (x >> 4) {
+        // Figure out the acceptable low and high continuation bytes, starting
+        // with our defaults.
+        var accept_lo: u8 = lo_cb;
+        var accept_hi: u8 = hi_cb;
+
+        switch (info >> 4) {
             0 => {},
             1 => accept_lo = 0xA0,
             2 => accept_hi = 0x9F,
@@ -271,26 +270,27 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
             else => unreachable,
         }
 
-        const c1 = p[i + 1];
+        const c1 = remaining[i + 1];
         if (c1 < accept_lo or accept_hi < c1) {
             return false;
         }
+
         switch (size) {
             2 => i += 2,
             3 => {
-                const c2 = p[i + 2];
-                if (c2 < locb or hicb < c2) {
+                const c2 = remaining[i + 2];
+                if (c2 < lo_cb or hi_cb < c2) {
                     return false;
                 }
                 i += 3;
             },
             4 => {
-                const c2 = p[i + 2];
-                if (c2 < locb or hicb < c2) {
+                const c2 = remaining[i + 2];
+                if (c2 < lo_cb or hi_cb < c2) {
                     return false;
                 }
-                const c3 = p[i + 3];
-                if (c3 < locb or hicb < c3) {
+                const c3 = remaining[i + 3];
+                if (c3 < lo_cb or hi_cb < c3) {
                     return false;
                 }
                 i += 4;
