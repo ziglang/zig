@@ -1678,6 +1678,8 @@ fn parseLibrary(
 
     if (Archive.isArchive(in_file)) {
         try self.parseArchive(in_file, lib.path, must_link, ctx);
+    } else if (SharedObject.isSharedObject(in_file)) {
+        try self.parseSharedObject(in_file, lib, ctx);
     } else return error.UnknownFileType;
 }
 
@@ -1730,6 +1732,34 @@ fn parseArchive(
         ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
         if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
     }
+}
+
+fn parseSharedObject(
+    self: *Elf,
+    in_file: std.fs.File,
+    lib: SystemLib,
+    ctx: *ParseErrorCtx,
+) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    self.files.set(index, .{ .shared_object = .{
+        .path = lib.path,
+        .data = data,
+        .index = index,
+        .needed = lib.needed,
+        .alive = lib.needed,
+    } });
+    try self.shared_objects.append(gpa, index);
+
+    const shared_object = self.file(index).?.shared_object;
+    try shared_object.parse(self);
+
+    ctx.detected_cpu_arch = shared_object.header.?.e_machine.toTargetCpuArch().?;
+    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
 /// When resolving symbols, we approach the problem similarly to `mold`.
@@ -3437,23 +3467,23 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     self.rela_iplt_start_index = try linker_defined.addGlobal("__rela_iplt_start", self);
     self.rela_iplt_end_index = try linker_defined.addGlobal("__rela_iplt_end", self);
 
-    // for (self.objects.items) |index| {
-    //     const object = self.getFile(index).?.object;
-    //     for (object.atoms.items) |atom_index| {
-    //         if (self.getStartStopBasename(atom_index)) |name| {
-    //             const gpa = self.base.allocator;
-    //             try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            if (self.getStartStopBasename(atom_index)) |name| {
+                const gpa = self.base.allocator;
+                try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
 
-    //             const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
-    //             defer gpa.free(start);
-    //             const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
-    //             defer gpa.free(stop);
+                const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+                defer gpa.free(start);
+                const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+                defer gpa.free(stop);
 
-    //             self.start_stop_indexes.appendAssumeCapacity(try internal.addSyntheticGlobal(start, self));
-    //             self.start_stop_indexes.appendAssumeCapacity(try internal.addSyntheticGlobal(stop, self));
-    //         }
-    //     }
-    // }
+                self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(start, self));
+                self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(stop, self));
+            }
+        }
+    }
 
     linker_defined.resolveSymbols(self);
 }
@@ -5197,6 +5227,15 @@ pub fn isCIdentifier(name: []const u8) bool {
         if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
     }
     return true;
+}
+
+fn getStartStopBasename(self: *Elf, atom_index: Atom.Index) ?[]const u8 {
+    const atom_ptr = self.atom(atom_index) orelse return null;
+    const name = atom_ptr.name(self);
+    if (atom_ptr.inputShdr(self).sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
+        if (isCIdentifier(name)) return name;
+    }
+    return null;
 }
 
 pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {

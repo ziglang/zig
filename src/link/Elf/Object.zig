@@ -970,7 +970,7 @@ pub const ElfShdr = struct {
     sh_addralign: u64,
     sh_entsize: u64,
 
-    fn fromElf64Shdr(shdr: elf.Elf64_Shdr) error{Overflow}!ElfShdr {
+    pub fn fromElf64Shdr(shdr: elf.Elf64_Shdr) error{Overflow}!ElfShdr {
         return .{
             .sh_name = shdr.sh_name,
             .sh_type = shdr.sh_type,

@@ -33,6 +33,7 @@ pub fn isSharedObject(file: std.fs.File) bool {
 }
 
 pub fn deinit(self: *SharedObject, allocator: Allocator) void {
+    allocator.free(self.data);
     self.versyms.deinit(allocator);
     self.verstrings.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -139,7 +140,7 @@ fn initSymtab(self: *SharedObject, elf_file: *Elf) !void {
             defer gpa.free(full_name);
             break :blk try elf_file.strtab.insert(gpa, full_name);
         } else try elf_file.strtab.insert(gpa, name);
-        const gop = try elf_file.getOrCreateGlobal(off);
+        const gop = try elf_file.getOrPutGlobal(off);
         self.symbols.addOneAssumeCapacity().* = gop.index;
     }
 }

@@ -284,8 +284,12 @@ pub const GotSection = struct {
         entry.tag = .got;
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
-        if (symbol.flags.import or symbol.isIFunc(elf_file) or (elf_file.base.options.pic and !symbol.isAbs(elf_file)))
+        symbol.flags.has_got = true;
+        if (symbol.flags.import or symbol.isIFunc(elf_file) or
+            (elf_file.base.options.pic and !symbol.isAbs(elf_file)))
+        {
             got.flags.needs_rela = true;
+        }
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.got = index;
@@ -310,6 +314,7 @@ pub const GotSection = struct {
         entry.tag = .tlsgd;
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_tlsgd = true;
         if (symbol.flags.import or elf_file.isDynLib()) got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
@@ -324,6 +329,7 @@ pub const GotSection = struct {
         entry.tag = .gottp;
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_gottp = true;
         if (symbol.flags.import or elf_file.isDynLib()) got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
@@ -338,6 +344,7 @@ pub const GotSection = struct {
         entry.tag = .tlsdesc;
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_tlsdesc = true;
         got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
@@ -645,6 +652,7 @@ pub const PltSection = struct {
     pub fn addSymbol(plt: *PltSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
         const index = @as(u32, @intCast(plt.symbols.items.len));
         const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_plt = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.plt = index;
