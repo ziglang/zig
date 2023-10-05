@@ -32,7 +32,7 @@ extra_index: u32 = 0,
 
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
-    // if (file_ptr == .shared) return symbol.sourceSymbol(elf_file).st_shndx == elf.SHN_ABS;
+    if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and symbol.outputShndx() == null and
         file_ptr != .linker_defined;
 }
@@ -52,8 +52,8 @@ pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
 
 pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
     const s_sym = symbol.elfSym(elf_file);
-    // const file_ptr = symbol.file(elf_file).?;
-    // if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared) return elf.STT_FUNC;
+    const file_ptr = symbol.file(elf_file).?;
+    if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared_object) return elf.STT_FUNC;
     return s_sym.st_type();
 }
 
@@ -74,7 +74,7 @@ pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     switch (file_ptr) {
         .zig_module => |x| return x.elfSym(symbol.esym_index).*,
         .linker_defined => |x| return x.symtab.items[symbol.esym_index],
-        .object => |x| return x.symtab[symbol.esym_index],
+        inline else => |x| return x.symtab[symbol.esym_index],
     }
 }
 
@@ -88,23 +88,18 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-pub fn address(symbol: Symbol, opts: struct {
-    plt: bool = true,
-}, elf_file: *Elf) u64 {
-    _ = elf_file;
-    _ = opts;
-    // if (symbol.flags.copy_rel) {
-    //     return elf_file.sectionAddress(elf_file.copy_rel_sect_index.?) + symbol.value;
-    // }
-    // if (symbol.flags.plt and opts.plt) {
-    //     const extra = symbol.getExtra(elf_file).?;
-    //     if (!symbol.flags.is_canonical and symbol.flags.got) {
-    //         // We have a non-lazy bound function pointer, use that!
-    //         return elf_file.getPltGotEntryAddress(extra.plt_got);
-    //     }
-    //     // Lazy-bound function it is!
-    //     return elf_file.getPltEntryAddress(extra.plt);
-    // }
+pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf) u64 {
+    if (symbol.flags.has_copy_rel) {
+        return symbol.copyRelAddress(elf_file);
+    }
+    if (symbol.flags.has_plt and opts.plt) {
+        if (!symbol.flags.is_canonical and symbol.flags.has_got) {
+            // We have a non-lazy bound function pointer, use that!
+            return symbol.pltGotAddress(elf_file);
+        }
+        // Lazy-bound function it is!
+        return symbol.pltAddress(elf_file);
+    }
     return symbol.value;
 }
 
@@ -113,6 +108,33 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
     const extras = symbol.extra(elf_file).?;
     const entry = elf_file.got.entries.items[extras.got];
     return entry.address(elf_file);
+}
+
+pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!(symbol.flags.has_plt and symbol.flags.has_got and !symbol.flags.is_canonical)) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const shdr = elf_file.shdrs.items[elf_file.plt_got_section_index.?];
+    return shdr.sh_addr + extras.plt_got * 16;
+}
+
+pub fn pltAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_plt) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const shdr = elf_file.shdrs.items[elf_file.plt_section_index.?];
+    return shdr.sh_addr + extras.plt * 16 + PltSection.preamble_size;
+}
+
+pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_plt) return 0;
+    const extras = symbol.extra(elf_file).?;
+    const shdr = elf_file.shdrs.items[elf_file.got_plt_section_index.?];
+    return shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size;
+}
+
+pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_copy_rel) return 0;
+    const shdr = elf_file.shdrs.items[elf_file.copy_rel_section_index.?];
+    return shdr.sh_addr + symbol.value;
 }
 
 const GetOrCreateGotEntryResult = struct {
@@ -149,17 +171,18 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) u64 {
     return entry.address(elf_file);
 }
 
-// pub fn alignment(symbol: Symbol, elf_file: *Elf) !u64 {
-//     const file = symbol.getFile(elf_file) orelse return 0;
-//     const shared = file.shared;
-//     const s_sym = symbol.getSourceSymbol(elf_file);
-//     const shdr = shared.getShdrs()[s_sym.st_shndx];
-//     const alignment = @max(1, shdr.sh_addralign);
-//     return if (s_sym.st_value == 0)
-//         alignment
-//     else
-//         @min(alignment, try std.math.powi(u64, 2, @ctz(s_sym.st_value)));
-// }
+pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
+    const file_ptr = symbol.file(elf_file) orelse return 0;
+    assert(file_ptr == .shared_object);
+    const shared_object = file_ptr.shared_object;
+    const esym = symbol.elfSym(elf_file);
+    const shdr = shared_object.shdrs.items[esym.st_shndx];
+    const alignment = @max(1, shdr.sh_addralign);
+    return if (esym.st_value == 0)
+        alignment
+    else
+        @min(alignment, try std.math.powi(u64, 2, @ctz(esym.st_value)));
+}
 
 pub fn addExtra(symbol: *Symbol, extras: Extra, elf_file: *Elf) !void {
     symbol.extra_index = try elf_file.addSymbolExtra(extras);
@@ -183,22 +206,22 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_bind: u8 = blk: {
         if (symbol.isLocal()) break :blk 0;
         if (symbol.flags.weak) break :blk elf.STB_WEAK;
-        // if (file_ptr == .shared) break :blk elf.STB_GLOBAL;
+        if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
         break :blk esym.st_bind();
     };
     const st_shndx = blk: {
-        // if (symbol.flags.copy_rel) break :blk elf_file.copy_rel_sect_index.?;
-        // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
+        if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
+        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
             break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
     };
     const st_value = blk: {
-        // if (symbol.flags.copy_rel) break :blk symbol.address(.{}, elf_file);
-        // if (file_ptr == .shared or s_sym.st_shndx == elf.SHN_UNDEF) {
-        //     if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
-        //     break :blk 0;
-        // }
+        if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
+        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) {
+            if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
+            break :blk 0;
+        }
         if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
@@ -254,9 +277,10 @@ fn formatName(
     switch (symbol.version_index & elf.VERSYM_VERSION) {
         elf.VER_NDX_LOCAL, elf.VER_NDX_GLOBAL => {},
         else => {
-            unreachable;
-            // const shared = symbol.getFile(elf_file).?.shared;
-            // try writer.print("@{s}", .{shared.getVersionString(symbol.version_index)});
+            const file_ptr = symbol.file(elf_file).?;
+            assert(file_ptr == .shared_object);
+            const shared_object = file_ptr.shared_object;
+            try writer.print("@{s}", .{shared_object.versionString(symbol.version_index)});
         },
     }
 }
@@ -312,8 +336,11 @@ pub const Flags = packed struct {
     /// Whether this symbol is weak.
     weak: bool = false,
 
-    /// Whether the symbol makes into the output symtab or not.
+    /// Whether the symbol makes into the output symtab.
     output_symtab: bool = false,
+
+    /// Whether the symbol has entry in dynamic symbol table.
+    has_dynamic: bool = false,
 
     /// Whether the symbol contains GOT indirection.
     needs_got: bool = false,
@@ -328,7 +355,6 @@ pub const Flags = packed struct {
     /// Whether the symbol contains COPYREL directive.
     needs_copy_rel: bool = false,
     has_copy_rel: bool = false,
-    has_dynamic: bool = false,
 
     /// Whether the symbol contains TLSGD indirection.
     needs_tlsgd: bool = false,
@@ -365,8 +391,10 @@ const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const GotSection = synthetic_sections.GotSection;
+const GotPltSection = synthetic_sections.GotPltSection;
 const LinkerDefined = @import("LinkerDefined.zig");
-// const Object = @import("Object.zig");
-// const SharedObject = @import("SharedObject.zig");
+const Object = @import("Object.zig");
+const PltSection = synthetic_sections.PltSection;
+const SharedObject = @import("SharedObject.zig");
 const Symbol = @This();
 const ZigModule = @import("ZigModule.zig");

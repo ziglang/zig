@@ -2,7 +2,7 @@ pub const File = union(enum) {
     zig_module: *ZigModule,
     linker_defined: *LinkerDefined,
     object: *Object,
-    // shared_object: *SharedObject,
+    shared_object: *SharedObject,
 
     pub fn index(file: File) Index {
         return switch (file) {
@@ -26,7 +26,7 @@ pub const File = union(enum) {
             .zig_module => |x| try writer.print("{s}", .{x.path}),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            // .shared_object => |x| try writer.writeAll(x.path),
+            .shared_object => |x| try writer.writeAll(x.path),
         }
     }
 
@@ -49,8 +49,7 @@ pub const File = union(enum) {
     pub fn symbolRank(file: File, sym: elf.Elf64_Sym, in_archive: bool) u32 {
         const base: u3 = blk: {
             if (sym.st_shndx == elf.SHN_COMMON) break :blk if (in_archive) 6 else 5;
-            // if (file == .shared or in_archive) break :blk switch (sym.st_bind()) {
-            if (in_archive) break :blk switch (sym.st_bind()) {
+            if (file == .shared_object or in_archive) break :blk switch (sym.st_bind()) {
                 elf.STB_GLOBAL => 3,
                 else => 4,
             };
@@ -92,6 +91,7 @@ pub const File = union(enum) {
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
             .linker_defined => unreachable,
+            .shared_object => unreachable,
             .zig_module => |x| x.atoms.items,
             .object => |x| x.atoms.items,
         };
@@ -100,6 +100,7 @@ pub const File = union(enum) {
     pub fn locals(file: File) []const Symbol.Index {
         return switch (file) {
             .linker_defined => unreachable,
+            .shared_object => unreachable,
             inline else => |x| x.locals(),
         };
     }
@@ -117,7 +118,7 @@ pub const File = union(enum) {
         zig_module: ZigModule,
         linker_defined: LinkerDefined,
         object: Object,
-        // shared_object: SharedObject,
+        shared_object: SharedObject,
     };
 };
 
@@ -129,6 +130,6 @@ const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");
-// const SharedObject = @import("SharedObject.zig");
+const SharedObject = @import("SharedObject.zig");
 const Symbol = @import("Symbol.zig");
 const ZigModule = @import("ZigModule.zig");

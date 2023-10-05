@@ -591,6 +591,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Atom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/LinkerDefined.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/SharedObject.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Symbol.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigModule.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
