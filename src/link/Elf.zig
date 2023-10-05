@@ -1652,6 +1652,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
+    try self.convertCommonSymbols();
     self.markImportsExports();
 
     // Look for entry address in objects if not set by the incremental compiler.
@@ -2163,6 +2164,12 @@ fn markEhFrameAtomsDead(self: *Elf) void {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
         file_ptr.object.markEhFrameAtomsDead(self);
+    }
+}
+
+fn convertCommonSymbols(self: *Elf) !void {
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.convertCommonSymbols(self);
     }
 }
 

@@ -563,14 +563,14 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         if (this_sym.st_shndx != elf.SHN_COMMON) continue;
 
         const global = elf_file.symbol(index);
-        const global_file = global.getFile(elf_file).?;
-        if (global_file.getIndex() != self.index) {
-            if (elf_file.options.warn_common) {
-                elf_file.base.warn("{}: multiple common symbols: {s}", .{
-                    self.fmtPath(),
-                    global.getName(elf_file),
-                });
-            }
+        const global_file = global.file(elf_file).?;
+        if (global_file.index() != self.index) {
+            // if (elf_file.options.warn_common) {
+            //     elf_file.base.warn("{}: multiple common symbols: {s}", .{
+            //         self.fmtPath(),
+            //         global.getName(elf_file),
+            //     });
+            // }
             continue;
         }
 
@@ -579,13 +579,13 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const atom_index = try elf_file.addAtom();
         try self.atoms.append(gpa, atom_index);
 
-        const is_tls = global.getType(elf_file) == elf.STT_TLS;
-        const name = if (is_tls) ".tbss" else ".bss";
+        const is_tls = global.type(elf_file) == elf.STT_TLS;
+        const name = if (is_tls) ".tls_common" else ".common";
 
         const atom = elf_file.atom(atom_index).?;
         atom.atom_index = atom_index;
-        atom.name = try elf_file.strtab.insert(gpa, name);
-        atom.file = self.index;
+        atom.name_offset = try elf_file.strtab.insert(gpa, name);
+        atom.file_index = self.index;
         atom.size = this_sym.st_size;
         const alignment = this_sym.st_value;
         atom.alignment = Alignment.fromNonzeroByteUnits(alignment);
@@ -606,10 +606,10 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
             .sh_addralign = alignment,
             .sh_entsize = 0,
         };
-        atom.shndx = shndx;
+        atom.input_section_index = shndx;
 
         global.value = 0;
-        global.atom = atom_index;
+        global.atom_index = atom_index;
         global.flags.weak = false;
     }
 }
