@@ -20,7 +20,7 @@ step: Step,
 /// See also addArg and addArgs to modifying this directly
 argv: ArrayList(Arg),
 
-/// Use `setCwd` to modify the current working directory
+/// Use `setCwd` to set the initial current working directory
 /// TODO change this to a Build.Cache.Directory to better integrate with
 /// future child process cwd API.
 cwd: ?Build.LazyPath,
