@@ -40,6 +40,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 
+    elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
@@ -49,10 +50,92 @@ pub fn build(b: *Build) void {
     }
 }
 
+fn testAsNeeded(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "as-needed", opts);
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\#include <stdio.h>
+        \\int baz();
+        \\int main() {
+        \\  printf("%d\n", baz());
+        \\  return 0;
+        \\}
+    , &.{});
+    main_o.is_linking_libc = true;
+
+    const libfoo = addSharedLibrary(b, "foo", opts);
+    addCSourceBytes(libfoo, "int foo() { return 42; }", &.{"-fPIC"});
+
+    const libbar = addSharedLibrary(b, "bar", opts);
+    addCSourceBytes(libbar, "int bar() { return 42; }", &.{"-fPIC"});
+
+    const libbaz = addSharedLibrary(b, "baz", opts);
+    addCSourceBytes(libbaz,
+        \\int foo();
+        \\int baz() { return foo(); }
+    , &.{"-fPIC"});
+
+    {
+        const exe = addExecutable(b, "test", opts);
+        exe.addObject(main_o);
+        exe.linkSystemLibrary2("foo", .{ .needed = true });
+        exe.addLibraryPath(libfoo.getEmittedBinDirectory());
+        exe.addRPath(libfoo.getEmittedBinDirectory());
+        exe.linkSystemLibrary2("bar", .{ .needed = true });
+        exe.addLibraryPath(libbar.getEmittedBinDirectory());
+        exe.addRPath(libbar.getEmittedBinDirectory());
+        exe.linkSystemLibrary2("baz", .{ .needed = true });
+        exe.addLibraryPath(libbaz.getEmittedBinDirectory());
+        exe.addRPath(libbaz.getEmittedBinDirectory());
+        exe.is_linking_libc = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkExact("NEEDED libfoo.so");
+        check.checkExact("NEEDED libbar.so");
+        check.checkExact("NEEDED libbaz.so");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "test", opts);
+        exe.addObject(main_o);
+        exe.linkSystemLibrary2("foo", .{ .needed = false });
+        exe.addLibraryPath(libfoo.getEmittedBinDirectory());
+        exe.addRPath(libfoo.getEmittedBinDirectory());
+        exe.linkSystemLibrary2("bar", .{ .needed = false });
+        exe.addLibraryPath(libbar.getEmittedBinDirectory());
+        exe.addRPath(libbar.getEmittedBinDirectory());
+        exe.linkSystemLibrary2("baz", .{ .needed = false });
+        exe.addLibraryPath(libbaz.getEmittedBinDirectory());
+        exe.addRPath(libbaz.getEmittedBinDirectory());
+        exe.is_linking_libc = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkNotPresent("NEEDED libbar.so");
+        check.checkInDynamicSection();
+        check.checkExact("NEEDED libfoo.so");
+        check.checkExact("NEEDED libbaz.so");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
 fn testCommonSymbols(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "common-symbols", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\int foo;
         \\int bar;
@@ -79,7 +162,7 @@ fn testCommonSymbols(b: *Build, opts: Options) *Step {
 fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "common-symbols-in-archive", opts);
 
-    const a_o = addObject(b, opts);
+    const a_o = addObject(b, "a", opts);
     addCSourceBytes(a_o,
         \\#include <stdio.h>
         \\int foo;
@@ -92,25 +175,25 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
     , &.{"-fcommon"});
     a_o.is_linking_libc = true;
 
-    const b_o = addObject(b, opts);
+    const b_o = addObject(b, "b", opts);
     addCSourceBytes(b_o, "int foo = 5;", &.{"-fcommon"});
 
     {
-        const c_o = addObject(b, opts);
+        const c_o = addObject(b, "c", opts);
         addCSourceBytes(c_o,
             \\int bar;
             \\int two() { return 2; }
         , &.{"-fcommon"});
 
-        const d_o = addObject(b, opts);
+        const d_o = addObject(b, "d", opts);
         addCSourceBytes(d_o, "int baz;", &.{"-fcommon"});
 
-        const lib = addStaticLibrary(b, opts);
+        const lib = addStaticLibrary(b, "lib", opts);
         lib.addObject(b_o);
         lib.addObject(c_o);
         lib.addObject(d_o);
 
-        const exe = addExecutable(b, opts);
+        const exe = addExecutable(b, "test", opts);
         exe.addObject(a_o);
         exe.linkLibrary(lib);
         exe.is_linking_libc = true;
@@ -121,18 +204,18 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
     }
 
     {
-        const e_o = addObject(b, opts);
+        const e_o = addObject(b, "e", opts);
         addCSourceBytes(e_o,
             \\int bar = 0;
             \\int baz = 7;
             \\int two() { return 2; }
         , &.{"-fcommon"});
 
-        const lib = addStaticLibrary(b, opts);
+        const lib = addStaticLibrary(b, "lib", opts);
         lib.addObject(b_o);
         lib.addObject(e_o);
 
-        const exe = addExecutable(b, opts);
+        const exe = addExecutable(b, "test", opts);
         exe.addObject(a_o);
         exe.linkLibrary(lib);
         exe.is_linking_libc = true;
@@ -148,7 +231,7 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
 fn testDsoPlt(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "dso-plt", opts);
 
-    const dso = addSharedLibrary(b, opts);
+    const dso = addSharedLibrary(b, "dso", opts);
     addCSourceBytes(dso,
         \\#include<stdio.h>
         \\void world() {
@@ -164,7 +247,7 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
     , &.{"-fPIC"});
     dso.is_linking_libc = true;
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\#include<stdio.h>
         \\void world() {
@@ -188,7 +271,7 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
 fn testDsoUndef(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "dso-undef", opts);
 
-    const dso = addSharedLibrary(b, opts);
+    const dso = addSharedLibrary(b, "dso", opts);
     addCSourceBytes(dso,
         \\extern int foo;
         \\int bar = 5;
@@ -196,13 +279,13 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
     , &.{"-fPIC"});
     dso.is_linking_libc = true;
 
-    const obj = addObject(b, opts);
+    const obj = addObject(b, "obj", opts);
     addCSourceBytes(obj, "int foo = 3;", &.{});
 
-    const lib = addStaticLibrary(b, opts);
+    const lib = addStaticLibrary(b, "lib", opts);
     lib.addObject(obj);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     exe.linkLibrary(dso);
     exe.linkLibrary(lib);
     addCSourceBytes(exe,
@@ -228,7 +311,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmptyObject(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "empty-object", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe, "int main() { return 0; }", &.{});
     addCSourceBytes(exe, "", &.{});
     exe.is_linking_libc = true;
@@ -243,7 +326,7 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
 fn testGcSections(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "gc-sections", opts);
 
-    const obj = addObject(b, opts);
+    const obj = addObject(b, "obj", opts);
     addCppSourceBytes(obj,
         \\#include <stdio.h>
         \\int two() { return 2; }
@@ -266,7 +349,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     obj.is_linking_libcpp = true;
 
     {
-        const exe = addExecutable(b, opts);
+        const exe = addExecutable(b, "test", opts);
         exe.addObject(obj);
         exe.link_gc_sections = false;
         exe.is_linking_libc = true;
@@ -297,7 +380,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = addExecutable(b, opts);
+        const exe = addExecutable(b, "test", opts);
         exe.addObject(obj);
         exe.link_gc_sections = true;
         exe.is_linking_libc = true;
@@ -333,7 +416,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
 fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "large-alignment-dso", opts);
 
-    const dso = addSharedLibrary(b, opts);
+    const dso = addSharedLibrary(b, "dso", opts);
     addCSourceBytes(dso,
         \\#include <stdio.h>
         \\#include <stdint.h>
@@ -362,7 +445,7 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     check.checkComputeCompare("addr2 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     test_step.dependOn(&check.step);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\void greet();
         \\int main() { greet(); }
@@ -380,7 +463,7 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
 fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "large-alignment-exe", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\#include <stdio.h>
         \\#include <stdint.h>
@@ -423,7 +506,7 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
 fn testLinkingC(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-c", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\#include <stdio.h>
         \\int main() {
@@ -452,7 +535,7 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
 fn testLinkingCpp(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-cpp", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCppSourceBytes(exe,
         \\#include <iostream>
         \\int main() {
@@ -482,7 +565,7 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
 fn testLinkingZig(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-zig-static", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addZigSourceBytes(exe,
         \\pub fn main() void {
         \\    @import("std").debug.print("Hello World!\n", .{});
@@ -508,7 +591,7 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
 fn testTlsStatic(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "tls-static", opts);
 
-    const exe = addExecutable(b, opts);
+    const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
         \\#include <stdio.h>
         \\_Thread_local int a = 10;
@@ -555,9 +638,9 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return b.step(name, "");
 }
 
-fn addExecutable(b: *Build, opts: Options) *Compile {
+fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
     const exe = b.addExecutable(.{
-        .name = "test",
+        .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -567,9 +650,9 @@ fn addExecutable(b: *Build, opts: Options) *Compile {
     return exe;
 }
 
-fn addObject(b: *Build, opts: Options) *Compile {
+fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
     return b.addObject(.{
-        .name = "a",
+        .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -577,9 +660,9 @@ fn addObject(b: *Build, opts: Options) *Compile {
     });
 }
 
-fn addStaticLibrary(b: *Build, opts: Options) *Compile {
+fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
     return b.addStaticLibrary(.{
-        .name = "a",
+        .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -587,9 +670,9 @@ fn addStaticLibrary(b: *Build, opts: Options) *Compile {
     });
 }
 
-fn addSharedLibrary(b: *Build, opts: Options) *Compile {
+fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
     const dso = b.addSharedLibrary(.{
-        .name = "a",
+        .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
