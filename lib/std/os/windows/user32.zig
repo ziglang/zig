@@ -201,6 +201,7 @@ pub const BM_CLICK = 0x00F5;
 pub const BM_GETIMAGE = 0x00F6;
 pub const BM_SETIMAGE = 0x00F7;
 pub const BM_SETDONTCLICK = 0x00F8;
+pub const WM_INPUT_DEVICE_CHANGE = 0x00FE;
 pub const WM_INPUT = 0x00FF;
 pub const WM_KEYDOWN = 0x0100;
 pub const WM_KEYUP = 0x0101;
