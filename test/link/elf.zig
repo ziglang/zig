@@ -42,6 +42,7 @@ pub fn build(b: *Build) void {
 
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
 }
 
 fn testCommonSymbols(b: *Build, opts: Options) *Step {
@@ -321,6 +322,53 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         check.checkNotPresent("dead_fn2");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "large-alignment-dso", opts);
+
+    const dso = addSharedLibrary(b, opts);
+    addCSourceBytes(dso,
+        \\#include <stdio.h>
+        \\#include <stdint.h>
+        \\void hello() __attribute__((aligned(32768), section(".hello")));
+        \\void world() __attribute__((aligned(32768), section(".world")));
+        \\void hello() {
+        \\  printf("Hello");
+        \\}
+        \\void world() {
+        \\  printf(" world");
+        \\}
+        \\void greet() {
+        \\  hello();
+        \\  world();
+        \\}
+    , &.{"-fPIC"});
+    dso.link_function_sections = true;
+    dso.is_linking_libc = true;
+
+    const check = dso.checkObject();
+    check.checkInSymtab();
+    check.checkExtract("{addr1} {size1} {shndx1} FUNC GLOBAL DEFAULT hello");
+    check.checkInSymtab();
+    check.checkExtract("{addr2} {size2} {shndx2} FUNC GLOBAL DEFAULT world");
+    check.checkComputeCompare("addr1 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("addr2 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    test_step.dependOn(&check.step);
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\void greet();
+        \\int main() { greet(); }
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
