@@ -80,9 +80,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_got,
                 .linker_direct,
+                .linker_direct_got,
                 .linker_import,
                 .linker_tlv,
-                => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const r_type: u32 = switch (lowered_relocs[0].target) {
+                        .linker_direct_got => std.elf.R_X86_64_GOT32,
+                        else => unreachable,
+                    };
+                    const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                    try atom_ptr.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
+                        .r_addend = 0,
+                    });
+                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
@@ -230,16 +242,14 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(emit.lower.target.cpu.arch) catch unreachable;
 
             // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
             // increasing the pc
-            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - quant;
+            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                var diff = @divExact(d_pc_p9, quant) - quant;
+                // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
+                var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
                 while (diff > 0) {
                     if (diff < 64) {
                         try dbg_out.dbg_line.append(@as(u8, @intCast(diff + 128)));
@@ -249,15 +259,15 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
                         diff -= 64;
                     }
                 }
-                if (dbg_out.pcop_change_index.*) |pci|
+                if (dbg_out.pcop_change_index) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
             } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
+                // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = emit.prev_di_line;
-            dbg_out.end_line.* = line;
+            if (dbg_out.start_line == null)
+                dbg_out.start_line = emit.prev_di_line;
+            dbg_out.end_line = line;
             // only do this if the pc changed
             emit.prev_di_line = line;
             emit.prev_di_column = column;

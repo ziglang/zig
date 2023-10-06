@@ -156,7 +156,7 @@ pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
 pub usingnamespace if (switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
-    .stage2_x86_64, .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
 }) struct {
     /// See `std.elf` for the constants.
@@ -355,6 +355,14 @@ pub fn inotify_add_watch(fd: i32, pathname: [*:0]const u8, mask: u32) usize {
 
 pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
     return syscall2(.inotify_rm_watch, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, wd))));
+}
+
+pub fn fanotify_init(flags: u32, event_f_flags: u32) usize {
+    return syscall2(.fanotify_init, flags, event_f_flags);
+}
+
+pub fn fanotify_mark(fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) usize {
+    return syscall5(.fanotify_mark, @as(usize, @bitCast(@as(isize, fd))), flags, mask, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(pathname));
 }
 
 pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
@@ -1876,6 +1884,21 @@ pub fn ptrace(
     );
 }
 
+pub fn cachestat(
+    fd: fd_t,
+    cstat_range: *const cache_stat_range,
+    cstat: *cache_stat,
+    flags: u32,
+) usize {
+    return syscall4(
+        .cachestat,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(cstat_range),
+        @intFromPtr(cstat),
+        flags,
+    );
+}
+
 pub const E = switch (native_arch) {
     .mips, .mipsel => @import("linux/errno/mips.zig").E,
     .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
@@ -3150,6 +3173,58 @@ pub const IN = struct {
     pub const ONESHOT = 0x80000000;
 };
 
+pub const FAN = struct {
+    pub const ACCESS = 0x00000001;
+    pub const MODIFY = 0x00000002;
+    pub const CLOSE_WRITE = 0x00000008;
+    pub const CLOSE_NOWRITE = 0x00000010;
+    pub const OPEN = 0x00000020;
+    pub const Q_OVERFLOW = 0x00004000;
+    pub const OPEN_PERM = 0x00010000;
+    pub const ACCESS_PERM = 0x00020000;
+    pub const ONDIR = 0x40000000;
+    pub const EVENT_ON_CHILD = 0x08000000;
+    pub const CLOSE = CLOSE_WRITE | CLOSE_NOWRITE;
+    pub const CLOEXEC = 0x00000001;
+    pub const NONBLOCK = 0x00000002;
+    pub const CLASS_NOTIF = 0x00000000;
+    pub const CLASS_CONTENT = 0x00000004;
+    pub const CLASS_PRE_CONTENT = 0x00000008;
+    pub const ALL_CLASS_BITS = CLASS_NOTIF | CLASS_CONTENT | CLASS_PRE_CONTENT;
+    pub const UNLIMITED_QUEUE = 0x00000010;
+    pub const UNLIMITED_MARKS = 0x00000020;
+    pub const ALL_INIT_FLAGS = CLOEXEC | NONBLOCK | ALL_CLASS_BITS | UNLIMITED_QUEUE | UNLIMITED_MARKS;
+    pub const MARK_ADD = 0x00000001;
+    pub const MARK_REMOVE = 0x00000002;
+    pub const MARK_DONT_FOLLOW = 0x00000004;
+    pub const MARK_ONLYDIR = 0x00000008;
+    pub const MARK_MOUNT = 0x00000010;
+    pub const MARK_IGNORED_MASK = 0x00000020;
+    pub const MARK_IGNORED_SURV_MODIFY = 0x00000040;
+    pub const MARK_FLUSH = 0x00000080;
+    pub const ALL_MARK_FLAGS = MARK_ADD | MARK_REMOVE | MARK_DONT_FOLLOW | MARK_ONLYDIR | MARK_MOUNT | MARK_IGNORED_MASK | MARK_IGNORED_SURV_MODIFY | MARK_FLUSH;
+    pub const ALL_EVENTS = ACCESS | MODIFY | CLOSE | OPEN;
+    pub const ALL_PERM_EVENTS = OPEN_PERM | ACCESS_PERM;
+    pub const ALL_OUTGOING_EVENTS = ALL_EVENTS | ALL_PERM_EVENTS | Q_OVERFLOW;
+    pub const ALLOW = 0x01;
+    pub const DENY = 0x02;
+};
+
+pub const fanotify_event_metadata = extern struct {
+    event_len: u32,
+    vers: u8,
+    reserved: u8,
+    metadata_len: u16,
+    mask: u64 align(8),
+    fd: i32,
+    pid: i32,
+};
+
+pub const fanotify_response = extern struct {
+    fd: i32,
+    response: u32,
+};
+
 pub const S = struct {
     pub const IFMT = 0o170000;
 
@@ -3867,6 +3942,15 @@ pub const IORING_OP = enum(u8) {
     MKDIRAT,
     SYMLINKAT,
     LINKAT,
+    MSG_RING,
+    FSETXATTR,
+    SETXATTR,
+    FGETXATTR,
+    GETXATTR,
+    SOCKET,
+    URING_CMD,
+    SEND_ZC,
+    SENDMSG_ZC,
 
     _,
 };
@@ -5828,4 +5912,17 @@ pub const PTRACE = struct {
     pub const SECCOMP_GET_FILTER = 0x420c;
     pub const SECCOMP_GET_METADATA = 0x420d;
     pub const GET_SYSCALL_INFO = 0x420e;
+};
+
+pub const cache_stat_range = extern struct {
+    off: u64,
+    len: u64,
+};
+
+pub const cache_stat = extern struct {
+    cache: u64,
+    dirty: u64,
+    writeback: u64,
+    evicted: u64,
+    recently_evicted: u64,
 };

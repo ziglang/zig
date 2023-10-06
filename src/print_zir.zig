@@ -594,7 +594,7 @@ const Writer = struct {
 
             .builtin_extern,
             .c_define,
-            .err_set_cast,
+            .error_cast,
             .wasm_memory_grow,
             .prefetch,
             .c_va_arg,

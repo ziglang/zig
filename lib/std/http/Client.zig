@@ -538,8 +538,13 @@ pub const Request = struct {
 
     pub const StartError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
+    pub const StartOptions = struct {
+        /// Specifies that the uri should be used as is
+        raw_uri: bool = false,
+    };
+
     /// Send the request to the server.
-    pub fn start(req: *Request) StartError!void {
+    pub fn start(req: *Request, options: StartOptions) StartError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
         var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
@@ -552,13 +557,22 @@ pub const Request = struct {
             try w.writeAll(req.uri.host.?);
             try w.writeByte(':');
             try w.print("{}", .{req.uri.port.?});
-        } else if (req.connection.?.data.proxied) {
-            // proxied connections require the full uri
-            try w.print("{+/}", .{req.uri});
         } else {
-            try w.print("{/}", .{req.uri});
+            if (req.connection.?.data.proxied) {
+                // proxied connections require the full uri
+                if (options.raw_uri) {
+                    try w.print("{+/r}", .{req.uri});
+                } else {
+                    try w.print("{+/}", .{req.uri});
+                }
+            } else {
+                if (options.raw_uri) {
+                    try w.print("{/r}", .{req.uri});
+                } else {
+                    try w.print("{/}", .{req.uri});
+                }
+            }
         }
-
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
         try w.writeAll("\r\n");
@@ -757,7 +771,7 @@ pub const Request = struct {
 
                 try req.redirect(resolved_url);
 
-                try req.start();
+                try req.start(.{});
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
@@ -1141,6 +1155,7 @@ pub const FetchOptions = struct {
     method: http.Method = .GET,
     headers: http.Headers = http.Headers{ .allocator = std.heap.page_allocator, .owned = false },
     payload: Payload = .none,
+    raw_uri: bool = false,
 };
 
 pub const FetchResult = struct {
@@ -1188,7 +1203,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
             .none => {},
         }
 
-        try req.start();
+        try req.start(.{ .raw_uri = options.raw_uri });
 
         switch (options.payload) {
             .string => |str| try req.writeAll(str),

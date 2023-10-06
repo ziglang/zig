@@ -1997,9 +1997,9 @@ pub const Inst = struct {
         /// Implements `@setCold`.
         /// `operand` is payload index to `UnNode`.
         set_cold,
-        /// Implements the `@errSetCast` builtin.
+        /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
-        err_set_cast,
+        error_cast,
         /// `operand` is payload index to `UnNode`.
         await_nosuspend,
         /// Implements `@breakpoint`.

@@ -428,6 +428,8 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     switch (current_arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             const model = switch (cpu_family) {
+                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
+                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,
                 .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_a14,
                 .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
                 .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,

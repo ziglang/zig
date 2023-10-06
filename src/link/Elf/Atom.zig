@@ -25,11 +25,8 @@ relocs_section_index: Index = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
-/// Specifies whether this atom is alive or has been garbage collected.
-alive: bool = false,
-
-/// Specifies if the atom has been visited during garbage collection.
-visited: bool = false,
+/// Flags we use for state tracking.
+flags: Flags = .{},
 
 /// Start index of FDEs referencing this atom.
 fde_start: u32 = 0,
@@ -48,8 +45,12 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     return elf_file.strtab.getAssumeExists(self.name_offset);
 }
 
+pub fn file(self: Atom, elf_file: *Elf) ?File {
+    return elf_file.file(self.file_index);
+}
+
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
-    const object = elf_file.file(self.file_index).?.object;
+    const object = self.file(elf_file).?.object;
     return object.shdrs.items[self.input_section_index];
 }
 
@@ -58,40 +59,8 @@ pub fn outputShndx(self: Atom) ?u16 {
     return self.output_section_index;
 }
 
-pub fn codeInObject(self: Atom, elf_file: *Elf) error{Overflow}![]const u8 {
-    const object = elf_file.file(self.file_index).?.object;
-    return object.shdrContents(self.input_section_index);
-}
-
-/// Returns atom's code and optionally uncompresses data if required (for compressed sections).
-/// Caller owns the memory.
-pub fn codeInObjectUncompressAlloc(self: Atom, elf_file: *Elf) ![]u8 {
-    const gpa = elf_file.base.allocator;
-    const data = try self.codeInObject(elf_file);
-    const shdr = self.inputShdr(elf_file);
-    if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
-        switch (chdr.ch_type) {
-            .ZLIB => {
-                var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = std.compress.zlib.decompressStream(gpa, stream.reader()) catch
-                    return error.InputOutput;
-                defer zlib_stream.deinit();
-                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
-                const decomp = try gpa.alloc(u8, size);
-                const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
-                if (nread != decomp.len) {
-                    return error.InputOutput;
-                }
-                return decomp;
-            },
-            else => @panic("TODO unhandled compression scheme"),
-        }
-    } else return gpa.dupe(u8, data);
-}
-
 pub fn priority(self: Atom, elf_file: *Elf) u64 {
-    const index = elf_file.file(self.file_index).?.index();
+    const index = self.file(elf_file).?.index();
     return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
 }
 
@@ -178,6 +147,13 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         }
     };
 
+    log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
+        self.atom_index,
+        self.name(elf_file),
+        self.value,
+        self.value + self.size,
+    });
+
     const expand_section = if (atom_placement) |placement_index|
         elf_file.atom(placement_index).?.next_index == 0
     else
@@ -222,6 +198,8 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     if (free_list_removal) |i| {
         _ = free_list.swapRemove(i);
     }
+
+    self.flags.allocated = true;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -238,7 +216,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
     const gpa = elf_file.base.allocator;
-    const zig_module = elf_file.file(self.file_index).?.zig_module;
+    const zig_module = self.file(elf_file).?.zig_module;
     const shndx = self.outputShndx().?;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
@@ -294,7 +272,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.Elf64_Rela {
-    return switch (elf_file.file(self.file_index).?) {
+    return switch (self.file(elf_file).?) {
         .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
         else => unreachable,
@@ -303,7 +281,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) error{Overflow}![]align(1) const elf.E
 
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
     const gpa = elf_file.base.allocator;
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     assert(file_ptr == .zig_module);
     const zig_module = file_ptr.zig_module;
     const rels = &zig_module.relocs.items[self.relocs_section_index];
@@ -311,20 +289,30 @@ pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
 }
 
 pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     assert(file_ptr == .zig_module);
     const zig_module = file_ptr.zig_module;
     zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
-pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
-    const file_ptr = elf_file.file(self.file_index).?;
+pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) error{Overflow}!bool {
+    for (try self.relocs(elf_file)) |rel| {
+        if (rel.r_type() == elf.R_X86_64_GOTTPOFF) return true;
+    }
+    return false;
+}
+
+pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
+    const is_dyn_lib = elf_file.isDynLib();
+    const file_ptr = self.file(elf_file).?;
     const rels = try self.relocs(elf_file);
     var i: usize = 0;
     while (i < rels.len) : (i += 1) {
         const rel = rels[i];
 
         if (rel.r_type() == elf.R_X86_64_NONE) continue;
+
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         const symbol_index = switch (file_ptr) {
             .zig_module => |x| x.symbol(rel.r_sym()),
@@ -378,7 +366,54 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, undefs: anytype) !void {
 
             elf.R_X86_64_PC32 => {},
 
-            else => @panic("TODO"),
+            elf.R_X86_64_TPOFF32,
+            elf.R_X86_64_TPOFF64,
+            => {
+                if (is_dyn_lib) {
+                    // TODO
+                    // self.picError(symbol, rel, elf_file);
+                }
+            },
+
+            elf.R_X86_64_TLSGD => {
+                // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
+
+                if (elf_file.isStatic() or
+                    (!symbol.flags.import and !is_dyn_lib))
+                {
+                    // Relax if building with -static flag as __tls_get_addr() will not be present in libc.a
+                    // We skip the next relocation.
+                    i += 1;
+                } else if (!symbol.flags.import and is_dyn_lib) {
+                    symbol.flags.needs_gottp = true;
+                    i += 1;
+                } else {
+                    symbol.flags.needs_tlsgd = true;
+                }
+            },
+
+            elf.R_X86_64_GOTTPOFF => {
+                const should_relax = blk: {
+                    // if (!elf_file.options.relax or is_shared or symbol.flags.import) break :blk false;
+                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
+                    break :blk true;
+                };
+                if (!should_relax) {
+                    symbol.flags.needs_gottp = true;
+                }
+            },
+
+            else => {
+                var err = try elf_file.addErrorWithNotes(1);
+                try err.addMsg(elf_file, "fatal linker error: unhandled relocation type {}", .{
+                    fmtRelocType(rel.r_type()),
+                });
+                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                    self.file(elf_file).?.fmtPath(),
+                    self.name(elf_file),
+                    r_offset,
+                });
+            },
         }
     }
 }
@@ -392,7 +427,7 @@ fn reportUndefined(
     rel: elf.Elf64_Rela,
     undefs: anytype,
 ) !void {
-    const rel_esym = switch (elf_file.file(self.file_index).?) {
+    const rel_esym = switch (self.file(elf_file).?) {
         .zig_module => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
         else => unreachable,
@@ -416,11 +451,14 @@ fn reportUndefined(
 pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
 
-    const file_ptr = elf_file.file(self.file_index).?;
+    const file_ptr = self.file(elf_file).?;
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();
 
-    for (try self.relocs(elf_file)) |rel| {
+    const rels = try self.relocs(elf_file);
+    var i: usize = 0;
+    while (i < rels.len) : (i += 1) {
+        const rel = rels[i];
         const r_type = rel.r_type();
         if (r_type == elf.R_X86_64_NONE) continue;
 
@@ -453,9 +491,9 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
         // Relative offset to the start of the global offset table.
         const G = @as(i64, @intCast(target.gotAddress(elf_file))) - GOT;
         // // Address of the thread pointer.
-        // const TP = @as(i64, @intCast(elf_file.getTpAddress()));
+        const TP = @as(i64, @intCast(elf_file.tpAddress()));
         // // Address of the dynamic thread pointer.
-        // const DTP = @as(i64, @intCast(elf_file.getDtpAddress()));
+        // const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
         relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ({s})", .{
             fmtRelocType(r_type),
@@ -480,6 +518,9 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
             elf.R_X86_64_PC32,
             => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
 
+            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(G + GOT + A))),
+            elf.R_X86_64_GOT64 => try cwriter.writeIntLittle(u64, @as(u64, @intCast(G + GOT + A))),
+
             elf.R_X86_64_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P))),
             elf.R_X86_64_GOTPC32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(GOT + A - P))),
             elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A - P),
@@ -502,10 +543,43 @@ pub fn resolveRelocs(self: Atom, elf_file: *Elf, code: []u8) !void {
                 try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
             },
 
-            else => {
-                log.err("TODO: unhandled relocation type {}", .{fmtRelocType(rel.r_type())});
-                @panic("TODO unhandled relocation type");
+            elf.R_X86_64_TPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A - TP))),
+            elf.R_X86_64_TPOFF64 => try cwriter.writeIntLittle(i64, S + A - TP),
+
+            elf.R_X86_64_TLSGD => {
+                if (target.flags.has_tlsgd) {
+                    // TODO
+                    // const S_ = @as(i64, @intCast(target.tlsGdAddress(elf_file)));
+                    // try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                } else if (target.flags.has_gottp) {
+                    // TODO
+                    // const S_ = @as(i64, @intCast(target.getGotTpAddress(elf_file)));
+                    // try relaxTlsGdToIe(relocs[i .. i + 2], @intCast(S_ - P), elf_file, &stream);
+                    i += 1;
+                } else {
+                    try x86_64.relaxTlsGdToLe(
+                        self,
+                        rels[i .. i + 2],
+                        @as(i32, @intCast(S - TP)),
+                        elf_file,
+                        &stream,
+                    );
+                    i += 1;
+                }
             },
+
+            elf.R_X86_64_GOTTPOFF => {
+                if (target.flags.has_gottp) {
+                    // TODO
+                    // const S_ = @as(i64, @intCast(target.gotTpAddress(elf_file)));
+                    // try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                } else {
+                    x86_64.relaxGotTpOff(code[r_offset - 3 ..]) catch unreachable;
+                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
+                }
+            },
+
+            else => {},
         }
     }
 }
@@ -619,7 +693,7 @@ fn format2(
     //     try writer.writeAll(" }");
     // }
     const gc_sections = if (elf_file.base.options.gc_sections) |gc_sections| gc_sections else false;
-    if (gc_sections and !atom.alive) {
+    if (gc_sections and !atom.flags.alive) {
         try writer.writeAll(" : [*]");
     }
 }
@@ -628,6 +702,17 @@ fn format2(
 // ZigModule, keep it at u16 with the intention of bumping it to u32 in the near
 // future.
 pub const Index = u16;
+
+pub const Flags = packed struct {
+    /// Specifies whether this atom is alive or has been garbage collected.
+    alive: bool = false,
+
+    /// Specifies if the atom has been visited during garbage collection.
+    visited: bool = false,
+
+    /// Specifies whether this atom has been allocated in the output section.
+    allocated: bool = false,
+};
 
 const x86_64 = struct {
     pub fn relaxGotpcrelx(code: []u8) !void {
@@ -657,6 +742,80 @@ const x86_64 = struct {
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => return error.RelaxFail,
+        }
+    }
+
+    pub fn canRelaxGotTpOff(code: []const u8) bool {
+        const old_inst = disassemble(code) orelse return false;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => if (Instruction.new(old_inst.prefix, .mov, &.{
+                old_inst.ops[0],
+                // TODO: hack to force imm32s in the assembler
+                .{ .imm = Immediate.s(-129) },
+            })) |inst| {
+                inst.encode(std.io.null_writer, .{}) catch return false;
+                return true;
+            } else |_| return false,
+            else => return false,
+        }
+    }
+
+    pub fn relaxGotTpOff(code: []u8) !void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => {
+                const inst = try Instruction.new(old_inst.prefix, .mov, &.{
+                    old_inst.ops[0],
+                    // TODO: hack to force imm32s in the assembler
+                    .{ .imm = Immediate.s(-129) },
+                });
+                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                encode(&.{inst}, code) catch return error.RelaxFail;
+            },
+            else => return error.RelaxFail,
+        }
+    }
+
+    pub fn relaxTlsGdToLe(
+        self: Atom,
+        rels: []align(1) const elf.Elf64_Rela,
+        value: i32,
+        elf_file: *Elf,
+        stream: anytype,
+    ) !void {
+        assert(rels.len == 2);
+        const writer = stream.writer();
+        switch (rels[1].r_type()) {
+            elf.R_X86_64_PC32,
+            elf.R_X86_64_PLT32,
+            elf.R_X86_64_GOTPCREL,
+            elf.R_X86_64_GOTPCRELX,
+            => {
+                var insts = [_]u8{
+                    0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, // movq %fs:0,%rax
+                    0x48, 0x81, 0xc0, 0, 0, 0, 0, // add $tp_offset, %rax
+                };
+                std.mem.writeIntLittle(i32, insts[12..][0..4], value);
+                try stream.seekBy(-4);
+                try writer.writeAll(&insts);
+                relocs_log.debug("    relaxing {} and {}", .{
+                    fmtRelocType(rels[0].r_type()),
+                    fmtRelocType(rels[1].r_type()),
+                });
+            },
+
+            else => {
+                var err = try elf_file.addErrorWithNotes(1);
+                try err.addMsg(elf_file, "fatal linker error: rewrite {} when followed by {}", .{
+                    fmtRelocType(rels[0].r_type()),
+                    fmtRelocType(rels[1].r_type()),
+                });
+                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                    self.file(elf_file).?.fmtPath(),
+                    self.name(elf_file),
+                    rels[0].r_offset,
+                });
+            },
         }
     }
 

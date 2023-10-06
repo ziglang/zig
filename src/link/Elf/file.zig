@@ -89,6 +89,21 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn atoms(file: File) []const Atom.Index {
+        return switch (file) {
+            .linker_defined => unreachable,
+            .zig_module => |x| x.atoms.keys(),
+            .object => |x| x.atoms.items,
+        };
+    }
+
+    pub fn locals(file: File) []const Symbol.Index {
+        return switch (file) {
+            .linker_defined => unreachable,
+            inline else => |x| x.locals(),
+        };
+    }
+
     pub fn globals(file: File) []const Symbol.Index {
         return switch (file) {
             inline else => |x| x.globals(),
@@ -110,6 +125,7 @@ const std = @import("std");
 const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
+const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");

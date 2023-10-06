@@ -32,7 +32,6 @@ const Module = @import("Module.zig");
 const InternPool = @import("InternPool.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
-const translate_c = @import("translate_c.zig");
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
@@ -88,7 +87,7 @@ failed_win32_resources: if (build_options.only_core_functionality) void else std
 misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
 
 keep_source_files_loaded: bool,
-use_clang: bool,
+c_frontend: CFrontend,
 sanitize_c: bool,
 /// When this is `true` it means invoking clang as a sub-process is expected to inherit
 /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
@@ -515,6 +514,8 @@ pub const cache_helpers = struct {
     }
 };
 
+pub const CFrontend = enum { clang, aro };
+
 pub const ClangPreprocessorMode = enum {
     no,
     /// This means we are doing `zig cc -E -o <path>`.
@@ -622,6 +623,7 @@ pub const InitOptions = struct {
     formatted_panics: ?bool = null,
     rdynamic: bool = false,
     function_sections: bool = false,
+    data_sections: bool = false,
     no_builtin: bool = false,
     is_native_os: bool,
     is_native_abi: bool,
@@ -1046,15 +1048,16 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             break :pic explicit;
         } else pie or must_pic;
 
-        // Make a decision on whether to use Clang for translate-c and compiling C files.
-        const use_clang = if (options.use_clang) |explicit| explicit else blk: {
-            if (build_options.have_llvm) {
-                // Can't use it if we don't have it!
-                break :blk false;
+        // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
+        const c_frontend: CFrontend = blk: {
+            if (options.use_clang) |want_clang| {
+                break :blk if (want_clang) .clang else .aro;
             }
-            // It's not planned to do our own translate-c or C compilation.
-            break :blk true;
+            break :blk if (build_options.have_llvm) .clang else .aro;
         };
+        if (!build_options.have_llvm and c_frontend == .clang) {
+            return error.ZigCompilerNotBuiltWithLLVMExtensions;
+        }
 
         const is_safe_mode = switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
@@ -1191,6 +1194,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
+        cache.hash.add(options.data_sections);
         cache.hash.add(options.no_builtin);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
@@ -1570,6 +1574,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
             .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
             .no_builtin = options.no_builtin,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
@@ -1677,7 +1682,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
-            .use_clang = use_clang,
+            .c_frontend = c_frontend,
             .clang_argv = options.clang_argv,
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
@@ -1871,8 +1876,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 comp.job_queued_compiler_rt_lib = true;
             } else if (options.output_mode != .Obj) {
                 log.debug("queuing a job to build compiler_rt_obj", .{});
-                // If build-obj with -fcompiler-rt is requested, that is handled specially
-                // elsewhere. In this case we are making a static library, so we ask
+                // In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
                 comp.job_queued_compiler_rt_obj = true;
             }
@@ -2702,6 +2706,72 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
     return self.bin_file.makeWritable();
 }
 
+const Header = extern struct {
+    intern_pool: extern struct {
+        items_len: u32,
+        extra_len: u32,
+        limbs_len: u32,
+        string_bytes_len: u32,
+    },
+};
+
+/// Note that all state that is included in the cache hash namespace is *not*
+/// saved, such as the target and most CLI flags. A cache hit will only occur
+/// when subsequent compiler invocations use the same set of flags.
+pub fn saveState(comp: *Compilation) !void {
+    var bufs_list: [6]std.os.iovec_const = undefined;
+    var bufs_len: usize = 0;
+
+    const emit = comp.bin_file.options.emit orelse return;
+
+    if (comp.bin_file.options.module) |mod| {
+        const ip = &mod.intern_pool;
+        const header: Header = .{
+            .intern_pool = .{
+                .items_len = @intCast(ip.items.len),
+                .extra_len = @intCast(ip.extra.items.len),
+                .limbs_len = @intCast(ip.limbs.items.len),
+                .string_bytes_len = @intCast(ip.string_bytes.items.len),
+            },
+        };
+        addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.limbs.items));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.extra.items));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
+        addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
+
+        // TODO: compilation errors
+        // TODO: files
+        // TODO: namespaces
+        // TODO: decls
+        // TODO: linker state
+    }
+    var basename_buf: [255]u8 = undefined;
+    const basename = std.fmt.bufPrint(&basename_buf, "{s}.zcs", .{
+        comp.bin_file.options.root_name,
+    }) catch o: {
+        basename_buf[basename_buf.len - 4 ..].* = ".zcs".*;
+        break :o &basename_buf;
+    };
+
+    // Using an atomic file prevents a crash or power failure from corrupting
+    // the previous incremental compilation state.
+    var af = try emit.directory.handle.atomicFile(basename, .{});
+    defer af.deinit();
+    try af.file.pwritevAll(bufs_list[0..bufs_len], 0);
+    try af.finish();
+}
+
+fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) void {
+    const i = bufs_len.*;
+    bufs_len.* = i + 1;
+    bufs_list[i] = .{
+        .iov_base = buf.ptr,
+        .iov_len = buf.len,
+    };
+}
+
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
     var total: usize = self.failed_c_objects.count() +
@@ -3429,9 +3499,10 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                         .module = module,
                         .error_msg = null,
                         .decl_index = decl_index.toOptional(),
-                        .decl = decl,
+                        .is_naked_fn = false,
                         .fwd_decl = fwd_decl.toManaged(gpa),
                         .ctypes = .{},
+                        .anon_decl_deps = .{},
                     };
                     defer {
                         dg.ctypes.deinit(gpa);
@@ -3852,9 +3923,7 @@ pub const CImportResult = struct {
 /// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
 /// a bit when we want to start using it from self-hosted.
 pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
-    if (!build_options.have_llvm)
-        return error.ZigCompilerNotBuiltWithLLVMExtensions;
-
+    if (build_options.only_c) unreachable; // @cImport is not needed for bootstrapping
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -3901,7 +3970,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        try argv.append(""); // argv[0] is program name, actual args start at [1]
+        try argv.append(@tagName(comp.c_frontend)); // argv[0] is program name, actual args start at [1]
         try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path);
 
         try argv.append(out_h_path);
@@ -3909,31 +3978,44 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         if (comp.verbose_cc) {
             dump_argv(argv.items);
         }
+        var tree = switch (comp.c_frontend) {
+            .aro => tree: {
+                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
+                const translate_c = @import("aro_translate_c.zig");
+                _ = translate_c;
+                if (true) @panic("TODO");
+                break :tree undefined;
+            },
+            .clang => tree: {
+                if (!build_options.have_llvm) unreachable;
+                const translate_c = @import("translate_c.zig");
 
-        // Convert to null terminated args.
-        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-        new_argv_with_sentinel[argv.items.len] = null;
-        const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-        for (argv.items, 0..) |arg, i| {
-            new_argv[i] = try arena.dupeZ(u8, arg);
-        }
+                // Convert to null terminated args.
+                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+                new_argv_with_sentinel[argv.items.len] = null;
+                const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+                for (argv.items, 0..) |arg, i| {
+                    new_argv[i] = try arena.dupeZ(u8, arg);
+                }
 
-        const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
-        var errors = std.zig.ErrorBundle.empty;
-        errdefer errors.deinit(comp.gpa);
-        var tree = translate_c.translate(
-            comp.gpa,
-            new_argv.ptr,
-            new_argv.ptr + new_argv.len,
-            &errors,
-            c_headers_dir_path_z,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.SemanticAnalyzeFail => {
-                return CImportResult{
-                    .out_zig_path = "",
-                    .cache_hit = actual_hit,
-                    .errors = errors,
+                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+                var errors = std.zig.ErrorBundle.empty;
+                errdefer errors.deinit(comp.gpa);
+                break :tree translate_c.translate(
+                    comp.gpa,
+                    new_argv.ptr,
+                    new_argv.ptr + new_argv.len,
+                    &errors,
+                    c_headers_dir_path_z,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.SemanticAnalyzeFail => {
+                        return CImportResult{
+                            .out_zig_path = "",
+                            .cache_hit = actual_hit,
+                            .errors = errors,
+                        };
+                    },
                 };
             },
         };
@@ -4183,6 +4265,9 @@ fn reportRetryableEmbedFileError(
 }
 
 fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.Progress.Node) !void {
+    if (comp.c_frontend == .aro) {
+        return comp.failCObj(c_object, "aro does not support compiling C objects yet", .{});
+    }
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
@@ -4819,6 +4904,10 @@ pub fn addCCArgs(
 
     if (comp.bin_file.options.function_sections) {
         try argv.append("-ffunction-sections");
+    }
+
+    if (comp.bin_file.options.data_sections) {
+        try argv.append("-fdata-sections");
     }
 
     if (comp.bin_file.options.no_builtin) {
@@ -6323,6 +6412,7 @@ fn buildOutputFromZig(
         .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
+        .data_sections = true,
         .no_builtin = true,
         .want_sanitize_c = false,
         .want_stack_check = false,

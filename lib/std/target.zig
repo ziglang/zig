@@ -58,6 +58,7 @@ pub const Target = struct {
             glsl450,
             vulkan,
             plan9,
+            illumos,
             other,
 
             pub inline fn isDarwin(tag: Tag) bool {
@@ -72,6 +73,10 @@ pub const Target = struct {
                     .kfreebsd, .freebsd, .openbsd, .netbsd, .dragonfly => true,
                     else => false,
                 };
+            }
+
+            pub inline fn isSolarish(tag: Tag) bool {
+                return tag == .solaris or tag == .illumos;
             }
 
             pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
@@ -266,6 +271,7 @@ pub const Target = struct {
                     .glsl450, // TODO: GLSL versions
                     .vulkan,
                     .plan9,
+                    .illumos,
                     .other,
                     => return .{ .none = {} },
 
@@ -409,6 +415,7 @@ pub const Target = struct {
                 .openbsd,
                 .haiku,
                 .solaris,
+                .illumos,
                 => true,
 
                 .linux,
@@ -526,7 +533,6 @@ pub const Target = struct {
                 .cloudabi,
                 .dragonfly,
                 .lv2,
-                .solaris,
                 .zos,
                 .minix,
                 .rtems,
@@ -569,6 +575,8 @@ pub const Target = struct {
                 .driverkit,
                 .shadermodel,
                 .liteos, // TODO: audit this
+                .solaris,
+                .illumos,
                 => return .none,
             }
         }
@@ -1575,7 +1583,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
-            .solaris => return copy(&result, "/lib/64/ld.so.1"),
+            .solaris, .illumos => return copy(&result, "/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .x86,
                 .sparc,
@@ -2115,6 +2123,7 @@ pub const Target = struct {
             .emscripten,
             .plan9,
             .solaris,
+            .illumos,
             .haiku,
             .ananas,
             .fuchsia,

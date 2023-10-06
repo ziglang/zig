@@ -818,6 +818,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| return try self.constructDeclRef(ptr_ty, decl),
+            .anon_decl => @panic("TODO"),
             .mut_decl => |decl_mut| return try self.constructDeclRef(ptr_ty, decl_mut.decl),
             .int => |int| {
                 const ptr_id = self.spv.allocId();

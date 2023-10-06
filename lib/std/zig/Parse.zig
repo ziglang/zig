@@ -207,11 +207,7 @@ pub fn parseZon(p: *Parse) !void {
 
 /// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
 ///
-/// ContainerDeclarations
-///     <- TestDecl ContainerDeclarations
-///      / ComptimeDecl ContainerDeclarations
-///      / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-///      /
+/// ContainerDeclarations <- (TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl)*
 ///
 /// ComptimeDecl <- KEYWORD_comptime Block
 fn parseContainerMembers(p: *Parse) !Members {
@@ -599,7 +595,7 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
 }
 
 /// Decl
-///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn expectTopLevelDecl(p: *Parse) !Node.Index {

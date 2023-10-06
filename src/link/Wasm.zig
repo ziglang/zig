@@ -187,6 +187,9 @@ debug_pubtypes_atom: ?Atom.Index = null,
 /// rather than by the linker.
 synthetic_functions: std.ArrayListUnmanaged(Atom.Index) = .{},
 
+/// Map for storing anonymous declarations. Each anonymous decl maps to its Atom's index.
+anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+
 pub const Alignment = types.Alignment;
 
 pub const Segment = struct {
@@ -1291,6 +1294,7 @@ pub fn deinit(wasm: *Wasm) void {
     }
 
     wasm.decls.deinit(gpa);
+    wasm.anon_decls.deinit(gpa);
     wasm.atom_types.deinit(gpa);
     wasm.symbols.deinit(gpa);
     wasm.symbols_free_list.deinit(gpa);
@@ -1548,17 +1552,38 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
-    // Create and initialize a new local symbol and atom
-    const atom_index = try wasm.createAtom();
     const parent_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
-    const parent_atom = wasm.getAtomPtr(parent_atom_index);
+    const parent_atom = wasm.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    try parent_atom.locals.append(wasm.base.allocator, atom_index);
     const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });
     defer wasm.base.allocator.free(name);
+
+    switch (try wasm.lowerConst(name, tv, decl.srcLoc(mod))) {
+        .ok => |atom_index| {
+            try wasm.getAtomPtr(parent_atom_index).locals.append(wasm.base.allocator, atom_index);
+            return wasm.getAtom(atom_index).getSymbolIndex().?;
+        },
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            return error.CodegenFail;
+        },
+    }
+}
+
+const LowerConstResult = union(enum) {
+    ok: Atom.Index,
+    fail: *Module.ErrorMsg,
+};
+
+fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
+    const mod = wasm.base.options.module.?;
+
+    // Create and initialize a new local symbol and atom
+    const atom_index = try wasm.createAtom();
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
 
@@ -1576,7 +1601,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
         const result = try codegen.generateSymbol(
             &wasm.base,
-            decl.srcLoc(mod),
+            src_loc,
             tv,
             &value_bytes,
             .none,
@@ -1588,17 +1613,15 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
         break :code switch (result) {
             .ok => value_bytes.items,
             .fail => |em| {
-                decl.analysis = .codegen_failure;
-                try mod.failed_decls.put(mod.gpa, decl_index, em);
-                return error.CodegenFail;
+                return .{ .fail = em };
             },
         };
     };
 
     const atom = wasm.getAtomPtr(atom_index);
-    atom.size = @as(u32, @intCast(code.len));
+    atom.size = @intCast(code.len);
     try atom.code.appendSlice(wasm.base.allocator, code);
-    return atom.sym_index;
+    return .{ .ok = atom_index };
 }
 
 /// Returns the symbol index from a symbol of which its flag is set global,
@@ -1672,6 +1695,63 @@ pub fn getDeclVAddr(
             .addend = @as(i32, @intCast(reloc_info.addend)),
         });
     }
+    // we do not know the final address at this point,
+    // as atom allocation will determine the address and relocations
+    // will calculate and rewrite this. Therefore, we simply return the symbol index
+    // that was targeted.
+    return target_symbol_index;
+}
+
+pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
+    if (gop.found_existing) {
+        return .ok;
+    }
+
+    const mod = wasm.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
+    defer wasm.base.allocator.free(name);
+
+    switch (try wasm.lowerConst(name, tv, src_loc)) {
+        .ok => |atom_index| {
+            gop.value_ptr.* = atom_index;
+            return .ok;
+        },
+        .fail => |em| return .{ .fail = em },
+    }
+}
+
+pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    const atom_index = wasm.anon_decls.get(decl_val).?;
+    const target_symbol_index = wasm.getAtom(atom_index).getSymbolIndex().?;
+
+    const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
+    const parent_atom = wasm.getAtomPtr(parent_atom_index);
+    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
+    const mod = wasm.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    if (ty.zigTypeTag(mod) == .Fn) {
+        assert(reloc_info.addend == 0); // addend not allowed for function relocations
+        // We found a function pointer, so add it to our table,
+        // as function pointers are not allowed to be stored inside the data section.
+        // They are instead stored in a function table which are called by index.
+        try wasm.addTableFunction(target_symbol_index);
+        try parent_atom.relocs.append(wasm.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
+        });
+    } else {
+        try parent_atom.relocs.append(wasm.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
+            .addend = @as(i32, @intCast(reloc_info.addend)),
+        });
+    }
+
     // we do not know the final address at this point,
     // as atom allocation will determine the address and relocations
     // will calculate and rewrite this. Therefore, we simply return the symbol index
@@ -3440,6 +3520,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             // also parse atoms for a decl's locals
             for (atom.locals.items) |local_atom_index| {
                 try wasm.parseAtom(local_atom_index, .{ .data = .read_only });
+            }
+        }
+        // parse anonymous declarations
+        for (wasm.anon_decls.keys(), wasm.anon_decls.values()) |decl_val, atom_index| {
+            const ty = mod.intern_pool.typeOf(decl_val).toType();
+            if (ty.zigTypeTag(mod) == .Fn) {
+                try wasm.parseAtom(atom_index, .function);
+            } else {
+                try wasm.parseAtom(atom_index, .{ .data = .read_only });
             }
         }
 

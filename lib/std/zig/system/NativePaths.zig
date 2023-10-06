@@ -89,7 +89,7 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
         return self;
     }
 
-    if (builtin.os.tag == .solaris) {
+    if (builtin.os.tag.isSolarish()) {
         try self.addLibDir("/usr/lib/64");
         try self.addLibDir("/usr/local/lib/64");
         try self.addLibDir("/lib/64");

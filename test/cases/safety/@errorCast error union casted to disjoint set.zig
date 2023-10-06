@@ -7,14 +7,13 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
     }
     std.process.exit(1);
 }
-const Set1 = error{ A, B };
-const Set2 = error{ A, C };
 pub fn main() !void {
-    foo(Set1.B) catch {};
+    const bar: error{Foo}!i32 = @errorCast(foo());
+    _ = &bar;
     return error.TestFailed;
 }
-fn foo(set1: Set1) Set2 {
-    return @errSetCast(set1);
+fn foo() anyerror!i32 {
+    return error.Bar;
 }
 // run
 // backend=llvm

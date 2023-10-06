@@ -38,3 +38,50 @@ test "flags in packed union" {
     try expectEqual(true, test_bits.enable_1);
     try expectEqual(false, test_bits.other_flags.flags.enable_1);
 }
+
+test "flags in packed union at offset" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const FlagBits = packed union {
+        base_flags: packed union {
+            flags: packed struct(u4) {
+                enable_1: bool = true,
+                enable_2: bool = false,
+                enable_3: bool = false,
+                enable_4: bool = false,
+            },
+            bits: u4,
+        },
+        adv_flags: packed struct(u12) {
+            pad: u8 = 0,
+            adv: packed union {
+                flags: packed struct(u4) {
+                    enable_1: bool = true,
+                    enable_2: bool = false,
+                    enable_3: bool = false,
+                    enable_4: bool = false,
+                },
+                bits: u4,
+            },
+        },
+    };
+    var test_bits: FlagBits = .{ .adv_flags = .{ .adv = .{ .flags = .{} } } };
+
+    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
+    try expectEqual(true, test_bits.adv_flags.adv.flags.enable_1);
+    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
+
+    test_bits.adv_flags.adv.flags.enable_1 = false;
+    test_bits.adv_flags.adv.flags.enable_2 = true;
+    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
+    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_1);
+    try expectEqual(true, test_bits.adv_flags.adv.flags.enable_2);
+
+    test_bits.adv_flags.adv.bits = 12;
+    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
+    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_1);
+    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
+}

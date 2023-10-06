@@ -522,20 +522,77 @@ pub const Object = struct {
 pub const DeclGen = struct {
     gpa: mem.Allocator,
     module: *Module,
-    decl: ?*Decl,
     decl_index: Decl.OptionalIndex,
+    is_naked_fn: bool,
     /// This is a borrowed reference from `link.C`.
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
     ctypes: CType.Store,
+    /// Keeps track of anonymous decls that need to be rendered before this
+    /// (named) Decl in the output C code.
+    anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.DeclBlock),
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
         const mod = dg.module;
+        const decl_index = dg.decl_index.unwrap().?;
+        const decl = mod.declPtr(decl_index);
         const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(dg.decl.?, mod);
+        const src_loc = src.toSrcLoc(decl, mod);
         dg.error_msg = try Module.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
+    }
+
+    fn renderAnonDeclValue(
+        dg: *DeclGen,
+        writer: anytype,
+        ty: Type,
+        ptr_val: Value,
+        decl_val: InternPool.Index,
+        location: ValueRenderLocation,
+    ) error{ OutOfMemory, AnalysisFail }!void {
+        const mod = dg.module;
+        const ip = &mod.intern_pool;
+        const decl_ty = ip.typeOf(decl_val).toType();
+
+        // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
+        if (ty.isPtrAtRuntime(mod) and !decl_ty.isFnOrHasRuntimeBits(mod)) {
+            return dg.writeCValue(writer, .{ .undef = ty });
+        }
+
+        // Chase function values in order to be able to reference the original function.
+        if (decl_val.toValue().getFunction(mod)) |func| {
+            _ = func;
+            _ = ptr_val;
+            _ = location;
+            @panic("TODO");
+        }
+        if (decl_val.toValue().getExternFunc(mod)) |extern_func| {
+            _ = extern_func;
+            _ = ptr_val;
+            _ = location;
+            @panic("TODO");
+        }
+
+        assert(decl_val.toValue().getVariable(mod) == null);
+
+        // We shouldn't cast C function pointers as this is UB (when you call
+        // them).  The analysis until now should ensure that the C function
+        // pointers are compatible.  If they are not, then there is a bug
+        // somewhere and we should let the C compiler tell us about it.
+        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl_ty, mod);
+        if (need_typecast) {
+            try writer.writeAll("((");
+            try dg.renderType(writer, ty);
+            try writer.writeByte(')');
+        }
+        try writer.writeByte('&');
+        try renderAnonDeclName(writer, decl_val);
+        if (need_typecast) try writer.writeByte(')');
+
+        // Indicate that the anon decl should be rendered to the output so that
+        // our reference above is not undefined.
+        _ = try dg.anon_decl_deps.getOrPut(dg.gpa, decl_val);
     }
 
     fn renderDeclValue(
@@ -591,17 +648,9 @@ pub const DeclGen = struct {
         const ptr_cty = try dg.typeToIndex(ptr_ty, .complete);
         const ptr = mod.intern_pool.indexToKey(ptr_val).ptr;
         switch (ptr.addr) {
-            .decl, .mut_decl => try dg.renderDeclValue(
-                writer,
-                ptr_ty,
-                ptr_val.toValue(),
-                switch (ptr.addr) {
-                    .decl => |decl| decl,
-                    .mut_decl => |mut_decl| mut_decl.decl,
-                    else => unreachable,
-                },
-                location,
-            ),
+            .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), d, location),
+            .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), md.decl, location),
+            .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val.toValue(), decl_val, location),
             .int => |int| {
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_cty);
@@ -1142,17 +1191,9 @@ pub const DeclGen = struct {
                     else => val.slicePtr(mod),
                 };
                 switch (ptr.addr) {
-                    .decl, .mut_decl => try dg.renderDeclValue(
-                        writer,
-                        ptr_ty,
-                        ptr_val,
-                        switch (ptr.addr) {
-                            .decl => |decl| decl,
-                            .mut_decl => |mut_decl| mut_decl.decl,
-                            else => unreachable,
-                        },
-                        ptr_location,
-                    ),
+                    .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val, d, ptr_location),
+                    .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val, md.decl, ptr_location),
+                    .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val, decl_val, ptr_location),
                     .int => |int| {
                         try writer.writeAll("((");
                         try dg.renderType(writer, ptr_ty);
@@ -1766,7 +1807,7 @@ pub const DeclGen = struct {
             .none => unreachable,
             .local, .new_local => |i| return w.print("t{d}", .{i}),
             .local_ref => |i| return w.print("&t{d}", .{i}),
-            .constant => unreachable,
+            .constant => |val| return renderAnonDeclName(w, val),
             .arg => |i| return w.print("a{d}", .{i}),
             .arg_array => |i| return dg.writeCValueMember(w, .{ .arg = i }, .{ .identifier = "array" }),
             .field => |i| return w.print("f{d}", .{i}),
@@ -1882,6 +1923,10 @@ pub const DeclGen = struct {
                 @intFromEnum(decl_index),
             });
         }
+    }
+
+    fn renderAnonDeclName(writer: anytype, anon_decl_val: InternPool.Index) !void {
+        return writer.print("__anon_{d}", .{@intFromEnum(anon_decl_val)});
     }
 
     fn renderTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, ty: Type) !void {
@@ -2493,8 +2538,8 @@ fn genExports(o: *Object) !void {
 
     const mod = o.dg.module;
     const ip = &mod.intern_pool;
-    const decl = o.dg.decl.?;
     const decl_index = o.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{ .ty = decl.ty, .val = (try decl.internValue(mod)).toValue() };
     const fwd = o.dg.fwd_decl.writer();
 
@@ -2634,9 +2679,10 @@ pub fn genFunc(f: *Function) !void {
     const mod = o.dg.module;
     const gpa = o.dg.gpa;
     const decl_index = o.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = o.dg.decl.?.ty,
-        .val = o.dg.decl.?.val,
+        .ty = decl.ty,
+        .val = decl.val,
     };
 
     o.code_header = std.ArrayList(u8).init(gpa);
@@ -2719,19 +2765,19 @@ pub fn genDecl(o: *Object) !void {
     defer tracy.end();
 
     const mod = o.dg.module;
-    const decl = o.dg.decl.?;
-    const decl_c_value = .{ .decl = o.dg.decl_index.unwrap().? };
+    const decl_index = o.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{ .ty = decl.ty, .val = (try decl.internValue(mod)).toValue() };
 
     if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
     if (tv.val.getExternFunc(mod)) |_| {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
         try fwd_decl_writer.writeAll("zig_extern ");
-        try o.dg.renderFunctionSignature(fwd_decl_writer, decl_c_value.decl, .forward, .{ .export_index = 0 });
+        try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
         try fwd_decl_writer.writeAll(";\n");
         try genExports(o);
     } else if (tv.val.getVariable(mod)) |variable| {
-        try o.dg.renderFwdDecl(decl_c_value.decl, variable);
+        try o.dg.renderFwdDecl(decl_index, variable);
         try genExports(o);
 
         if (variable.is_extern) return;
@@ -2743,6 +2789,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
+        const decl_c_value = .{ .decl = decl_index };
         try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.alignment, .complete);
         if (decl.@"linksection" != .none) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
@@ -2750,35 +2797,50 @@ pub fn genDecl(o: *Object) !void {
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
-        const is_global = o.dg.module.decl_exports.contains(decl_c_value.decl);
-        const fwd_decl_writer = o.dg.fwd_decl.writer();
-
-        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-        try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, Const, decl.alignment, .complete);
-        try fwd_decl_writer.writeAll(";\n");
-
-        const w = o.writer();
-        if (!is_global) try w.writeAll("static ");
-        if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
-            try w.print("zig_linksection(\"{s}\", ", .{s});
-        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, decl.alignment, .complete);
-        if (decl.@"linksection" != .none) try w.writeAll(", read)");
-        try w.writeAll(" = ");
-        try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
-        try w.writeAll(";\n");
+        const is_global = o.dg.module.decl_exports.contains(decl_index);
+        const decl_c_value = .{ .decl = decl_index };
+        return genDeclValue(o, tv, is_global, decl_c_value, decl.alignment, decl.@"linksection");
     }
+}
+
+pub fn genDeclValue(
+    o: *Object,
+    tv: TypedValue,
+    is_global: bool,
+    decl_c_value: CValue,
+    alignment: Alignment,
+    link_section: InternPool.OptionalNullTerminatedString,
+) !void {
+    const fwd_decl_writer = o.dg.fwd_decl.writer();
+
+    try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
+    try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, Const, alignment, .complete);
+    try fwd_decl_writer.writeAll(";\n");
+
+    const mod = o.dg.module;
+    const w = o.writer();
+    if (!is_global) try w.writeAll("static ");
+    if (mod.intern_pool.stringToSliceUnwrap(link_section)) |s|
+        try w.print("zig_linksection(\"{s}\", ", .{s});
+    try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, alignment, .complete);
+    if (link_section != .none) try w.writeAll(", read)");
+    try w.writeAll(" = ");
+    try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
+    try w.writeAll(";\n");
 }
 
 pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = dg.module;
+    const decl_index = dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = dg.decl.?.ty,
-        .val = dg.decl.?.val,
+        .ty = decl.ty,
+        .val = decl.val,
     };
     const writer = dg.fwd_decl.writer();
-    const mod = dg.module;
 
     switch (tv.ty.zigTypeTag(mod)) {
         .Fn => {
@@ -3504,8 +3566,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     } else {
         try reap(f, inst, &.{un_op});
         // Not even allowed to return void in a naked function.
-        if (if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention(mod) != .Naked else true)
-            try writer.writeAll("return;\n");
+        if (!f.object.dg.is_naked_fn) try writer.writeAll("return;\n");
     }
     return .none;
 }
@@ -4144,7 +4205,7 @@ fn airCall(
 ) !CValue {
     const mod = f.object.dg.module;
     // Not even allowed to call panic in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     const gpa = f.object.dg.gpa;
     const writer = f.object.writer();
@@ -4637,9 +4698,8 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
 }
 
 fn airTrap(f: *Function, writer: anytype) !CValue {
-    const mod = f.object.dg.module;
     // Not even allowed to call trap in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     try writer.writeAll("zig_trap();\n");
     return .none;
@@ -4682,9 +4742,8 @@ fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airUnreach(f: *Function) !CValue {
-    const mod = f.object.dg.module;
     // Not even allowed to call unreachable in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
+    if (f.object.dg.is_naked_fn) return .none;
 
     try f.object.writer().writeAll("zig_unreachable();\n");
     return .none;
@@ -5266,22 +5325,26 @@ fn fieldLocation(
     const ip = &mod.intern_pool;
     const container_ty = container_ptr_ty.childType(mod);
     return switch (container_ty.zigTypeTag(mod)) {
-        .Struct => switch (container_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index_usize| {
+        .Struct => blk: {
+            if (mod.typeToPackedStruct(container_ty)) |struct_type| {
+                if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
+                    break :blk .{ .byte_offset = @divExact(mod.structPackedFieldBitOffset(struct_type, field_index) + container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
+                else
+                    break :blk .begin;
+            }
+
+            for (field_index..container_ty.structFieldCount(mod)) |next_field_index_usize| {
                 const next_field_index: u32 = @intCast(next_field_index_usize);
                 if (container_ty.structFieldIsComptime(next_field_index, mod)) continue;
                 const field_ty = container_ty.structFieldType(next_field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                break .{ .field = if (container_ty.isSimpleTuple(mod))
+                break :blk .{ .field = if (container_ty.isSimpleTuple(mod))
                     .{ .field = next_field_index }
                 else
                     .{ .identifier = ip.stringToSlice(container_ty.legacyStructFieldName(next_field_index, mod)) } };
-            } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
-            .Packed => if (field_ptr_ty.ptrInfo(mod).packed_offset.host_size == 0)
-                .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) + @divExact(container_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8) }
-            else
-                .begin,
+            }
+            break :blk if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin;
         },
         .Union => {
             const union_obj = mod.typeToUnion(container_ty).?;
@@ -7194,8 +7257,11 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const inst_ty = f.typeOfIndex(inst);
-    const fn_cty = try f.typeToCType(f.object.dg.decl.?.ty, .complete);
+    const decl_index = f.object.dg.decl_index.unwrap().?;
+    const decl = mod.declPtr(decl_index);
+    const fn_cty = try f.typeToCType(decl.ty, .complete);
     const param_len = fn_cty.castTag(.varargs_function).?.data.param_types.len;
 
     const writer = f.object.writer();

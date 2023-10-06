@@ -1954,6 +1954,16 @@ pub const Type = struct {
         return true;
     }
 
+    /// Returns the type used for backing storage of this union during comptime operations.
+    /// Asserts the type is either an extern or packed union.
+    pub fn unionBackingType(ty: Type, mod: *Module) !Type {
+        return switch (ty.containerLayout(mod)) {
+            .Extern => try mod.arrayType(.{ .len = ty.abiSize(mod), .child = .u8_type }),
+            .Packed => try mod.intType(.unsigned, @intCast(ty.bitSize(mod))),
+            .Auto => unreachable,
+        };
+    }
+
     pub fn unionGetLayout(ty: Type, mod: *Module) Module.UnionLayout {
         const ip = &mod.intern_pool;
         const union_type = ip.indexToKey(ty.toIntern()).union_type;
@@ -3026,26 +3036,6 @@ pub const Type = struct {
             .anon_struct_type => |anon_struct| anon_struct.values.get(ip)[index] != .none,
             else => unreachable,
         };
-    }
-
-    pub fn packedStructFieldBitOffset(ty: Type, field_index: usize, mod: *Module) u32 {
-        const ip = &mod.intern_pool;
-        const struct_type = ip.indexToKey(ty.toIntern()).struct_type;
-        assert(struct_type.layout == .Packed);
-        comptime assert(Type.packed_struct_layout_version == 2);
-
-        var running_bits: u32 = 0;
-        for (struct_type.field_types.get(ip), 0..) |field_ty, i| {
-            if (i == field_index) break;
-            if (!field_ty.toType().hasRuntimeBits(mod)) continue;
-            const field_bits: u32 = @intCast(field_ty.toType().bitSize(mod));
-            running_bits += field_bits;
-        }
-        return running_bits;
-    }
-
-    pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
-        return packedStructFieldBitOffset(ty, field_index, mod) / 8;
     }
 
     pub const FieldOffset = struct {
