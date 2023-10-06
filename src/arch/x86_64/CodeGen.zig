@@ -48,6 +48,7 @@ const RegisterLock = RegisterManager.RegisterLock;
 const FrameIndex = bits.FrameIndex;
 
 const gp = abi.RegisterClass.gp;
+const x87 = abi.RegisterClass.x87;
 const sse = abi.RegisterClass.sse;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
@@ -532,8 +533,8 @@ const InstTracking = struct {
         };
     }
 
-    fn trackSpill(self: *InstTracking, function: *Self, inst: Air.Inst.Index) void {
-        function.freeValue(self.short);
+    fn trackSpill(self: *InstTracking, function: *Self, inst: Air.Inst.Index) !void {
+        try function.freeValue(self.short);
         self.reuseFrame();
         tracking_log.debug("%{d} => {} (spilled)", .{ inst, self.* });
     }
@@ -618,8 +619,8 @@ const InstTracking = struct {
         }
     }
 
-    fn die(self: *InstTracking, function: *Self, inst: Air.Inst.Index) void {
-        function.freeValue(self.short);
+    fn die(self: *InstTracking, function: *Self, inst: Air.Inst.Index) !void {
+        try function.freeValue(self.short);
         self.short = .{ .dead = function.scope_generation };
         tracking_log.debug("%{d} => {} (death)", .{ inst, self.* });
     }
@@ -980,7 +981,6 @@ fn formatWipMir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    const mod = data.self.bin_file.options.module.?;
     var lower = Lower{
         .allocator = data.self.gpa,
         .mir = .{
@@ -988,7 +988,7 @@ fn formatWipMir(
             .extra = data.self.mir_extra.items,
             .frame_locs = (std.MultiArrayList(Mir.FrameLoc){}).slice(),
         },
-        .cc = mod.typeToFunc(data.self.fn_type).?.cc,
+        .cc = .Unspecified,
         .src_loc = data.self.src_loc,
     };
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
@@ -2132,9 +2132,12 @@ fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
         self.register_manager.getRegAssumeFree(reg, inst);
 }
 
-fn freeValue(self: *Self, value: MCValue) void {
+fn freeValue(self: *Self, value: MCValue) !void {
     switch (value) {
-        .register => |reg| self.register_manager.freeReg(reg),
+        .register => |reg| {
+            if (reg.class() == .x87) try self.asmRegister(.{ .f_, .free }, reg);
+            self.register_manager.freeReg(reg);
+        },
         .register_pair => |regs| for (regs) |reg| self.register_manager.freeReg(reg),
         .register_offset => |reg_off| self.register_manager.freeReg(reg_off.reg),
         .register_overflow => |reg_ov| {
@@ -2146,13 +2149,13 @@ fn freeValue(self: *Self, value: MCValue) void {
     }
 }
 
-fn feed(self: *Self, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) void {
-    if (bt.feed()) if (Air.refToIndex(operand)) |inst| self.processDeath(inst);
+fn feed(self: *Self, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) !void {
+    if (bt.feed()) if (Air.refToIndex(operand)) |inst| try self.processDeath(inst);
 }
 
 /// Asserts there is already capacity to insert into top branch inst_table.
-fn processDeath(self: *Self, inst: Air.Inst.Index) void {
-    self.inst_tracking.getPtr(inst).?.die(self, inst);
+fn processDeath(self: *Self, inst: Air.Inst.Index) !void {
+    try self.inst_tracking.getPtr(inst).?.die(self, inst);
 }
 
 /// Called when there are no operands, and the instruction is always unreferenced.
@@ -2177,13 +2180,18 @@ fn finishAirResult(self: *Self, inst: Air.Inst.Index, result: MCValue) void {
     self.finishAirBookkeeping();
 }
 
-fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
+fn finishAir(
+    self: *Self,
+    inst: Air.Inst.Index,
+    result: MCValue,
+    operands: [Liveness.bpi - 1]Air.Inst.Ref,
+) !void {
     var tomb_bits = self.liveness.getTombBits(inst);
     for (operands) |op| {
         const dies = @as(u1, @truncate(tomb_bits)) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
-        self.processDeath(Air.refToIndexAllowNone(op) orelse continue);
+        try self.processDeath(Air.refToIndexAllowNone(op) orelse continue);
     }
     self.finishAirResult(inst, result);
 }
@@ -2409,7 +2417,7 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
         for (
             self.inst_tracking.keys()[state.inst_tracking_len..],
             self.inst_tracking.values()[state.inst_tracking_len..],
-        ) |inst, *tracking| tracking.die(self, inst);
+        ) |inst, *tracking| try tracking.die(self, inst);
         self.inst_tracking.shrinkRetainingCapacity(state.inst_tracking_len);
     }
 
@@ -2417,7 +2425,7 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
         self.inst_tracking.keys()[0..state.inst_tracking_len],
         self.inst_tracking.values()[0..state.inst_tracking_len],
     ) |inst, *tracking| tracking.resurrect(inst, state.scope_generation);
-    for (deaths) |death| self.processDeath(death);
+    for (deaths) |death| try self.processDeath(death);
 
     for (0..state.registers.len) |index| {
         const current_maybe_inst = if (self.register_manager.free_registers.isSet(index))
@@ -2444,7 +2452,7 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
         }
         if (opts.update_tracking) {
             if (current_maybe_inst) |current_inst| {
-                self.inst_tracking.getPtr(current_inst).?.trackSpill(self, current_inst);
+                try self.inst_tracking.getPtr(current_inst).?.trackSpill(self, current_inst);
             }
             {
                 const reg = RegisterManager.regAtTrackedIndex(@intCast(index));
@@ -2463,7 +2471,7 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
         try self.inst_tracking.getPtr(inst).?.spill(self, inst);
     if (opts.update_tracking) if (self.eflags_inst) |inst| {
         self.eflags_inst = null;
-        self.inst_tracking.getPtr(inst).?.trackSpill(self, inst);
+        try self.inst_tracking.getPtr(inst).?.trackSpill(self, inst);
     };
 
     if (opts.update_tracking and std.debug.runtime_safety) {
@@ -2481,7 +2489,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
         if (tracked_reg.id() == reg.id()) break;
     } else unreachable; // spilled reg not tracked with spilled instruciton
     try tracking.spill(self, inst);
-    tracking.trackSpill(self, inst);
+    try tracking.trackSpill(self, inst);
 }
 
 pub fn spillEflagsIfOccupied(self: *Self) !void {
@@ -2490,7 +2498,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
         const tracking = self.inst_tracking.getPtr(inst).?;
         assert(tracking.getCondition() != null);
         try tracking.spill(self, inst);
-        tracking.trackSpill(self, inst);
+        try tracking.trackSpill(self, inst);
     }
 }
 
@@ -8428,8 +8436,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const ret = try self.genCall(.{ .air = pl_op.operand }, arg_tys, arg_vals);
 
     var bt = self.liveness.iterateBigTomb(inst);
-    self.feed(&bt, pl_op.operand);
-    for (arg_refs) |arg_ref| self.feed(&bt, arg_ref);
+    try self.feed(&bt, pl_op.operand);
+    for (arg_refs) |arg_ref| try self.feed(&bt, arg_ref);
 
     const result = if (self.liveness.isUnused(inst)) .unreach else ret;
     return self.finishAirResult(inst, result);
@@ -9086,13 +9094,13 @@ fn genTry(
     const reloc = try self.genCondBrMir(Type.anyerror, is_err_mcv);
 
     if (self.liveness.operandDies(inst, 0)) {
-        if (Air.refToIndex(err_union)) |err_union_inst| self.processDeath(err_union_inst);
+        if (Air.refToIndex(err_union)) |err_union_inst| try self.processDeath(err_union_inst);
     }
 
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    for (liveness_cond_br.else_deaths) |operand| self.processDeath(operand);
+    for (liveness_cond_br.else_deaths) |operand| try self.processDeath(operand);
     try self.genBody(body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
@@ -9103,7 +9111,7 @@ fn genTry(
 
     try self.performReloc(reloc);
 
-    for (liveness_cond_br.then_deaths) |operand| self.processDeath(operand);
+    for (liveness_cond_br.then_deaths) |operand| try self.processDeath(operand);
 
     const result = if (self.liveness.isUnused(inst))
         .unreach
@@ -9196,13 +9204,13 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
+        if (Air.refToIndex(pl_op.operand)) |op_inst| try self.processDeath(op_inst);
     }
 
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    for (liveness_cond_br.then_deaths) |operand| self.processDeath(operand);
+    for (liveness_cond_br.then_deaths) |operand| try self.processDeath(operand);
     try self.genBody(then_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
@@ -9213,7 +9221,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.performReloc(reloc);
 
-    for (liveness_cond_br.else_deaths) |operand| self.processDeath(operand);
+    for (liveness_cond_br.else_deaths) |operand| try self.processDeath(operand);
     try self.genBody(else_body);
     try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
@@ -9580,7 +9588,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
     if (std.debug.runtime_safety) assert(self.inst_tracking.getIndex(inst).? == inst_tracking_i);
     const tracking = &self.inst_tracking.values()[inst_tracking_i];
-    if (self.liveness.isUnused(inst)) tracking.die(self, inst);
+    if (self.liveness.isUnused(inst)) try tracking.die(self, inst);
     self.getValue(tracking.short, inst);
     self.finishAirBookkeeping();
 }
@@ -9599,7 +9607,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
+        if (Air.refToIndex(pl_op.operand)) |op_inst| try self.processDeath(op_inst);
     }
 
     self.scope_generation += 1;
@@ -9622,7 +9630,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
             reloc.* = try self.asmJccReloc(undefined, if (i < relocs.len - 1) .e else .ne);
         }
 
-        for (liveness.deaths[case_i]) |operand| self.processDeath(operand);
+        for (liveness.deaths[case_i]) |operand| try self.processDeath(operand);
 
         for (relocs[0 .. relocs.len - 1]) |reloc| try self.performReloc(reloc);
         try self.genBody(case_body);
@@ -9640,7 +9648,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
 
         const else_deaths = liveness.deaths.len - 1;
-        for (liveness.deaths[else_deaths]) |operand| self.processDeath(operand);
+        for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
 
         try self.genBody(else_body);
         try self.restoreState(state, &.{}, .{
@@ -9704,7 +9712,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Process operand death so that it is properly accounted for in the State below.
     if (self.liveness.operandDies(inst, 0)) {
-        if (Air.refToIndex(br.operand)) |op_inst| self.processDeath(op_inst);
+        if (Air.refToIndex(br.operand)) |op_inst| try self.processDeath(op_inst);
     }
 
     if (first_br) {
@@ -9718,7 +9726,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     });
 
     // Stop tracking block result without forgetting tracking info
-    self.freeValue(block_tracking.short);
+    try self.freeValue(block_tracking.short);
 
     // Emit a jump with a relocation. It will be patched up after the block ends.
     // Leave the jump offset undefined
@@ -10077,13 +10085,14 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, result, buf);
     }
     var bt = self.liveness.iterateBigTomb(inst);
-    for (outputs) |output| if (output != .none) self.feed(&bt, output);
-    for (inputs) |input| self.feed(&bt, input);
+    for (outputs) |output| if (output != .none) try self.feed(&bt, output);
+    for (inputs) |input| try self.feed(&bt, input);
     return self.finishAirResult(inst, result);
 }
 
 const MoveStrategy = union(enum) {
     move: Mir.Inst.FixedTag,
+    x87_load_store,
     insert_extract: InsertExtract,
     vex_insert_extract: InsertExtract,
 
@@ -10091,6 +10100,44 @@ const MoveStrategy = union(enum) {
         insert: Mir.Inst.FixedTag,
         extract: Mir.Inst.FixedTag,
     };
+
+    pub fn read(strat: MoveStrategy, self: *Self, dst_reg: Register, src_mem: Memory) !void {
+        switch (strat) {
+            .move => |tag| try self.asmRegisterMemory(tag, dst_reg, src_mem),
+            .x87_load_store => {
+                try self.asmMemory(.{ .f_, .ld }, src_mem);
+                try self.asmRegister(.{ .f_p, .st }, @enumFromInt(@intFromEnum(dst_reg) + 1));
+            },
+            .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
+                ie.insert,
+                dst_reg,
+                src_mem,
+                Immediate.u(0),
+            ),
+            .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
+                ie.insert,
+                dst_reg,
+                dst_reg,
+                src_mem,
+                Immediate.u(0),
+            ),
+        }
+    }
+    pub fn write(strat: MoveStrategy, self: *Self, dst_mem: Memory, src_reg: Register) !void {
+        switch (strat) {
+            .move => |tag| try self.asmMemoryRegister(tag, dst_mem, src_reg),
+            .x87_load_store => {
+                try self.asmRegister(.{ .f_, .ld }, src_reg);
+                try self.asmMemory(.{ .f_p, .st }, dst_mem);
+            },
+            .insert_extract, .vex_insert_extract => |ie| try self.asmMemoryRegisterImmediate(
+                ie.extract,
+                dst_mem,
+                src_reg,
+                Immediate.u(0),
+            ),
+        }
+    }
 };
 fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
     const mod = self.bin_file.options.module.?;
@@ -10106,6 +10153,7 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
             } },
             32 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov } },
             64 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov } },
+            80 => return .x87_load_store,
             128 => return .{ .move = if (self.hasFeature(.avx))
                 if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
             else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
@@ -10370,7 +10418,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
 fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerError!void {
     const mod = self.bin_file.options.module.?;
     const abi_size: u32 = @intCast(ty.abiSize(mod));
-    if (abi_size * 8 > dst_reg.bitSize())
+    if (ty.bitSize(mod) > dst_reg.bitSize())
         return self.fail("genSetReg called with a value larger than dst_reg", .{});
     switch (src_mcv) {
         .none,
@@ -10486,9 +10534,21 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         .indirect,
         .load_frame,
         .lea_frame,
-        => {
-            const dst_alias = registerAlias(dst_reg, abi_size);
-            const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), switch (src_mcv) {
+        => try @as(MoveStrategy, switch (src_mcv) {
+            .register_offset => |reg_off| switch (reg_off.off) {
+                0 => return self.genSetReg(dst_reg, ty, .{ .register = reg_off.reg }),
+                else => .{ .move = .{ ._, .lea } },
+            },
+            .indirect => try self.moveStrategy(ty, false),
+            .load_frame => |frame_addr| try self.moveStrategy(
+                ty,
+                self.getFrameAddrAlignment(frame_addr).compare(.gte, ty.abiAlignment(mod)),
+            ),
+            .lea_frame => .{ .move = .{ ._, .lea } },
+            else => unreachable,
+        }).read(self, registerAlias(dst_reg, abi_size), Memory.sib(
+            self.memPtrSize(ty),
+            switch (src_mcv) {
                 .register_offset, .indirect => |reg_off| .{
                     .base = .{ .reg = reg_off.reg },
                     .disp = reg_off.off,
@@ -10498,64 +10558,18 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     .disp = frame_addr.off,
                 },
                 else => unreachable,
-            });
-            switch (@as(MoveStrategy, switch (src_mcv) {
-                .register_offset => |reg_off| switch (reg_off.off) {
-                    0 => return self.genSetReg(dst_reg, ty, .{ .register = reg_off.reg }),
-                    else => .{ .move = .{ ._, .lea } },
-                },
-                .indirect => try self.moveStrategy(ty, false),
-                .load_frame => |frame_addr| try self.moveStrategy(
-                    ty,
-                    self.getFrameAddrAlignment(frame_addr).compare(.gte, ty.abiAlignment(mod)),
-                ),
-                .lea_frame => .{ .move = .{ ._, .lea } },
-                else => unreachable,
-            })) {
-                .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
-                .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
-                    ie.insert,
-                    dst_alias,
-                    src_mem,
-                    Immediate.u(0),
-                ),
-                .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
-                    ie.insert,
-                    dst_alias,
-                    dst_alias,
-                    src_mem,
-                    Immediate.u(0),
-                ),
-            }
-        },
+            },
+        )),
         .memory, .load_direct, .load_got, .load_tlv => {
             switch (src_mcv) {
-                .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr| {
-                    const dst_alias = registerAlias(dst_reg, abi_size);
-                    const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                        .base = .{ .reg = .ds },
-                        .disp = small_addr,
-                    });
-                    switch (try self.moveStrategy(ty, ty.abiAlignment(mod).check(
-                        @as(u32, @bitCast(small_addr)),
-                    ))) {
-                        .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
-                        .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
-                            ie.insert,
-                            dst_alias,
-                            src_mem,
-                            Immediate.u(0),
-                        ),
-                        .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
-                            ie.insert,
-                            dst_alias,
-                            dst_alias,
-                            src_mem,
-                            Immediate.u(0),
-                        ),
-                    }
-                    return;
-                },
+                .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
+                    return (try self.moveStrategy(
+                        ty,
+                        ty.abiAlignment(mod).check(@as(u32, @bitCast(small_addr))),
+                    )).read(self, registerAlias(dst_reg, abi_size), Memory.sib(
+                        self.memPtrSize(ty),
+                        .{ .base = .{ .reg = .ds }, .disp = small_addr },
+                    )),
                 .load_direct => |sym_index| switch (ty.zigTypeTag(mod)) {
                     else => {
                         const atom_index = try self.owner.getSymbolIndex(self);
@@ -10582,26 +10596,11 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_lock);
 
-            const dst_alias = registerAlias(dst_reg, abi_size);
-            const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                .base = .{ .reg = addr_reg },
-            });
-            switch (try self.moveStrategy(ty, false)) {
-                .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
-                .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
-                    ie.insert,
-                    dst_alias,
-                    src_mem,
-                    Immediate.u(0),
-                ),
-                .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
-                    ie.insert,
-                    dst_alias,
-                    dst_alias,
-                    src_mem,
-                    Immediate.u(0),
-                ),
-            }
+            try (try self.moveStrategy(ty, false)).read(
+                self,
+                registerAlias(dst_reg, abi_size),
+                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .{ .reg = addr_reg } }),
+            );
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
@@ -10698,39 +10697,23 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
             },
         },
         .eflags => |cc| try self.asmSetccMemory(Memory.sib(.byte, .{ .base = base, .disp = disp }), cc),
-        .register => |src_reg| {
-            const dst_mem = Memory.sib(
-                Memory.PtrSize.fromSize(abi_size),
-                .{ .base = base, .disp = disp },
-            );
-            const src_alias = registerAlias(src_reg, abi_size);
-            switch (try self.moveStrategy(ty, switch (base) {
-                .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
-                .reg => |reg| switch (reg) {
-                    .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
-                    else => false,
-                },
-                .frame => |frame_index| self.getFrameAddrAlignment(
-                    .{ .index = frame_index, .off = disp },
-                ).compare(.gte, ty.abiAlignment(mod)),
-            })) {
-                .move => |tag| try self.asmMemoryRegister(tag, dst_mem, src_alias),
-                .insert_extract, .vex_insert_extract => |ie| try self.asmMemoryRegisterImmediate(
-                    ie.extract,
-                    dst_mem,
-                    src_alias,
-                    Immediate.u(0),
-                ),
-            }
-        },
+        .register => |src_reg| try (try self.moveStrategy(ty, switch (base) {
+            .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+            .reg => |reg| switch (reg) {
+                .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                else => false,
+            },
+            .frame => |frame_index| self.getFrameAddrAlignment(
+                .{ .index = frame_index, .off = disp },
+            ).compare(.gte, ty.abiAlignment(mod)),
+        })).write(
+            self,
+            Memory.sib(self.memPtrSize(ty), .{ .base = base, .disp = disp }),
+            registerAlias(src_reg, abi_size),
+        ),
         .register_pair => |src_regs| for (src_regs, 0..) |src_reg, src_reg_i| {
             const part_size = @min(abi_size - src_reg_i * 8, 8);
-            const dst_mem = Memory.sib(
-                Memory.PtrSize.fromSize(part_size),
-                .{ .base = base, .disp = disp + @as(i32, @intCast(src_reg_i * 8)) },
-            );
-            const src_alias = registerAlias(src_reg, part_size);
-            switch (try self.moveStrategy(ty, switch (base) {
+            try (try self.moveStrategy(ty, switch (base) {
                 .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
                 .reg => |reg| switch (reg) {
                     .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
@@ -10739,15 +10722,10 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                 .frame => |frame_index| self.getFrameAddrAlignment(
                     .{ .index = frame_index, .off = disp },
                 ).compare(.gte, ty.abiAlignment(mod)),
-            })) {
-                .move => |tag| try self.asmMemoryRegister(tag, dst_mem, src_alias),
-                .insert_extract, .vex_insert_extract => |ie| try self.asmMemoryRegisterImmediate(
-                    ie.extract,
-                    dst_mem,
-                    src_alias,
-                    Immediate.u(0),
-                ),
-            }
+            })).write(self, Memory.sib(
+                Memory.PtrSize.fromSize(part_size),
+                .{ .base = base, .disp = disp + @as(i32, @intCast(src_reg_i * 8)) },
+            ), registerAlias(src_reg, part_size));
         },
         .register_overflow => |ro| {
             try self.genSetMem(
@@ -12229,7 +12207,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, result, buf);
     }
     var bt = self.liveness.iterateBigTomb(inst);
-    for (elements) |elem| self.feed(&bt, elem);
+    for (elements) |elem| try self.feed(&bt, elem);
     return self.finishAirResult(inst, result);
 }
 
@@ -12818,6 +12796,14 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             reg.to256()
         else
             unreachable,
+    };
+}
+
+fn memPtrSize(self: *Self, ty: Type) Memory.PtrSize {
+    const mod = self.bin_file.options.module.?;
+    return switch (ty.zigTypeTag(mod)) {
+        .Float => Memory.PtrSize.fromBitSize(ty.floatBits(self.target.*)),
+        else => Memory.PtrSize.fromSize(@intCast(ty.abiSize(mod))),
     };
 }
 

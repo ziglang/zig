@@ -444,7 +444,7 @@ pub const SysV = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
     pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
@@ -459,7 +459,7 @@ pub const Win64 = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
     pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
@@ -531,30 +531,32 @@ pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register 
 const gp_regs = [_]Register{
     .rax, .rcx, .rdx, .rbx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
 };
+const x87_regs = [_]Register{
+    .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7,
+};
 const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
-const allocatable_regs = gp_regs ++ sse_avx_regs;
-pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_regs);
+const allocatable_regs = gp_regs ++ x87_regs[0 .. x87_regs.len - 1] ++ sse_avx_regs;
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, allocatable_regs);
 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
     pub const gp: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = 0,
-            .end = gp_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .general_purpose) set.set(index);
+        break :blk set;
+    };
+    pub const x87: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .x87) set.set(index);
         break :blk set;
     };
     pub const sse: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = gp_regs.len,
-            .end = allocatable_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .sse) set.set(index);
         break :blk set;
     };
 };

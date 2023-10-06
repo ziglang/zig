@@ -829,13 +829,24 @@ pub const table = [_]Entry{
     .{ .xor, .rm, &.{ .r64,  .rm64   }, &.{ 0x33 }, 0, .long,  .none },
 
     // X87
+    .{ .ffree, .o, &.{ .st }, &.{ 0xdd, 0xc0 }, 0, .none, .x87 },
+
     .{ .fisttp, .m, &.{ .m16 }, &.{ 0xdf }, 1, .none, .x87 },
     .{ .fisttp, .m, &.{ .m32 }, &.{ 0xdb }, 1, .none, .x87 },
     .{ .fisttp, .m, &.{ .m64 }, &.{ 0xdd }, 1, .none, .x87 },
 
-    .{ .fld, .m, &.{ .m32 }, &.{ 0xd9 }, 0, .none, .x87 },
-    .{ .fld, .m, &.{ .m64 }, &.{ 0xdd }, 0, .none, .x87 },
-    .{ .fld, .m, &.{ .m80 }, &.{ 0xdb }, 5, .none, .x87 },
+    .{ .fld, .m, &.{ .m32 }, &.{ 0xd9       }, 0, .none, .x87 },
+    .{ .fld, .m, &.{ .m64 }, &.{ 0xdd       }, 0, .none, .x87 },
+    .{ .fld, .m, &.{ .m80 }, &.{ 0xdb       }, 5, .none, .x87 },
+    .{ .fld, .o, &.{ .st  }, &.{ 0xd9, 0xc0 }, 0, .none, .x87 },
+
+    .{ .fst,  .m, &.{ .m32 }, &.{ 0xd9       }, 2, .none, .x87 },
+    .{ .fst,  .m, &.{ .m64 }, &.{ 0xdd       }, 2, .none, .x87 },
+    .{ .fst,  .o, &.{ .st  }, &.{ 0xdd, 0xd0 }, 0, .none, .x87 },
+    .{ .fstp, .m, &.{ .m32 }, &.{ 0xd9       }, 3, .none, .x87 },
+    .{ .fstp, .m, &.{ .m64 }, &.{ 0xdd       }, 3, .none, .x87 },
+    .{ .fstp, .m, &.{ .m80 }, &.{ 0xdb       }, 7, .none, .x87 },
+    .{ .fstp, .o, &.{ .st  }, &.{ 0xdd, 0xd8 }, 0, .none, .x87 },
 
     // SSE
     .{ .addps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x58 }, 0, .none, .sse },

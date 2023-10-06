@@ -28,7 +28,7 @@ test "add f32/f64" {
 }
 
 test "add f80/f128/c_longdouble" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try testAdd(f80);
     try comptime testAdd(f80);
@@ -59,7 +59,7 @@ test "sub f32/f64" {
 }
 
 test "sub f80/f128/c_longdouble" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try testSub(f80);
     try comptime testSub(f80);
@@ -90,7 +90,7 @@ test "mul f32/f64" {
 }
 
 test "mul f80/f128/c_longdouble" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try testMul(f80);
     try comptime testMul(f80);
