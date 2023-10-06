@@ -3667,7 +3667,7 @@ fn buildOutputType(
             test_exec_args.items,
             self_exe_path.?,
             arg_mode,
-            target_info,
+            &target_info,
             &comp_destroyed,
             all_args,
             runtime_args_start,
@@ -3995,7 +3995,7 @@ fn runOrTest(
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
-    target_info: std.zig.system.NativeTargetInfo,
+    target_info: *const std.zig.system.NativeTargetInfo,
     comp_destroyed: *bool,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
@@ -6256,7 +6256,7 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 fn warnAboutForeignBinaries(
     arena: Allocator,
     arg_mode: ArgMode,
-    target_info: std.zig.system.NativeTargetInfo,
+    target_info: *const std.zig.system.NativeTargetInfo,
     link_libc: bool,
 ) !void {
     const host_cross_target: std.zig.CrossTarget = .{};

@@ -679,7 +679,7 @@ fn runCommand(
             }
 
             const need_cross_glibc = exe.target.isGnuLibC() and exe.is_linking_libc;
-            switch (b.host.getExternalExecutor(exe.target_info, .{
+            switch (b.host.getExternalExecutor(&exe.target_info, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
