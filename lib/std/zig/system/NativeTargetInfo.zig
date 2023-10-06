@@ -1002,7 +1002,7 @@ pub const GetExternalExecutorOptions = struct {
 /// of the other target.
 pub fn getExternalExecutor(
     host: NativeTargetInfo,
-    candidate: NativeTargetInfo,
+    candidate: *const NativeTargetInfo,
     options: GetExternalExecutorOptions,
 ) Executor {
     const os_match = host.target.os.tag == candidate.target.os.tag;

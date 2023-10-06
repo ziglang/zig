@@ -590,7 +590,7 @@ pub fn lowerToBuildSteps(
                 const run = if (case.target.ofmt == .c) run_step: {
                     const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
                         std.debug.panic("unable to detect notive host: {s}\n", .{@errorName(err)});
-                    if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
+                    if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
