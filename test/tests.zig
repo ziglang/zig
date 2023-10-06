@@ -695,7 +695,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
-        init_lib.cwd = tmp_path;
+        init_lib.setCwd(.{ .cwd_relative = tmp_path });
         init_lib.setName("zig init-lib");
         init_lib.expectStdOutEqual("");
         init_lib.expectStdErrEqual("info: Created build.zig\n" ++
@@ -703,7 +703,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "info: Next, try `zig build --help` or `zig build test`\n");
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.cwd = tmp_path;
+        run_test.setCwd(.{ .cwd_relative = tmp_path });
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_lib.step);
@@ -718,7 +718,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig init-exe`.
         const tmp_path = b.makeTempPath();
         const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
-        init_exe.cwd = tmp_path;
+        init_exe.setCwd(.{ .cwd_relative = tmp_path });
         init_exe.setName("zig init-exe");
         init_exe.expectStdOutEqual("");
         init_exe.expectStdErrEqual("info: Created build.zig\n" ++
@@ -737,13 +737,13 @@ pub fn addCliTests(b: *std.Build) *Step {
         run_bad.step.dependOn(&init_exe.step);
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.cwd = tmp_path;
+        run_test.setCwd(.{ .cwd_relative = tmp_path });
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_exe.step);
 
         const run_run = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });
-        run_run.cwd = tmp_path;
+        run_run.setCwd(.{ .cwd_relative = tmp_path });
         run_run.setName("zig build run");
         run_run.expectStdOutEqual("Run `zig build test` to run the tests.\n");
         run_run.expectStdErrEqual("All your codebase are belong to us.\n");
@@ -821,7 +821,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "fmt1.zig" });
         run1.setName("run zig fmt one file");
-        run1.cwd = tmp_path;
+        run1.setCwd(.{ .cwd_relative = tmp_path });
         run1.has_side_effects = true;
         // stdout should be file path + \n
         run1.expectStdOutEqual("fmt1.zig\n");
@@ -829,7 +829,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test excluding files and directories from a run
         const run2 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "subdir", "." });
         run2.setName("run zig fmt on directory with exclusions");
-        run2.cwd = tmp_path;
+        run2.setCwd(.{ .cwd_relative = tmp_path });
         run2.has_side_effects = true;
         run2.expectStdOutEqual("");
         run2.step.dependOn(&run1.step);
@@ -837,7 +837,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test excluding non-existent file
         const run3 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "nonexistent.zig", "." });
         run3.setName("run zig fmt on directory with non-existent exclusion");
-        run3.cwd = tmp_path;
+        run3.setCwd(.{ .cwd_relative = tmp_path });
         run3.has_side_effects = true;
         run3.expectStdOutEqual("." ++ s ++ "subdir" ++ s ++ "fmt3.zig\n");
         run3.step.dependOn(&run2.step);
@@ -845,7 +845,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // running it on the dir, only the new file should be changed
         const run4 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run4.setName("run zig fmt the directory");
-        run4.cwd = tmp_path;
+        run4.setCwd(.{ .cwd_relative = tmp_path });
         run4.has_side_effects = true;
         run4.expectStdOutEqual("." ++ s ++ "fmt2.zig\n");
         run4.step.dependOn(&run3.step);
@@ -853,7 +853,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // both files have been formatted, nothing should change now
         const run5 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run5.setName("run zig fmt with nothing to do");
-        run5.cwd = tmp_path;
+        run5.setCwd(.{ .cwd_relative = tmp_path });
         run5.has_side_effects = true;
         run5.expectStdOutEqual("");
         run5.step.dependOn(&run4.step);
@@ -867,7 +867,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig fmt` handling UTF-16 decoding.
         const run6 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run6.setName("run zig fmt convert UTF-16 to UTF-8");
-        run6.cwd = tmp_path;
+        run6.setCwd(.{ .cwd_relative = tmp_path });
         run6.has_side_effects = true;
         run6.expectStdOutEqual("." ++ s ++ "fmt6.zig\n");
         run6.step.dependOn(&write6.step);
