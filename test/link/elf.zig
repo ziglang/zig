@@ -32,6 +32,7 @@ pub fn build(b: *Build) void {
 
     for (&[_]CrossTarget{ glibc_target, musl_target }) |target| {
         elf_step.dependOn(testDsoPlt(b, .{ .target = target }));
+        elf_step.dependOn(testDsoUndef(b, .{ .target = target }));
     }
 }
 
@@ -167,6 +168,47 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello WORLD\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testDsoUndef(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "dso-undef", opts);
+
+    const dso = addSharedLibrary(b, opts);
+    addCSourceBytes(dso,
+        \\extern int foo;
+        \\int bar = 5;
+        \\int baz() { return foo; }
+    , &.{"-fPIC"});
+    dso.is_linking_libc = true;
+
+    const obj = addObject(b, opts);
+    addCSourceBytes(obj, "int foo = 3;", &.{});
+
+    const lib = addStaticLibrary(b, opts);
+    lib.addObject(obj);
+
+    const exe = addExecutable(b, opts);
+    exe.linkLibrary(dso);
+    exe.linkLibrary(lib);
+    addCSourceBytes(exe,
+        \\extern int bar;
+        \\int main() {
+        \\  return bar - 5;
+        \\}
+    , &.{});
+    exe.is_linking_libc = true;
+    exe.verbose_link = true;
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInDynamicSymtab();
+    check.checkContains("foo");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -422,7 +464,7 @@ fn addExecutable(b: *Build, opts: Options) *Compile {
 
 fn addObject(b: *Build, opts: Options) *Compile {
     return b.addObject(.{
-        .name = "a.o",
+        .name = "a",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -432,7 +474,7 @@ fn addObject(b: *Build, opts: Options) *Compile {
 
 fn addStaticLibrary(b: *Build, opts: Options) *Compile {
     return b.addStaticLibrary(.{
-        .name = "a.a",
+        .name = "a",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -442,7 +484,7 @@ fn addStaticLibrary(b: *Build, opts: Options) *Compile {
 
 fn addSharedLibrary(b: *Build, opts: Options) *Compile {
     return b.addSharedLibrary(.{
-        .name = "a.so",
+        .name = "a",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
@@ -457,28 +499,29 @@ fn addRunArtifact(comp: *Compile) *Run {
     return run;
 }
 
-fn addZigSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.zig", bytes);
     file.addStepDependencies(&comp.step);
     comp.root_src = file;
 }
 
-fn addCSourceBytes(comp: *Compile, comptime bytes: []const u8, flags: []const []const u8) void {
+fn addCSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.c", bytes);
     comp.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
-fn addCppSourceBytes(comp: *Compile, comptime bytes: []const u8, flags: []const []const u8) void {
+fn addCppSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.cpp", bytes);
     comp.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
-fn addAsmSourceBytes(comp: *Compile, comptime bytes: []const u8) void {
+fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.s", bytes ++ "\n");
+    const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
+    const file = WriteFile.create(b).add("a.s", actual_bytes);
     comp.addAssemblyFile(file);
 }
 
