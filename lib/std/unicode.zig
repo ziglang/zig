@@ -200,15 +200,21 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 pub fn utf8ValidateSlice(input: []const u8) bool {
     var remaining = input;
 
-    // Fast path. Check for and skip 8 bytes of ASCII characters per iteration.
-    while (remaining.len >= 8) {
-        const first32 = mem.readIntLittle(u32, remaining[0..4]);
-        const second32 = mem.readIntLittle(u32, remaining[4..8]);
-        if ((first32 | second32) & 0x80808080 != 0) {
+    const V_len = comptime std.simd.suggestVectorSize(usize) orelse 1;
+    const V = @Vector(V_len, usize);
+    const u8s_in_vector = @sizeOf(usize) * V_len;
+
+    // Fast path. Check for and skip ASCII characters at the start of the input.
+    while (remaining.len >= u8s_in_vector) {
+        const chunk: V = @bitCast(remaining[0..u8s_in_vector].*);
+        const swapped = mem.littleToNative(V, chunk);
+        const reduced = @reduce(.Or, swapped);
+        const mask: usize = @bitCast([1]u8{0x80} ** @sizeOf(usize));
+        if (reduced & mask != 0) {
             // Found a non ASCII byte
             break;
         }
-        remaining = remaining[8..];
+        remaining = remaining[u8s_in_vector..];
     }
 
     // default lowest and highest continuation byte
@@ -592,6 +598,13 @@ fn testUtf8ViewOk() !void {
 test "validate slice" {
     try comptime testValidateSlice();
     try testValidateSlice();
+
+    // We skip a variable (based on recommended vector size) chunks of
+    // ASCII characters. Let's make sure we're chunking correctly.
+    const str = [_]u8{'a'} ** 550 ++ "\xc0";
+    for (0..str.len - 3) |i| {
+        try testing.expect(!utf8ValidateSlice(str[i..]));
+    }
 }
 fn testValidateSlice() !void {
     try testing.expect(utf8ValidateSlice("abc"));
