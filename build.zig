@@ -693,7 +693,10 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
     // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
     // unavailable when LLVM is compiled in Release mode.
     const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
-    exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+    exe.addCSourceFiles(.{
+        .files = &zig_cpp_sources,
+        .flags = &zig_cpp_cflags,
+    });
 
     for (clang_libs) |lib_name| {
         exe.linkSystemLibrary(lib_name);

@@ -216,7 +216,9 @@ generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
 
 pub const CSourceFiles = struct {
-    /// Relative to the build root.
+    dependency: ?*std.Build.Dependency,
+    /// If `dependency` is not null relative to it,
+    /// else relative to the build root.
     files: []const []const u8,
     flags: []const []const u8,
 };
@@ -921,15 +923,23 @@ pub fn linkSystemLibrary2(
     }) catch @panic("OOM");
 }
 
+pub const AddCSourceFilesOptions = struct {
+    /// When provided, `files` are relative to `dependency` rather than the package that owns the `Compile` step.
+    dependency: ?*std.Build.Dependency = null,
+    files: []const []const u8,
+    flags: []const []const u8 = &.{},
+};
+
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
-pub fn addCSourceFiles(self: *Compile, files: []const []const u8, flags: []const []const u8) void {
+pub fn addCSourceFiles(self: *Compile, options: AddCSourceFilesOptions) void {
     const b = self.step.owner;
     const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
 
-    const files_copy = b.dupeStrings(files);
-    const flags_copy = b.dupeStrings(flags);
+    const files_copy = b.dupeStrings(options.files);
+    const flags_copy = b.dupeStrings(options.flags);
 
     c_source_files.* = .{
+        .dependency = options.dependency,
         .files = files_copy,
         .flags = flags_copy,
     };
@@ -1549,8 +1559,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append("--");
                     prev_has_cflags = true;
                 }
-                for (c_source_files.files) |file| {
-                    try zig_args.append(b.pathFromRoot(file));
+                if (c_source_files.dependency) |dep| {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(b.pathFromRoot(dep.path(file).getPath(b)));
+                    }
+                } else {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(b.pathFromRoot(file));
+                    }
                 }
             },
 

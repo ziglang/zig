@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     const c_sources = [_][]const u8{
         "test.c",
     };
-    exe.addCSourceFiles(&c_sources, &.{});
+    exe.addCSourceFiles(.{ .files = &c_sources });
     exe.linkLibC();
 
     const run_cmd = b.addRunArtifact(exe);
