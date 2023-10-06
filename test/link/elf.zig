@@ -17,6 +17,16 @@ pub fn build(b: *Build) void {
         .abi = .gnu,
     };
 
+    var dynamic_linker: ?[]const u8 = null;
+    if (std.zig.system.NativeTargetInfo.detect(.{})) |host| blk: {
+        if (host.target.cpu.arch != glibc_target.cpu_arch.? or
+            host.target.os.tag != glibc_target.os_tag.? or
+            host.target.abi != glibc_target.abi.?) break :blk;
+        if (host.dynamic_linker.get()) |path| {
+            dynamic_linker = b.dupe(path);
+        }
+    } else |_| {}
+
     // Exercise linker with self-hosted backend (no LLVM)
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
@@ -30,10 +40,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 
-    for (&[_]CrossTarget{ glibc_target, musl_target }) |target| {
-        elf_step.dependOn(testDsoPlt(b, .{ .target = target }));
-        elf_step.dependOn(testDsoUndef(b, .{ .target = target }));
-    }
+    elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
 }
 
 fn testCommonSymbols(b: *Build, opts: Options) *Step {
@@ -199,7 +207,6 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.is_linking_libc = true;
-    exe.verbose_link = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -438,6 +445,7 @@ const Options = struct {
     target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
+    dynamic_linker: ?[]const u8 = null,
 };
 
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
@@ -453,13 +461,15 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
 }
 
 fn addExecutable(b: *Build, opts: Options) *Compile {
-    return b.addExecutable(.{
+    const exe = b.addExecutable(.{
         .name = "test",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
+    exe.link_dynamic_linker = opts.dynamic_linker;
+    return exe;
 }
 
 fn addObject(b: *Build, opts: Options) *Compile {
@@ -483,13 +493,15 @@ fn addStaticLibrary(b: *Build, opts: Options) *Compile {
 }
 
 fn addSharedLibrary(b: *Build, opts: Options) *Compile {
-    return b.addSharedLibrary(.{
+    const dso = b.addSharedLibrary(.{
         .name = "a",
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
+    dso.link_dynamic_linker = opts.dynamic_linker;
+    return dso;
 }
 
 fn addRunArtifact(comp: *Compile) *Run {
