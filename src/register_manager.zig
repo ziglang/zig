@@ -91,11 +91,13 @@ pub fn RegisterManager(
             return null;
         }
 
-        pub fn indexOfRegIntoTracked(reg: Register) ?RegisterBitSet.ShiftInt {
+        pub fn indexOfRegIntoTracked(
+            reg: Register,
+        ) ?std.math.IntFittingRange(0, tracked_registers.len) {
             return indexOfReg(tracked_registers, reg);
         }
 
-        pub fn regAtTrackedIndex(index: RegisterBitSet.ShiftInt) Register {
+        pub fn regAtTrackedIndex(index: std.math.IntFittingRange(0, tracked_registers.len)) Register {
             return tracked_registers[index];
         }
 

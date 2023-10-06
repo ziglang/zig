@@ -260,7 +260,7 @@ pub const Mnemonic = enum {
     ud2,
     xadd, xchg, xor,
     // X87
-    ffree, fisttp, fld, fst, fstp,
+    fabs, fchs, ffree, fisttp, fld, fst, fstp,
     // MMX
     movd, movq,
     packssdw, packsswb, packuswb,

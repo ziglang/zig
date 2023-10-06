@@ -442,6 +442,10 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Absolute value
+        abs,
+        /// Change sign
+        chs,
         /// Free floating-point register
         free,
         /// Store integer with truncation

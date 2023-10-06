@@ -829,6 +829,10 @@ pub const table = [_]Entry{
     .{ .xor, .rm, &.{ .r64,  .rm64   }, &.{ 0x33 }, 0, .long,  .none },
 
     // X87
+    .{ .fabs, .np, &.{}, &.{ 0xd9, 0xe1 }, 0, .none, .x87 },
+
+    .{ .fchs, .np, &.{}, &.{ 0xd9, 0xe0 }, 0, .none, .x87 },
+
     .{ .ffree, .o, &.{ .st }, &.{ 0xdd, 0xc0 }, 0, .none, .x87 },
 
     .{ .fisttp, .m, &.{ .m16 }, &.{ 0xdf }, 1, .none, .x87 },
