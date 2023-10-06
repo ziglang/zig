@@ -43,6 +43,10 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+
+    for (&[_]CrossTarget{ musl_target, glibc_target }) |target| {
+        elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = target }));
+    }
 }
 
 fn testCommonSymbols(b: *Build, opts: Options) *Step {
@@ -369,6 +373,49 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "large-alignment-exe", opts);
+
+    const exe = addExecutable(b, opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\#include <stdint.h>
+        \\
+        \\void hello() __attribute__((aligned(32768), section(".hello")));
+        \\void world() __attribute__((aligned(32768), section(".world")));
+        \\
+        \\void hello() {
+        \\  printf("Hello");
+        \\}
+        \\
+        \\void world() {
+        \\  printf(" world");
+        \\}
+        \\
+        \\int main() {
+        \\  hello();
+        \\  world();
+        \\}
+    , &.{});
+    exe.link_function_sections = true;
+    exe.is_linking_libc = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkExtract("{addr1} {size1} {shndx1} FUNC LOCAL DEFAULT hello");
+    check.checkInSymtab();
+    check.checkExtract("{addr2} {size2} {shndx2} FUNC LOCAL DEFAULT world");
+    check.checkComputeCompare("addr1 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("addr2 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
