@@ -151,6 +151,9 @@ link_z_common_page_size: ?u64 = null,
 /// Maximum page size
 link_z_max_page_size: ?u64 = null,
 
+/// Dynamic linker path override
+link_dynamic_linker: ?[]const u8 = null,
+
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
@@ -1684,6 +1687,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(b.fmt("max-page-size={d}", .{size}));
     }
 
+    if (self.link_dynamic_linker) |path| {
+        try zig_args.append("--dynamic-linker");
+        try zig_args.append(path);
+    }
+
     if (self.libc_file) |libc_file| {
         try zig_args.append("--libc");
         try zig_args.append(libc_file.getPath(b));
@@ -1815,9 +1823,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             "-mcpu",   try std.Build.serializeCpu(b.allocator, self.target.getCpu()),
         });
 
-        if (self.target.dynamic_linker.get()) |dynamic_linker| {
-            try zig_args.append("--dynamic-linker");
-            try zig_args.append(dynamic_linker);
+        if (self.link_dynamic_linker == null) {
+            if (self.target.dynamic_linker.get()) |dynamic_linker| {
+                try zig_args.append("--dynamic-linker");
+                try zig_args.append(dynamic_linker);
+            }
         }
     }
 
