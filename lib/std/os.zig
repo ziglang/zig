@@ -149,6 +149,7 @@ pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
+pub const filled_sigset = system.filled_sigset;
 pub const fd_t = system.fd_t;
 pub const fdflags_t = system.fdflags_t;
 pub const fdstat_t = system.fdstat_t;

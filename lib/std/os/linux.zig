@@ -1042,6 +1042,14 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
+pub fn pause() usize {
+    if (@hasField(SYS, "pause")) {
+        return syscall0(.pause);
+    } else {
+        return syscall4(.ppoll, 0, 0, 0, 0);
+    }
+}
+
 pub fn setuid(uid: uid_t) usize {
     if (@hasField(SYS, "setuid32")) {
         return syscall1(.setuid32, uid);
@@ -3350,7 +3358,9 @@ pub const Sigaction = extern struct {
     restorer: ?*const fn () callconv(.C) void = null,
 };
 
-pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
+const sigset_len = @typeInfo(sigset_t).Array.len;
+pub const empty_sigset = [_]u32{0} ** sigset_len;
+pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
     pub const CLOEXEC = O.CLOEXEC;
