@@ -31,6 +31,7 @@ pub fn build(b: *Build) void {
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
     // Exercise linker with LLVM backend
+    elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
@@ -41,6 +42,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 
     elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
@@ -48,6 +50,46 @@ pub fn build(b: *Build) void {
     for (&[_]CrossTarget{ musl_target, glibc_target }) |target| {
         elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = target }));
     }
+}
+
+fn testAbsSymbols(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "abs-symbols", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addAsmSourceBytes(obj,
+        \\.globl foo
+        \\foo = 0x800008
+    );
+
+    const exe = addExecutable(b, "test", opts);
+    addCSourceBytes(exe,
+        \\#include <signal.h>
+        \\#include <stdio.h>
+        \\#include <stdlib.h>
+        \\#include <ucontext.h>
+        \\#include <assert.h>
+        \\void handler(int signum, siginfo_t *info, void *ptr) {
+        \\  assert((size_t)info->si_addr == 0x800008);
+        \\  exit(0);
+        \\}
+        \\extern int foo;
+        \\int main() {
+        \\  struct sigaction act;
+        \\  act.sa_flags = SA_SIGINFO | SA_RESETHAND;
+        \\  act.sa_sigaction = handler;
+        \\  sigemptyset(&act.sa_mask);
+        \\  sigaction(SIGSEGV, &act, 0);
+        \\  foo = 5;
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+
+    return test_step;
 }
 
 fn testAsNeeded(b: *Build, opts: Options) *Step {
@@ -62,7 +104,7 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     , &.{});
-    main_o.is_linking_libc = true;
+    main_o.linkLibC();
 
     const libfoo = addSharedLibrary(b, "foo", opts);
     addCSourceBytes(libfoo, "int foo() { return 42; }", &.{"-fPIC"});
@@ -88,7 +130,7 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.linkSystemLibrary2("baz", .{ .needed = true });
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
-        exe.is_linking_libc = true;
+        exe.linkLibC();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -114,7 +156,7 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.linkSystemLibrary2("baz", .{ .needed = false });
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
-        exe.is_linking_libc = true;
+        exe.linkLibC();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -128,6 +170,54 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         check.checkExact("NEEDED libbaz.so");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testCanonicalPlt(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "canonical-plt", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\void *foo() {
+        \\  return foo;
+        \\}
+        \\void *bar() {
+        \\  return bar;
+        \\}
+    , &.{"-fPIC"});
+
+    const b_o = addObject(b, "obj", opts);
+    addCSourceBytes(b_o,
+        \\void *bar();
+        \\void *baz() {
+        \\  return bar;
+        \\}
+    , &.{"-fPIC"});
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\#include <assert.h>
+        \\void *foo();
+        \\void *bar();
+        \\void *baz();
+        \\int main() {
+        \\  assert(foo == foo());
+        \\  assert(bar == bar());
+        \\  assert(bar == baz());
+        \\}
+    , &.{"-fno-PIC"});
+    main_o.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    exe.addObject(main_o);
+    exe.addObject(b_o);
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+    exe.pie = false;
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -150,7 +240,7 @@ fn testCommonSymbols(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %d\n", foo, bar, baz);
         \\}
     , &.{"-fcommon"});
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("0 5 42\n");
@@ -173,7 +263,7 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %d %d\n", foo, bar, baz, two ? two() : -1);
         \\}
     , &.{"-fcommon"});
-    a_o.is_linking_libc = true;
+    a_o.linkLibC();
 
     const b_o = addObject(b, "b", opts);
     addCSourceBytes(b_o, "int foo = 5;", &.{"-fcommon"});
@@ -196,7 +286,7 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "test", opts);
         exe.addObject(a_o);
         exe.linkLibrary(lib);
-        exe.is_linking_libc = true;
+        exe.linkLibC();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("5 0 0 -1\n");
@@ -218,7 +308,7 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "test", opts);
         exe.addObject(a_o);
         exe.linkLibrary(lib);
-        exe.is_linking_libc = true;
+        exe.linkLibC();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("5 0 7 2\n");
@@ -245,7 +335,7 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
         \\  real_hello();
         \\}
     , &.{"-fPIC"});
-    dso.is_linking_libc = true;
+    dso.linkLibC();
 
     const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe,
@@ -259,7 +349,7 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibrary(dso);
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello WORLD\n");
@@ -277,7 +367,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\int bar = 5;
         \\int baz() { return foo; }
     , &.{"-fPIC"});
-    dso.is_linking_libc = true;
+    dso.linkLibC();
 
     const obj = addObject(b, "obj", opts);
     addCSourceBytes(obj, "int foo = 3;", &.{});
@@ -294,7 +384,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\  return bar - 5;
         \\}
     , &.{});
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -314,7 +404,7 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, "test", opts);
     addCSourceBytes(exe, "int main() { return 0; }", &.{});
     addCSourceBytes(exe, "", &.{});
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -345,15 +435,15 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     , &.{});
     obj.link_function_sections = true;
     obj.link_data_sections = true;
-    obj.is_linking_libc = true;
-    obj.is_linking_libcpp = true;
+    obj.linkLibC();
+    obj.linkLibCpp();
 
     {
         const exe = addExecutable(b, "test", opts);
         exe.addObject(obj);
         exe.link_gc_sections = false;
-        exe.is_linking_libc = true;
-        exe.is_linking_libcpp = true;
+        exe.linkLibC();
+        exe.linkLibCpp();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2\n");
@@ -383,8 +473,8 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "test", opts);
         exe.addObject(obj);
         exe.link_gc_sections = true;
-        exe.is_linking_libc = true;
-        exe.is_linking_libcpp = true;
+        exe.linkLibC();
+        exe.linkLibCpp();
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2\n");
@@ -434,7 +524,7 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
         \\}
     , &.{"-fPIC"});
     dso.link_function_sections = true;
-    dso.is_linking_libc = true;
+    dso.linkLibC();
 
     const check = dso.checkObject();
     check.checkInSymtab();
@@ -451,7 +541,7 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
         \\int main() { greet(); }
     , &.{});
     exe.linkLibrary(dso);
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -485,7 +575,7 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.link_function_sections = true;
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -514,7 +604,7 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     , &.{});
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
@@ -543,8 +633,8 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     , &.{});
-    exe.is_linking_libc = true;
-    exe.is_linking_libcpp = true;
+    exe.linkLibC();
+    exe.linkLibCpp();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello World!\n");
@@ -606,7 +696,7 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     , &.{});
-    exe.is_linking_libc = true;
+    exe.linkLibC();
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual(
