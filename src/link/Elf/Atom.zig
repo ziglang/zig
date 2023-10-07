@@ -697,6 +697,8 @@ fn reportUndefined(
 }
 
 pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
+    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+
     const file_ptr = self.file(elf_file).?;
     var stream = std.io.fixedBufferStream(code);
     const cwriter = stream.writer();

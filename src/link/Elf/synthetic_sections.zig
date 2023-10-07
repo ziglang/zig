@@ -795,6 +795,8 @@ pub const PltGotSection = struct {
     pub fn addSymbol(plt_got: *PltGotSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
         const index = @as(u32, @intCast(plt_got.symbols.items.len));
         const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_plt = true;
+        symbol.flags.has_got = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.plt_got = index;
