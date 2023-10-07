@@ -3050,6 +3050,7 @@ pub const Object = struct {
         decl_val: InternPool.Index,
         llvm_addr_space: Builder.AddrSpace,
     ) Error!Builder.Variable.Index {
+        // TODO: Add address space to the anon_decl_map
         const gop = try o.anon_decl_map.getOrPut(o.gpa, decl_val);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
         errdefer assert(o.anon_decl_map.remove(decl_val));

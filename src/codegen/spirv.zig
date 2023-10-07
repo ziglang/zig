@@ -52,8 +52,11 @@ const Block = struct {
 
 const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, *Block);
 
-/// Maps Zig decl indices to linking SPIR-V linking information.
+/// Maps Zig decl indices to SPIR-V linking information.
 pub const DeclLinkMap = std.AutoHashMap(Module.Decl.Index, SpvModule.Decl.Index);
+
+/// Maps anon decl indices to SPIR-V linking information.
+pub const AnonDeclLinkMap = std.AutoHashMap(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index);
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
@@ -77,8 +80,11 @@ pub const DeclGen = struct {
     /// Note: If the declaration is not a function, this value will be undefined!
     liveness: Liveness,
 
-    /// Maps Zig Decl indices to SPIR-V globals.
+    /// Maps Zig Decl indices to SPIR-V decl indices.
     decl_link: *DeclLinkMap,
+
+    /// Maps Zig anon decl indices to SPIR-V decl indices.
+    anon_decl_link: *AnonDeclLinkMap,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -182,6 +188,7 @@ pub const DeclGen = struct {
         module: *Module,
         spv: *SpvModule,
         decl_link: *DeclLinkMap,
+        anon_decl_link: *AnonDeclLinkMap,
     ) DeclGen {
         return .{
             .gpa = allocator,
@@ -191,6 +198,7 @@ pub const DeclGen = struct {
             .air = undefined,
             .liveness = undefined,
             .decl_link = decl_link,
+            .anon_decl_link = anon_decl_link,
             .next_arg_index = undefined,
             .current_block_label_id = undefined,
             .error_msg = undefined,
@@ -299,6 +307,89 @@ pub const DeclGen = struct {
         }
 
         return entry.value_ptr.*;
+    }
+
+    fn resolveAnonDecl(self: *DeclGen, val: InternPool.Index, storage_class: StorageClass) !IdRef {
+        // TODO: This cannot be a function at this point, but it should probably be handled anyway.
+        const spv_decl_index = blk: {
+            const entry = try self.anon_decl_link.getOrPut(.{ val, storage_class });
+            if (entry.found_existing) {
+                try self.func.decl_deps.put(self.spv.gpa, entry.value_ptr.*, {});
+                return self.spv.declPtr(entry.value_ptr.*).result_id;
+            }
+
+            const spv_decl_index = try self.spv.allocDecl(.global);
+            try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
+            entry.value_ptr.* = spv_decl_index;
+            break :blk spv_decl_index;
+        };
+
+        const mod = self.module;
+        const ty = mod.intern_pool.typeOf(val).toType();
+        const ty_ref = try self.resolveType(ty, .indirect);
+        const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class);
+
+        const var_id = self.spv.declPtr(spv_decl_index).result_id;
+
+        const section = &self.spv.sections.types_globals_constants;
+        try section.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(ptr_ty_ref),
+            .id_result = var_id,
+            .storage_class = storage_class,
+        });
+
+        // TODO: At some point we will be able to generate this all constant here, but then all of
+        //   constant() will need to be implemented such that it doesn't generate any at-runtime code.
+        // NOTE: Because this is a global, we really only want to initialize it once. Therefore the
+        //   constant lowering of this value will need to be deferred to some other function, which
+        //   is then added to the list of initializers using endGlobal().
+
+        // Save the current state so that we can temporarily generate into a different function.
+        // TODO: This should probably be made a little more robust.
+        const func = self.func;
+        defer self.func = func;
+        const block_label_id = self.current_block_label_id;
+        defer self.current_block_label_id = block_label_id;
+
+        self.func = .{};
+
+        // TODO: Merge this with genDecl?
+        const begin = self.spv.beginGlobal();
+
+        const void_ty_ref = try self.resolveType(Type.void, .direct);
+        const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
+            .return_type = void_ty_ref,
+            .parameters = &.{},
+        } });
+
+        const initializer_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+            .id_result_type = self.typeId(void_ty_ref),
+            .id_result = initializer_id,
+            .function_control = .{},
+            .function_type = self.typeId(initializer_proto_ty_ref),
+        });
+        const root_block_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+            .id_result = root_block_id,
+        });
+        self.current_block_label_id = root_block_id;
+
+        const val_id = try self.constant(ty, val.toValue(), .indirect);
+        try self.func.body.emit(self.spv.gpa, .OpStore, .{
+            .pointer = var_id,
+            .object = val_id,
+        });
+
+        self.spv.endGlobal(spv_decl_index, begin, var_id, initializer_id);
+        try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+        try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+        try self.spv.addFunction(spv_decl_index, self.func);
+
+        try self.spv.debugNameFmt(var_id, "__anon_{d}", .{@intFromEnum(val)});
+        try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
+
+        return var_id;
     }
 
     /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -767,7 +858,7 @@ pub const DeclGen = struct {
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
             .mut_decl => |decl_mut| return try self.constantDeclRef(ptr_ty, decl_mut.decl),
-            .anon_decl => @panic("TODO"),
+            .anon_decl => |anon_decl| return try self.constantAnonDeclRef(ptr_ty, anon_decl),
             .int => |int| {
                 const ptr_id = self.spv.allocId();
                 // TODO: This can probably be an OpSpecConstantOp Bitcast, but
@@ -810,6 +901,69 @@ pub const DeclGen = struct {
                 return result_id;
             },
             .field => unreachable, // TODO
+        }
+    }
+
+    fn constantAnonDeclRef(self: *DeclGen, ty: Type, decl_val: InternPool.Index) !IdRef {
+        // TODO: Merge this function with constantDeclRef.
+
+        const mod = self.module;
+        const ip = &mod.intern_pool;
+        const ty_ref = try self.resolveType(ty, .direct);
+        const decl_ty = ip.typeOf(decl_val).toType();
+
+        if (decl_val.toValue().getFunction(mod)) |func| {
+            _ = func;
+            unreachable; // TODO
+        } else if (decl_val.toValue().getExternFunc(mod)) |func| {
+            _ = func;
+            unreachable;
+        }
+
+        // const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
+        if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+            // Pointer to nothing - return undefoined
+            return self.spv.constUndef(ty_ref);
+        }
+
+        if (decl_ty.zigTypeTag(mod) == .Fn) {
+            unreachable; // TODO
+        }
+
+        const final_storage_class = spvStorageClass(ty.ptrAddressSpace(mod));
+        const actual_storage_class = switch (final_storage_class) {
+            .Generic => .CrossWorkgroup,
+            else => |other| other,
+        };
+
+        const decl_id = try self.resolveAnonDecl(decl_val, actual_storage_class);
+        const decl_ty_ref = try self.resolveType(decl_ty, .indirect);
+        const decl_ptr_ty_ref = try self.spv.ptrType(decl_ty_ref, final_storage_class);
+
+        const ptr_id = switch (final_storage_class) {
+            .Generic => blk: {
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                    .id_result_type = self.typeId(decl_ptr_ty_ref),
+                    .id_result = result_id,
+                    .pointer = decl_id,
+                });
+                break :blk result_id;
+            },
+            else => decl_id,
+        };
+
+        if (decl_ptr_ty_ref != ty_ref) {
+            // Differing pointer types, insert a cast.
+            const casted_ptr_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                .id_result_type = self.typeId(ty_ref),
+                .id_result = casted_ptr_id,
+                .operand = ptr_id,
+            });
+            return casted_ptr_id;
+        } else {
+            return ptr_id;
         }
     }
 

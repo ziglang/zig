@@ -48,6 +48,7 @@ base: link.File,
 spv: SpvModule,
 spv_arena: ArenaAllocator,
 decl_link: codegen.DeclLinkMap,
+anon_decl_link: codegen.AnonDeclLinkMap,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
     const self = try gpa.create(SpirV);
@@ -61,6 +62,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
         .spv = undefined,
         .spv_arena = ArenaAllocator.init(gpa),
         .decl_link = codegen.DeclLinkMap.init(self.base.allocator),
+        .anon_decl_link = codegen.AnonDeclLinkMap.init(self.base.allocator),
     };
     self.spv = SpvModule.init(gpa, self.spv_arena.allocator());
     errdefer self.deinit();
@@ -102,6 +104,7 @@ pub fn deinit(self: *SpirV) void {
     self.spv.deinit();
     self.spv_arena.deinit();
     self.decl_link.deinit();
+    self.anon_decl_link.deinit();
 }
 
 pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -113,7 +116,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
     const decl = module.declPtr(func.owner_decl);
     log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link, &self.anon_decl_link);
     defer decl_gen.deinit();
 
     if (try decl_gen.gen(func.owner_decl, air, liveness)) |msg| {
@@ -129,7 +132,7 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
     const decl = module.declPtr(decl_index);
     log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link, &self.anon_decl_link);
     defer decl_gen.deinit();
 
     if (try decl_gen.gen(decl_index, undefined, undefined)) |msg| {
