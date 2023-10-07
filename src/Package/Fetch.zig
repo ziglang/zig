@@ -93,9 +93,12 @@ pub const JobQueue = struct {
     /// Dumps all subsequent error bundles into the first one.
     pub fn consolidateErrors(jq: *JobQueue) !void {
         const root = &jq.all_fetches.items[0].error_bundle;
+        const gpa = root.gpa;
         for (jq.all_fetches.items[1..]) |fetch| {
             if (fetch.error_bundle.root_list.items.len > 0) {
-                try root.addBundleAsRoots(fetch.error_bundle.tmpBundle());
+                var bundle = try fetch.error_bundle.toOwnedBundle("");
+                defer bundle.deinit(gpa);
+                try root.addBundleAsRoots(bundle);
             }
         }
     }
