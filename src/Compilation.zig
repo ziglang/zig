@@ -772,12 +772,14 @@ fn addModuleTableToCacheHash(
         switch (hash_type) {
             .path_bytes => {
                 hash.addBytes(mod.value.root_src_path);
-                hash.addOptionalBytes(mod.value.root_src_directory.path);
+                hash.addOptionalBytes(mod.value.root.root_dir.path);
+                hash.addBytes(mod.value.root.sub_path);
             },
             .files => |man| {
-                const pkg_zig_file = try mod.value.root_src_directory.join(allocator, &[_][]const u8{
+                const pkg_zig_file = try mod.value.root.joinString(
+                    allocator,
                     mod.value.root_src_path,
-                });
+                );
                 _ = try man.addFile(pkg_zig_file, null);
             },
         }
@@ -1310,53 +1312,50 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const std_mod = if (main_mod_is_std)
                 main_mod
             else
-                try Package.createWithDir(
-                    gpa,
-                    options.zig_lib_directory,
-                    "std",
-                    "std.zig",
-                );
-
-            errdefer if (!main_mod_is_std) std_mod.destroy(gpa);
+                try Package.Module.create(arena, .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                        .sub_path = "std",
+                    },
+                    .root_src_path = "std.zig",
+                });
 
             const root_mod = if (options.is_test) root_mod: {
-                const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
-                    const test_dir = std.fs.path.dirname(test_runner);
-                    const basename = std.fs.path.basename(test_runner);
-                    const pkg = try Package.create(gpa, test_dir, basename);
+                const test_mod = if (options.test_runner_path) |test_runner| test_mod: {
+                    const pkg = try Package.Module.create(arena, .{
+                        .root = .{
+                            .root_dir = Directory.cwd(),
+                            .sub_path = std.fs.path.dirname(test_runner) orelse "",
+                        },
+                        .root_src_path = std.fs.path.basename(test_runner),
+                    });
 
-                    // copy module table from main_mod to root_mod
-                    pkg.deps = try main_mod.deps.clone(gpa);
-                    break :test_pkg pkg;
-                } else try Package.createWithDir(
-                    gpa,
-                    options.zig_lib_directory,
-                    null,
-                    "test_runner.zig",
-                );
-                errdefer test_pkg.destroy(gpa);
+                    pkg.deps = try main_mod.deps.clone(arena);
+                    break :test_mod pkg;
+                } else try Package.Module.create(arena, .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                    },
+                    .root_src_path = "test_runner.zig",
+                });
 
-                break :root_mod test_pkg;
+                break :root_mod test_mod;
             } else main_mod;
-            errdefer if (options.is_test) root_mod.destroy(gpa);
 
             const compiler_rt_mod = if (include_compiler_rt and options.output_mode == .Obj) compiler_rt_mod: {
-                break :compiler_rt_mod try Package.createWithDir(
-                    gpa,
-                    options.zig_lib_directory,
-                    null,
-                    "compiler_rt.zig",
-                );
+                break :compiler_rt_mod try Package.Module.create(arena, .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                    },
+                    .root_src_path = "compiler_rt.zig",
+                });
             } else null;
-            errdefer if (compiler_rt_mod) |p| p.destroy(gpa);
 
-            try main_mod.add(gpa, "builtin", builtin_mod);
-            try main_mod.add(gpa, "root", root_mod);
-            try main_mod.add(gpa, "std", std_mod);
-
-            if (compiler_rt_mod) |p| {
-                try main_mod.add(gpa, "compiler_rt", p);
-            }
+            try main_mod.deps.put(gpa, "builtin", builtin_mod);
+            try main_mod.deps.put(gpa, "root", root_mod);
+            try main_mod.deps.put(gpa, "std", std_mod);
+            if (compiler_rt_mod) |m|
+                try main_mod.deps.put(gpa, "compiler_rt", m);
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -2004,7 +2003,7 @@ fn restorePrevZigCacheArtifactDirectory(comp: *Compilation, directory: *Director
     // on the handle of zig_cache_artifact_directory.
     if (comp.bin_file.options.module) |module| {
         const builtin_mod = module.main_mod.deps.get("builtin").?;
-        module.zig_cache_artifact_directory = builtin_mod.root_src_directory;
+        module.zig_cache_artifact_directory = builtin_mod.root.root_dir;
     }
 }
 
@@ -2418,9 +2417,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     comptime assert(link_hash_implementation_version == 10);
 
     if (comp.bin_file.options.module) |mod| {
-        const main_zig_file = try mod.main_mod.root_src_directory.join(arena, &[_][]const u8{
-            mod.main_mod.root_src_path,
-        });
+        const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
         _ = try man.addFile(main_zig_file, null);
         {
             var seen_table = std.AutoHashMap(*Package.Module, void).init(arena);
@@ -2614,23 +2611,23 @@ fn reportMultiModuleErrors(mod: *Module) !void {
                 errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
                 note.* = switch (ref) {
                     .import => |loc| blk: {
-                        const name = try loc.file_scope.pkg.getName(mod.gpa, mod.*);
-                        defer mod.gpa.free(name);
+                        //const name = try loc.file_scope.mod.getName(mod.gpa, mod.*);
+                        //defer mod.gpa.free(name);
                         break :blk try Module.ErrorMsg.init(
                             mod.gpa,
                             loc,
-                            "imported from module {s}",
-                            .{name},
+                            "imported from module {}",
+                            .{loc.file_scope.mod.root},
                         );
                     },
                     .root => |pkg| blk: {
-                        const name = try pkg.getName(mod.gpa, mod.*);
-                        defer mod.gpa.free(name);
+                        //const name = try pkg.getName(mod.gpa, mod.*);
+                        //defer mod.gpa.free(name);
                         break :blk try Module.ErrorMsg.init(
                             mod.gpa,
                             .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                            "root of module {s}",
-                            .{name},
+                            "root of module {}",
+                            .{pkg.root},
                         );
                     },
                 };
@@ -4212,17 +4209,9 @@ fn reportRetryableAstGenError(
         },
     };
 
-    const err_msg = if (file.pkg.root_src_directory.path) |dir_path|
-        try Module.ErrorMsg.create(
-            gpa,
-            src_loc,
-            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
-            .{ dir_path, file.sub_file_path, @errorName(err) },
-        )
-    else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
-            file.sub_file_path, @errorName(err),
-        });
+    const err_msg = try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
+        file.mod.root, file.sub_file_path, @errorName(err),
+    });
     errdefer err_msg.destroy(gpa);
 
     {
@@ -4242,17 +4231,10 @@ fn reportRetryableEmbedFileError(
 
     const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc(mod);
 
-    const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
-        try Module.ErrorMsg.create(
-            gpa,
-            src_loc,
-            "unable to load '{s}" ++ std.fs.path.sep_str ++ "{s}': {s}",
-            .{ dir_path, embed_file.sub_file_path, @errorName(err) },
-        )
-    else
-        try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{s}': {s}", .{
-            embed_file.sub_file_path, @errorName(err),
-        });
+    const err_msg = try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
+        embed_file.mod.root, embed_file.sub_file_path, @errorName(err),
+    });
+
     errdefer err_msg.destroy(gpa);
 
     {
@@ -6375,13 +6357,12 @@ fn buildOutputFromZig(
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    std.debug.assert(output_mode != .Exe);
+    assert(output_mode != .Exe);
 
-    var main_mod: Package = .{
-        .root_src_directory = comp.zig_lib_directory,
+    var main_mod: Package.Module = .{
+        .root = .{ .root_dir = comp.zig_lib_directory },
         .root_src_path = src_basename,
     };
-    defer main_mod.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{

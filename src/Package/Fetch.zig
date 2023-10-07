@@ -49,7 +49,7 @@ allow_missing_paths_field: bool,
 /// This will either be relative to `global_cache`, or to the build root of
 /// the root package.
 package_root: Package.Path,
-error_bundle: std.zig.ErrorBundle.Wip,
+error_bundle: ErrorBundle.Wip,
 manifest: ?Manifest,
 manifest_ast: std.zig.Ast,
 actual_hash: Manifest.Digest,
@@ -88,6 +88,31 @@ pub const JobQueue = struct {
         while (jq.all_fetches.popOrNull()) |f| f.deinit();
         jq.all_fetches.deinit(gpa);
         jq.* = undefined;
+    }
+
+    /// Dumps all subsequent error bundles into the first one.
+    pub fn consolidateErrors(jq: *JobQueue) !void {
+        const root = &jq.all_fetches.items[0].error_bundle;
+        for (jq.all_fetches.items[1..]) |fetch| {
+            if (fetch.error_bundle.root_list.items.len > 0) {
+                try root.addBundleAsRoots(fetch.error_bundle.tmpBundle());
+            }
+        }
+    }
+
+    /// Creates the dependencies.zig file and corresponding `Module` for the
+    /// build runner to obtain via `@import("@dependencies")`.
+    pub fn createDependenciesModule(
+        jq: *JobQueue,
+        arena: Allocator,
+        local_cache_directory: Cache.Directory,
+        basename: []const u8,
+    ) !*Package.Module {
+        _ = jq;
+        _ = arena;
+        _ = local_cache_directory;
+        _ = basename;
+        @panic("TODO: createDependenciesModule");
     }
 };
 
@@ -502,7 +527,7 @@ pub fn workerRun(f: *Fetch) void {
 fn srcLoc(
     f: *Fetch,
     tok: std.zig.Ast.TokenIndex,
-) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
+) Allocator.Error!ErrorBundle.SourceLocationIndex {
     const ast = f.parent_manifest_ast orelse return .none;
     const eb = &f.error_bundle;
     const token_starts = ast.tokens.items(.start);
@@ -1258,3 +1283,4 @@ const Fetch = @This();
 const main = @import("../main.zig");
 const git = @import("../git.zig");
 const Package = @import("../Package.zig");
+const ErrorBundle = std.zig.ErrorBundle;

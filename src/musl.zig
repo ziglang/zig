@@ -206,7 +206,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .zig_lib_directory = comp.zig_lib_directory,
                 .target = target,
                 .root_name = "c",
-                .main_pkg = null,
+                .main_mod = null,
                 .output_mode = .Lib,
                 .link_mode = .Dynamic,
                 .thread_pool = comp.thread_pool,

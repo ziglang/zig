@@ -8,7 +8,7 @@ root: Package.Path,
 root_src_path: []const u8,
 /// The dependency table of this module. Shared dependencies such as 'std',
 /// 'builtin', and 'root' are not specified in every dependency table, but
-/// instead only in the table of `main_pkg`. `Module.importFile` is
+/// instead only in the table of `main_mod`. `Module.importFile` is
 /// responsible for detecting these names and using the correct package.
 deps: Deps = .{},
 

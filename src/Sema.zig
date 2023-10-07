@@ -13075,9 +13075,11 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
         },
         error.PackageNotFound => {
-            const name = try block.getFileScope(mod).pkg.getName(sema.gpa, mod.*);
-            defer sema.gpa.free(name);
-            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, name });
+            //const name = try block.getFileScope(mod).mod.getName(sema.gpa, mod.*);
+            //defer sema.gpa.free(name);
+            return sema.fail(block, operand_src, "no package named '{s}' available within package '{}'", .{
+                operand, block.getFileScope(mod).mod.root,
+            });
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
@@ -36415,8 +36417,8 @@ fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Mod
 
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    const std_pkg = mod.main_pkg.table.get("std").?;
-    const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
+    const std_mod = mod.main_mod.deps.get("std").?;
+    const std_file = (mod.importPkg(std_mod) catch unreachable).file;
     const opt_builtin_inst = (try sema.namespaceLookupRef(
         block,
         src,

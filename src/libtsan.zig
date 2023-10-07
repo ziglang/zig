@@ -202,7 +202,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .cache_mode = .whole,
         .target = target,
         .root_name = root_name,
-        .main_pkg = null,
+        .main_mod = null,
         .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,

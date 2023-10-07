@@ -13,12 +13,13 @@ pub const Path = struct {
         return .{ .root_dir = Cache.Directory.cwd() };
     }
 
-    pub fn join(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error!Path {
+    pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
+        if (sub_path.len == 0) return p;
         const parts: []const []const u8 =
             if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };
         return .{
             .root_dir = p.root_dir,
-            .sub_path = try fs.path.join(allocator, parts),
+            .sub_path = try fs.path.join(arena, parts),
         };
     }
 
@@ -28,7 +29,7 @@ pub const Path = struct {
         return p.root_dir.join(allocator, parts);
     }
 
-    pub fn joinStringZ(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error![]u8 {
+    pub fn joinStringZ(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error![:0]u8 {
         const parts: []const []const u8 =
             if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };
         return p.root_dir.joinZ(allocator, parts);
@@ -38,7 +39,7 @@ pub const Path = struct {
         p: Path,
         sub_path: []const u8,
         flags: fs.File.OpenFlags,
-    ) fs.File.OpenError!fs.File {
+    ) !fs.File {
         var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const joined_path = if (p.sub_path.len == 0) sub_path else p: {
             break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
@@ -56,6 +57,30 @@ pub const Path = struct {
             }) catch return error.NameTooLong;
         };
         return p.root_dir.handle.makeOpenPath(joined_path, opts);
+    }
+
+    pub fn statFile(p: Path, sub_path: []const u8) !fs.Dir.Stat {
+        var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const joined_path = if (p.sub_path.len == 0) sub_path else p: {
+            break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+                p.sub_path, sub_path,
+            }) catch return error.NameTooLong;
+        };
+        return p.root_dir.handle.statFile(joined_path);
+    }
+
+    pub fn atomicFile(
+        p: Path,
+        sub_path: []const u8,
+        options: fs.Dir.AtomicFileOptions,
+    ) !fs.AtomicFile {
+        var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const joined_path = if (p.sub_path.len == 0) sub_path else p: {
+            break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+                p.sub_path, sub_path,
+            }) catch return error.NameTooLong;
+        };
+        return p.root_dir.handle.atomicFile(joined_path, options);
     }
 
     pub fn format(

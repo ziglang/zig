@@ -1880,7 +1880,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
         },
     }
     // Write the form for the compile unit, which must match the abbrev table above.
-    const name_strp = try self.strtab.insert(self.allocator, module.root_pkg.root_src_path);
+    const name_strp = try self.strtab.insert(self.allocator, module.root_mod.root_src_path);
     var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const compile_unit_dir = resolveCompilationDir(module, &compile_unit_dir_buffer);
     const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
@@ -1940,9 +1940,17 @@ fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []
     // be very location dependent.
     // TODO: the only concern I have with this is WASI as either host or target, should
     // we leave the paths as relative then?
-    const comp_dir_path = module.root_pkg.root_src_directory.path orelse ".";
-    if (std.fs.path.isAbsolute(comp_dir_path)) return comp_dir_path;
-    return std.os.realpath(comp_dir_path, buffer) catch comp_dir_path; // If realpath fails, fallback to whatever comp_dir_path was
+    const root_dir_path = module.root_mod.root.root_dir.path orelse ".";
+    const sub_path = module.root_mod.root.sub_path;
+    const realpath = if (std.fs.path.isAbsolute(root_dir_path)) r: {
+        @memcpy(buffer[0..root_dir_path.len], root_dir_path);
+        break :r root_dir_path;
+    } else std.fs.realpath(root_dir_path, buffer) catch return root_dir_path;
+    const len = realpath.len + 1 + sub_path.len;
+    if (buffer.len < len) return root_dir_path;
+    buffer[realpath.len] = '/';
+    @memcpy(buffer[realpath.len + 1 ..][0..sub_path.len], sub_path);
+    return buffer[0..len];
 }
 
 fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
@@ -2664,7 +2672,7 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
     for (self.di_files.keys()) |dif| {
         const dir_path = d: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const dir_path = dif.pkg.root_src_directory.path orelse ".";
+            const dir_path = try dif.mod.root.joinString(arena, dif.mod.root.sub_path);
             const abs_dir_path = if (std.fs.path.isAbsolute(dir_path))
                 dir_path
             else
