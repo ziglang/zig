@@ -46,7 +46,6 @@ const IdResult = spec.IdResult;
 base: link.File,
 
 spv: SpvModule,
-spv_arena: ArenaAllocator,
 decl_link: codegen.DeclLinkMap,
 anon_decl_link: codegen.AnonDeclLinkMap,
 
@@ -60,11 +59,10 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
             .allocator = gpa,
         },
         .spv = undefined,
-        .spv_arena = ArenaAllocator.init(gpa),
         .decl_link = codegen.DeclLinkMap.init(self.base.allocator),
         .anon_decl_link = codegen.AnonDeclLinkMap.init(self.base.allocator),
     };
-    self.spv = SpvModule.init(gpa, self.spv_arena.allocator());
+    self.spv = SpvModule.init(gpa);
     errdefer self.deinit();
 
     // TODO: Figure out where to put all of these
@@ -102,7 +100,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
 pub fn deinit(self: *SpirV) void {
     self.spv.deinit();
-    self.spv_arena.deinit();
     self.decl_link.deinit();
     self.anon_decl_link.deinit();
 }
@@ -196,7 +193,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
 
-    var error_info = std.ArrayList(u8).init(self.spv.arena);
+    var error_info = std.ArrayList(u8).init(self.spv.gpa);
+    defer error_info.deinit();
+
     try error_info.appendSlice("zig_errors");
     const module = self.base.options.module.?;
     for (module.global_error_set.keys()) |name_nts| {

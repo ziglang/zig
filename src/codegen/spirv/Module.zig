@@ -103,14 +103,11 @@ pub const EntryPoint = struct {
     /// The declaration that should be exported.
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
-    name: []const u8,
+    name: CacheString,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
-
-/// An arena allocator used to store things that have the same lifetime as this module.
-arena: Allocator,
 
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
@@ -176,10 +173,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
-pub fn init(gpa: Allocator, arena: Allocator) Module {
+pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
-        .arena = arena,
         .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
     };
 }
@@ -321,7 +317,7 @@ fn entryPoints(self: *Module) !Section {
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
             .execution_model = .Kernel,
             .entry_point = entry_point_id,
-            .name = entry_point.name,
+            .name = self.cache.getString(entry_point.name).?,
             .interface = interface.items,
         });
     }
@@ -641,7 +637,7 @@ pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, resul
 pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
-        .name = try self.arena.dupe(u8, name),
+        .name = try self.resolveString(name),
     });
 }
 
