@@ -2406,8 +2406,7 @@ const DeclGen = struct {
 
     fn cmp(
         self: *DeclGen,
-        comptime op: std.math.CompareOperator,
-        bool_ty_id: IdRef,
+        op: std.math.CompareOperator,
         ty: Type,
         lhs_id: IdRef,
         rhs_id: IdRef,
@@ -2415,6 +2414,7 @@ const DeclGen = struct {
         const mod = self.module;
         var cmp_lhs_id = lhs_id;
         var cmp_rhs_id = rhs_id;
+        const bool_ty_ref = try self.resolveType(Type.bool, .direct);
         const opcode: Opcode = opcode: {
             const op_ty = switch (ty.zigTypeTag(mod)) {
                 .Int, .Bool, .Float => ty,
@@ -2497,7 +2497,7 @@ const DeclGen = struct {
 
         const result_id = self.spv.allocId();
         try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
-        self.func.body.writeOperand(spec.IdResultType, bool_ty_id);
+        self.func.body.writeOperand(spec.IdResultType, self.typeId(bool_ty_ref));
         self.func.body.writeOperand(spec.IdResult, result_id);
         self.func.body.writeOperand(spec.IdResultType, cmp_lhs_id);
         self.func.body.writeOperand(spec.IdResultType, cmp_rhs_id);
@@ -2513,11 +2513,10 @@ const DeclGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
-        const bool_ty_id = try self.resolveTypeId(Type.bool);
         const ty = self.typeOf(bin_op.lhs);
         assert(ty.eql(self.typeOf(bin_op.rhs), self.module));
 
-        return try self.cmp(op, bool_ty_id, ty, lhs_id, rhs_id);
+        return try self.cmp(op, ty, lhs_id, rhs_id);
     }
 
     fn bitCast(
@@ -3580,18 +3579,11 @@ const DeclGen = struct {
 
             const payload_ty_ref = try self.resolveType(ptr_ty, .direct);
             const null_id = try self.spv.constNull(payload_ty_ref);
-            const result_id = self.spv.allocId();
-            const operands = .{
-                .id_result_type = self.typeId(bool_ty_ref),
-                .id_result = result_id,
-                .operand_1 = ptr_id,
-                .operand_2 = null_id,
+            const op: std.math.CompareOperator = switch (pred) {
+                .is_null => .eq,
+                .is_non_null => .neq,
             };
-            switch (pred) {
-                .is_null => try self.func.body.emit(self.spv.gpa, .OpPtrEqual, operands),
-                .is_non_null => try self.func.body.emit(self.spv.gpa, .OpPtrNotEqual, operands),
-            }
-            return result_id;
+            return try self.cmp(op, ptr_ty, ptr_id, null_id);
         }
 
         const is_non_null_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(mod))
