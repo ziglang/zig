@@ -32,10 +32,10 @@ const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../value.zig").Value;
+const Instruction = @import("encoder.zig").Instruction;
 
 const abi = @import("abi.zig");
 const bits = @import("bits.zig");
-const encoder = @import("encoder.zig");
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 
@@ -1275,6 +1275,17 @@ fn asmJccReloc(self: *Self, target: Mir.Inst.Index, cc: bits.Condition) !Mir.Ins
     });
 }
 
+fn asmReloc(self: *Self, tag: Mir.Inst.FixedTag, target: Mir.Inst.Index) !void {
+    _ = try self.addInst(.{
+        .tag = tag[1],
+        .ops = .inst,
+        .data = .{ .inst = .{
+            .fixes = tag[0],
+            .inst = target,
+        } },
+    });
+}
+
 fn asmPlaceholder(self: *Self) !Mir.Inst.Index {
     return self.addInst(.{
         .tag = .pseudo,
@@ -2174,7 +2185,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             const ret_reg = param_regs[0];
             const enum_mcv = MCValue{ .register = param_regs[1] };
 
-            var exitlude_jump_relocs = try self.gpa.alloc(u32, enum_ty.enumFieldCount(mod));
+            var exitlude_jump_relocs = try self.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(mod));
             defer self.gpa.free(exitlude_jump_relocs);
 
             const data_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
@@ -5887,7 +5898,7 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
 
             try self.genCopy(src_ty, .{ .indirect = .{ .reg = addr_reg } }, src_mcv);
         },
-        .air_ref => |ptr_ref| try self.store(ptr_ty, ptr_mcv, try self.resolveInst(ptr_ref)),
+        .air_ref => |ptr_ref| try self.store(ptr_ty, try self.resolveInst(ptr_ref), src_mcv),
     }
 }
 
@@ -9313,7 +9324,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
 
-fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
+fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !Mir.Inst.Index {
     const mod = self.bin_file.options.module.?;
     const abi_size = ty.abiSize(mod);
     switch (mcv) {
@@ -9695,7 +9706,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const jmp_target: u32 = @intCast(self.mir_instructions.len);
+    const jmp_target: Mir.Inst.Index = @intCast(self.mir_instructions.len);
 
     self.scope_generation += 1;
     const state = try self.saveState();
@@ -9772,7 +9783,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
 
-        var relocs = try self.gpa.alloc(u32, items.len);
+        var relocs = try self.gpa.alloc(Mir.Inst.Index, items.len);
         defer self.gpa.free(relocs);
 
         try self.spillEflagsIfOccupied();
@@ -9929,22 +9940,35 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             .none => self.typeOfIndex(inst),
             else => self.typeOf(output).childType(mod),
         };
-        const arg_maybe_reg: ?Register = if (mem.eql(u8, constraint, "=r"))
+        const is_read = switch (constraint[0]) {
+            '=' => false,
+            '+' => read: {
+                if (output == .none) return self.fail(
+                    "read-write constraint unsupported for asm result: '{s}'",
+                    .{constraint},
+                );
+                break :read true;
+            },
+            else => return self.fail("invalid constraint: '{s}'", .{constraint}),
+        };
+        const arg_maybe_reg: ?Register = if (mem.eql(u8, constraint[1..], "r"))
             self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
                 return self.fail("ran out of registers lowering inline asm", .{})
-        else if (mem.eql(u8, constraint, "=m"))
+        else if (mem.eql(u8, constraint[1..], "m"))
             if (output != .none) null else return self.fail(
-                "memory constraint unsupported for asm result",
-                .{},
+                "memory constraint unsupported for asm result: '{s}'",
+                .{constraint},
             )
-        else if (mem.eql(u8, constraint, "=g"))
+        else if (mem.eql(u8, constraint[1..], "g") or
+            mem.eql(u8, constraint[1..], "rm") or mem.eql(u8, constraint[1..], "mr") or
+            mem.eql(u8, constraint[1..], "r,m") or mem.eql(u8, constraint[1..], "m,r"))
             self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
-                if (output != .none) null else return self.fail(
-                "ran out of register lowering inline asm",
-                .{},
-            )
-        else if (mem.startsWith(u8, constraint, "={") and mem.endsWith(u8, constraint, "}"))
-            parseRegName(constraint["={".len .. constraint.len - "}".len]) orelse
+                if (output != .none)
+                null
+            else
+                return self.fail("ran out of registers lowering inline asm", .{})
+        else if (mem.startsWith(u8, constraint[1..], "{") and mem.endsWith(u8, constraint[1..], "}"))
+            parseRegName(constraint[1 + "{".len .. constraint.len - "}".len]) orelse
                 return self.fail("invalid register constraint: '{s}'", .{constraint})
         else
             return self.fail("invalid constraint: '{s}'", .{constraint});
@@ -9965,6 +9989,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
         args.appendAssumeCapacity(arg_mcv);
         if (output == .none) result = arg_mcv;
+        if (is_read) try self.load(arg_mcv, self.typeOf(output), .{ .air_ref = output });
     }
 
     for (inputs) |input| {
@@ -9999,7 +10024,10 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             };
             try self.genSetReg(addr_reg, Type.usize, input_mcv.address());
             break :arg .{ .indirect = .{ .reg = addr_reg } };
-        } else if (mem.eql(u8, constraint, "g")) arg: {
+        } else if (mem.eql(u8, constraint, "g") or
+            mem.eql(u8, constraint, "rm") or mem.eql(u8, constraint, "mr") or
+            mem.eql(u8, constraint, "r,m") or mem.eql(u8, constraint, "m,r"))
+        arg: {
             switch (input_mcv) {
                 .register, .indirect, .load_frame => break :arg input_mcv,
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
@@ -10038,44 +10066,141 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         }
     }
 
+    const Label = struct {
+        target: Mir.Inst.Index = undefined,
+        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+
+        const Kind = enum { definition, reference };
+
+        fn isValid(kind: Kind, name: []const u8) bool {
+            for (name, 0..) |c, i| switch (c) {
+                else => return false,
+                '$' => if (i == 0) return false,
+                '.' => {},
+                '0'...'9' => if (i == 0) switch (kind) {
+                    .definition => if (name.len != 1) return false,
+                    .reference => {
+                        if (name.len != 2) return false;
+                        switch (name[1]) {
+                            else => return false,
+                            'B', 'F', 'b', 'f' => {},
+                        }
+                    },
+                },
+                '@', 'A'...'Z', '_', 'a'...'z' => {},
+            };
+            return name.len > 0;
+        }
+    };
+    var labels: std.StringHashMapUnmanaged(Label) = .{};
+    defer {
+        var label_it = labels.valueIterator();
+        while (label_it.next()) |label| label.pending_relocs.deinit(self.gpa);
+        labels.deinit(self.gpa);
+    }
+
     const asm_source = mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
     var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
-    while (line_it.next()) |line| {
+    next_line: while (line_it.next()) |line| {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
-        const mnem_str = mnem_it.next() orelse continue;
-        if (mem.startsWith(u8, mnem_str, "#")) continue;
-
-        const mnem_size: ?Memory.PtrSize = if (mem.endsWith(u8, mnem_str, "b"))
-            .byte
-        else if (mem.endsWith(u8, mnem_str, "w"))
-            .word
-        else if (mem.endsWith(u8, mnem_str, "l"))
-            .dword
-        else if (mem.endsWith(u8, mnem_str, "q"))
-            .qword
-        else
-            null;
-        const mnem_tag = Mir.Inst.FixedTag{ ._, mnem: {
-            if (mnem_size) |_| {
-                if (std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])) |mnem| {
-                    break :mnem mnem;
-                }
+        var prefix: Instruction.Prefix = .none;
+        const mnem_str = while (mnem_it.next()) |mnem_str| {
+            if (mem.startsWith(u8, mnem_str, "#")) continue :next_line;
+            if (std.meta.stringToEnum(Instruction.Prefix, mnem_str)) |pre| {
+                if (prefix != .none) return self.fail("extra prefix: '{s}'", .{mnem_str});
+                prefix = pre;
+                continue;
             }
-            break :mnem std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
-                return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
-        } };
+            if (!mem.endsWith(u8, mnem_str, ":")) break mnem_str;
+            const label_name = mnem_str[0 .. mnem_str.len - ":".len];
+            if (!Label.isValid(.definition, label_name))
+                return self.fail("invalid label: '{s}'", .{label_name});
+            const label_gop = try labels.getOrPut(self.gpa, label_name);
+            if (!label_gop.found_existing) label_gop.value_ptr.* = .{} else {
+                const anon = std.ascii.isDigit(label_name[0]);
+                if (!anon and label_gop.value_ptr.pending_relocs.items.len == 0)
+                    return self.fail("redefined label: '{s}'", .{label_name});
+                for (label_gop.value_ptr.pending_relocs.items) |pending_reloc|
+                    try self.performReloc(pending_reloc);
+                if (anon)
+                    label_gop.value_ptr.pending_relocs.clearRetainingCapacity()
+                else
+                    label_gop.value_ptr.pending_relocs.clearAndFree(self.gpa);
+            }
+            label_gop.value_ptr.target = @intCast(self.mir_instructions.len);
+        } else continue;
 
-        var op_it = mem.tokenizeScalar(u8, mnem_it.rest(), ',');
-        var ops = [1]encoder.Instruction.Operand{.none} ** 4;
-        for (&ops) |*op| {
-            const op_str = mem.trim(u8, op_it.next() orelse break, " \t");
-            if (mem.startsWith(u8, op_str, "#")) break;
+        var mnem_size: ?Memory.PtrSize = null;
+        const mnem_tag = mnem: {
+            mnem_size = if (mem.endsWith(u8, mnem_str, "b"))
+                .byte
+            else if (mem.endsWith(u8, mnem_str, "w"))
+                .word
+            else if (mem.endsWith(u8, mnem_str, "l"))
+                .dword
+            else if (mem.endsWith(u8, mnem_str, "q"))
+                .qword
+            else if (mem.endsWith(u8, mnem_str, "t"))
+                .tbyte
+            else
+                break :mnem null;
+            break :mnem std.meta.stringToEnum(Instruction.Mnemonic, mnem_str[0 .. mnem_str.len - 1]);
+        } orelse mnem: {
+            mnem_size = null;
+            break :mnem std.meta.stringToEnum(Instruction.Mnemonic, mnem_str);
+        } orelse return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
+        const mnem_name = @tagName(mnem_tag);
+        const mnem_fixed_tag: Mir.Inst.FixedTag = for (std.enums.values(Mir.Inst.Fixes)) |fixes| {
+            const fixes_name = @tagName(fixes);
+            const space_i = mem.indexOfScalar(u8, fixes_name, ' ');
+            const fixes_prefix = if (space_i) |i|
+                std.meta.stringToEnum(Instruction.Prefix, fixes_name[0..i]).?
+            else
+                .none;
+            if (fixes_prefix != prefix) continue;
+            const pattern = fixes_name[if (space_i) |i| i + " ".len else 0..];
+            const wildcard_i = mem.indexOfScalar(u8, pattern, '_').?;
+            const mnem_prefix = pattern[0..wildcard_i];
+            const mnem_suffix = pattern[wildcard_i + "_".len ..];
+            if (!mem.startsWith(u8, mnem_name, mnem_prefix)) continue;
+            if (!mem.endsWith(u8, mnem_name, mnem_suffix)) continue;
+            break .{ fixes, std.meta.stringToEnum(
+                Mir.Inst.Tag,
+                mnem_name[mnem_prefix.len .. mnem_name.len - mnem_suffix.len],
+            ) orelse continue };
+        } else {
+            assert(prefix != .none);
+            return self.fail("invalid prefix for mnemonic: '{s} {s}'", .{
+                @tagName(prefix), mnem_str,
+            });
+        };
+
+        const Operand = union(enum) {
+            none,
+            reg: Register,
+            mem: Memory,
+            imm: Immediate,
+            inst: Mir.Inst.Index,
+        };
+        var ops: [4]Operand = .{.none} ** 4;
+
+        var last_op = false;
+        var op_it = mem.splitScalar(u8, mnem_it.rest(), ',');
+        next_op: for (&ops) |*op| {
+            const op_str = while (!last_op) {
+                const full_str = op_it.next() orelse break :next_op;
+                const trim_str = mem.trim(u8, if (mem.indexOfScalar(u8, full_str, '#')) |hash| hash: {
+                    last_op = true;
+                    break :hash full_str[0..hash];
+                } else full_str, " \t");
+                if (trim_str.len > 0) break trim_str;
+            } else break;
             if (mem.startsWith(u8, op_str, "%%")) {
                 const colon = mem.indexOfScalarPos(u8, op_str, "%%".len + 2, ':');
                 const reg = parseRegName(op_str["%%".len .. colon orelse op_str.len]) orelse
                     return self.fail("invalid register: '{s}'", .{op_str});
                 if (colon) |colon_pos| {
-                    const disp = std.fmt.parseInt(i32, op_str[colon_pos + 1 ..], 0) catch
+                    const disp = std.fmt.parseInt(i32, op_str[colon_pos + ":".len ..], 0) catch
                         return self.fail("invalid displacement: '{s}'", .{op_str});
                     op.* = .{ .mem = Memory.sib(
                         mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
@@ -10089,7 +10214,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             } else if (mem.startsWith(u8, op_str, "%[") and mem.endsWith(u8, op_str, "]")) {
                 const colon = mem.indexOfScalarPos(u8, op_str, "%[".len, ':');
                 const modifier = if (colon) |colon_pos|
-                    op_str[colon_pos + 1 .. op_str.len - "]".len]
+                    op_str[colon_pos + ":".len .. op_str.len - "]".len]
                 else
                     "";
                 op.* = switch (args.items[
@@ -10140,64 +10265,113 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                     }
                     op.* = .{ .imm = Immediate.u(u) };
                 } else |_| return self.fail("invalid immediate: '{s}'", .{op_str});
+            } else if (mem.endsWith(u8, op_str, ")")) {
+                const open = mem.indexOfScalar(u8, op_str, '(') orelse
+                    return self.fail("invalid operand: '{s}'", .{op_str});
+                var sib_it = mem.splitScalar(u8, op_str[open + "(".len .. op_str.len - ")".len], ',');
+                const base_str = sib_it.next() orelse
+                    return self.fail("invalid memory operand: '{s}'", .{op_str});
+                if (base_str.len > 0 and !mem.startsWith(u8, base_str, "%%"))
+                    return self.fail("invalid memory operand: '{s}'", .{op_str});
+                const index_str = sib_it.next() orelse "";
+                if (index_str.len > 0 and !mem.startsWith(u8, base_str, "%%"))
+                    return self.fail("invalid memory operand: '{s}'", .{op_str});
+                const scale_str = sib_it.next() orelse "";
+                if (index_str.len == 0 and scale_str.len > 0)
+                    return self.fail("invalid memory operand: '{s}'", .{op_str});
+                const scale = if (scale_str.len > 0) switch (std.fmt.parseInt(u4, scale_str, 10) catch
+                    return self.fail("invalid scale: '{s}'", .{op_str})) {
+                    1, 2, 4, 8 => |scale| scale,
+                    else => return self.fail("invalid scale: '{s}'", .{op_str}),
+                } else 1;
+                if (sib_it.next()) |_| return self.fail("invalid memory operand: '{s}'", .{op_str});
+                op.* = .{ .mem = Memory.sib(mnem_size orelse
+                    return self.fail("unknown size: '{s}'", .{op_str}), .{
+                    .disp = if (open > 0) std.fmt.parseInt(i32, op_str[0..open], 0) catch
+                        return self.fail("invalid displacement: '{s}'", .{op_str}) else 0,
+                    .base = if (base_str.len > 0) .{ .reg = parseRegName(base_str["%%".len..]) orelse
+                        return self.fail("invalid base register: '{s}'", .{base_str}) } else .none,
+                    .scale_index = if (index_str.len > 0) .{
+                        .index = parseRegName(index_str["%%".len..]) orelse
+                            return self.fail("invalid index register: '{s}'", .{op_str}),
+                        .scale = scale,
+                    } else null,
+                }) };
+            } else if (Label.isValid(.reference, op_str)) {
+                const anon = std.ascii.isDigit(op_str[0]);
+                const label_gop = try labels.getOrPut(self.gpa, op_str[0..if (anon) 1 else op_str.len]);
+                if (!label_gop.found_existing) label_gop.value_ptr.* = .{};
+                if (anon and (op_str[1] == 'b' or op_str[1] == 'B') and !label_gop.found_existing)
+                    return self.fail("undefined label: '{s}'", .{op_str});
+                const pending_relocs = &label_gop.value_ptr.pending_relocs;
+                if (if (anon)
+                    op_str[1] == 'f' or op_str[1] == 'F'
+                else
+                    !label_gop.found_existing or pending_relocs.items.len > 0)
+                    try pending_relocs.append(self.gpa, @intCast(self.mir_instructions.len));
+                op.* = .{ .inst = label_gop.value_ptr.target };
             } else return self.fail("invalid operand: '{s}'", .{op_str});
         } else if (op_it.next()) |op_str| return self.fail("extra operand: '{s}'", .{op_str});
 
         (switch (ops[0]) {
-            .none => self.asmOpOnly(mnem_tag),
+            .none => self.asmOpOnly(mnem_fixed_tag),
             .reg => |reg0| switch (ops[1]) {
-                .none => self.asmRegister(mnem_tag, reg0),
+                .none => self.asmRegister(mnem_fixed_tag, reg0),
                 .reg => |reg1| switch (ops[2]) {
-                    .none => self.asmRegisterRegister(mnem_tag, reg1, reg0),
+                    .none => self.asmRegisterRegister(mnem_fixed_tag, reg1, reg0),
                     .reg => |reg2| switch (ops[3]) {
-                        .none => self.asmRegisterRegisterRegister(mnem_tag, reg2, reg1, reg0),
+                        .none => self.asmRegisterRegisterRegister(mnem_fixed_tag, reg2, reg1, reg0),
                         else => error.InvalidInstruction,
                     },
                     .mem => |mem2| switch (ops[3]) {
-                        .none => self.asmMemoryRegisterRegister(mnem_tag, mem2, reg1, reg0),
+                        .none => self.asmMemoryRegisterRegister(mnem_fixed_tag, mem2, reg1, reg0),
                         else => error.InvalidInstruction,
                     },
                     else => error.InvalidInstruction,
                 },
                 .mem => |mem1| switch (ops[2]) {
-                    .none => self.asmMemoryRegister(mnem_tag, mem1, reg0),
+                    .none => self.asmMemoryRegister(mnem_fixed_tag, mem1, reg0),
                     else => error.InvalidInstruction,
                 },
                 else => error.InvalidInstruction,
             },
             .mem => |mem0| switch (ops[1]) {
-                .none => self.asmMemory(mnem_tag, mem0),
+                .none => self.asmMemory(mnem_fixed_tag, mem0),
                 .reg => |reg1| switch (ops[2]) {
-                    .none => self.asmRegisterMemory(mnem_tag, reg1, mem0),
+                    .none => self.asmRegisterMemory(mnem_fixed_tag, reg1, mem0),
                     else => error.InvalidInstruction,
                 },
                 else => error.InvalidInstruction,
             },
             .imm => |imm0| switch (ops[1]) {
-                .none => self.asmImmediate(mnem_tag, imm0),
+                .none => self.asmImmediate(mnem_fixed_tag, imm0),
                 .reg => |reg1| switch (ops[2]) {
-                    .none => self.asmRegisterImmediate(mnem_tag, reg1, imm0),
+                    .none => self.asmRegisterImmediate(mnem_fixed_tag, reg1, imm0),
                     .reg => |reg2| switch (ops[3]) {
-                        .none => self.asmRegisterRegisterImmediate(mnem_tag, reg2, reg1, imm0),
+                        .none => self.asmRegisterRegisterImmediate(mnem_fixed_tag, reg2, reg1, imm0),
                         else => error.InvalidInstruction,
                     },
                     .mem => |mem2| switch (ops[3]) {
-                        .none => self.asmMemoryRegisterImmediate(mnem_tag, mem2, reg1, imm0),
+                        .none => self.asmMemoryRegisterImmediate(mnem_fixed_tag, mem2, reg1, imm0),
                         else => error.InvalidInstruction,
                     },
                     else => error.InvalidInstruction,
                 },
                 .mem => |mem1| switch (ops[2]) {
-                    .none => self.asmMemoryImmediate(mnem_tag, mem1, imm0),
+                    .none => self.asmMemoryImmediate(mnem_fixed_tag, mem1, imm0),
                     else => error.InvalidInstruction,
                 },
                 else => error.InvalidInstruction,
             },
+            .inst => |inst0| switch (ops[1]) {
+                .none => self.asmReloc(mnem_fixed_tag, inst0),
+                else => error.InvalidInstruction,
+            },
         }) catch |err| switch (err) {
             error.InvalidInstruction => return self.fail(
-                "Invalid instruction: '{s} {s} {s} {s} {s}'",
+                "invalid instruction: '{s} {s} {s} {s} {s}'",
                 .{
-                    @tagName(mnem_tag[1]),
+                    mnem_str,
                     @tagName(ops[0]),
                     @tagName(ops[1]),
                     @tagName(ops[2]),
@@ -10208,7 +10382,11 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         };
     }
 
-    for (outputs, args.items[0..outputs.len]) |output, mcv| {
+    var label_it = labels.iterator();
+    while (label_it.next()) |label| if (label.value_ptr.pending_relocs.items.len > 0)
+        return self.fail("undefined label: '{s}'", .{label.key_ptr.*});
+
+    for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
         const extra_bytes = mem.sliceAsBytes(self.air.extra[outputs_extra_i..]);
         const constraint =
             mem.sliceTo(mem.sliceAsBytes(self.air.extra[outputs_extra_i..]), 0);
@@ -10218,8 +10396,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         outputs_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
         if (output == .none) continue;
-        if (mcv != .register) continue;
-        try self.store(self.typeOf(output), try self.resolveInst(output), mcv);
+        if (arg_mcv != .register) continue;
+        try self.store(self.typeOf(output), .{ .air_ref = output }, arg_mcv);
     }
 
     simple: {
@@ -11510,7 +11688,7 @@ fn atomicOp(
             defer self.register_manager.unlockReg(tmp_lock);
 
             try self.asmRegisterMemory(.{ ._, .mov }, registerAlias(.rax, val_abi_size), ptr_mem);
-            const loop: u32 = @intCast(self.mir_instructions.len);
+            const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
             if (rmw_op != std.builtin.AtomicRmwOp.Xchg) {
                 try self.genSetReg(tmp_reg, val_ty, .{ .register = .rax });
             }
@@ -11584,7 +11762,7 @@ fn atomicOp(
                 .scale_index = ptr_mem.scaleIndex(),
                 .disp = ptr_mem.sib.disp + 8,
             }));
-            const loop: u32 = @intCast(self.mir_instructions.len);
+            const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
             const val_mem_mcv: MCValue = switch (val_mcv) {
                 .memory, .indirect, .load_frame => val_mcv,
                 else => .{ .indirect = .{
