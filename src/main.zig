@@ -2366,7 +2366,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--undefined-version")) {
                     linker_allow_undefined_version = true;
                 } else if (mem.eql(u8, arg, "--no-undefined-version")) {
-                    linker_no_undefined_version = true;
+                    linker_allow_undefined_version = false;
                 }  else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
