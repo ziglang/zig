@@ -205,6 +205,7 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
         \\  assert(foo == foo());
         \\  assert(bar == bar());
         \\  assert(bar == baz());
+        \\  return 0;
         \\}
     , &.{"-fno-PIC"});
     main_o.linkLibC();
@@ -217,6 +218,7 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     exe.pie = false;
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
