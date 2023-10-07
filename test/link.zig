@@ -21,15 +21,26 @@ pub const cases = [_]Case{
         .import = @import("link/interdependent_static_c_libs/build.zig"),
     },
     .{
+        .build_root = "test/link/static_libs_from_object_files",
+        .import = @import("link/static_libs_from_object_files/build.zig"),
+    },
+    .{
         .build_root = "test/link/glibc_compat",
         .import = @import("link/glibc_compat/build.zig"),
     },
 
-    // WASM Cases
+    // Elf Cases
     .{
-        .build_root = "test/link/wasm/archive",
-        .import = @import("link/wasm/archive/build.zig"),
+        .build_root = "test/link",
+        .import = @import("link/elf.zig"),
     },
+
+    // WASM Cases
+    // https://github.com/ziglang/zig/issues/16938
+    //.{
+    //    .build_root = "test/link/wasm/archive",
+    //    .import = @import("link/wasm/archive/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/basic-features",
         .import = @import("link/wasm/basic-features/build.zig"),
@@ -42,10 +53,11 @@ pub const cases = [_]Case{
         .build_root = "test/link/wasm/export",
         .import = @import("link/wasm/export/build.zig"),
     },
-    .{
-        .build_root = "test/link/wasm/export-data",
-        .import = @import("link/wasm/export-data/build.zig"),
-    },
+    // https://github.com/ziglang/zig/issues/16937
+    //.{
+    //    .build_root = "test/link/wasm/export-data",
+    //    .import = @import("link/wasm/export-data/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/extern",
         .import = @import("link/wasm/extern/build.zig"),
@@ -87,6 +99,14 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/macho/bugs/13457",
         .import = @import("link/macho/bugs/13457/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/bugs/16308",
+        .import = @import("link/macho/bugs/16308/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/bugs/16628",
+        .import = @import("link/macho/bugs/16628/build.zig"),
     },
     .{
         .build_root = "test/link/macho/dead_strip",
@@ -145,6 +165,10 @@ pub const cases = [_]Case{
         .import = @import("link/macho/pagezero/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/reexports",
+        .import = @import("link/macho/reexports/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/search_strategy",
         .import = @import("link/macho/search_strategy/build.zig"),
     },
@@ -157,6 +181,10 @@ pub const cases = [_]Case{
         .import = @import("link/macho/strict_validation/build.zig"),
     },
     .{
+        .build_root = "test/link/macho/tbdv3",
+        .import = @import("link/macho/tbdv3/build.zig"),
+    },
+    .{
         .build_root = "test/link/macho/tls",
         .import = @import("link/macho/tls/build.zig"),
     },
@@ -164,15 +192,6 @@ pub const cases = [_]Case{
         .build_root = "test/link/macho/unwind_info",
         .import = @import("link/macho/unwind_info/build.zig"),
     },
-    // TODO: re-enable this test. It currently has some incompatibilities with
-    // the new build system API. In particular, it depends on installing the build
-    // artifacts, which should be unnecessary, and it has a custom build step that
-    // prints directly to stderr instead of failing the step with an error message.
-    //.{
-    //    .build_root = "test/link/macho/uuid",
-    //    .import = @import("link/macho/uuid/build.zig"),
-    //},
-
     .{
         .build_root = "test/link/macho/weak_library",
         .import = @import("link/macho/weak_library/build.zig"),

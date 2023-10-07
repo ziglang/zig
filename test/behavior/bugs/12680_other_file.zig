@@ -1,6 +1,6 @@
 // export this function twice
 pub export fn testFunc() callconv(.C) usize {
-    return @ptrToInt(&testFunc);
+    return @intFromPtr(&testFunc);
 }
 
 comptime {

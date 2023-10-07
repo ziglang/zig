@@ -223,7 +223,7 @@ test "std.event.RwLock" {
 
     _ = testLock(std.heap.page_allocator, &lock);
 
-    const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
+    const expected_result = [1]i32{shared_it_count * @as(i32, @intCast(shared_test_data.len))} ** shared_test_data.len;
     try testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
 fn testLock(allocator: Allocator, lock: *RwLock) callconv(.Async) void {
@@ -244,12 +244,12 @@ fn testLock(allocator: Allocator, lock: *RwLock) callconv(.Async) void {
     }
 
     for (write_nodes) |*write_node| {
-        const casted = @ptrCast(*const @Frame(writeRunner), write_node.data);
+        const casted = @as(*const @Frame(writeRunner), @ptrCast(write_node.data));
         await casted;
         allocator.destroy(casted);
     }
     for (read_nodes) |*read_node| {
-        const casted = @ptrCast(*const @Frame(readRunner), read_node.data);
+        const casted = @as(*const @Frame(readRunner), @ptrCast(read_node.data));
         await casted;
         allocator.destroy(casted);
     }
@@ -287,6 +287,6 @@ fn readRunner(lock: *RwLock) callconv(.Async) void {
         defer handle.release();
 
         try testing.expect(shared_test_index == 0);
-        try testing.expect(shared_test_data[i] == @intCast(i32, shared_count));
+        try testing.expect(shared_test_data[i] == @as(i32, @intCast(shared_count)));
     }
 }

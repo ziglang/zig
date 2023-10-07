@@ -1,6 +1,8 @@
 export fn entry() void {
     comptime {
-        @panic("aoeu",);
+        @panic(
+            "aoeu",
+        );
     }
 }
 

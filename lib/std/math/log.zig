@@ -23,19 +23,22 @@ pub fn log(comptime T: type, base: T, x: T) T {
         .ComptimeFloat => {
             return @as(comptime_float, @log(@as(f64, x)) / @log(float_base));
         },
+
+        // TODO: implement integer log without using float math.
+        // The present implementation is incorrect, for example
+        // `log(comptime_int, 9, 59049)` should return `5` and not `4`.
         .ComptimeInt => {
             return @as(comptime_int, @floor(@log(@as(f64, x)) / @log(float_base)));
         },
 
-        // TODO implement integer log without using float math
         .Int => |IntType| switch (IntType.signedness) {
             .signed => @compileError("log not implemented for signed integers"),
-            .unsigned => return @floatToInt(T, @floor(@log(@intToFloat(f64, x)) / @log(float_base))),
+            .unsigned => return @as(T, math.log_int(T, base, x)),
         },
 
         .Float => {
             switch (T) {
-                f32 => return @floatCast(f32, @log(@as(f64, x)) / @log(float_base)),
+                f32 => return @as(f32, @floatCast(@log(@as(f64, x)) / @log(float_base))),
                 f64 => return @log(x) / @log(float_base),
                 else => @compileError("log not implemented for " ++ @typeName(T)),
             }

@@ -3,7 +3,9 @@ fn neg(x: i8) i8 {
     return -x;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&y)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&y));
+}
 
 // error
 // backend=stage2

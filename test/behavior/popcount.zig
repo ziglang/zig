@@ -7,8 +7,9 @@ test "@popCount integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountIntegers();
+    try comptime testPopCountIntegers();
     try testPopCountIntegers();
 }
 
@@ -17,6 +18,7 @@ test "@popCount 128bit integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         try expect(@popCount(@as(u128, 0b11111111000110001100010000100001000011000011100101010001)) == 24);
@@ -61,7 +63,7 @@ fn testPopCountIntegers() !void {
         try expect(@popCount(x) == 2);
     }
     comptime {
-        try expect(@popCount(@bitCast(u8, @as(i8, -120))) == 2);
+        try expect(@popCount(@as(u8, @bitCast(@as(i8, -120)))) == 2);
     }
 }
 
@@ -71,8 +73,9 @@ test "@popCount vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountVectors();
+    try comptime testPopCountVectors();
     try testPopCountVectors();
 }
 

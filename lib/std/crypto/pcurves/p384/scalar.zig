@@ -98,6 +98,11 @@ pub const Scalar = struct {
         return n.fe.isZero();
     }
 
+    /// Return true if the scalar is odd.
+    pub fn isOdd(n: Scalar) bool {
+        return n.fe.isOdd();
+    }
+
     /// Return true if a and b are equivalent.
     pub fn equivalent(a: Scalar, b: Scalar) bool {
         return a.fe.equivalent(b.fe);

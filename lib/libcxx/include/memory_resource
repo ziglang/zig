@@ -22,7 +22,7 @@ namespace std::pmr {
   bool operator==(const memory_resource& a,
                   const memory_resource& b) noexcept;
   bool operator!=(const memory_resource& a,
-                  const memory_resource& b) noexcept;
+                  const memory_resource& b) noexcept;           // removed in C++20
 
   template <class Tp> class polymorphic_allocator;
 
@@ -31,7 +31,7 @@ namespace std::pmr {
                   const polymorphic_allocator<T2>& b) noexcept;
   template <class T1, class T2>
   bool operator!=(const polymorphic_allocator<T1>& a,
-                  const polymorphic_allocator<T2>& b) noexcept;
+                  const polymorphic_allocator<T2>& b) noexcept; // removed in C++20
 
   // Global memory resources
   memory_resource* set_default_resource(memory_resource* r) noexcept;

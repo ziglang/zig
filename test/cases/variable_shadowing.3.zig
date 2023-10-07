@@ -1,7 +1,6 @@
 pub fn main() void {
     var i = 0;
-    for ("n", 0..) |_, i| {
-    }
+    for ("n", 0..) |_, i| {}
 }
 
 // error

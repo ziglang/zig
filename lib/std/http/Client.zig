@@ -36,21 +36,7 @@ pub const ConnectionPool = struct {
         is_tls: bool,
     };
 
-    pub const StoredConnection = struct {
-        buffered: BufferedConnection,
-        host: []u8,
-        port: u16,
-
-        proxied: bool = false,
-        closing: bool = false,
-
-        pub fn deinit(self: *StoredConnection, client: *Client) void {
-            self.buffered.close(client);
-            client.allocator.free(self.host);
-        }
-    };
-
-    const Queue = std.TailQueue(StoredConnection);
+    const Queue = std.DoublyLinkedList(Connection);
     pub const Node = Queue.Node;
 
     mutex: std.Thread.Mutex = .{},
@@ -69,9 +55,9 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            if ((node.data.buffered.conn.protocol == .tls) != criteria.is_tls) continue;
+            if ((node.data.protocol == .tls) != criteria.is_tls) continue;
             if (node.data.port != criteria.port) continue;
-            if (mem.eql(u8, node.data.host, criteria.host)) continue;
+            if (!mem.eql(u8, node.data.host, criteria.host)) continue;
 
             pool.acquireUnsafe(node);
             return node;
@@ -106,16 +92,15 @@ pub const ConnectionPool = struct {
 
         if (node.data.closing) {
             node.data.deinit(client);
-
             return client.allocator.destroy(node);
         }
 
-        if (pool.free_len + 1 >= pool.free_size) {
+        if (pool.free_len >= pool.free_size) {
             const popped = pool.free.popFirst() orelse unreachable;
+            pool.free_len -= 1;
 
             popped.data.deinit(client);
-
-            return client.allocator.destroy(popped);
+            client.allocator.destroy(popped);
         }
 
         if (node.data.proxied) {
@@ -160,37 +145,96 @@ pub const ConnectionPool = struct {
 
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
+    pub const Protocol = enum { plain, tls };
+
     stream: net.Stream,
     /// undefined unless protocol is tls.
     tls_client: *std.crypto.tls.Client,
+
     protocol: Protocol,
+    host: []u8,
+    port: u16,
 
-    pub const Protocol = enum { plain, tls };
+    proxied: bool = false,
+    closing: bool = false,
 
-    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
-        return switch (conn.protocol) {
-            .plain => conn.stream.read(buffer),
-            .tls => conn.tls_client.read(conn.stream, buffer),
-        } catch |err| switch (err) {
-            error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
-            error.TlsAlert => return error.TlsAlert,
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
-        };
-    }
+    read_start: u16 = 0,
+    read_end: u16 = 0,
+    read_buf: [buffer_size]u8 = undefined,
 
-    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
+    pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
             .plain => conn.stream.readAtLeast(buffer, len),
             .tls => conn.tls_client.readAtLeast(conn.stream, buffer, len),
-        } catch |err| switch (err) {
-            error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
-            error.TlsAlert => return error.TlsAlert,
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
+        } catch |err| {
+            // TODO: https://github.com/ziglang/zig/issues/2473
+            if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
+
+            switch (err) {
+                error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
+                error.ConnectionTimedOut => return error.ConnectionTimedOut,
+                error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+                else => return error.UnexpectedReadFailure,
+            }
         };
+    }
+
+    pub fn fill(conn: *Connection) ReadError!void {
+        if (conn.read_end != conn.read_start) return;
+
+        const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
+        if (nread == 0) return error.EndOfStream;
+        conn.read_start = 0;
+        conn.read_end = @as(u16, @intCast(nread));
+    }
+
+    pub fn peek(conn: *Connection) []const u8 {
+        return conn.read_buf[conn.read_start..conn.read_end];
+    }
+
+    pub fn drop(conn: *Connection, num: u16) void {
+        conn.read_start += num;
+    }
+
+    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
+        assert(len <= buffer.len);
+
+        var out_index: u16 = 0;
+        while (out_index < len) {
+            const available_read = conn.read_end - conn.read_start;
+            const available_buffer = buffer.len - out_index;
+
+            if (available_read > available_buffer) { // partially read buffered data
+                @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
+                out_index += @as(u16, @intCast(available_buffer));
+                conn.read_start += @as(u16, @intCast(available_buffer));
+
+                break;
+            } else if (available_read > 0) { // fully read buffered data
+                @memcpy(buffer[out_index..][0..available_read], conn.read_buf[conn.read_start..conn.read_end]);
+                out_index += available_read;
+                conn.read_start += available_read;
+
+                if (out_index >= len) break;
+            }
+
+            const leftover_buffer = available_buffer - available_read;
+            const leftover_len = len - out_index;
+
+            if (leftover_buffer > conn.read_buf.len) {
+                // skip the buffer if the output is large enough
+                return conn.rawReadAtLeast(buffer[out_index..], leftover_len);
+            }
+
+            try conn.fill();
+        }
+
+        return out_index;
+    }
+
+    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
+        return conn.readAtLeast(buffer, 1);
     }
 
     pub const ReadError = error{
@@ -199,6 +243,7 @@ pub const Connection = struct {
         ConnectionTimedOut,
         ConnectionResetByPeer,
         UnexpectedReadFailure,
+        EndOfStream,
     };
 
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
@@ -247,89 +292,10 @@ pub const Connection = struct {
 
         conn.stream.close();
     }
-};
 
-/// A buffered (and peekable) Connection.
-pub const BufferedConnection = struct {
-    pub const buffer_size = 0x2000;
-
-    conn: Connection,
-    buf: [buffer_size]u8 = undefined,
-    start: u16 = 0,
-    end: u16 = 0,
-
-    pub fn fill(bconn: *BufferedConnection) ReadError!void {
-        if (bconn.end != bconn.start) return;
-
-        const nread = try bconn.conn.read(bconn.buf[0..]);
-        if (nread == 0) return error.EndOfStream;
-        bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
-    }
-
-    pub fn peek(bconn: *BufferedConnection) []const u8 {
-        return bconn.buf[bconn.start..bconn.end];
-    }
-
-    pub fn clear(bconn: *BufferedConnection, num: u16) void {
-        bconn.start += num;
-    }
-
-    pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
-        var out_index: u16 = 0;
-        while (out_index < len) {
-            const available = bconn.end - bconn.start;
-            const left = buffer.len - out_index;
-
-            if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
-
-                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
-                out_index += can_read;
-                bconn.start += can_read;
-
-                continue;
-            }
-
-            if (left > bconn.buf.len) {
-                // skip the buffer if the output is large enough
-                return bconn.conn.read(buffer[out_index..]);
-            }
-
-            try bconn.fill();
-        }
-
-        return out_index;
-    }
-
-    pub fn read(bconn: *BufferedConnection, buffer: []u8) ReadError!usize {
-        return bconn.readAtLeast(buffer, 1);
-    }
-
-    pub const ReadError = Connection.ReadError || error{EndOfStream};
-    pub const Reader = std.io.Reader(*BufferedConnection, ReadError, read);
-
-    pub fn reader(bconn: *BufferedConnection) Reader {
-        return Reader{ .context = bconn };
-    }
-
-    pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        return bconn.conn.writeAll(buffer);
-    }
-
-    pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        return bconn.conn.write(buffer);
-    }
-
-    pub const WriteError = Connection.WriteError;
-    pub const Writer = std.io.Writer(*BufferedConnection, WriteError, write);
-
-    pub fn writer(bconn: *BufferedConnection) Writer {
-        return Writer{ .context = bconn };
-    }
-
-    pub fn close(bconn: *BufferedConnection, client: *const Client) void {
-        bconn.conn.close(client);
+    pub fn deinit(conn: *Connection, client: *const Client) void {
+        conn.close(client);
+        client.allocator.free(conn.host);
     }
 };
 
@@ -342,7 +308,7 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Request.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Request.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
@@ -355,8 +321,6 @@ pub const Compression = union(enum) {
 /// A HTTP response originating from a server.
 pub const Response = struct {
     pub const ParseError = Allocator.Error || error{
-        ShortHttpStatusLine,
-        BadHttpVersion,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
         HttpTransferEncodingUnsupported,
@@ -366,19 +330,19 @@ pub const Response = struct {
     };
 
     pub fn parse(res: *Response, bytes: []const u8, trailing: bool) ParseError!void {
-        var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 12)
-            return error.ShortHttpStatusLine;
+            return error.HttpHeadersInvalid;
 
         const version: http.Version = switch (int64(first_line[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
             int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
+            else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
-        const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
+        const status = @as(http.Status, @enumFromInt(parseInt3(first_line[9..12].*)));
         const reason = mem.trimLeft(u8, first_line[12..], " ");
 
         res.version = version;
@@ -392,7 +356,7 @@ pub const Response = struct {
                 else => {},
             }
 
-            var line_it = mem.tokenize(u8, line, ": ");
+            var line_it = mem.tokenizeAny(u8, line, ": ");
             const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
             const header_value = line_it.rest();
 
@@ -401,12 +365,15 @@ pub const Response = struct {
             if (trailing) continue;
 
             if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
-                if (res.content_length != null) return error.HttpHeadersInvalid;
-                res.content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
+                const content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
+
+                if (res.content_length != null and res.content_length != content_length) return error.HttpHeadersInvalid;
+
+                res.content_length = content_length;
             } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
                 // Transfer-Encoding: second, first
                 // Transfer-Encoding: deflate, chunked
-                var iter = mem.splitBackwards(u8, header_value, ",");
+                var iter = mem.splitBackwardsScalar(u8, header_value, ',');
 
                 if (iter.next()) |first| {
                     const trimmed = mem.trim(u8, first, " ");
@@ -450,7 +417,7 @@ pub const Response = struct {
     }
 
     inline fn int64(array: *const [8]u8) u64 {
-        return @bitCast(u64, array.*);
+        return @as(u64, @bitCast(array.*));
     }
 
     fn parseInt3(nnn: @Vector(3, u8)) u10 {
@@ -486,7 +453,8 @@ pub const Response = struct {
 pub const Request = struct {
     uri: Uri,
     client: *Client,
-    connection: *ConnectionPool.Node,
+    /// is null when this connection is released
+    connection: ?*ConnectionPool.Node,
 
     method: http.Method,
     version: http.Version = .@"HTTP/1.1",
@@ -510,18 +478,20 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
+        req.headers.deinit();
         req.response.headers.deinit();
 
         if (req.response.parser.header_bytes_owned) {
             req.response.parser.header_bytes.deinit(req.client.allocator);
         }
 
-        if (!req.response.parser.done) {
-            // If the response wasn't fully read, then we need to close the connection.
-            req.connection.data.closing = true;
+        if (req.connection) |connection| {
+            if (!req.response.parser.done) {
+                // If the response wasn't fully read, then we need to close the connection.
+                connection.data.closing = true;
+            }
+            req.client.connection_pool.release(req.client, connection);
         }
-
-        req.client.connection_pool.release(req.client, req.connection);
 
         req.arena.deinit();
         req.* = undefined;
@@ -539,7 +509,8 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
-        req.client.connection_pool.release(req.client, req.connection);
+        req.client.connection_pool.release(req.client, req.connection.?);
+        req.connection = null;
 
         const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
@@ -565,27 +536,43 @@ pub const Request = struct {
         };
     }
 
-    pub const StartError = BufferedConnection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+    pub const StartError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+
+    pub const StartOptions = struct {
+        /// Specifies that the uri should be used as is
+        raw_uri: bool = false,
+    };
 
     /// Send the request to the server.
-    pub fn start(req: *Request) StartError!void {
-        var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
+    pub fn start(req: *Request, options: StartOptions) StartError!void {
+        if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
+
+        var buffered = std.io.bufferedWriter(req.connection.?.data.writer());
         const w = buffered.writer();
 
-        try w.writeAll(@tagName(req.method));
+        try req.method.write(w);
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
             try w.writeAll(req.uri.host.?);
             try w.writeByte(':');
             try w.print("{}", .{req.uri.port.?});
-        } else if (req.connection.data.proxied) {
-            // proxied connections require the full uri
-            try w.print("{+/}", .{req.uri});
         } else {
-            try w.print("{/}", .{req.uri});
+            if (req.connection.?.data.proxied) {
+                // proxied connections require the full uri
+                if (options.raw_uri) {
+                    try w.print("{+/r}", .{req.uri});
+                } else {
+                    try w.print("{+/}", .{req.uri});
+                }
+            } else {
+                if (options.raw_uri) {
+                    try w.print("{/r}", .{req.uri});
+                } else {
+                    try w.print("{/}", .{req.uri});
+                }
+            }
         }
-
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
         try w.writeAll("\r\n");
@@ -629,7 +616,7 @@ pub const Request = struct {
 
                 req.transfer_encoding = .{ .content_length = content_length };
             } else if (has_transfer_encoding) {
-                const transfer_encoding = req.headers.getFirstValue("content-length").?;
+                const transfer_encoding = req.headers.getFirstValue("transfer-encoding").?;
                 if (std.mem.eql(u8, transfer_encoding, "chunked")) {
                     req.transfer_encoding = .chunked;
                 } else {
@@ -640,27 +627,34 @@ pub const Request = struct {
             }
         }
 
-        try w.print("{}", .{req.headers});
+        for (req.headers.list.items) |entry| {
+            if (entry.value.len == 0) continue;
+
+            try w.writeAll(entry.name);
+            try w.writeAll(": ");
+            try w.writeAll(entry.value);
+            try w.writeAll("\r\n");
+        }
 
         try w.writeAll("\r\n");
 
         try buffered.flush();
     }
 
-    pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
+    const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    pub const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
+    const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
 
-    pub fn transferReader(req: *Request) TransferReader {
+    fn transferReader(req: *Request) TransferReader {
         return .{ .context = req };
     }
 
-    pub fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
+    fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
         if (req.response.parser.done) return 0;
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(&req.connection.data.buffered, buf[index..], req.response.skip);
+            const amt = try req.response.parser.read(&req.connection.?.data, buf[index..], req.response.skip);
             if (amt == 0 and req.response.parser.done) break;
             index += amt;
         }
@@ -668,46 +662,48 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, CannotRedirect, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, RedirectRequiresResend, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
     ///
     /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
-    /// redirects. If a request payload is present, then this function will error with error.CannotRedirect.
+    /// redirects. If a request payload is present, then this function will error with error.RedirectRequiresResend.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
-                try req.connection.data.buffered.fill();
+                try req.connection.?.data.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
-                req.connection.data.buffered.clear(@intCast(u16, nchecked));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
 
                 if (req.response.parser.state.isContent()) break;
             }
 
             try req.response.parse(req.response.parser.header_bytes.items, false);
 
-            if (req.response.status == .switching_protocols) {
-                req.connection.data.closing = false;
+            if (req.response.status == .@"continue") {
+                req.response.parser.done = true; // we're done parsing the continue response, reset to prepare for the real response
+                req.response.parser.reset();
+                break;
+            }
+
+            // we're switching protocols, so this connection is no longer doing http
+            if (req.response.status == .switching_protocols or (req.method == .CONNECT and req.response.status == .ok)) {
+                req.connection.?.data.closing = false;
                 req.response.parser.done = true;
             }
 
-            if (req.method == .CONNECT and req.response.status == .ok) {
-                req.connection.data.closing = false;
-                req.connection.data.proxied = true;
-                req.response.parser.done = true;
-            }
-
+            // we default to using keep-alive if not provided in the client if the server asks for it
             const req_connection = req.headers.getFirstValue("connection");
             const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
 
             const res_connection = req.response.headers.getFirstValue("connection");
             const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
-            if (req_keepalive and res_keepalive) {
-                req.connection.data.closing = false;
+            if (res_keepalive and (req_keepalive or req_connection == null)) {
+                req.connection.?.data.closing = false;
             } else {
-                req.connection.data.closing = true;
+                req.connection.?.data.closing = true;
             }
 
             if (req.response.transfer_encoding) |te| {
@@ -725,9 +721,15 @@ pub const Request = struct {
                 req.response.parser.done = true;
             }
 
-            if (req.transfer_encoding == .none and req.response.status.class() == .redirect and req.handle_redirects) {
+            // HEAD requests have no body
+            if (req.method == .HEAD) {
+                req.response.parser.done = true;
+            }
+
+            if (req.response.status.class() == .redirect and req.handle_redirects) {
                 req.response.skip = true;
 
+                // skip the body of the redirect response, this will at least leave the connection in a known good state.
                 const empty = @as([*]u8, undefined)[0..0];
                 assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
 
@@ -743,16 +745,41 @@ pub const Request = struct {
                 const new_url = Uri.parse(location_duped) catch try Uri.parseWithoutScheme(location_duped);
                 const resolved_url = try req.uri.resolve(new_url, false, arena);
 
+                // is the redirect location on the same domain, or a subdomain of the original request?
+                const is_same_domain_or_subdomain = std.ascii.endsWithIgnoreCase(resolved_url.host.?, req.uri.host.?) and (resolved_url.host.?.len == req.uri.host.?.len or resolved_url.host.?[resolved_url.host.?.len - req.uri.host.?.len - 1] == '.');
+
+                if (resolved_url.host == null or !is_same_domain_or_subdomain or !std.ascii.eqlIgnoreCase(resolved_url.scheme, req.uri.scheme)) {
+                    // we're redirecting to a different domain, strip privileged headers like cookies
+                    _ = req.headers.delete("authorization");
+                    _ = req.headers.delete("www-authenticate");
+                    _ = req.headers.delete("cookie");
+                    _ = req.headers.delete("cookie2");
+                }
+
+                if (req.response.status == .see_other or ((req.response.status == .moved_permanently or req.response.status == .found) and req.method == .POST)) {
+                    // we're redirecting to a GET, so we need to change the method and remove the body
+                    req.method = .GET;
+                    req.transfer_encoding = .none;
+                    _ = req.headers.delete("transfer-encoding");
+                    _ = req.headers.delete("content-length");
+                    _ = req.headers.delete("content-type");
+                }
+
+                if (req.transfer_encoding != .none) {
+                    return error.RedirectRequiresResend; // The request body has already been sent. The request is still in a valid state, but the redirect must be handled manually.
+                }
+
                 try req.redirect(resolved_url);
 
-                try req.start();
+                try req.start(.{});
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
                     if (req.response.transfer_compression) |tc| switch (tc) {
+                        .identity => req.response.compression = .none,
                         .compress => return error.CompressionNotSupported,
                         .deflate => req.response.compression = .{
-                            .deflate = std.compress.zlib.zlibStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .deflate = std.compress.zlib.decompressStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
                         },
                         .gzip => req.response.compression = .{
                             .gzip = std.compress.gzip.decompress(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
@@ -762,9 +789,6 @@ pub const Request = struct {
                         },
                     };
                 }
-
-                if (req.response.status.class() == .redirect and req.handle_redirects and req.transfer_encoding != .none)
-                    return error.CannotRedirect; // The request body has already been sent. The request is still in a valid state, but the redirect must be handled manually.
 
                 break;
             }
@@ -792,10 +816,10 @@ pub const Request = struct {
             const has_trail = !req.response.parser.state.isContent();
 
             while (!req.response.parser.state.isContent()) { // read trailing headers
-                try req.connection.data.buffered.fill();
+                try req.connection.?.data.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
-                req.connection.data.buffered.clear(@intCast(u16, nchecked));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.data.peek());
+                req.connection.?.data.drop(@as(u16, @intCast(nchecked)));
             }
 
             if (has_trail) {
@@ -821,7 +845,7 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WriteError = BufferedConnection.WriteError || error{ NotWriteable, MessageTooLong };
+    pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Request, WriteError, write);
 
@@ -833,16 +857,16 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.data.buffered.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.buffered.writeAll(bytes);
-                try req.connection.data.buffered.writeAll("\r\n");
+                try req.connection.?.data.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.?.data.writeAll(bytes);
+                try req.connection.?.data.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.buffered.write(bytes);
+                const amt = try req.connection.?.data.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -862,7 +886,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.data.buffered.writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.?.data.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -922,11 +946,10 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
     errdefer stream.close();
 
     conn.data = .{
-        .buffered = .{ .conn = .{
-            .stream = stream,
-            .tls_client = undefined,
-            .protocol = protocol,
-        } },
+        .stream = stream,
+        .tls_client = undefined,
+        .protocol = protocol,
+
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };
@@ -935,15 +958,49 @@ pub fn connectUnproxied(client: *Client, host: []const u8, port: u16, protocol: 
     switch (protocol) {
         .plain => {},
         .tls => {
-            conn.data.buffered.conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
-            errdefer client.allocator.destroy(conn.data.buffered.conn.tls_client);
+            conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
+            errdefer client.allocator.destroy(conn.data.tls_client);
 
-            conn.data.buffered.conn.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
+            conn.data.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
             // This is appropriate for HTTPS because the HTTP headers contain
             // the content length which is used to detect truncation attacks.
-            conn.data.buffered.conn.tls_client.allow_truncation_attacks = true;
+            conn.data.tls_client.allow_truncation_attacks = true;
         },
     }
+
+    client.connection_pool.addUsed(conn);
+
+    return conn;
+}
+
+pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{ NameTooLong, Unsupported } || std.os.ConnectError;
+
+pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*ConnectionPool.Node {
+    if (!net.has_unix_sockets) return error.Unsupported;
+
+    if (client.connection_pool.findConnection(.{
+        .host = path,
+        .port = 0,
+        .is_tls = false,
+    })) |node|
+        return node;
+
+    const conn = try client.allocator.create(ConnectionPool.Node);
+    errdefer client.allocator.destroy(conn);
+    conn.* = .{ .data = undefined };
+
+    const stream = try std.net.connectUnixSocket(path);
+    errdefer stream.close();
+
+    conn.data = .{
+        .stream = stream,
+        .tls_client = undefined,
+        .protocol = .plain,
+
+        .host = try client.allocator.dupe(u8, path),
+        .port = 0,
+    };
+    errdefer client.allocator.free(conn.data.host);
 
     client.connection_pool.addUsed(conn);
 
@@ -977,7 +1034,7 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     }
 }
 
-pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || BufferedConnection.WriteError || error{
+pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || Connection.WriteError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 
@@ -985,17 +1042,17 @@ pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || Request
     UnsupportedTransferEncoding,
 };
 
-pub const Options = struct {
+pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",
 
     handle_redirects: bool = true,
     max_redirects: u32 = 3,
-    header_strategy: HeaderStrategy = .{ .dynamic = 16 * 1024 },
+    header_strategy: StorageStrategy = .{ .dynamic = 16 * 1024 },
 
     /// Must be an already acquired connection.
     connection: ?*ConnectionPool.Node = null,
 
-    pub const HeaderStrategy = union(enum) {
+    pub const StorageStrategy = union(enum) {
         /// In this case, the client's Allocator will be used to store the
         /// entire HTTP header. This value is the maximum total size of
         /// HTTP headers allowed, otherwise
@@ -1017,8 +1074,13 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
 });
 
 /// Form and send a http request to a server.
+///
+/// `uri` must remain alive during the entire request.
+/// `headers` is cloned and may be freed after this function returns.
+///
+/// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
-pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: Options) RequestError!Request {
+pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: RequestOptions) RequestError!Request {
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
     const port: u16 = uri.port orelse switch (protocol) {
@@ -1044,7 +1106,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
         .uri = uri,
         .client = client,
         .connection = conn,
-        .headers = headers,
+        .headers = try headers.clone(client.allocator), // Headers must be cloned to properly handle header transformations in redirects.
         .method = method,
         .version = options.version,
         .redirects_left = options.max_redirects,
@@ -1066,6 +1128,124 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
     req.arena = std.heap.ArenaAllocator.init(client.allocator);
 
     return req;
+}
+
+pub const FetchOptions = struct {
+    pub const Location = union(enum) {
+        url: []const u8,
+        uri: Uri,
+    };
+
+    pub const Payload = union(enum) {
+        string: []const u8,
+        file: std.fs.File,
+        none,
+    };
+
+    pub const ResponseStrategy = union(enum) {
+        storage: RequestOptions.StorageStrategy,
+        file: std.fs.File,
+        none,
+    };
+
+    header_strategy: RequestOptions.StorageStrategy = .{ .dynamic = 16 * 1024 },
+    response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
+
+    location: Location,
+    method: http.Method = .GET,
+    headers: http.Headers = http.Headers{ .allocator = std.heap.page_allocator, .owned = false },
+    payload: Payload = .none,
+    raw_uri: bool = false,
+};
+
+pub const FetchResult = struct {
+    status: http.Status,
+    body: ?[]const u8 = null,
+    headers: http.Headers,
+
+    allocator: Allocator,
+    options: FetchOptions,
+
+    pub fn deinit(res: *FetchResult) void {
+        if (res.options.response_strategy == .storage and res.options.response_strategy.storage == .dynamic) {
+            if (res.body) |body| res.allocator.free(body);
+        }
+
+        res.headers.deinit();
+    }
+};
+
+pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !FetchResult {
+    const has_transfer_encoding = options.headers.contains("transfer-encoding");
+    const has_content_length = options.headers.contains("content-length");
+
+    if (has_content_length or has_transfer_encoding) return error.UnsupportedHeader;
+
+    const uri = switch (options.location) {
+        .url => |u| try Uri.parse(u),
+        .uri => |u| u,
+    };
+
+    var req = try request(client, options.method, uri, options.headers, .{
+        .header_strategy = options.header_strategy,
+        .handle_redirects = options.payload == .none,
+    });
+    defer req.deinit();
+
+    { // Block to maintain lock of file to attempt to prevent a race condition where another process modifies the file while we are reading it.
+        // This relies on other processes actually obeying the advisory lock, which is not guaranteed.
+        if (options.payload == .file) try options.payload.file.lock(.shared);
+        defer if (options.payload == .file) options.payload.file.unlock();
+
+        switch (options.payload) {
+            .string => |str| req.transfer_encoding = .{ .content_length = str.len },
+            .file => |file| req.transfer_encoding = .{ .content_length = (try file.stat()).size },
+            .none => {},
+        }
+
+        try req.start(.{ .raw_uri = options.raw_uri });
+
+        switch (options.payload) {
+            .string => |str| try req.writeAll(str),
+            .file => |file| {
+                try file.seekTo(0);
+                var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
+                try fifo.pump(file.reader(), req.writer());
+            },
+            .none => {},
+        }
+
+        try req.finish();
+    }
+
+    try req.wait();
+
+    var res = FetchResult{
+        .status = req.response.status,
+        .headers = try req.response.headers.clone(allocator),
+
+        .allocator = allocator,
+        .options = options,
+    };
+
+    switch (options.response_strategy) {
+        .storage => |storage| switch (storage) {
+            .dynamic => |max| res.body = try req.reader().readAllAlloc(allocator, max),
+            .static => |buf| res.body = buf[0..try req.reader().readAll(buf)],
+        },
+        .file => |file| {
+            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
+            try fifo.pump(req.reader(), file.writer());
+        },
+        .none => { // Take advantage of request internals to discard the response body and make the connection available for another request.
+            req.response.skip = true;
+
+            const empty = @as([*]u8, undefined)[0..0];
+            assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
+        },
+    }
+
+    return res;
 }
 
 test {

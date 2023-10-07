@@ -46,14 +46,14 @@ test "mulsi3" {
     try test_one_mulsi3(-46340, 46340, -2147395600);
     try test_one_mulsi3(46340, -46340, -2147395600);
     try test_one_mulsi3(-46340, -46340, 2147395600);
-    try test_one_mulsi3(4194303, 8192, @truncate(i32, 34359730176));
-    try test_one_mulsi3(-4194303, 8192, @truncate(i32, -34359730176));
-    try test_one_mulsi3(4194303, -8192, @truncate(i32, -34359730176));
-    try test_one_mulsi3(-4194303, -8192, @truncate(i32, 34359730176));
-    try test_one_mulsi3(8192, 4194303, @truncate(i32, 34359730176));
-    try test_one_mulsi3(-8192, 4194303, @truncate(i32, -34359730176));
-    try test_one_mulsi3(8192, -4194303, @truncate(i32, -34359730176));
-    try test_one_mulsi3(-8192, -4194303, @truncate(i32, 34359730176));
+    try test_one_mulsi3(4194303, 8192, @as(i32, @truncate(34359730176)));
+    try test_one_mulsi3(-4194303, 8192, @as(i32, @truncate(-34359730176)));
+    try test_one_mulsi3(4194303, -8192, @as(i32, @truncate(-34359730176)));
+    try test_one_mulsi3(-4194303, -8192, @as(i32, @truncate(34359730176)));
+    try test_one_mulsi3(8192, 4194303, @as(i32, @truncate(34359730176)));
+    try test_one_mulsi3(-8192, 4194303, @as(i32, @truncate(-34359730176)));
+    try test_one_mulsi3(8192, -4194303, @as(i32, @truncate(-34359730176)));
+    try test_one_mulsi3(-8192, -4194303, @as(i32, @truncate(34359730176)));
 }
 
 test "muldi3" {

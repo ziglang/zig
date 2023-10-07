@@ -40,6 +40,8 @@ template <class R1, class R2> struct ratio_greater;
 template <class R1, class R2> struct ratio_greater_equal;
 
 // convenience SI typedefs
+using quecto = ratio <1, 1'000'000'000'000'000'000'000'000'000'000>; // Since C++26; not supported
+using ronto = ratio <1, 1'000'000'000'000'000'000'000'000'000>;      // Since C++26; not supported
 typedef ratio<1, 1000000000000000000000000> yocto;  // not supported
 typedef ratio<1,    1000000000000000000000> zepto;  // not supported
 typedef ratio<1,       1000000000000000000> atto;
@@ -60,6 +62,8 @@ typedef ratio<         1000000000000000, 1> peta;
 typedef ratio<      1000000000000000000, 1> exa;
 typedef ratio<   1000000000000000000000, 1> zetta;  // not supported
 typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
+using ronna = ratio <1'000'000'000'000'000'000'000'000'000, 1>;      // Since C++26; not supported
+using quetta = ratio <1'000'000'000'000'000'000'000'000'000'000, 1>; // Since C++26; not supported
 
   // 20.11.5, ratio comparison
   template <class R1, class R2> inline constexpr bool ratio_equal_v
@@ -501,7 +505,7 @@ struct __ratio_gcd
                   __static_lcm<_R1::den, _R2::den>::value> type;
 };
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _R1, class _R2>
 inline constexpr bool ratio_equal_v = ratio_equal<_R1, _R2>::value;
 

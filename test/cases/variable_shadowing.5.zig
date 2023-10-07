@@ -1,7 +1,6 @@
 pub fn main() void {
     var i = 0;
-    while ("n") |i| {
-    }
+    while ("n") |i| {}
 }
 
 // error

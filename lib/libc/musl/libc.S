@@ -168,7 +168,7 @@ _IO_putc:
 .weak _IO_putc_unlocked
 .type _IO_putc_unlocked, %function;
 _IO_putc_unlocked:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl ___tls_get_addr
 .type ___tls_get_addr, %function;
 ___tls_get_addr:
@@ -187,7 +187,7 @@ __aio_suspend_time64:
 .globl __assert_fail
 .type __assert_fail, %function;
 __assert_fail:
-#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl __cachectl
 .type __cachectl, %function;
 __cachectl:
@@ -313,10 +313,10 @@ __fseterr:
 .type __fsetlocking, %function;
 __fsetlocking:
 #ifdef PTR32
-.globl __fstat_time64
+.weak __fstat_time64
 .type __fstat_time64, %function;
 __fstat_time64:
-.globl __fstatat_time64
+.weak __fstatat_time64
 .type __fstatat_time64, %function;
 __fstatat_time64:
 .globl __ftime64
@@ -338,22 +338,12 @@ __fwritable:
 .globl __fwriting
 .type __fwriting, %function;
 __fwriting:
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __fxstat
 .type __fxstat, %function;
 __fxstat:
-#endif
-WEAK64 __fxstat64
-.type __fxstat64, %function;
-__fxstat64:
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __fxstatat
 .type __fxstatat, %function;
 __fxstatat:
-#endif
-WEAK64 __fxstatat64
-.type __fxstatat64, %function;
-__fxstatat64:
 .weak __getdelim
 .type __getdelim, %function;
 __getdelim:
@@ -508,7 +498,7 @@ __localtime64:
 .type __localtime64_r, %function;
 __localtime64_r:
 #endif
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl __longjmp
 .type __longjmp, %function;
 __longjmp:
@@ -521,14 +511,9 @@ __lstat_time64:
 .type __lutimes_time64, %function;
 __lutimes_time64:
 #endif
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __lxstat
 .type __lxstat, %function;
 __lxstat:
-#endif
-WEAK64 __lxstat64
-.type __lxstat64, %function;
-__lxstat64:
 #ifdef PTR32
 .globl __mktime64
 .type __mktime64, %function;
@@ -591,7 +576,17 @@ __recvmmsg_time64:
 .globl __res_state
 .type __res_state, %function;
 __res_state:
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl __restore
+.type __restore, %function;
+__restore:
+#endif
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl __restore_rt
+.type __restore_rt, %function;
+__restore_rt:
+#endif
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl __riscv_flush_icache
 .type __riscv_flush_icache, %function;
 __riscv_flush_icache:
@@ -792,27 +787,27 @@ __xpg_basename:
 .weak __xpg_strerror_r
 .type __xpg_strerror_r, %function;
 __xpg_strerror_r:
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_powerpc)
 .globl __xstat
 .type __xstat, %function;
 __xstat:
-#endif
-WEAK64 __xstat64
-.type __xstat64, %function;
-__xstat64:
 .weak _dl_debug_state
 .type _dl_debug_state, %function;
 _dl_debug_state:
 .globl _dlstart
 .type _dlstart, %function;
 _dlstart:
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+.globl _dlstart_data
+.type _dlstart_data, %function;
+_dlstart_data:
+#endif
 .globl _exit
 .type _exit, %function;
 _exit:
 .weak _fini
 .type _fini, %function;
 _fini:
-#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl _flush_cache
 .type _flush_cache, %function;
 _flush_cache:
@@ -886,45 +881,24 @@ adjtimex:
 .globl aio_cancel
 .type aio_cancel, %function;
 aio_cancel:
-.weak aio_cancel64
-.type aio_cancel64, %function;
-aio_cancel64:
 .globl aio_error
 .type aio_error, %function;
 aio_error:
-.weak aio_error64
-.type aio_error64, %function;
-aio_error64:
 .globl aio_fsync
 .type aio_fsync, %function;
 aio_fsync:
-.weak aio_fsync64
-.type aio_fsync64, %function;
-aio_fsync64:
 .globl aio_read
 .type aio_read, %function;
 aio_read:
-.weak aio_read64
-.type aio_read64, %function;
-aio_read64:
 .globl aio_return
 .type aio_return, %function;
 aio_return:
-.weak aio_return64
-.type aio_return64, %function;
-aio_return64:
 .globl aio_suspend
 .type aio_suspend, %function;
 aio_suspend:
-.weak aio_suspend64
-.type aio_suspend64, %function;
-aio_suspend64:
 .globl aio_write
 .type aio_write, %function;
 aio_write:
-.weak aio_write64
-.type aio_write64, %function;
-aio_write64:
 .globl alarm
 .type alarm, %function;
 alarm:
@@ -934,10 +908,7 @@ aligned_alloc:
 .globl alphasort
 .type alphasort, %function;
 alphasort:
-.weak alphasort64
-.type alphasort64, %function;
-alphasort64:
-#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .globl arch_prctl
 .type arch_prctl, %function;
 arch_prctl:
@@ -1062,12 +1033,12 @@ cabsf:
 .globl cabsl
 .type cabsl, %function;
 cabsl:
-#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .weak cachectl
 .type cachectl, %function;
 cachectl:
 #endif
-#if !defined(ARCH_riscv64) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .weak cacheflush
 .type cacheflush, %function;
 cacheflush:
@@ -1384,9 +1355,6 @@ creall:
 .globl creat
 .type creat, %function;
 creat:
-.weak creat64
-.type creat64, %function;
-creat64:
 .globl crypt
 .type crypt, %function;
 crypt:
@@ -1729,9 +1697,6 @@ faccessat:
 .globl fallocate
 .type fallocate, %function;
 fallocate:
-.weak fallocate64
-.type fallocate64, %function;
-fallocate64:
 .globl fanotify_init
 .type fanotify_init, %function;
 fanotify_init:
@@ -1858,9 +1823,6 @@ fgetln:
 .globl fgetpos
 .type fgetpos, %function;
 fgetpos:
-.weak fgetpos64
-.type fgetpos64, %function;
-fgetpos64:
 .globl fgetpwent
 .type fgetpwent, %function;
 fgetpwent:
@@ -1966,9 +1928,6 @@ fnmatch:
 .globl fopen
 .type fopen, %function;
 fopen:
-.weak fopen64
-.type fopen64, %function;
-fopen64:
 .globl fopencookie
 .type fopencookie, %function;
 fopencookie:
@@ -2035,9 +1994,6 @@ fremovexattr:
 .globl freopen
 .type freopen, %function;
 freopen:
-.weak freopen64
-.type freopen64, %function;
-freopen64:
 .globl frexp
 .type frexp, %function;
 frexp:
@@ -2056,42 +2012,24 @@ fseek:
 .weak fseeko
 .type fseeko, %function;
 fseeko:
-.weak fseeko64
-.type fseeko64, %function;
-fseeko64:
 .globl fsetpos
 .type fsetpos, %function;
 fsetpos:
-.weak fsetpos64
-.type fsetpos64, %function;
-fsetpos64:
 .globl fsetxattr
 .type fsetxattr, %function;
 fsetxattr:
-.globl fstat
+WEAK64 fstat
 .type fstat, %function;
 fstat:
-.weak fstat64
-.type fstat64, %function;
-fstat64:
-.globl fstatat
+WEAK64 fstatat
 .type fstatat, %function;
 fstatat:
-.weak fstatat64
-.type fstatat64, %function;
-fstatat64:
 .weak fstatfs
 .type fstatfs, %function;
 fstatfs:
-.weak fstatfs64
-.type fstatfs64, %function;
-fstatfs64:
 .globl fstatvfs
 .type fstatvfs, %function;
 fstatvfs:
-.weak fstatvfs64
-.type fstatvfs64, %function;
-fstatvfs64:
 .globl fsync
 .type fsync, %function;
 fsync:
@@ -2101,9 +2039,6 @@ ftell:
 .weak ftello
 .type ftello, %function;
 ftello:
-.weak ftello64
-.type ftello64, %function;
-ftello64:
 .globl ftime
 .type ftime, %function;
 ftime:
@@ -2113,18 +2048,12 @@ ftok:
 .globl ftruncate
 .type ftruncate, %function;
 ftruncate:
-.weak ftruncate64
-.type ftruncate64, %function;
-ftruncate64:
 .globl ftrylockfile
 .type ftrylockfile, %function;
 ftrylockfile:
 .globl ftw
 .type ftw, %function;
 ftw:
-.weak ftw64
-.type ftw64, %function;
-ftw64:
 .globl funlockfile
 .type funlockfile, %function;
 funlockfile:
@@ -2203,9 +2132,6 @@ getdelim:
 .globl getdents
 .type getdents, %function;
 getdents:
-.weak getdents64
-.type getdents64, %function;
-getdents64:
 .globl getdomainname
 .type getdomainname, %function;
 getdomainname:
@@ -2380,9 +2306,6 @@ getresuid:
 .globl getrlimit
 .type getrlimit, %function;
 getrlimit:
-.weak getrlimit64
-.type getrlimit64, %function;
-getrlimit64:
 .globl getrusage
 .type getrusage, %function;
 getrusage:
@@ -2479,15 +2402,9 @@ getxattr:
 .globl glob
 .type glob, %function;
 glob:
-.weak glob64
-.type glob64, %function;
-glob64:
 .globl globfree
 .type globfree, %function;
 globfree:
-.weak globfree64
-.type globfree64, %function;
-globfree64:
 .globl gmtime
 .type gmtime, %function;
 gmtime:
@@ -2632,12 +2549,12 @@ insque:
 .globl ioctl
 .type ioctl, %function;
 ioctl:
-#if !defined(ARCH_riscv64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64)
 .globl ioperm
 .type ioperm, %function;
 ioperm:
 #endif
-#if !defined(ARCH_riscv64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_riscv64) && !defined(ARCH_mips64) && !defined(ARCH_aarch64)
 .globl iopl
 .type iopl, %function;
 iopl:
@@ -2897,9 +2814,6 @@ linkat:
 .globl lio_listio
 .type lio_listio, %function;
 lio_listio:
-.weak lio_listio64
-.type lio_listio64, %function;
-lio_listio64:
 .globl listen
 .type listen, %function;
 listen:
@@ -2945,9 +2859,6 @@ localtime_r:
 .globl lockf
 .type lockf, %function;
 lockf:
-.weak lockf64
-.type lockf64, %function;
-lockf64:
 .globl log
 .type log, %function;
 log:
@@ -3029,18 +2940,12 @@ lsearch:
 .weak lseek
 .type lseek, %function;
 lseek:
-.weak lseek64
-.type lseek64, %function;
-lseek64:
 .globl lsetxattr
 .type lsetxattr, %function;
 lsetxattr:
 .globl lstat
 .type lstat, %function;
 lstat:
-.weak lstat64
-.type lstat64, %function;
-lstat64:
 .globl lutimes
 .type lutimes, %function;
 lutimes:
@@ -3146,27 +3051,15 @@ mknodat:
 .globl mkostemp
 .type mkostemp, %function;
 mkostemp:
-.weak mkostemp64
-.type mkostemp64, %function;
-mkostemp64:
 .weak mkostemps
 .type mkostemps, %function;
 mkostemps:
-.weak mkostemps64
-.type mkostemps64, %function;
-mkostemps64:
 .globl mkstemp
 .type mkstemp, %function;
 mkstemp:
-.weak mkstemp64
-.type mkstemp64, %function;
-mkstemp64:
 .globl mkstemps
 .type mkstemps, %function;
 mkstemps:
-.weak mkstemps64
-.type mkstemps64, %function;
-mkstemps64:
 .globl mktemp
 .type mktemp, %function;
 mktemp:
@@ -3185,9 +3078,6 @@ mlockall:
 .weak mmap
 .type mmap, %function;
 mmap:
-.weak mmap64
-.type mmap64, %function;
-mmap64:
 .globl modf
 .type modf, %function;
 modf:
@@ -3329,9 +3219,6 @@ nexttowardl:
 .globl nftw
 .type nftw, %function;
 nftw:
-.weak nftw64
-.type nftw64, %function;
-nftw64:
 .globl ngettext
 .type ngettext, %function;
 ngettext:
@@ -3380,9 +3267,6 @@ ntohs:
 .globl open
 .type open, %function;
 open:
-.weak open64
-.type open64, %function;
-open64:
 .globl open_by_handle_at
 .type open_by_handle_at, %function;
 open_by_handle_at:
@@ -3395,9 +3279,6 @@ open_wmemstream:
 .globl openat
 .type openat, %function;
 openat:
-.weak openat64
-.type openat64, %function;
-openat64:
 .globl opendir
 .type opendir, %function;
 opendir:
@@ -3443,15 +3324,9 @@ posix_close:
 .globl posix_fadvise
 .type posix_fadvise, %function;
 posix_fadvise:
-.weak posix_fadvise64
-.type posix_fadvise64, %function;
-posix_fadvise64:
 .globl posix_fallocate
 .type posix_fallocate, %function;
 posix_fallocate:
-.weak posix_fallocate64
-.type posix_fallocate64, %function;
-posix_fallocate64:
 .globl posix_madvise
 .type posix_madvise, %function;
 posix_madvise:
@@ -3557,24 +3432,15 @@ prctl:
 .globl pread
 .type pread, %function;
 pread:
-.weak pread64
-.type pread64, %function;
-pread64:
 .globl preadv
 .type preadv, %function;
 preadv:
-.weak preadv64
-.type preadv64, %function;
-preadv64:
 .globl printf
 .type printf, %function;
 printf:
 .globl prlimit
 .type prlimit, %function;
 prlimit:
-.weak prlimit64
-.type prlimit64, %function;
-prlimit64:
 .globl process_vm_readv
 .type process_vm_readv, %function;
 process_vm_readv:
@@ -3971,15 +3837,9 @@ putwchar_unlocked:
 .globl pwrite
 .type pwrite, %function;
 pwrite:
-.weak pwrite64
-.type pwrite64, %function;
-pwrite64:
 .globl pwritev
 .type pwritev, %function;
 pwritev:
-.weak pwritev64
-.type pwritev64, %function;
-pwritev64:
 .globl qsort
 .type qsort, %function;
 qsort:
@@ -4013,12 +3873,6 @@ readahead:
 .globl readdir
 .type readdir, %function;
 readdir:
-.weak readdir64
-.type readdir64, %function;
-readdir64:
-.weak readdir64_r
-.type readdir64_r, %function;
-readdir64_r:
 .globl readdir_r
 .type readdir_r, %function;
 readdir_r:
@@ -4139,7 +3993,7 @@ rintf:
 .globl rintl
 .type rintl, %function;
 rintl:
-#if !defined(ARCH_mips) && !defined(ARCH_i386) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
+#if !defined(ARCH_mips) && !defined(ARCH_mips64) && !defined(ARCH_x86) && !defined(ARCH_x86_64) && !defined(ARCH_powerpc) && !defined(ARCH_powerpc64) && !defined(ARCH_aarch64)
 .weak riscv_flush_icache
 .type riscv_flush_icache, %function;
 riscv_flush_icache:
@@ -4186,9 +4040,6 @@ scalbnl:
 .globl scandir
 .type scandir, %function;
 scandir:
-.weak scandir64
-.type scandir64, %function;
-scandir64:
 .globl scanf
 .type scanf, %function;
 scanf:
@@ -4285,9 +4136,6 @@ send:
 .globl sendfile
 .type sendfile, %function;
 sendfile:
-.weak sendfile64
-.type sendfile64, %function;
-sendfile64:
 .globl sendmmsg
 .type sendmmsg, %function;
 sendmmsg:
@@ -4393,9 +4241,6 @@ setreuid:
 .globl setrlimit
 .type setrlimit, %function;
 setrlimit:
-.weak setrlimit64
-.type setrlimit64, %function;
-setrlimit64:
 .globl setservent
 .type setservent, %function;
 setservent:
@@ -4612,21 +4457,12 @@ sscanf:
 .globl stat
 .type stat, %function;
 stat:
-.weak stat64
-.type stat64, %function;
-stat64:
 .weak statfs
 .type statfs, %function;
 statfs:
-.weak statfs64
-.type statfs64, %function;
-statfs64:
 .globl statvfs
 .type statvfs, %function;
 statvfs:
-.weak statvfs64
-.type statvfs64, %function;
-statvfs64:
 .globl stime
 .type stime, %function;
 stime:
@@ -4984,9 +4820,6 @@ timespec_get:
 .globl tmpfile
 .type tmpfile, %function;
 tmpfile:
-.weak tmpfile64
-.type tmpfile64, %function;
-tmpfile64:
 .globl tmpnam
 .type tmpnam, %function;
 tmpnam:
@@ -5029,9 +4862,6 @@ trunc:
 .globl truncate
 .type truncate, %function;
 truncate:
-.weak truncate64
-.type truncate64, %function;
-truncate64:
 .globl truncf
 .type truncf, %function;
 truncf:
@@ -5152,9 +4982,6 @@ verrx:
 .globl versionsort
 .type versionsort, %function;
 versionsort:
-.weak versionsort64
-.type versionsort64, %function;
-versionsort64:
 .globl vfork
 .type vfork, %function;
 vfork:

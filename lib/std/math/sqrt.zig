@@ -57,7 +57,7 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
             one >>= 2;
         }
 
-        return @intCast(Sqrt(T), res);
+        return @as(Sqrt(T), @intCast(res));
     }
 }
 

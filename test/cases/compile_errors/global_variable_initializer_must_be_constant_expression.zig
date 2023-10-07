@@ -1,6 +1,8 @@
 extern fn foo() i32;
 const x = foo();
-export fn entry() i32 { return x; }
+export fn entry() i32 {
+    return x;
+}
 
 // error
 // backend=stage2

@@ -16,5 +16,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :7:14: error: unable to resolve comptime value
-// :7:14: note: argument to parameter with comptime-only type must be comptime-known
+// :7:25: error: unable to resolve comptime value
+// :7:25: note: initializer of comptime only struct must be comptime-known

@@ -8,7 +8,10 @@ const B = enum {
     b,
     _,
 };
-comptime { _ = A; _ = B; }
+comptime {
+    _ = A;
+    _ = B;
+}
 
 // error
 // backend=stage2

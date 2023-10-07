@@ -29,9 +29,9 @@ pub fn tanh(x: anytype) @TypeOf(x) {
 //         = (exp(2x) - 1) / (exp(2x) - 1 + 2)
 //         = (1 - exp(-2x)) / (exp(-2x) - 1 + 2)
 fn tanh32(x: f32) f32 {
-    const u = @bitCast(u32, x);
+    const u = @as(u32, @bitCast(x));
     const ux = u & 0x7FFFFFFF;
-    const ax = @bitCast(f32, ux);
+    const ax = @as(f32, @bitCast(ux));
     const sign = (u >> 31) != 0;
 
     var t: f32 = undefined;
@@ -66,10 +66,10 @@ fn tanh32(x: f32) f32 {
 }
 
 fn tanh64(x: f64) f64 {
-    const u = @bitCast(u64, x);
+    const u = @as(u64, @bitCast(x));
     const ux = u & 0x7FFFFFFFFFFFFFFF;
-    const w = @intCast(u32, ux >> 32);
-    const ax = @bitCast(f64, ux);
+    const w = @as(u32, @intCast(ux >> 32));
+    const ax = @as(f64, @bitCast(ux));
     const sign = (u >> 63) != 0;
 
     var t: f64 = undefined;
@@ -96,7 +96,7 @@ fn tanh64(x: f64) f64 {
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(@floatCast(f32, ax));
+        math.doNotOptimizeAway(@as(f32, @floatCast(ax)));
         t = ax;
     }
 

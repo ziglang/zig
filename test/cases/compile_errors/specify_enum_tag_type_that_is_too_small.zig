@@ -1,4 +1,4 @@
-const Small = enum (u2) {
+const Small = enum(u2) {
     One,
     Two,
     Three,

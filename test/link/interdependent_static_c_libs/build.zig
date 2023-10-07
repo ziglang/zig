@@ -16,16 +16,16 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{},
     });
-    lib_a.addCSourceFile("a.c", &[_][]const u8{});
-    lib_a.addIncludePath(".");
+    lib_a.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &[_][]const u8{} });
+    lib_a.addIncludePath(.{ .path = "." });
 
     const lib_b = b.addStaticLibrary(.{
         .name = "b",
         .optimize = optimize,
         .target = .{},
     });
-    lib_b.addCSourceFile("b.c", &[_][]const u8{});
-    lib_b.addIncludePath(".");
+    lib_b.addCSourceFile(.{ .file = .{ .path = "b.c" }, .flags = &[_][]const u8{} });
+    lib_b.addIncludePath(.{ .path = "." });
 
     const test_exe = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
@@ -33,7 +33,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     test_exe.linkLibrary(lib_a);
     test_exe.linkLibrary(lib_b);
-    test_exe.addIncludePath(".");
+    test_exe.addIncludePath(.{ .path = "." });
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

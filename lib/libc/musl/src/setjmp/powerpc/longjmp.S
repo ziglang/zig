@@ -42,10 +42,10 @@ longjmp:
 	bl 1f
 	.hidden __hwcap
 	.long __hwcap-.
-1:	mflr 4
-	lwz 5, 0(4)
-	lwzx 4, 4, 5
-	andis. 4, 4, 0x80
+1:	mflr 6
+	lwz 5, 0(6)
+	lwzx 6, 6, 5
+	andis. 6, 6, 0x80
 	beq 1f
 	.long 0x11c35b01 /* evldd 14,88(3) */
 	.long 0x11e36301 /* ... */

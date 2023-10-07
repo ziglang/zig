@@ -78,8 +78,8 @@ pub extern "wasi_snapshot_preview1" fn random_get(buf: [*]u8, buf_len: usize) er
 pub extern "wasi_snapshot_preview1" fn sched_yield() errno_t;
 
 pub extern "wasi_snapshot_preview1" fn sock_accept(sock: fd_t, flags: fdflags_t, result_fd: *fd_t) errno_t;
-pub extern "wasi_snapshot_preview1" fn sock_recv(sock: fd_t, ri_data: *const iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
-pub extern "wasi_snapshot_preview1" fn sock_send(sock: fd_t, si_data: *const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
+pub extern "wasi_snapshot_preview1" fn sock_recv(sock: fd_t, ri_data: [*]iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
+pub extern "wasi_snapshot_preview1" fn sock_send(sock: fd_t, si_data: [*]const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
 pub extern "wasi_snapshot_preview1" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
 
 /// Get the errno from a syscall return value, or 0 for no error.
@@ -103,13 +103,13 @@ pub const timespec = extern struct {
         const tv_sec: timestamp_t = tm / 1_000_000_000;
         const tv_nsec = tm - tv_sec * 1_000_000_000;
         return timespec{
-            .tv_sec = @intCast(time_t, tv_sec),
-            .tv_nsec = @intCast(isize, tv_nsec),
+            .tv_sec = @as(time_t, @intCast(tv_sec)),
+            .tv_nsec = @as(isize, @intCast(tv_nsec)),
         };
     }
 
     pub fn toTimestamp(ts: timespec) timestamp_t {
-        const tm = @intCast(timestamp_t, ts.tv_sec * 1_000_000_000) + @intCast(timestamp_t, ts.tv_nsec);
+        const tm = @as(timestamp_t, @intCast(ts.tv_sec * 1_000_000_000)) + @as(timestamp_t, @intCast(ts.tv_nsec));
         return tm;
     }
 };

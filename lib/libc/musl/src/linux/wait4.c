@@ -12,7 +12,7 @@ pid_t wait4(pid_t pid, int *status, int options, struct rusage *ru)
 	if (ru) {
 		long long kru64[18];
 		r = __syscall(SYS_wait4_time64, pid, status, options, kru64);
-		if (!r) {
+		if (r > 0) {
 			ru->ru_utime = (struct timeval)
 				{ .tv_sec = kru64[0], .tv_usec = kru64[1] };
 			ru->ru_stime = (struct timeval)

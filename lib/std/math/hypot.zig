@@ -25,8 +25,8 @@ pub fn hypot(comptime T: type, x: T, y: T) T {
 }
 
 fn hypot32(x: f32, y: f32) f32 {
-    var ux = @bitCast(u32, x);
-    var uy = @bitCast(u32, y);
+    var ux = @as(u32, @bitCast(x));
+    var uy = @as(u32, @bitCast(y));
 
     ux &= maxInt(u32) >> 1;
     uy &= maxInt(u32) >> 1;
@@ -36,8 +36,8 @@ fn hypot32(x: f32, y: f32) f32 {
         uy = tmp;
     }
 
-    var xx = @bitCast(f32, ux);
-    var yy = @bitCast(f32, uy);
+    var xx = @as(f32, @bitCast(ux));
+    var yy = @as(f32, @bitCast(uy));
     if (uy == 0xFF << 23) {
         return yy;
     }
@@ -56,7 +56,7 @@ fn hypot32(x: f32, y: f32) f32 {
         yy *= 0x1.0p-90;
     }
 
-    return z * @sqrt(@floatCast(f32, @as(f64, x) * x + @as(f64, y) * y));
+    return z * @sqrt(@as(f32, @floatCast(@as(f64, x) * x + @as(f64, y) * y)));
 }
 
 fn sq(hi: *f64, lo: *f64, x: f64) void {
@@ -69,8 +69,8 @@ fn sq(hi: *f64, lo: *f64, x: f64) void {
 }
 
 fn hypot64(x: f64, y: f64) f64 {
-    var ux = @bitCast(u64, x);
-    var uy = @bitCast(u64, y);
+    var ux = @as(u64, @bitCast(x));
+    var uy = @as(u64, @bitCast(y));
 
     ux &= maxInt(u64) >> 1;
     uy &= maxInt(u64) >> 1;
@@ -82,8 +82,8 @@ fn hypot64(x: f64, y: f64) f64 {
 
     const ex = ux >> 52;
     const ey = uy >> 52;
-    var xx = @bitCast(f64, ux);
-    var yy = @bitCast(f64, uy);
+    var xx = @as(f64, @bitCast(ux));
+    var yy = @as(f64, @bitCast(uy));
 
     // hypot(inf, nan) == inf
     if (ey == 0x7FF) {

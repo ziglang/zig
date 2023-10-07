@@ -1,7 +1,9 @@
 const Foo = @Type(.{
     .Struct = undefined,
 });
-comptime { _ = Foo; }
+comptime {
+    _ = Foo;
+}
 
 // error
 // backend=stage2

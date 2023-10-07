@@ -19,7 +19,7 @@ test "best speed" {
     defer testing.allocator.free(abcabc);
 
     for (abcabc, 0..) |_, i| {
-        abcabc[i] = @intCast(u8, i % 128);
+        abcabc[i] = @as(u8, @intCast(i % 128));
     }
 
     var tc_01 = [_]u32{ 65536, 0 };
@@ -119,16 +119,16 @@ test "best speed max match offset" {
                 //	zeros1 is between 0 and 30 zeros.
                 // The difference between the two abc's will be offset, which
                 // is max_match_offset plus or minus a small adjustment.
-                var src_len: usize = @intCast(usize, offset + @as(i32, abc.len) + @intCast(i32, extra));
+                var src_len: usize = @as(usize, @intCast(offset + @as(i32, abc.len) + @as(i32, @intCast(extra))));
                 var src = try testing.allocator.alloc(u8, src_len);
                 defer testing.allocator.free(src);
 
                 @memcpy(src[0..abc.len], abc);
                 if (!do_match_before) {
-                    const src_offset: usize = @intCast(usize, offset - @as(i32, xyz.len));
+                    const src_offset: usize = @as(usize, @intCast(offset - @as(i32, xyz.len)));
                     @memcpy(src[src_offset..][0..xyz.len], xyz);
                 }
-                const src_offset: usize = @intCast(usize, offset);
+                const src_offset: usize = @as(usize, @intCast(offset));
                 @memcpy(src[src_offset..][0..abc.len], abc);
 
                 var compressed = ArrayList(u8).init(testing.allocator);

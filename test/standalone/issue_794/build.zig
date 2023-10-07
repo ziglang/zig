@@ -7,7 +7,10 @@ pub fn build(b: *std.Build) void {
     const test_artifact = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
     });
-    test_artifact.addIncludePath("a_directory");
+    test_artifact.addIncludePath(.{ .path = "a_directory" });
+
+    // TODO: actually check the output
+    _ = test_artifact.getEmittedBin();
 
     test_step.dependOn(&test_artifact.step);
 }

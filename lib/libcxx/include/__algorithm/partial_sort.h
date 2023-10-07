@@ -16,11 +16,11 @@
 #include <__algorithm/sift_down.h>
 #include <__algorithm/sort_heap.h>
 #include <__config>
-#include <__debug>
 #include <__debug_utils/randomize_range.h>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/is_copy_assignable.h>
+#include <__type_traits/is_copy_constructible.h>
 #include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -87,8 +87,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 void
 partial_sort(_RandomAccessIterator __first, _RandomAccessIterator __middle, _RandomAccessIterator __last)
 {
-    _VSTD::partial_sort(__first, __middle, __last,
-                        __less<typename iterator_traits<_RandomAccessIterator>::value_type>());
+    _VSTD::partial_sort(__first, __middle, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

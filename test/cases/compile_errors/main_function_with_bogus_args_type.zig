@@ -1,4 +1,6 @@
-pub fn main(args: [][]bogus) !void {_ = args;}
+pub fn main(args: [][]bogus) !void {
+    _ = args;
+}
 
 // error
 // backend=stage2

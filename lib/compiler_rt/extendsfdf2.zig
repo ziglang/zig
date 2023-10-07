@@ -12,9 +12,9 @@ comptime {
 }
 
 fn __extendsfdf2(a: f32) callconv(.C) f64 {
-    return extendf(f64, f32, @bitCast(u32, a));
+    return extendf(f64, f32, @as(u32, @bitCast(a)));
 }
 
 fn __aeabi_f2d(a: f32) callconv(.AAPCS) f64 {
-    return extendf(f64, f32, @bitCast(u32, a));
+    return extendf(f64, f32, @as(u32, @bitCast(a)));
 }

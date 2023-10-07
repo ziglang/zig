@@ -13,7 +13,7 @@ comptime {
 /// "These functions return a value greater than or equal to zero if neither
 /// argument is NaN, and a is greater than or equal to b."
 pub fn __gehf2(a: f16, b: f16) callconv(.C) i32 {
-    return @enumToInt(comparef.cmpf2(f16, comparef.GE, a, b));
+    return @intFromEnum(comparef.cmpf2(f16, comparef.GE, a, b));
 }
 
 /// "These functions return a value greater than zero if neither argument is NaN,

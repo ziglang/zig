@@ -14,7 +14,9 @@ fn f(n: Number) i32 {
     }
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&f)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&f));
+}
 
 // error
 // backend=stage2

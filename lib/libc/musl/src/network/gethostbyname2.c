@@ -21,5 +21,5 @@ struct hostent *gethostbyname2(const char *name, int af)
 		err = gethostbyname2_r(name, af, h,
 			(void *)(h+1), size-sizeof *h, &res, &h_errno);
 	} while (err == ERANGE);
-	return err ? 0 : h;
+	return res;
 }

@@ -91,6 +91,7 @@
 #define _SYS__ENDIAN_H_
 
 #include <sys/cdefs.h>
+#include <machine/endian.h>
 
 /*
  * Macros for network/external number representation conversion.

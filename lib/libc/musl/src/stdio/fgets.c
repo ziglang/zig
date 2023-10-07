@@ -12,13 +12,14 @@ char *fgets(char *restrict s, int n, FILE *restrict f)
 
 	FLOCK(f);
 
-	if (n--<=1) {
+	if (n<=1) {
 		f->mode |= f->mode-1;
 		FUNLOCK(f);
-		if (n) return 0;
+		if (n<1) return 0;
 		*s = 0;
 		return s;
 	}
+	n--;
 
 	while (n) {
 		if (f->rpos != f->rend) {

@@ -1,5 +1,4 @@
 const std = @import("std");
-const mem = std.mem;
 
 pub const Token = struct {
     id: Id,

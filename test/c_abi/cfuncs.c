@@ -16,8 +16,17 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_PPC32
 #endif
 
-#if defined __riscv && defined _ILP32
-#  define ZIG_RISCV32
+#ifdef __riscv
+#  ifdef _ILP32
+#    define ZIG_RISCV32
+#  else
+#    define ZIG_RISCV64
+#  endif
+#endif
+
+#if defined(__aarch64__) && defined(__linux__)
+// TODO: https://github.com/ziglang/zig/issues/14908
+#define ZIG_BUG_14908
 #endif
 
 #ifdef __i386__
@@ -186,6 +195,15 @@ struct SmallStructInts {
 void zig_small_struct_ints(struct SmallStructInts);
 struct SmallStructInts zig_ret_small_struct_ints();
 
+struct MedStructInts {
+    int32_t x;
+    int32_t y;
+    int32_t z;
+};
+
+void zig_med_struct_ints(struct MedStructInts);
+struct MedStructInts zig_ret_med_struct_ints();
+
 struct MedStructMixed {
     uint32_t a;
     float b;
@@ -263,8 +281,10 @@ void run_c_tests(void) {
     }
 #endif
 
+#ifndef ZIG_BUG_14908
     zig_i8(-1);
     zig_i16(-2);
+#endif
     zig_i32(-3);
     zig_i64(-4);
 
@@ -332,11 +352,19 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __mips__ && \
-    !defined ZIG_PPC32 && !defined _ARCH_PPC64
+#if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
+    !defined __mips__ && !defined __powerpc__ && !defined ZIG_RISCV64
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
+    }
+#endif
+
+#if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
+    !defined __mips__ && !defined __powerpc__ && !defined ZIG_RISCV64
+    {
+        struct MedStructInts s = {1, 2, 3};
+        zig_med_struct_ints(s);
     }
 #endif
 
@@ -575,6 +603,27 @@ struct SmallStructInts c_ret_small_struct_ints() {
         .b = 2,
         .c = 3,
         .d = 4,
+    };
+    return s;
+}
+
+void c_med_struct_ints(struct MedStructInts s) {
+    assert_or_panic(s.x == 1);
+    assert_or_panic(s.y == 2);
+    assert_or_panic(s.z == 3);
+
+    struct MedStructInts s2 = zig_ret_med_struct_ints();
+
+    assert_or_panic(s2.x == 1);
+    assert_or_panic(s2.y == 2);
+    assert_or_panic(s2.z == 3);
+}
+
+struct MedStructInts c_ret_med_struct_ints() {
+    struct MedStructInts s = {
+        .x = 1,
+        .y = 2,
+        .z = 3,
     };
     return s;
 }
@@ -1027,3 +1076,20 @@ struct ByRef __attribute__((sysv_abi)) c_explict_sys_v(struct ByRef in) {
     return in;
 }
 #endif
+
+
+struct byval_tail_callsite_attr_Point {
+    double x;
+    double y;
+} Point;
+struct byval_tail_callsite_attr_Size {
+    double width;
+    double height;
+} Size;
+struct byval_tail_callsite_attr_Rect {
+    struct byval_tail_callsite_attr_Point origin;
+    struct byval_tail_callsite_attr_Size size;
+};
+double c_byval_tail_callsite_attr(struct byval_tail_callsite_attr_Rect in) {
+    return in.size.width;
+}

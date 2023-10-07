@@ -13,7 +13,7 @@ pub fn main() !void {
     return error.TestFailed;
 }
 fn unsigned_cast(x: i32) u32 {
-    return @intCast(u32, x);
+    return @intCast(x);
 }
 // run
 // backend=llvm

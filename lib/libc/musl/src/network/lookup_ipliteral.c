@@ -15,7 +15,7 @@ int __lookup_ipliteral(struct address buf[static 1], const char *name, int famil
 	struct in6_addr a6;
 	if (__inet_aton(name, &a4) > 0) {
 		if (family == AF_INET6) /* wrong family */
-			return EAI_NONAME;
+			return EAI_NODATA;
 		memcpy(&buf[0].addr, &a4, sizeof a4);
 		buf[0].family = AF_INET;
 		buf[0].scopeid = 0;
@@ -34,7 +34,7 @@ int __lookup_ipliteral(struct address buf[static 1], const char *name, int famil
 	if (inet_pton(AF_INET6, name, &a6) <= 0)
 		return 0;
 	if (family == AF_INET) /* wrong family */
-		return EAI_NONAME;
+		return EAI_NODATA;
 
 	memcpy(&buf[0].addr, &a6, sizeof a6);
 	buf[0].family = AF_INET6;

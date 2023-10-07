@@ -1,7 +1,7 @@
 export fn entry() void {
     foo();
 }
-fn foo() callconv(.Inline) void {
+inline fn foo() void {
     @setAlignStack(16);
 }
 
@@ -11,7 +11,6 @@ export fn entry1() void {
 fn bar() void {
     @setAlignStack(16);
 }
-
 
 // error
 // backend=stage2

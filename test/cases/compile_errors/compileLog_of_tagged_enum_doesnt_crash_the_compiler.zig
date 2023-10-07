@@ -1,5 +1,5 @@
 const Bar = union(enum(u32)) {
-    X: i32 = 1
+    X: i32 = 1,
 };
 
 fn testCompileLog(x: Bar) void {
@@ -7,7 +7,8 @@ fn testCompileLog(x: Bar) void {
 }
 
 pub export fn entry() void {
-    comptime testCompileLog(Bar{.X = 123});
+    comptime testCompileLog(Bar{ .X = 123 });
+    _ = &testCompileLog;
 }
 
 // error

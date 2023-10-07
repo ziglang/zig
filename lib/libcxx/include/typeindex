@@ -87,7 +87,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     bool operator>=(const type_index& __y) const _NOEXCEPT
         {return !__t_->before(*__y.__t_);}
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
     _LIBCPP_HIDE_FROM_ABI
     strong_ordering operator<=>(const type_index& __y) const noexcept {
       if (*__t_ == *__y.__t_)

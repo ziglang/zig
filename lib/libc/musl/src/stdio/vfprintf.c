@@ -132,7 +132,7 @@ static void pop_arg(union arg *arg, int type, va_list *ap)
 
 static void out(FILE *f, const char *s, size_t l)
 {
-	if (!(f->flags & F_ERR)) __fwritex((void *)s, l, f);
+	if (!ferror(f)) __fwritex((void *)s, l, f);
 }
 
 static void pad(FILE *f, char c, int w, int l, int fl)
@@ -478,8 +478,8 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 		if (*s=='*') {
 			if (isdigit(s[1]) && s[2]=='$') {
 				l10n=1;
-				nl_type[s[1]-'0'] = INT;
-				w = nl_arg[s[1]-'0'].i;
+				if (!f) nl_type[s[1]-'0'] = INT, w = 0;
+				else w = nl_arg[s[1]-'0'].i;
 				s+=3;
 			} else if (!l10n) {
 				w = f ? va_arg(*ap, int) : 0;
@@ -491,8 +491,8 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 		/* Read precision */
 		if (*s=='.' && s[1]=='*') {
 			if (isdigit(s[2]) && s[3]=='$') {
-				nl_type[s[2]-'0'] = INT;
-				p = nl_arg[s[2]-'0'].i;
+				if (!f) nl_type[s[2]-'0'] = INT, p = 0;
+				else p = nl_arg[s[2]-'0'].i;
 				s+=4;
 			} else if (!l10n) {
 				p = f ? va_arg(*ap, int) : 0;
@@ -521,12 +521,17 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 		if (st==NOARG) {
 			if (argpos>=0) goto inval;
 		} else {
-			if (argpos>=0) nl_type[argpos]=st, arg=nl_arg[argpos];
-			else if (f) pop_arg(&arg, st, ap);
+			if (argpos>=0) {
+				if (!f) nl_type[argpos]=st;
+				else arg=nl_arg[argpos];
+			} else if (f) pop_arg(&arg, st, ap);
 			else return 0;
 		}
 
 		if (!f) continue;
+
+		/* Do not process any new directives once in error state. */
+		if (ferror(f)) return -1;
 
 		z = buf + sizeof(buf);
 		prefix = "-+   0X0x";
@@ -672,7 +677,7 @@ int vfprintf(FILE *restrict f, const char *restrict fmt, va_list ap)
 
 	FLOCK(f);
 	olderr = f->flags & F_ERR;
-	if (f->mode < 1) f->flags &= ~F_ERR;
+	f->flags &= ~F_ERR;
 	if (!f->buf_size) {
 		saved_buf = f->buf;
 		f->buf = internal_buf;
@@ -688,7 +693,7 @@ int vfprintf(FILE *restrict f, const char *restrict fmt, va_list ap)
 		f->buf_size = 0;
 		f->wpos = f->wbase = f->wend = 0;
 	}
-	if (f->flags & F_ERR) ret = -1;
+	if (ferror(f)) ret = -1;
 	f->flags |= olderr;
 	FUNLOCK(f);
 	va_end(ap2);

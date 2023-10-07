@@ -26,7 +26,7 @@ comptime {
 /// Note that this matches the definition of `__lesf2`, `__eqsf2`, `__nesf2`, `__cmpsf2`,
 /// and `__ltsf2`.
 fn __cmpsf2(a: f32, b: f32) callconv(.C) i32 {
-    return @enumToInt(comparef.cmpf2(f32, comparef.LE, a, b));
+    return @intFromEnum(comparef.cmpf2(f32, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,
@@ -56,13 +56,13 @@ pub fn __ltsf2(a: f32, b: f32) callconv(.C) i32 {
 }
 
 fn __aeabi_fcmpeq(a: f32, b: f32) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) == .Equal);
+    return @intFromBool(comparef.cmpf2(f32, comparef.LE, a, b) == .Equal);
 }
 
 fn __aeabi_fcmplt(a: f32, b: f32) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) == .Less);
+    return @intFromBool(comparef.cmpf2(f32, comparef.LE, a, b) == .Less);
 }
 
 fn __aeabi_fcmple(a: f32, b: f32) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) != .Greater);
+    return @intFromBool(comparef.cmpf2(f32, comparef.LE, a, b) != .Greater);
 }

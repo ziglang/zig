@@ -9,18 +9,20 @@ const TranslateC = @This();
 pub const base_id = .translate_c;
 
 step: Step,
-source: std.Build.FileSource,
+source: std.Build.LazyPath,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
 out_basename: []const u8,
 target: CrossTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
+link_libc: bool,
 
 pub const Options = struct {
-    source_file: std.Build.FileSource,
+    source_file: std.Build.LazyPath,
     target: CrossTarget,
     optimize: std.builtin.OptimizeMode,
+    link_libc: bool = true,
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
@@ -40,6 +42,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
         .target = options.target,
         .optimize = options.optimize,
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
+        .link_libc = options.link_libc,
     };
     source.addStepDependencies(&self.step);
     return self;
@@ -47,22 +50,50 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
 
 pub const AddExecutableOptions = struct {
     name: ?[]const u8 = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: ?CrossTarget = null,
-    optimize: ?std.builtin.Mode = null,
+    optimize: ?std.builtin.OptimizeMode = null,
     linkage: ?Step.Compile.Linkage = null,
 };
+
+pub fn getOutput(self: *TranslateC) std.Build.LazyPath {
+    return .{ .generated = &self.output_file };
+}
 
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Compile {
     return self.step.owner.addExecutable(.{
-        .root_source_file = .{ .generated = &self.output_file },
+        .root_source_file = self.getOutput(),
         .name = options.name orelse "translated_c",
         .version = options.version,
         .target = options.target orelse self.target,
         .optimize = options.optimize orelse self.optimize,
         .linkage = options.linkage,
     });
+}
+
+/// Creates a module from the translated source and adds it to the package's
+/// module set making it available to other packages which depend on this one.
+/// `createModule` can be used instead to create a private module.
+pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
+    return self.step.owner.addModule(name, .{
+        .source_file = self.getOutput(),
+    });
+}
+
+/// Creates a private module from the translated source to be used by the
+/// current package, but not exposed to other packages depending on this one.
+/// `addModule` can be used instead to create a public module.
+pub fn createModule(self: *TranslateC) *std.Build.Module {
+    const b = self.step.owner;
+    const module = b.allocator.create(std.Build.Module) catch @panic("OOM");
+
+    module.* = .{
+        .builder = b,
+        .source_file = self.getOutput(),
+        .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
+    };
+    return module;
 }
 
 pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
@@ -72,7 +103,7 @@ pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
 pub fn addCheckFile(self: *TranslateC, expected_matches: []const []const u8) *Step.CheckFile {
     return Step.CheckFile.create(
         self.step.owner,
-        .{ .generated = &self.output_file },
+        self.getOutput(),
         .{ .expected_matches = expected_matches },
     );
 }
@@ -96,7 +127,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
     try argv_list.append(b.zig_exe);
     try argv_list.append("translate-c");
-    try argv_list.append("-lc");
+    if (self.link_libc) {
+        try argv_list.append("-lc");
+    }
 
     try argv_list.append("--listen=-");
 
@@ -124,8 +157,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const output_path = try step.evalZigProcess(argv_list.items, prog_node);
 
-    self.out_basename = fs.path.basename(output_path);
-    const output_dir = fs.path.dirname(output_path).?;
+    self.out_basename = fs.path.basename(output_path.?);
+    const output_dir = fs.path.dirname(output_path.?).?;
 
     self.output_file.path = try fs.path.join(
         b.allocator,

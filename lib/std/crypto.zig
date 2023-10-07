@@ -179,6 +179,9 @@ pub const nacl = struct {
 
 pub const utils = @import("crypto/utils.zig");
 
+/// Finite-field arithmetic.
+pub const ff = @import("crypto/ff.zig");
+
 /// This is a thread-local, cryptographically secure pseudo random number generator.
 pub const random = @import("crypto/tlcsprng.zig").interface;
 
@@ -296,6 +299,7 @@ test {
     _ = nacl.SealedBox;
 
     _ = utils;
+    _ = ff;
     _ = random;
     _ = errors;
     _ = tls;

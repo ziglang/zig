@@ -2,8 +2,11 @@ pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
 
 pub const Dependency = struct {
-    url: []const u8,
-    url_tok: Ast.TokenIndex,
+    location: union(enum) {
+        url: []const u8,
+        path: []const u8,
+    },
+    location_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
 };
@@ -39,7 +42,7 @@ pub const multihash_function: MultihashFunction = switch (Hash) {
 comptime {
     // We avoid unnecessary uleb128 code in hexDigest by asserting here the
     // values are small enough to be contained in the one-byte encoding.
-    assert(@enumToInt(multihash_function) < 127);
+    assert(@intFromEnum(multihash_function) < 127);
     assert(Hash.digest_length < 127);
 }
 pub const multihash_len = 1 + 1 + Hash.digest_length;
@@ -102,7 +105,7 @@ pub fn hex64(x: u64) [16]u8 {
     var result: [16]u8 = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {
-        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
         result[i * 2 + 0] = hex_charset[byte >> 4];
         result[i * 2 + 1] = hex_charset[byte & 15];
     }
@@ -117,8 +120,8 @@ test hex64 {
 pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
     var result: [multihash_len * 2]u8 = undefined;
 
-    result[0] = hex_charset[@enumToInt(multihash_function) >> 4];
-    result[1] = hex_charset[@enumToInt(multihash_function) & 15];
+    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
+    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
 
     result[2] = hex_charset[Hash.digest_length >> 4];
     result[3] = hex_charset[Hash.digest_length & 15];
@@ -218,12 +221,12 @@ const Parse = struct {
         };
 
         var dep: Dependency = .{
-            .url = undefined,
-            .url_tok = undefined,
+            .location = undefined,
+            .location_tok = undefined,
             .hash = null,
             .hash_tok = undefined,
         };
-        var have_url = false;
+        var has_location = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -232,12 +235,29 @@ const Parse = struct {
             // things manually provides an opportunity to do any additional verification
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "url")) {
-                dep.url = parseString(p, field_init) catch |err| switch (err) {
-                    error.ParseFailure => continue,
-                    else => |e| return e,
+                if (has_location) {
+                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                }
+                dep.location = .{
+                    .url = parseString(p, field_init) catch |err| switch (err) {
+                        error.ParseFailure => continue,
+                        else => |e| return e,
+                    },
                 };
-                dep.url_tok = main_tokens[field_init];
-                have_url = true;
+                has_location = true;
+                dep.location_tok = main_tokens[field_init];
+            } else if (mem.eql(u8, field_name, "path")) {
+                if (has_location) {
+                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                }
+                dep.location = .{
+                    .path = parseString(p, field_init) catch |err| switch (err) {
+                        error.ParseFailure => continue,
+                        else => |e| return e,
+                    },
+                };
+                has_location = true;
+                dep.location_tok = main_tokens[field_init];
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
@@ -250,8 +270,8 @@ const Parse = struct {
             }
         }
 
-        if (!have_url) {
-            try appendError(p, main_tokens[node], "dependency is missing 'url' field", .{});
+        if (!has_location) {
+            try appendError(p, main_tokens[node], "dependency requires location field, one of 'url' or 'path'.", .{});
         }
 
         return dep;
@@ -284,7 +304,7 @@ const Parse = struct {
                     @errorName(err),
                 });
             };
-            if (@intToEnum(MultihashFunction, their_multihash_func) != multihash_function) {
+            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
                 return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
             }
         }
@@ -345,7 +365,7 @@ const Parse = struct {
             .invalid_escape_character => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "invalid escape character: '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -353,7 +373,7 @@ const Parse = struct {
             .expected_hex_digit => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected hex digit, found '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -361,7 +381,7 @@ const Parse = struct {
             .empty_unicode_escape_sequence => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "empty unicode escape sequence",
                     .{},
                 );
@@ -369,7 +389,7 @@ const Parse = struct {
             .expected_hex_digit_or_rbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected hex digit or '}}', found '{c}'",
                     .{raw_string[bad_index]},
                 );
@@ -377,7 +397,7 @@ const Parse = struct {
             .invalid_unicode_codepoint => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "unicode escape does not correspond to a valid codepoint",
                     .{},
                 );
@@ -385,7 +405,7 @@ const Parse = struct {
             .expected_lbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected '{{', found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -393,7 +413,7 @@ const Parse = struct {
             .expected_rbrace => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected '}}', found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -401,7 +421,7 @@ const Parse = struct {
             .expected_single_quote => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "expected single quote ('), found '{c}",
                     .{raw_string[bad_index]},
                 );
@@ -409,7 +429,7 @@ const Parse = struct {
             .invalid_character => |bad_index| {
                 try p.appendErrorOff(
                     token,
-                    offset + @intCast(u32, bad_index),
+                    offset + @as(u32, @intCast(bad_index)),
                     "invalid byte in string or character literal: '{c}'",
                     .{raw_string[bad_index]},
                 );

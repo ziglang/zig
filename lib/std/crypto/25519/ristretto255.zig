@@ -30,8 +30,8 @@ pub const Ristretto255 = struct {
         const has_p_root = p_root_check.isZero();
         const has_f_root = f_root_check.isZero();
         const x_sqrtm1 = x.mul(Fe.sqrtm1); // x*sqrt(-1)
-        x.cMov(x_sqrtm1, @boolToInt(has_p_root) | @boolToInt(has_f_root));
-        return .{ .ratio_is_square = @boolToInt(has_m_root) | @boolToInt(has_p_root), .root = x.abs() };
+        x.cMov(x_sqrtm1, @intFromBool(has_p_root) | @intFromBool(has_f_root));
+        return .{ .ratio_is_square = @intFromBool(has_m_root) | @intFromBool(has_p_root), .root = x.abs() };
     }
 
     fn rejectNonCanonical(s: [encoded_length]u8) NonCanonicalError!void {
@@ -67,7 +67,7 @@ pub const Ristretto255 = struct {
         x = x.mul(s_);
         x = x.add(x).abs();
         const t = x.mul(y);
-        if ((1 - inv_sqrt.ratio_is_square) | @boolToInt(t.isNegative()) | @boolToInt(y.isZero()) != 0) {
+        if ((1 - inv_sqrt.ratio_is_square) | @intFromBool(t.isNegative()) | @intFromBool(y.isZero()) != 0) {
             return error.InvalidEncoding;
         }
         const p: Curve = .{
@@ -96,7 +96,7 @@ pub const Ristretto255 = struct {
         const eden = den1.mul(Fe.edwards25519sqrtamd); // den1/sqrt(a-d)
         const t_z_inv = p.t.mul(z_inv); // T*z_inv
 
-        const rotate = @boolToInt(t_z_inv.isNegative());
+        const rotate = @intFromBool(t_z_inv.isNegative());
         var x = p.x;
         var y = p.y;
         var den_inv = den2;
@@ -106,7 +106,7 @@ pub const Ristretto255 = struct {
 
         const x_z_inv = x.mul(z_inv);
         const yneg = y.neg();
-        y.cMov(yneg, @boolToInt(x_z_inv.isNegative()));
+        y.cMov(yneg, @intFromBool(x_z_inv.isNegative()));
 
         return p.z.sub(y).mul(den_inv).abs().toBytes();
     }
@@ -163,7 +163,7 @@ pub const Ristretto255 = struct {
         const q_ = &q.p;
         const a = p_.x.mul(q_.y).equivalent(p_.y.mul(q_.x));
         const b = p_.y.mul(q_.y).equivalent(p_.x.mul(q_.x));
-        return (@boolToInt(a) | @boolToInt(b)) != 0;
+        return (@intFromBool(a) | @intFromBool(b)) != 0;
     }
 };
 

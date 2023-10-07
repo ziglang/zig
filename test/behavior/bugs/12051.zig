@@ -7,6 +7,8 @@ test {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const x = X{};
     try std.testing.expectEqual(@as(u16, 0), x.y.a);
     try std.testing.expectEqual(false, x.y.b);
@@ -28,8 +30,8 @@ const Y = struct {
         return .{
             .a = 0,
             .b = false,
-            .c = @bitCast(Z, @as(u32, 0)),
-            .d = @bitCast(Z, @as(u32, 0)),
+            .c = @as(Z, @bitCast(@as(u32, 0))),
+            .d = @as(Z, @bitCast(@as(u32, 0))),
         };
     }
 };

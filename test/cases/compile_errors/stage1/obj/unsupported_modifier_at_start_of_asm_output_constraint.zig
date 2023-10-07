@@ -1,6 +1,10 @@
 export fn foo() void {
     var bar: u32 = 3;
-    asm volatile ("" : [baz]"+r"(bar) : : "");
+    asm volatile (""
+        : [baz] "+r" (bar),
+        :
+        : ""
+    );
 }
 
 // error

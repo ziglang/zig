@@ -36,17 +36,6 @@ pub const Field = struct {
     name: []const u8,
     value: []const u8,
 
-    pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
-        if (entry.value.len <= new_value.len) {
-            // TODO: eliminate this use of `@constCast`.
-            @memcpy(@constCast(entry.value)[0..new_value.len], new_value);
-        } else {
-            allocator.free(entry.value);
-
-            entry.value = try allocator.dupe(u8, new_value);
-        }
-    }
-
     fn lessThan(ctx: void, a: Field, b: Field) bool {
         _ = ctx;
         if (a.name.ptr == b.name.ptr) return false;
@@ -66,6 +55,18 @@ pub const Headers = struct {
 
     pub fn init(allocator: Allocator) Headers {
         return .{ .allocator = allocator };
+    }
+
+    pub fn initList(allocator: Allocator, list: []const Field) Headers {
+        var new = Headers.init(allocator);
+
+        try new.list.ensureTotalCapacity(allocator, list.len);
+        try new.index.ensureTotalCapacity(allocator, list.len);
+        for (list) |field| {
+            try new.append(field.name, field.value);
+        }
+
+        return new;
     }
 
     pub fn deinit(headers: *Headers) void {
@@ -89,7 +90,7 @@ pub const Headers = struct {
             entry.name = kv.key_ptr.*;
             try kv.value_ptr.append(headers.allocator, n);
         } else {
-            const name_duped = if (headers.owned) try headers.allocator.dupe(u8, name) else name;
+            const name_duped = if (headers.owned) try std.ascii.allocLowerString(headers.allocator, name) else name;
             errdefer if (headers.owned) headers.allocator.free(name_duped);
 
             entry.name = name_duped;
@@ -108,6 +109,7 @@ pub const Headers = struct {
         return headers.index.contains(name);
     }
 
+    /// Removes all headers with the given name.
     pub fn delete(headers: *Headers, name: []const u8) bool {
         if (headers.index.fetchRemove(name)) |kv| {
             var index = kv.value;
@@ -202,7 +204,7 @@ pub const Headers = struct {
 
     /// Sorts the headers in lexicographical order.
     pub fn sort(headers: *Headers) void {
-        std.sort.sort(Field, headers.list.items, {}, Field.lessThan);
+        std.mem.sort(Field, headers.list.items, {}, Field.lessThan);
         headers.rebuildIndex();
     }
 
@@ -278,6 +280,18 @@ pub const Headers = struct {
         headers.deallocateIndexListsAndFields();
         headers.index.clearRetainingCapacity();
         headers.list.clearRetainingCapacity();
+    }
+
+    pub fn clone(headers: Headers, allocator: Allocator) !Headers {
+        var new = Headers.init(allocator);
+
+        try new.list.ensureTotalCapacity(allocator, headers.list.capacity);
+        try new.index.ensureTotalCapacity(allocator, headers.index.capacity());
+        for (headers.list.items) |field| {
+            try new.append(field.name, field.value);
+        }
+
+        return new;
     }
 };
 

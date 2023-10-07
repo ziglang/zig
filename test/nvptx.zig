@@ -60,7 +60,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\
             \\ var _sdata: [1024]f32 addrspace(.shared) = undefined;
             \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.Kernel) void {
-            \\     var sdata = @addrSpaceCast(.generic, &_sdata);
+            \\     var sdata: *addrspace(.generic) [1024]f32 = @addrSpaceCast(&_sdata);
             \\     const tid: u32 = threadIdX();
             \\     var sum = d_x[tid];
             \\     sdata[tid] = sum;

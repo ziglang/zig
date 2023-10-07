@@ -144,6 +144,10 @@
 
 #define SO_RESERVE_MEM		73
 
+#define SO_TXREHASH		74
+
+#define SO_RCVMARK		75
+
 
 #if __BITS_PER_LONG == 64
 #define SO_TIMESTAMP		SO_TIMESTAMP_OLD

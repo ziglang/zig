@@ -47,7 +47,6 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
     return struct {
         const Self = @This();
         const block_length = 64;
-        const digest_length = 64;
         const key_length = 16;
 
         v0: u64,
@@ -56,7 +55,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         v3: u64,
         msg_len: u8,
 
-        pub fn init(key: *const [key_length]u8) Self {
+        fn init(key: *const [key_length]u8) Self {
             const k0 = mem.readIntLittle(u64, key[0..8]);
             const k1 = mem.readIntLittle(u64, key[8..16]);
 
@@ -75,7 +74,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return d;
         }
 
-        pub fn update(self: *Self, b: []const u8) void {
+        fn update(self: *Self, b: []const u8) void {
             std.debug.assert(b.len % 8 == 0);
 
             var off: usize = 0;
@@ -84,18 +83,13 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
                 @call(.always_inline, round, .{ self, blob });
             }
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @as(u8, @truncate(b.len));
         }
 
-        pub fn peek(self: Self) [digest_length]u8 {
-            var copy = self;
-            return copy.finalResult();
-        }
-
-        pub fn final(self: *Self, b: []const u8) T {
+        fn final(self: *Self, b: []const u8) T {
             std.debug.assert(b.len < 8);
 
-            self.msg_len +%= @truncate(u8, b.len);
+            self.msg_len +%= @as(u8, @truncate(b.len));
 
             var buf = [_]u8{0} ** 8;
             @memcpy(buf[0..b.len], b);
@@ -129,14 +123,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return (@as(u128, b2) << 64) | b1;
         }
 
-        pub fn finalResult(self: *Self) [digest_length]u8 {
-            var result: [digest_length]u8 = undefined;
-            self.final(&result);
-            return result;
-        }
-
         fn round(self: *Self, b: [8]u8) void {
-            const m = mem.readIntLittle(u64, b[0..8]);
+            const m = mem.readIntLittle(u64, &b);
             self.v3 ^= m;
 
             comptime var i: usize = 0;
@@ -164,11 +152,11 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             d.v2 = math.rotl(u64, d.v2, @as(u64, 32));
         }
 
-        pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
+        fn hash(msg: []const u8, key: *const [key_length]u8) T {
             const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
-            @call(.always_inline, c.update, .{msg[0..aligned_len]});
-            return @call(.always_inline, c.final, .{msg[aligned_len..]});
+            @call(.always_inline, update, .{ &c, msg[0..aligned_len] });
+            return @call(.always_inline, final, .{ &c, msg[aligned_len..] });
         }
     };
 }
@@ -214,7 +202,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
             const b_slice = b[off + aligned_len ..];
             @memcpy(self.buf[self.buf_len..][0..b_slice.len], b_slice);
-            self.buf_len += @intCast(u8, b_slice.len);
+            self.buf_len += @as(u8, @intCast(b_slice.len));
         }
 
         pub fn peek(self: Self) [mac_length]u8 {
@@ -341,7 +329,7 @@ test "siphash64-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors, 0..) |vector, i| {
-        buffer[i] = @intCast(u8, i);
+        buffer[i] = @as(u8, @intCast(i));
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key);
@@ -421,7 +409,7 @@ test "siphash128-2-4 sanity" {
 
     var buffer: [64]u8 = undefined;
     for (vectors, 0..) |vector, i| {
-        buffer[i] = @intCast(u8, i);
+        buffer[i] = @as(u8, @intCast(i));
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key[0..]);
@@ -432,7 +420,7 @@ test "siphash128-2-4 sanity" {
 test "iterative non-divisible update" {
     var buf: [1024]u8 = undefined;
     for (&buf, 0..) |*e, i| {
-        e.* = @truncate(u8, i);
+        e.* = @as(u8, @truncate(i));
     }
 
     const key = "0x128dad08f12307";
@@ -445,7 +433,7 @@ test "iterative non-divisible update" {
         var siphash = Siphash.init(key);
         var i: usize = 0;
         while (i < end) : (i += 7) {
-            siphash.update(buf[i..std.math.min(i + 7, end)]);
+            siphash.update(buf[i..@min(i + 7, end)]);
         }
         const iterative_hash = siphash.finalInt();
 

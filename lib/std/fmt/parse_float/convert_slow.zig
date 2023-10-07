@@ -32,7 +32,12 @@ pub fn getShift(n: usize) usize {
 ///
 /// The algorithms described here are based on "Processing Long Numbers Quickly",
 /// available here: <https://arxiv.org/pdf/2101.11408.pdf#section.11>.
+///
+/// Note that this function needs a lot of stack space and is marked
+/// cold to hint against inlining into the caller.
 pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
+    @setCold(true);
+
     const MantissaT = mantissaType(T);
     const min_exponent = -(1 << (math.floatExponentBits(T) - 1)) + 1;
     const infinite_power = (1 << math.floatExponentBits(T)) - 1;
@@ -48,13 +53,13 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
     var exp2: i32 = 0;
     // Shift right toward (1/2 .. 1]
     while (d.decimal_point > 0) {
-        const n = @intCast(usize, d.decimal_point);
+        const n = @as(usize, @intCast(d.decimal_point));
         const shift = getShift(n);
         d.rightShift(shift);
         if (d.decimal_point < -Decimal(T).decimal_point_range) {
             return BiasedFp(T).zero();
         }
-        exp2 += @intCast(i32, shift);
+        exp2 += @as(i32, @intCast(shift));
     }
     //  Shift left toward (1/2 .. 1]
     while (d.decimal_point <= 0) {
@@ -66,7 +71,7 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
                     else => 1,
                 };
             } else {
-                const n = @intCast(usize, -d.decimal_point);
+                const n = @as(usize, @intCast(-d.decimal_point));
                 break :blk getShift(n);
             }
         };
@@ -74,17 +79,17 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
         if (d.decimal_point > Decimal(T).decimal_point_range) {
             return BiasedFp(T).inf(T);
         }
-        exp2 -= @intCast(i32, shift);
+        exp2 -= @as(i32, @intCast(shift));
     }
     // We are now in the range [1/2 .. 1] but the binary format uses [1 .. 2]
     exp2 -= 1;
     while (min_exponent + 1 > exp2) {
-        var n = @intCast(usize, (min_exponent + 1) - exp2);
+        var n = @as(usize, @intCast((min_exponent + 1) - exp2));
         if (n > max_shift) {
             n = max_shift;
         }
         d.rightShift(n);
-        exp2 += @intCast(i32, n);
+        exp2 += @as(i32, @intCast(n));
     }
     if (exp2 - min_exponent >= infinite_power) {
         return BiasedFp(T).inf(T);

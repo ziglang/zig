@@ -1,6 +1,6 @@
 comptime {
     const value: i32 = -1;
-    const unsigned = @intCast(u32, value);
+    const unsigned: u32 = @intCast(value);
     _ = unsigned;
 }
 export fn entry1() void {

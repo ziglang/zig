@@ -2,9 +2,7 @@ pub fn main() void {
     var i = 0;
     while ("n") |bruh| {
         _ = bruh;
-    } else |i| {
-
-    }
+    } else |i| {}
 }
 
 // error

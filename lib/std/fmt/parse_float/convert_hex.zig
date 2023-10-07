@@ -81,7 +81,7 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
     }
 
     var bits = n.mantissa & ((1 << mantissa_bits) - 1);
-    bits |= @intCast(MantissaT, (n.exponent - exp_bias) & ((1 << exp_bits) - 1)) << mantissa_bits;
+    bits |= @as(MantissaT, @intCast((n.exponent - exp_bias) & ((1 << exp_bits) - 1))) << mantissa_bits;
     if (n.negative) {
         bits |= 1 << (mantissa_bits + exp_bits);
     }

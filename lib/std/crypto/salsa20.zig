@@ -337,8 +337,8 @@ pub fn Salsa(comptime rounds: comptime_int) type {
             var d: [4]u32 = undefined;
             d[0] = mem.readIntLittle(u32, nonce[0..4]);
             d[1] = mem.readIntLittle(u32, nonce[4..8]);
-            d[2] = @truncate(u32, counter);
-            d[3] = @truncate(u32, counter >> 32);
+            d[2] = @as(u32, @truncate(counter));
+            d[3] = @as(u32, @truncate(counter >> 32));
             SalsaImpl(rounds).salsaXor(out, in, keyToWords(key), d);
         }
     };
@@ -394,30 +394,32 @@ pub const XSalsa20Poly1305 = struct {
         mac.final(tag);
     }
 
-    /// m: message: output buffer should be of size c.len
-    /// c: ciphertext
-    /// tag: authentication tag
-    /// ad: Associated Data
-    /// npub: public nonce
-    /// k: private key
+    /// `m`: Message
+    /// `c`: Ciphertext
+    /// `tag`: Authentication tag
+    /// `ad`: Associated data
+    /// `npub`: Public nonce
+    /// `k`: Private key
+    /// Asserts `c.len == m.len`.
+    ///
+    /// Contents of `m` are undefined if an error is returned.
     pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
         var block0 = [_]u8{0} ** 64;
-        const mlen0 = math.min(32, c.len);
+        const mlen0 = @min(32, c.len);
         @memcpy(block0[32..][0..mlen0], c[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
         var mac = Poly1305.init(block0[0..32]);
         mac.update(ad);
         mac.update(c);
-        var computedTag: [tag_length]u8 = undefined;
-        mac.final(&computedTag);
-        var acc: u8 = 0;
-        for (computedTag, 0..) |_, i| {
-            acc |= computedTag[i] ^ tag[i];
-        }
-        if (acc != 0) {
-            utils.secureZero(u8, &computedTag);
+        var computed_tag: [tag_length]u8 = undefined;
+        mac.final(&computed_tag);
+
+        const verify = utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+        if (!verify) {
+            utils.secureZero(u8, &computed_tag);
+            @memset(m, undefined);
             return error.AuthenticationFailed;
         }
         @memcpy(m[0..mlen0], block0[32..][0..mlen0]);

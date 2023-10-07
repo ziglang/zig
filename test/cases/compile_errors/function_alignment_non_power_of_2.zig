@@ -1,5 +1,7 @@
 extern fn foo() align(3) void;
-export fn entry() void { return foo(); }
+export fn entry() void {
+    return foo();
+}
 
 // error
 // backend=stage2

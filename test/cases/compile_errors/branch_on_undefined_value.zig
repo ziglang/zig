@@ -1,6 +1,8 @@
 const x = if (undefined) true else false;
 
-export fn entry() usize { return @sizeOf(@TypeOf(x)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(x));
+}
 
 // error
 // backend=stage2

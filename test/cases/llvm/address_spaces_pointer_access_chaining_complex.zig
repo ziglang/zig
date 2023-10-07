@@ -3,7 +3,7 @@ fn entry(a: *addrspace(.gs) [1]A) *addrspace(.gs) i32 {
     return &a[0].a.?[0];
 }
 pub fn main() void {
-    _ = entry;
+    _ = &entry;
 }
 
 // compile

@@ -9,7 +9,7 @@ test "integer division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testDivision();
-    comptime try testDivision();
+    try comptime testDivision();
 }
 fn testDivision() !void {
     try expect(div(u32, 13, 3) == 4);

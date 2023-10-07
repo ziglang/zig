@@ -25,7 +25,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -36,32 +36,30 @@ using reverse_copy_result = in_out_result<_InIter, _OutIter>;
 
 namespace __reverse_copy {
 struct __fn {
-
   template <bidirectional_iterator _InIter, sentinel_for<_InIter> _Sent, weakly_incrementable _OutIter>
     requires indirectly_copyable<_InIter, _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  reverse_copy_result<_InIter, _OutIter> operator()(_InIter __first, _Sent __last, _OutIter __result) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr reverse_copy_result<_InIter, _OutIter>
+  operator()(_InIter __first, _Sent __last, _OutIter __result) const {
     return (*this)(subrange(std::move(__first), std::move(__last)), std::move(__result));
   }
 
   template <bidirectional_range _Range, weakly_incrementable _OutIter>
     requires indirectly_copyable<iterator_t<_Range>, _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  reverse_copy_result<borrowed_iterator_t<_Range>, _OutIter> operator()(_Range&& __range, _OutIter __result) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr reverse_copy_result<borrowed_iterator_t<_Range>, _OutIter>
+  operator()(_Range&& __range, _OutIter __result) const {
     auto __ret = ranges::copy(std::__reverse_range(__range), std::move(__result));
     return {ranges::next(ranges::begin(__range), ranges::end(__range)), std::move(__ret.out)};
   }
-
 };
 } // namespace __reverse_copy
 
 inline namespace __cpo {
-  inline constexpr auto reverse_copy = __reverse_copy::__fn{};
+inline constexpr auto reverse_copy = __reverse_copy::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_REVERSE_COPY_H

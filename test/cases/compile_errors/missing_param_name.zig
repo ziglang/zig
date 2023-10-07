@@ -1,5 +1,7 @@
 fn f(i32) void {}
-export fn entry() usize { return @sizeOf(@TypeOf(f)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(f));
+}
 
 // error
 // backend=stage2

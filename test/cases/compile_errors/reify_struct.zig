@@ -51,7 +51,7 @@ comptime {
             .alignment = 4,
         }},
         .decls = &.{},
-        .is_tuple = true,
+        .is_tuple = false,
     } });
 }
 comptime {
@@ -65,7 +65,7 @@ comptime {
             .alignment = 4,
         }},
         .decls = &.{},
-        .is_tuple = true,
+        .is_tuple = false,
     } });
 }
 

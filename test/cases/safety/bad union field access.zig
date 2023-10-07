@@ -14,7 +14,7 @@ const Foo = union {
 };
 
 pub fn main() !void {
-    var f = Foo { .int = 42 };
+    var f = Foo{ .int = 42 };
     bar(&f);
     return error.TestFailed;
 }

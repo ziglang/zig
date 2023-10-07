@@ -28,7 +28,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 template <typename _Result, typename _Source, bool _IsSigned = is_signed<_Source>::value> struct __ct_abs;
 
@@ -87,7 +87,7 @@ lcm(_Tp __m, _Up __n)
     using _Rp = common_type_t<_Tp,_Up>;
     _Rp __val1 = __ct_abs<_Rp, _Tp>()(__m) / _VSTD::gcd(__m, __n);
     _Rp __val2 = __ct_abs<_Rp, _Up>()(__n);
-    _LIBCPP_ASSERT((numeric_limits<_Rp>::max() / __val1 > __val2), "Overflow in lcm");
+    _LIBCPP_ASSERT_UNCATEGORIZED((numeric_limits<_Rp>::max() / __val1 > __val2), "Overflow in lcm");
     return __val1 * __val2;
 }
 

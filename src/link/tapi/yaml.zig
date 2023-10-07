@@ -197,7 +197,7 @@ pub const Value = union(enum) {
 
             return Value{ .string = try arena.dupe(u8, value.string_value.items) };
         } else {
-            log.err("Unexpected node type: {}", .{node.tag});
+            log.debug("Unexpected node type: {}", .{node.tag});
             return error.UnexpectedNodeType;
         }
     }
@@ -270,7 +270,7 @@ pub const Value = union(enum) {
                         if (try encode(arena, elem)) |value| {
                             list.appendAssumeCapacity(value);
                         } else {
-                            log.err("Could not encode value in a list: {any}", .{elem});
+                            log.debug("Could not encode value in a list: {any}", .{elem});
                             return error.CannotEncodeValue;
                         }
                     }
@@ -432,7 +432,7 @@ pub const Yaml = struct {
             }
 
             const unwrapped = value orelse {
-                log.err("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
+                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
                 return error.StructFieldMissing;
             };
             @field(parsed, field.name) = try self.parseValue(field.type, unwrapped);

@@ -5,7 +5,7 @@ export fn foo() void {
     }
 }
 
-fn bar() void { }
+fn bar() void {}
 export fn baz() void {
     comptime var idx: u32 = 0;
     while (idx < 1) {

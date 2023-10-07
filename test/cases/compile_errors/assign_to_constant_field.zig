@@ -2,7 +2,9 @@ const Foo = struct {
     field: i32,
 };
 export fn derp() void {
-    const f = Foo {.field = 1234,};
+    const f = Foo{
+        .field = 1234,
+    };
     f.field = 0;
 }
 
@@ -10,4 +12,4 @@ export fn derp() void {
 // backend=stage2
 // target=native
 //
-// :6:6: error: cannot assign to constant
+// :8:6: error: cannot assign to constant

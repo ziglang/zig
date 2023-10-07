@@ -15,15 +15,15 @@ query: ?[]const u8,
 fragment: ?[]const u8,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
-pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isUnreserved);
 }
 
-pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isPathChar);
 }
 
-pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isQueryChar);
 }
 
@@ -39,7 +39,7 @@ pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
     return writeEscapedStringWithFn(writer, input, isQueryChar);
 }
 
-pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]const u8 {
+pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]u8 {
     var outsize: usize = 0;
     for (input) |c| {
         outsize += if (keepUnescaped(c)) @as(usize, 1) else 3;
@@ -76,7 +76,7 @@ pub fn writeEscapedStringWithFn(writer: anytype, input: []const u8, comptime kee
 
 /// Parses a URI string and unescapes all %XX where XX is a valid hex number. Otherwise, verbatim copies
 /// them to the output.
-pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     var outsize: usize = 0;
     var inptr: usize = 0;
     while (inptr < input.len) {
@@ -134,6 +134,7 @@ pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
     var reader = SliceReader{ .slice = text };
+
     var uri = Uri{
         .scheme = "",
         .user = null,
@@ -145,13 +146,14 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
         .fragment = null,
     };
 
-    if (reader.peekPrefix("//")) { // authority part
+    if (reader.peekPrefix("//")) a: { // authority part
         std.debug.assert(reader.get().? == '/');
         std.debug.assert(reader.get().? == '/');
 
         const authority = reader.readUntil(isAuthoritySeparator);
-        if (authority.len == 0)
-            return error.InvalidFormat;
+        if (authority.len == 0) {
+            if (reader.peekPrefix("/")) break :a else return error.InvalidFormat;
+        }
 
         var start_of_host: usize = 0;
         if (std.mem.indexOf(u8, authority, "@")) |index| {
@@ -177,13 +179,13 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
             if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
                 if (index >= end_of_host) { // if not part of the V6 address field
-                    end_of_host = std.math.min(end_of_host, index);
+                    end_of_host = @min(end_of_host, index);
                     uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
                 }
             }
         } else if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
             if (index >= start_of_host) { // if not part of the userinfo field
-                end_of_host = std.math.min(end_of_host, index);
+                end_of_host = @min(end_of_host, index);
                 uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
             }
         }
@@ -216,13 +218,14 @@ pub fn format(
 
     const needs_absolute = comptime std.mem.indexOf(u8, fmt, "+") != null;
     const needs_path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
+    const raw_uri = comptime std.mem.indexOf(u8, fmt, "r") != null;
+    const needs_fragment = comptime std.mem.indexOf(u8, fmt, "#") != null;
 
     if (needs_absolute) {
         try writer.writeAll(uri.scheme);
         try writer.writeAll(":");
         if (uri.host) |host| {
             try writer.writeAll("//");
-
             if (uri.user) |user| {
                 try writer.writeAll(user);
                 if (uri.password) |password| {
@@ -245,17 +248,31 @@ pub fn format(
         if (uri.path.len == 0) {
             try writer.writeAll("/");
         } else {
-            try Uri.writeEscapedPath(writer, uri.path);
+            if (raw_uri) {
+                try writer.writeAll(uri.path);
+            } else {
+                try Uri.writeEscapedPath(writer, uri.path);
+            }
         }
 
         if (uri.query) |q| {
             try writer.writeAll("?");
-            try Uri.writeEscapedQuery(writer, q);
+            if (raw_uri) {
+                try writer.writeAll(q);
+            } else {
+                try Uri.writeEscapedQuery(writer, q);
+            }
         }
 
-        if (uri.fragment) |f| {
-            try writer.writeAll("#");
-            try Uri.writeEscapedQuery(writer, f);
+        if (needs_fragment) {
+            if (uri.fragment) |f| {
+                try writer.writeAll("#");
+                if (raw_uri) {
+                    try writer.writeAll(f);
+                } else {
+                    try Uri.writeEscapedQuery(writer, f);
+                }
+            }
         }
     }
 }
@@ -440,7 +457,7 @@ fn isPathChar(c: u8) bool {
 }
 
 fn isQueryChar(c: u8) bool {
-    return isPathChar(c) or c == '?';
+    return isPathChar(c) or c == '?' or c == '%';
 }
 
 fn isQuerySeparator(c: u8) bool {
@@ -468,6 +485,23 @@ test "with port" {
 
 test "should fail gracefully" {
     try std.testing.expectEqual(@as(ParseError!Uri, error.InvalidFormat), parse("foobar://"));
+}
+
+test "file" {
+    const parsed = try parse("file:///");
+    try std.testing.expectEqualSlices(u8, "file", parsed.scheme);
+    try std.testing.expectEqual(@as(?[]const u8, null), parsed.host);
+    try std.testing.expectEqualSlices(u8, "/", parsed.path);
+
+    const parsed2 = try parse("file:///an/absolute/path/to/something");
+    try std.testing.expectEqualSlices(u8, "file", parsed2.scheme);
+    try std.testing.expectEqual(@as(?[]const u8, null), parsed2.host);
+    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/something", parsed2.path);
+
+    const parsed3 = try parse("file://localhost/an/absolute/path/to/another/thing/");
+    try std.testing.expectEqualSlices(u8, "file", parsed3.scheme);
+    try std.testing.expectEqualSlices(u8, "localhost", parsed3.host.?);
+    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/another/thing/", parsed3.path);
 }
 
 test "scheme" {
@@ -581,7 +615,7 @@ test "RFC example 1" {
     }, try parse(uri));
 }
 
-test "RFX example 2" {
+test "RFC example 2" {
     const uri = "urn:example:animal:ferret:nose";
     try std.testing.expectEqual(Uri{
         .scheme = uri[0..3],
@@ -668,4 +702,31 @@ test "URI unescaping" {
     defer std.testing.allocator.free(actual);
 
     try std.testing.expectEqualSlices(u8, expected, actual);
+}
+
+test "URI query escaping" {
+    const address = "https://objects.githubusercontent.com/?response-content-type=application%2Foctet-stream";
+    const parsed = try Uri.parse(address);
+
+    // format the URI to escape it
+    const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{}", .{parsed});
+    defer std.testing.allocator.free(formatted_uri);
+    try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
+}
+
+test "format" {
+    const uri = Uri{
+        .scheme = "file",
+        .user = null,
+        .password = null,
+        .host = null,
+        .port = null,
+        .path = "/foo/bar/baz",
+        .query = null,
+        .fragment = null,
+    };
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    try uri.format("+/", .{}, buf.writer());
+    try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }

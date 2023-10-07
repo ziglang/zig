@@ -142,7 +142,7 @@ pub fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral 
                 return .{ .failure = .{ .expected_rbrace = i } };
             }
             offset.* = i;
-            return .{ .success = @intCast(u21, value) };
+            return .{ .success = @as(u21, @intCast(value)) };
         },
         else => return .{ .failure = .{ .invalid_escape_character = offset.* - 1 } },
     }
@@ -253,7 +253,7 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                             };
                             try writer.writeAll(buf[0..len]);
                         } else {
-                            try writer.writeByte(@intCast(u8, codepoint));
+                            try writer.writeByte(@as(u8, @intCast(codepoint)));
                         }
                     },
                     .failure => |err| return Result{ .failure = err },

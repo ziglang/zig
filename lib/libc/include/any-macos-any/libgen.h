@@ -47,8 +47,13 @@ char	*dirname(const char *);
 
 #endif /* __DARWIN_UNIX_03 */
 
+__END_DECLS
+
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 #include <Availability.h>
+
+__BEGIN_DECLS
+
 char	*basename_r(const char *, char *)
 		__OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0)
 		__TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
@@ -56,8 +61,9 @@ char	*basename_r(const char *, char *)
 char	*dirname_r(const char *, char *)
 		__OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0)
 		__TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
-#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 __END_DECLS
+
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 #endif /* _LIBGEN_H_ */

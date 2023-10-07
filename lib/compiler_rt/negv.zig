@@ -33,7 +33,7 @@ inline fn negvXi(comptime ST: type, a: ST) ST {
         else => unreachable,
     };
     const N: UT = @bitSizeOf(ST);
-    const min: ST = @bitCast(ST, (@as(UT, 1) << (N - 1)));
+    const min: ST = @as(ST, @bitCast((@as(UT, 1) << (N - 1))));
     if (a == min)
         @panic("compiler_rt negv: overflow");
     return -a;

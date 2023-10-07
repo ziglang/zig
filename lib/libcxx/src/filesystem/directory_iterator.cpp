@@ -11,8 +11,18 @@
 #include <errno.h>
 #include <filesystem>
 #include <stack>
+#include <utility>
 
-#include "filesystem_common.h"
+#include "error.h"
+#include "file_descriptor.h"
+
+#if defined(_LIBCPP_WIN32API)
+# define WIN32_LEAN_AND_MEAN
+# define NOMINMAX
+# include <windows.h>
+#else
+# include <dirent.h>   // for DIR & friends
+#endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
@@ -182,7 +192,7 @@ directory_iterator::directory_iterator(const path& p, error_code* ec,
 }
 
 directory_iterator& directory_iterator::__increment(error_code* ec) {
-  _LIBCPP_ASSERT(__imp_, "Attempting to increment an invalid iterator");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Attempting to increment an invalid iterator");
   ErrorHandler<void> err("directory_iterator::operator++()", ec);
 
   error_code m_ec;
@@ -196,7 +206,7 @@ directory_iterator& directory_iterator::__increment(error_code* ec) {
 }
 
 directory_entry const& directory_iterator::__dereference() const {
-  _LIBCPP_ASSERT(__imp_, "Attempting to dereference an invalid iterator");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Attempting to dereference an invalid iterator");
   return __imp_->__entry_;
 }
 
@@ -225,7 +235,7 @@ recursive_directory_iterator::recursive_directory_iterator(
 }
 
 void recursive_directory_iterator::__pop(error_code* ec) {
-  _LIBCPP_ASSERT(__imp_, "Popping the end iterator");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Popping the end iterator");
   if (ec)
     ec->clear();
   __imp_->__stack_.pop();

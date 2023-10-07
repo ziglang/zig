@@ -36,7 +36,7 @@
 //!     // .my_project, .nice_library and the default
 //!     const scope_prefix = "(" ++ switch (scope) {
 //!         .my_project, .nice_library, std.log.default_log_scope => @tagName(scope),
-//!         else => if (@enumToInt(level) <= @enumToInt(std.log.Level.err))
+//!         else => if (@intFromEnum(level) <= @intFromEnum(std.log.Level.err))
 //!             @tagName(scope)
 //!         else
 //!             return,
@@ -128,9 +128,9 @@ fn log(
 /// Determine if a specific log message level and scope combination are enabled for logging.
 pub fn logEnabled(comptime message_level: Level, comptime scope: @Type(.EnumLiteral)) bool {
     inline for (scope_levels) |scope_level| {
-        if (scope_level.scope == scope) return @enumToInt(message_level) <= @enumToInt(scope_level.level);
+        if (scope_level.scope == scope) return @intFromEnum(message_level) <= @intFromEnum(scope_level.level);
     }
-    return @enumToInt(message_level) <= @enumToInt(level);
+    return @intFromEnum(message_level) <= @intFromEnum(level);
 }
 
 /// Determine if a specific log message level using the default log scope is enabled for logging.

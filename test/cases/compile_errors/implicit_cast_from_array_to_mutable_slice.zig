@@ -1,5 +1,7 @@
 var global_array: [10]i32 = undefined;
-fn foo(param: []i32) void {_ = param;}
+fn foo(param: []i32) void {
+    _ = param;
+}
 export fn entry() void {
     foo(global_array);
 }
@@ -8,4 +10,4 @@ export fn entry() void {
 // backend=llvm
 // target=native
 //
-// :4:9: error: array literal requires address-of operator (&) to coerce to slice type '[]i32'
+// :6:9: error: array literal requires address-of operator (&) to coerce to slice type '[]i32'

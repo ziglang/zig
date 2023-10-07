@@ -36,7 +36,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
     }
 
     // Normalize our significant digits, so the most-significant bit is set.
-    const lz = @clz(@bitCast(u64, w));
+    const lz = @clz(@as(u64, @bitCast(w)));
     w = math.shl(u64, w, lz);
 
     const r = computeProductApprox(q, w, float_info.mantissa_explicit_bits + 3);
@@ -62,9 +62,9 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
         }
     }
 
-    const upper_bit = @intCast(i32, r.hi >> 63);
-    var mantissa = math.shr(u64, r.hi, upper_bit + 64 - @intCast(i32, float_info.mantissa_explicit_bits) - 3);
-    var power2 = power(@intCast(i32, q)) + upper_bit - @intCast(i32, lz) - float_info.minimum_exponent;
+    const upper_bit = @as(i32, @intCast(r.hi >> 63));
+    var mantissa = math.shr(u64, r.hi, upper_bit + 64 - @as(i32, @intCast(float_info.mantissa_explicit_bits)) - 3);
+    var power2 = power(@as(i32, @intCast(q))) + upper_bit - @as(i32, @intCast(lz)) - float_info.minimum_exponent;
     if (power2 <= 0) {
         if (-power2 + 1 >= 64) {
             // Have more than 64 bits below the minimum exponent, must be 0.
@@ -74,7 +74,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
         mantissa = math.shr(u64, mantissa, -power2 + 1);
         mantissa += mantissa & 1;
         mantissa >>= 1;
-        power2 = @boolToInt(mantissa >= (1 << float_info.mantissa_explicit_bits));
+        power2 = @intFromBool(mantissa >= (1 << float_info.mantissa_explicit_bits));
         return BiasedFp(f64){ .f = mantissa, .e = power2 };
     }
 
@@ -93,7 +93,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
         q >= float_info.min_exponent_round_to_even and
         q <= float_info.max_exponent_round_to_even and
         mantissa & 3 == 1 and
-        math.shl(u64, mantissa, (upper_bit + 64 - @intCast(i32, float_info.mantissa_explicit_bits) - 3)) == r.hi)
+        math.shl(u64, mantissa, (upper_bit + 64 - @as(i32, @intCast(float_info.mantissa_explicit_bits)) - 3)) == r.hi)
     {
         // Zero the lowest bit, so we don't round up.
         mantissa &= ~@as(u64, 1);
@@ -139,8 +139,8 @@ const U128 = struct {
     pub fn mul(a: u64, b: u64) U128 {
         const x = @as(u128, a) * b;
         return .{
-            .hi = @truncate(u64, x >> 64),
-            .lo = @truncate(u64, x),
+            .hi = @as(u64, @truncate(x >> 64)),
+            .lo = @as(u64, @truncate(x)),
         };
     }
 };
@@ -161,7 +161,7 @@ fn computeProductApprox(q: i64, w: u64, comptime precision: usize) U128 {
     // 5^q < 2^64, then the multiplication always provides an exact value.
     // That means whenever we need to round ties to even, we always have
     // an exact value.
-    const index = @intCast(usize, q - @intCast(i64, eisel_lemire_smallest_power_of_five));
+    const index = @as(usize, @intCast(q - @as(i64, @intCast(eisel_lemire_smallest_power_of_five))));
     const pow5 = eisel_lemire_table_powers_of_five_128[index];
 
     // Only need one multiplication as long as there is 1 zero but

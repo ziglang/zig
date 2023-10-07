@@ -17,19 +17,20 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const dylib = b.addSharedLibrary(.{
         .name = "a",
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
+    dylib.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &.{} });
     dylib.linkLibC();
 
     const check_dylib = dylib.checkObject();
-    check_dylib.checkStart("cmd ID_DYLIB");
-    check_dylib.checkNext("name @rpath/liba.dylib");
-    check_dylib.checkNext("timestamp 2");
-    check_dylib.checkNext("current version 10000");
-    check_dylib.checkNext("compatibility version 10000");
+    check_dylib.checkStart();
+    check_dylib.checkExact("cmd ID_DYLIB");
+    check_dylib.checkExact("name @rpath/liba.dylib");
+    check_dylib.checkExact("timestamp 2");
+    check_dylib.checkExact("current version 10000");
+    check_dylib.checkExact("compatibility version 10000");
 
     test_step.dependOn(&check_dylib.step);
 
@@ -38,23 +39,27 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkSystemLibrary("a");
-    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
-    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
     exe.linkLibC();
 
     const check_exe = exe.checkObject();
-    check_exe.checkStart("cmd LOAD_DYLIB");
-    check_exe.checkNext("name @rpath/liba.dylib");
-    check_exe.checkNext("timestamp 2");
-    check_exe.checkNext("current version 10000");
-    check_exe.checkNext("compatibility version 10000");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd LOAD_DYLIB");
+    check_exe.checkExact("name @rpath/liba.dylib");
+    check_exe.checkExact("timestamp 2");
+    check_exe.checkExact("current version 10000");
+    check_exe.checkExact("compatibility version 10000");
 
-    check_exe.checkStart("cmd RPATH");
-    check_exe.checkNextFileSource("path", dylib.getOutputDirectorySource());
+    check_exe.checkStart();
+    check_exe.checkExact("cmd RPATH");
+    check_exe.checkExactPath("path", dylib.getOutputDirectorySource());
+    test_step.dependOn(&check_exe.step);
 
-    const run = check_exe.runAndCompare();
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);
 }

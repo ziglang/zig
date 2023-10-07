@@ -66,7 +66,7 @@ using ::clock_t _LIBCPP_USING_IF_EXISTS;
 using ::size_t _LIBCPP_USING_IF_EXISTS;
 using ::time_t _LIBCPP_USING_IF_EXISTS;
 using ::tm _LIBCPP_USING_IF_EXISTS;
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 using ::timespec _LIBCPP_USING_IF_EXISTS;
 #endif
 using ::clock _LIBCPP_USING_IF_EXISTS;
@@ -78,7 +78,7 @@ using ::ctime _LIBCPP_USING_IF_EXISTS;
 using ::gmtime _LIBCPP_USING_IF_EXISTS;
 using ::localtime _LIBCPP_USING_IF_EXISTS;
 using ::strftime _LIBCPP_USING_IF_EXISTS;
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 using ::timespec_get _LIBCPP_USING_IF_EXISTS;
 #endif
 

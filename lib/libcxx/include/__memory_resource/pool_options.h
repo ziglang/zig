@@ -16,7 +16,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -24,7 +24,7 @@ namespace pmr {
 
 // [mem.res.pool.options]
 
-struct _LIBCPP_TYPE_VIS pool_options {
+struct _LIBCPP_EXPORTED_FROM_ABI pool_options {
   size_t max_blocks_per_chunk        = 0;
   size_t largest_required_pool_block = 0;
 };
@@ -33,6 +33,6 @@ struct _LIBCPP_TYPE_VIS pool_options {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 #endif // _LIBCPP___MEMORY_RESOURCE_POOL_OPTIONS_H

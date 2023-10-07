@@ -78,7 +78,7 @@
 typedef struct ipc_info_space {
 	natural_t iis_genno_mask;       /* generation number mask */
 	natural_t iis_table_size;       /* size of table */
-	natural_t iis_table_next;       /* next possible size of table */
+	natural_t iis_table_next;       /* next possible size of table (UNUSED) */
 	natural_t iis_tree_size;        /* size of tree (UNUSED) */
 	natural_t iis_tree_small;       /* # of small entries in tree (UNUSED) */
 	natural_t iis_tree_hash;        /* # of hashed entries in tree (UNUSED) */
@@ -87,7 +87,7 @@ typedef struct ipc_info_space {
 typedef struct ipc_info_space_basic {
 	natural_t iisb_genno_mask;      /* generation number mask */
 	natural_t iisb_table_size;      /* size of table */
-	natural_t iisb_table_next;      /* next possible size of table */
+	natural_t iisb_table_next;      /* next possible size of table (UNUSED) */
 	natural_t iisb_table_inuse;     /* number of entries in use */
 	natural_t iisb_reserved[2];     /* future expansion */
 } ipc_info_space_basic_t;

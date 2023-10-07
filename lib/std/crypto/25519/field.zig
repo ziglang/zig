@@ -254,11 +254,11 @@ pub const Fe = struct {
         var rs: [5]u64 = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
-            rs[i] = @truncate(u64, r[i]) & MASK51;
-            r[i + 1] += @intCast(u64, r[i] >> 51);
+            rs[i] = @as(u64, @truncate(r[i])) & MASK51;
+            r[i + 1] += @as(u64, @intCast(r[i] >> 51));
         }
-        rs[4] = @truncate(u64, r[4]) & MASK51;
-        var carry = @intCast(u64, r[4] >> 51);
+        rs[4] = @as(u64, @truncate(r[4])) & MASK51;
+        var carry = @as(u64, @intCast(r[4] >> 51));
         rs[0] += 19 * carry;
         carry = rs[0] >> 51;
         rs[0] &= MASK51;
@@ -278,8 +278,8 @@ pub const Fe = struct {
         var r: [5]u128 = undefined;
         comptime var i = 0;
         inline while (i < 5) : (i += 1) {
-            ax[i] = @intCast(u128, a.limbs[i]);
-            bx[i] = @intCast(u128, b.limbs[i]);
+            ax[i] = @as(u128, @intCast(a.limbs[i]));
+            bx[i] = @as(u128, @intCast(b.limbs[i]));
         }
         i = 1;
         inline while (i < 5) : (i += 1) {
@@ -299,7 +299,7 @@ pub const Fe = struct {
         var r: [5]u128 = undefined;
         comptime var i = 0;
         inline while (i < 5) : (i += 1) {
-            ax[i] = @intCast(u128, a.limbs[i]);
+            ax[i] = @as(u128, @intCast(a.limbs[i]));
         }
         const a0_2 = 2 * ax[0];
         const a1_2 = 2 * ax[1];
@@ -334,15 +334,15 @@ pub const Fe = struct {
 
     /// Multiply a field element with a small (32-bit) integer
     pub inline fn mul32(a: Fe, comptime n: u32) Fe {
-        const sn = @intCast(u128, n);
+        const sn = @as(u128, @intCast(n));
         var fe: Fe = undefined;
         var x: u128 = 0;
         comptime var i = 0;
         inline while (i < 5) : (i += 1) {
             x = a.limbs[i] * sn + (x >> 51);
-            fe.limbs[i] = @truncate(u64, x) & MASK51;
+            fe.limbs[i] = @as(u64, @truncate(x)) & MASK51;
         }
-        fe.limbs[0] += @intCast(u64, x >> 51) * 19;
+        fe.limbs[0] += @as(u64, @intCast(x >> 51)) * 19;
 
         return fe;
     }
@@ -387,7 +387,7 @@ pub const Fe = struct {
     /// Return the absolute value of a field element
     pub fn abs(a: Fe) Fe {
         var r = a;
-        r.cMov(a.neg(), @boolToInt(a.isNegative()));
+        r.cMov(a.neg(), @intFromBool(a.isNegative()));
         return r;
     }
 
@@ -402,7 +402,7 @@ pub const Fe = struct {
         const t2 = t.sqn(30).mul(t);
         const t3 = t2.sqn(60).mul(t2);
         const t4 = t3.sqn(120).mul(t3).sqn(10).mul(u).sqn(3).mul(_11).sq();
-        return @bitCast(bool, @truncate(u1, ~(t4.toBytes()[1] & 1)));
+        return @as(bool, @bitCast(@as(u1, @truncate(~(t4.toBytes()[1] & 1)))));
     }
 
     fn uncheckedSqrt(x2: Fe) Fe {
@@ -412,7 +412,7 @@ pub const Fe = struct {
         const m_root2 = m_root.sq();
         e = x2.sub(m_root2);
         var x = p_root;
-        x.cMov(m_root, @boolToInt(e.isZero()));
+        x.cMov(m_root, @intFromBool(e.isZero()));
         return x;
     }
 

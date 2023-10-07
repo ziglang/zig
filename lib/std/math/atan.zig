@@ -46,7 +46,7 @@ fn atan32(x_: f32) f32 {
     };
 
     var x = x_;
-    var ix: u32 = @bitCast(u32, x);
+    var ix: u32 = @as(u32, @bitCast(x));
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -73,7 +73,7 @@ fn atan32(x_: f32) f32 {
         }
         id = null;
     } else {
-        x = @fabs(x);
+        x = @abs(x);
         // |x| < 1.1875
         if (ix < 0x3F980000) {
             // 7/16 <= |x| < 11/16
@@ -143,8 +143,8 @@ fn atan64(x_: f64) f64 {
     };
 
     var x = x_;
-    var ux = @bitCast(u64, x);
-    var ix = @intCast(u32, ux >> 32);
+    var ux = @as(u64, @bitCast(x));
+    var ix = @as(u32, @intCast(ux >> 32));
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -161,17 +161,17 @@ fn atan64(x_: f64) f64 {
     var id: ?usize = undefined;
 
     // |x| < 0.4375
-    if (ix < 0x3DFC0000) {
+    if (ix < 0x3FDC0000) {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
-                math.doNotOptimizeAway(@floatCast(f32, x));
+                math.doNotOptimizeAway(@as(f32, @floatCast(x)));
             }
             return x;
         }
         id = null;
     } else {
-        x = @fabs(x);
+        x = @abs(x);
         // |x| < 1.1875
         if (ix < 0x3FF30000) {
             // 7/16 <= |x| < 11/16
@@ -212,7 +212,7 @@ fn atan64(x_: f64) f64 {
 }
 
 test "math.atan" {
-    try expect(@bitCast(u32, atan(@as(f32, 0.2))) == @bitCast(u32, atan32(0.2)));
+    try expect(@as(u32, @bitCast(atan(@as(f32, 0.2)))) == @as(u32, @bitCast(atan32(0.2))));
     try expect(atan(@as(f64, 0.2)) == atan64(0.2));
 }
 

@@ -5,7 +5,9 @@ pub fn pass(in: []u8) []u8 {
     return out.*[0..1];
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(&pass)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&pass));
+}
 
 // error
 // backend=stage2

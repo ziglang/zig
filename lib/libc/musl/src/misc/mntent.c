@@ -2,6 +2,7 @@
 #include <string.h>
 #include <mntent.h>
 #include <errno.h>
+#include <limits.h>
 
 static char *internal_buf;
 static size_t internal_bufsize;
@@ -21,7 +22,8 @@ int endmntent(FILE *f)
 
 struct mntent *getmntent_r(FILE *f, struct mntent *mnt, char *linebuf, int buflen)
 {
-	int cnt, n[8], use_internal = (linebuf == SENTINEL);
+	int n[8], use_internal = (linebuf == SENTINEL);
+	size_t len, i;
 
 	mnt->mnt_freq = 0;
 	mnt->mnt_passno = 0;
@@ -39,10 +41,14 @@ struct mntent *getmntent_r(FILE *f, struct mntent *mnt, char *linebuf, int bufle
 			errno = ERANGE;
 			return 0;
 		}
-		cnt = sscanf(linebuf, " %n%*s%n %n%*s%n %n%*s%n %n%*s%n %d %d",
+
+		len = strlen(linebuf);
+		if (len > INT_MAX) continue;
+		for (i = 0; i < sizeof n / sizeof *n; i++) n[i] = len;
+		sscanf(linebuf, " %n%*s%n %n%*s%n %n%*s%n %n%*s%n %d %d",
 			n, n+1, n+2, n+3, n+4, n+5, n+6, n+7,
 			&mnt->mnt_freq, &mnt->mnt_passno);
-	} while (cnt < 2 || linebuf[n[0]] == '#');
+	} while (linebuf[n[0]] == '#' || n[1]==len);
 
 	linebuf[n[1]] = 0;
 	linebuf[n[3]] = 0;

@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9 => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -59,10 +59,9 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
 /// (depending on the platform) this assumption may not hold for every configuration.
 /// The byte count does not include a null sentinel byte.
 pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly => os.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => os.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => os.NAME_MAX - 1,
-    .solaris => os.system.MAXNAMLEN,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -326,7 +325,7 @@ pub const IterableDir = struct {
     const IteratorError = error{ AccessDenied, SystemResources } || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
             dir: Dir,
             seek: i64,
             buf: [1024]u8, // TODO align(@alignOf(os.system.dirent)),
@@ -344,7 +343,7 @@ pub const IterableDir = struct {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
-                    .solaris => return self.nextSolaris(),
+                    .solaris, .illumos => return self.nextSolaris(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -373,28 +372,28 @@ pub const IterableDir = struct {
                             }
                         }
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const darwin_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const darwin_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + darwin_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
+                    const name = @as([*]u8, @ptrCast(&darwin_entry.d_name))[0..darwin_entry.d_namlen];
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.d_ino == 0)) {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (darwin_entry.d_type) {
-                        os.DT.BLK => Entry.Kind.BlockDevice,
-                        os.DT.CHR => Entry.Kind.CharacterDevice,
-                        os.DT.DIR => Entry.Kind.Directory,
-                        os.DT.FIFO => Entry.Kind.NamedPipe,
-                        os.DT.LNK => Entry.Kind.SymLink,
-                        os.DT.REG => Entry.Kind.File,
-                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT.WHT => Entry.Kind.Whiteout,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (darwin_entry.d_type) {
+                        os.DT.BLK => .block_device,
+                        os.DT.CHR => .character_device,
+                        os.DT.DIR => .directory,
+                        os.DT.FIFO => .named_pipe,
+                        os.DT.LNK => .sym_link,
+                        os.DT.REG => .file,
+                        os.DT.SOCK => .unix_domain_socket,
+                        os.DT.WHT => .whiteout,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -421,13 +420,13 @@ pub const IterableDir = struct {
                         }
                         if (rc == 0) return null;
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + entry.reclen();
                     self.index = next_index;
 
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&entry.d_name)), 0);
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
                         continue :start_over;
 
@@ -442,17 +441,17 @@ pub const IterableDir = struct {
                         error.FileNotFound => unreachable, // lost the race
                         else => |e| return e,
                     };
-                    const entry_kind = switch (stat_info.mode & os.S.IFMT) {
-                        os.S.IFIFO => Entry.Kind.NamedPipe,
-                        os.S.IFCHR => Entry.Kind.CharacterDevice,
-                        os.S.IFDIR => Entry.Kind.Directory,
-                        os.S.IFBLK => Entry.Kind.BlockDevice,
-                        os.S.IFREG => Entry.Kind.File,
-                        os.S.IFLNK => Entry.Kind.SymLink,
-                        os.S.IFSOCK => Entry.Kind.UnixDomainSocket,
-                        os.S.IFDOOR => Entry.Kind.Door,
-                        os.S.IFPORT => Entry.Kind.EventPort,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (stat_info.mode & os.S.IFMT) {
+                        os.S.IFIFO => .named_pipe,
+                        os.S.IFCHR => .character_device,
+                        os.S.IFDIR => .directory,
+                        os.S.IFBLK => .block_device,
+                        os.S.IFREG => .file,
+                        os.S.IFLNK => .sym_link,
+                        os.S.IFSOCK => .unix_domain_socket,
+                        os.S.IFDOOR => .door,
+                        os.S.IFPORT => .event_port,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -478,17 +477,20 @@ pub const IterableDir = struct {
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
+                            // Introduced in freebsd 13.2: directory unlinked but still open.
+                            // To be consistent, iteration ends if the directory being iterated is deleted during iteration.
+                            .NOENT => return null,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const bsd_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const bsd_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + bsd_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &bsd_entry.d_name)[0..bsd_entry.d_namlen];
+                    const name = @as([*]u8, @ptrCast(&bsd_entry.d_name))[0..bsd_entry.d_namlen];
 
                     const skip_zero_fileno = switch (builtin.os.tag) {
                         // d_fileno=0 is used to mark invalid entries or deleted files.
@@ -501,16 +503,16 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (bsd_entry.d_type) {
-                        os.DT.BLK => Entry.Kind.BlockDevice,
-                        os.DT.CHR => Entry.Kind.CharacterDevice,
-                        os.DT.DIR => Entry.Kind.Directory,
-                        os.DT.FIFO => Entry.Kind.NamedPipe,
-                        os.DT.LNK => Entry.Kind.SymLink,
-                        os.DT.REG => Entry.Kind.File,
-                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT.WHT => Entry.Kind.Whiteout,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (bsd_entry.d_type) {
+                        os.DT.BLK => .block_device,
+                        os.DT.CHR => .character_device,
+                        os.DT.DIR => .directory,
+                        os.DT.FIFO => .named_pipe,
+                        os.DT.LNK => .sym_link,
+                        os.DT.REG => .file,
+                        os.DT.SOCK => .unix_domain_socket,
+                        os.DT.WHT => .whiteout,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -564,12 +566,12 @@ pub const IterableDir = struct {
                             }
                         }
                         self.index = 0;
-                        self.end_index = @intCast(usize, rc);
+                        self.end_index = @as(usize, @intCast(rc));
                     }
-                    const haiku_entry = @ptrCast(*align(1) os.system.dirent, &self.buf[self.index]);
+                    const haiku_entry = @as(*align(1) os.system.dirent, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + haiku_entry.reclen();
                     self.index = next_index;
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &haiku_entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.d_name)), 0);
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
                         continue :start_over;
@@ -595,14 +597,14 @@ pub const IterableDir = struct {
                     }
                     const statmode = stat_info.mode & os.S.IFMT;
 
-                    const entry_kind = switch (statmode) {
-                        os.S.IFDIR => Entry.Kind.Directory,
-                        os.S.IFBLK => Entry.Kind.BlockDevice,
-                        os.S.IFCHR => Entry.Kind.CharacterDevice,
-                        os.S.IFLNK => Entry.Kind.SymLink,
-                        os.S.IFREG => Entry.Kind.File,
-                        os.S.IFIFO => Entry.Kind.NamedPipe,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (statmode) {
+                        os.S.IFDIR => .directory,
+                        os.S.IFBLK => .block_device,
+                        os.S.IFCHR => .character_device,
+                        os.S.IFLNK => .sym_link,
+                        os.S.IFREG => .file,
+                        os.S.IFIFO => .named_pipe,
+                        else => .unknown,
                     };
 
                     return Entry{
@@ -662,32 +664,33 @@ pub const IterableDir = struct {
                             .NOTDIR => unreachable,
                             .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
+                            .ACCES => return error.AccessDenied, // Do not have permission to iterate this directory.
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
                         self.index = 0;
                         self.end_index = rc;
                     }
-                    const linux_entry = @ptrCast(*align(1) linux.dirent64, &self.buf[self.index]);
+                    const linux_entry = @as(*align(1) linux.dirent64, @ptrCast(&self.buf[self.index]));
                     const next_index = self.index + linux_entry.reclen();
                     self.index = next_index;
 
-                    const name = mem.sliceTo(@ptrCast([*:0]u8, &linux_entry.d_name), 0);
+                    const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.d_name)), 0);
 
                     // skip . and .. entries
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (linux_entry.d_type) {
-                        linux.DT.BLK => Entry.Kind.BlockDevice,
-                        linux.DT.CHR => Entry.Kind.CharacterDevice,
-                        linux.DT.DIR => Entry.Kind.Directory,
-                        linux.DT.FIFO => Entry.Kind.NamedPipe,
-                        linux.DT.LNK => Entry.Kind.SymLink,
-                        linux.DT.REG => Entry.Kind.File,
-                        linux.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (linux_entry.d_type) {
+                        linux.DT.BLK => .block_device,
+                        linux.DT.CHR => .character_device,
+                        linux.DT.DIR => .directory,
+                        linux.DT.FIFO => .named_pipe,
+                        linux.DT.LNK => .sym_link,
+                        linux.DT.REG => .file,
+                        linux.DT.SOCK => .unix_domain_socket,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -746,26 +749,25 @@ pub const IterableDir = struct {
                         }
                     }
 
-                    const aligned_ptr = @alignCast(@alignOf(w.FILE_BOTH_DIR_INFORMATION), &self.buf[self.index]);
-                    const dir_info = @ptrCast(*w.FILE_BOTH_DIR_INFORMATION, aligned_ptr);
+                    const dir_info: *w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
                     if (dir_info.NextEntryOffset != 0) {
                         self.index += dir_info.NextEntryOffset;
                     } else {
                         self.index = self.buf.len;
                     }
 
-                    const name_utf16le = @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
+                    const name_utf16le = @as([*]u16, @ptrCast(&dir_info.FileName))[0 .. dir_info.FileNameLength / 2];
 
                     if (mem.eql(u16, name_utf16le, &[_]u16{'.'}) or mem.eql(u16, name_utf16le, &[_]u16{ '.', '.' }))
                         continue;
                     // Trust that Windows gives us valid UTF-16LE
                     const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
                     const name_utf8 = self.name_data[0..name_utf8_len];
-                    const kind = blk: {
+                    const kind: Entry.Kind = blk: {
                         const attrs = dir_info.FileAttributes;
-                        if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
-                        if (attrs & w.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                        break :blk Entry.Kind.File;
+                        if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk .directory;
+                        if (attrs & w.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk .sym_link;
+                        break :blk .file;
                     };
                     return Entry{
                         .name = name_utf8,
@@ -831,7 +833,7 @@ pub const IterableDir = struct {
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry = @as(*align(1) w.dirent_t, @ptrCast(&self.buf[self.index]));
                     const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     if (name_index + entry.d_namlen > self.end_index) {
@@ -850,14 +852,14 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (entry.d_type) {
-                        .BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        .CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        .DIRECTORY => Entry.Kind.Directory,
-                        .SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        .REGULAR_FILE => Entry.Kind.File,
-                        .SOCKET_STREAM, .SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (entry.d_type) {
+                        .BLOCK_DEVICE => .block_device,
+                        .CHARACTER_DEVICE => .character_device,
+                        .DIRECTORY => .directory,
+                        .SYMBOLIC_LINK => .sym_link,
+                        .REGULAR_FILE => .file,
+                        .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -895,6 +897,7 @@ pub const IterableDir = struct {
             .dragonfly,
             .openbsd,
             .solaris,
+            .illumos,
             => return Iterator{
                 .dir = self.dir,
                 .seek = 0,
@@ -957,14 +960,24 @@ pub const IterableDir = struct {
                 var top = &self.stack.items[self.stack.items.len - 1];
                 var containing = top;
                 var dirname_len = top.dirname_len;
-                if (try top.iter.next()) |base| {
+                if (top.iter.next() catch |err| {
+                    // If we get an error, then we want the user to be able to continue
+                    // walking if they want, which means that we need to pop the directory
+                    // that errored from the stack. Otherwise, all future `next` calls would
+                    // likely just fail with the same error.
+                    var item = self.stack.pop();
+                    if (self.stack.items.len != 0) {
+                        item.iter.dir.close();
+                    }
+                    return err;
+                }) |base| {
                     self.name_buffer.shrinkRetainingCapacity(dirname_len);
                     if (self.name_buffer.items.len != 0) {
                         try self.name_buffer.append(path.sep);
                         dirname_len += 1;
                     }
                     try self.name_buffer.appendSlice(base.name);
-                    if (base.kind == .Directory) {
+                    if (base.kind == .directory) {
                         var new_dir = top.iter.dir.openIterableDir(base.name, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable, // no path sep in base.name
                             else => |e| return e,
@@ -972,7 +985,7 @@ pub const IterableDir = struct {
                         {
                             errdefer new_dir.close();
                             try self.stack.append(StackItem{
-                                .iter = new_dir.iterate(),
+                                .iter = new_dir.iterateAssumeFirstIteration(),
                                 .dirname_len = self.name_buffer.items.len,
                             });
                             top = &self.stack.items[self.stack.items.len - 1];
@@ -1086,6 +1099,8 @@ pub const Dir = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.UnexpectedError;
 
     pub fn close(self: *Dir) void {
@@ -1103,7 +1118,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
-            const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.openFileW(path_w.span(), flags);
         }
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -1141,11 +1156,13 @@ pub const Dir = struct {
     /// Same as `openFile` but the path parameter is null-terminated.
     pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
-            const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
+            const path_w = try os.windows.cStrToPrefixedFileW(self.fd, sub_path);
             return self.openFileW(path_w.span(), flags);
         }
 
-        var os_flags: u32 = os.O.CLOEXEC;
+        var os_flags: u32 = 0;
+        if (@hasDecl(os.O, "CLOEXEC")) os_flags = os.O.CLOEXEC;
+
         // Use the O locking flags if the os supports them to acquire the lock
         // atomically.
         const has_flock_open_flags = @hasDecl(os.O, "EXLOCK");
@@ -1157,15 +1174,15 @@ pub const Dir = struct {
             else
                 0;
             os_flags |= switch (flags.lock) {
-                .None => @as(u32, 0),
-                .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-                .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+                .none => @as(u32, 0),
+                .shared => os.O.SHLOCK | nonblocking_lock_flag,
+                .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
             };
         }
         if (@hasDecl(os.O, "LARGEFILE")) {
             os_flags |= os.O.LARGEFILE;
         }
-        if (!flags.allow_ctty) {
+        if (@hasDecl(os.O, "NOCTTY") and !flags.allow_ctty) {
             os_flags |= os.O.NOCTTY;
         }
         os_flags |= switch (flags.mode) {
@@ -1181,14 +1198,14 @@ pub const Dir = struct {
 
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
-        if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+        if (@hasDecl(os.system, "LOCK") and builtin.target.os.tag != .wasi) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1241,9 +1258,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,
@@ -1254,8 +1271,8 @@ pub const Dir = struct {
             &range_off,
             &range_len,
             null,
-            @boolToInt(flags.lock_nonblocking),
-            @boolToInt(exclusive),
+            @intFromBool(flags.lock_nonblocking),
+            @intFromBool(exclusive),
         );
         return file;
     }
@@ -1265,7 +1282,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
-            const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.createFileW(path_w.span(), flags);
         }
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -1306,7 +1323,7 @@ pub const Dir = struct {
     /// Same as `createFile` but the path parameter is null-terminated.
     pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
         if (builtin.os.tag == .windows) {
-            const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            const path_w = try os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
             return self.createFileW(path_w.span(), flags);
         }
 
@@ -1320,9 +1337,9 @@ pub const Dir = struct {
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-            .None => @as(u32, 0),
-            .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+            .none => @as(u32, 0),
+            .shared => os.O.SHLOCK | nonblocking_lock_flag,
+            .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os.O, "LARGEFILE")) os.O.LARGEFILE else 0;
@@ -1339,13 +1356,13 @@ pub const Dir = struct {
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1402,9 +1419,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,
@@ -1415,8 +1432,8 @@ pub const Dir = struct {
             &range_off,
             &range_len,
             null,
-            @boolToInt(flags.lock_nonblocking),
-            @boolToInt(exclusive),
+            @intFromBool(flags.lock_nonblocking),
+            @intFromBool(exclusive),
         );
         return file;
     }
@@ -1447,32 +1464,22 @@ pub const Dir = struct {
     /// This function is not atomic, and if it returns an error, the file system may
     /// have been modified regardless.
     pub fn makePath(self: Dir, sub_path: []const u8) !void {
-        var end_index: usize = sub_path.len;
+        var it = try path.componentIterator(sub_path);
+        var component = it.last() orelse return;
         while (true) {
-            self.makeDir(sub_path[0..end_index]) catch |err| switch (err) {
+            self.makeDir(component.path) catch |err| switch (err) {
                 error.PathAlreadyExists => {
                     // TODO stat the file and return an error if it's not a directory
                     // this is important because otherwise a dangling symlink
                     // could cause an infinite loop
-                    if (end_index == sub_path.len) return;
                 },
-                error.FileNotFound => {
-                    // march end_index backward until next path component
-                    while (true) {
-                        if (end_index == 0) return err;
-                        end_index -= 1;
-                        if (path.isSep(sub_path[end_index])) break;
-                    }
+                error.FileNotFound => |e| {
+                    component = it.previous() orelse return e;
                     continue;
                 },
-                else => return err,
+                else => |e| return e,
             };
-            if (end_index == sub_path.len) return;
-            // march end_index forward until next path component
-            while (true) {
-                end_index += 1;
-                if (end_index == sub_path.len or path.isSep(sub_path[end_index])) break;
-            }
+            component = it.next() orelse return;
         }
     }
 
@@ -1506,7 +1513,7 @@ pub const Dir = struct {
             @compileError("realpath is not available on WASI");
         }
         if (builtin.os.tag == .windows) {
-            const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
+            const pathname_w = try os.windows.sliceToPrefixedFileW(self.fd, pathname);
             return self.realpathW(pathname_w.span(), out_buffer);
         }
         const pathname_c = try os.toPosixPath(pathname);
@@ -1517,7 +1524,7 @@ pub const Dir = struct {
     /// See also `Dir.realpath`, `realpathZ`.
     pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .windows) {
-            const pathname_w = try os.windows.cStrToPrefixedFileW(pathname);
+            const pathname_w = try os.windows.cStrToPrefixedFileW(self.fd, pathname);
             return self.realpathW(pathname_w.span(), out_buffer);
         }
 
@@ -1561,18 +1568,8 @@ pub const Dir = struct {
                 .share_access = share_access,
                 .creation = creation,
                 .io_mode = .blocking,
+                .filter = .any,
             }) catch |err| switch (err) {
-                error.IsDir => break :blk w.OpenFile(pathname, .{
-                    .dir = self.fd,
-                    .access_mask = access_mask,
-                    .share_access = share_access,
-                    .creation = creation,
-                    .io_mode = .blocking,
-                    .filter = .dir_only,
-                }) catch |er| switch (er) {
-                    error.WouldBlock => unreachable,
-                    else => |e2| return e2,
-                },
                 error.WouldBlock => unreachable,
                 else => |e| return e,
             };
@@ -1649,7 +1646,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.openDirW(sub_path_w.span().ptr, args, false);
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.openDirWasi(sub_path, args);
@@ -1665,7 +1662,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!IterableDir {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return IterableDir{ .dir = try self.openDirW(sub_path_w.span().ptr, args, true) };
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return IterableDir{ .dir = try self.openDirWasi(sub_path, args) };
@@ -1725,7 +1722,7 @@ pub const Dir = struct {
     /// Same as `openDir` except the parameter is null-terminated.
     pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args, iterable);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
@@ -1775,7 +1772,7 @@ pub const Dir = struct {
             .fd = undefined,
         };
 
-        const path_len_bytes = @intCast(u16, mem.sliceTo(sub_path_w, 0).len * 2);
+        const path_len_bytes = @as(u16, @intCast(mem.sliceTo(sub_path_w, 0).len * 2));
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
@@ -1824,7 +1821,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.deleteFileW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
@@ -1844,7 +1841,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT.SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
@@ -1877,6 +1874,8 @@ pub const Dir = struct {
         ReadOnlyFileSystem,
         InvalidUtf8,
         BadPathName,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
         Unexpected,
     };
 
@@ -1885,7 +1884,7 @@ pub const Dir = struct {
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.deleteDirW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             os.unlinkat(self.fd, sub_path, os.AT.REMOVEDIR) catch |err| switch (err) {
@@ -1950,8 +1949,14 @@ pub const Dir = struct {
             return self.symLinkWasi(target_path, sym_link_path, flags);
         }
         if (builtin.os.tag == .windows) {
-            const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
-            const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+            // Target path does not use sliceToPrefixedFileW because certain paths
+            // are handled differently when creating a symlink than they would be
+            // when converting to an NT namespaced path. CreateSymbolicLink in
+            // symLinkW will handle the necessary conversion.
+            var target_path_w: os.windows.PathSpace = undefined;
+            target_path_w.len = try std.unicode.utf8ToUtf16Le(&target_path_w.data, target_path);
+            target_path_w.data[target_path_w.len] = 0;
+            const sym_link_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sym_link_path);
             return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
         }
         const target_path_c = try os.toPosixPath(target_path);
@@ -1977,8 +1982,8 @@ pub const Dir = struct {
         flags: SymLinkFlags,
     ) !void {
         if (builtin.os.tag == .windows) {
-            const target_path_w = try os.windows.cStrToPrefixedFileW(target_path_c);
-            const sym_link_path_w = try os.windows.cStrToPrefixedFileW(sym_link_path_c);
+            const target_path_w = try os.windows.cStrToPrefixedFileW(self.fd, target_path_c);
+            const sym_link_path_w = try os.windows.cStrToPrefixedFileW(self.fd, sym_link_path_c);
             return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
         }
         return os.symlinkatZ(target_path_c, self.fd, sym_link_path_c);
@@ -1988,22 +1993,27 @@ pub const Dir = struct {
     /// are null-terminated, WTF16 encoded.
     pub fn symLinkW(
         self: Dir,
-        target_path_w: []const u16,
+        /// WTF-16, does not need to be NT-prefixed. The NT-prefixing
+        /// of this path is handled by CreateSymbolicLink.
+        target_path_w: [:0]const u16,
+        /// WTF-16, must be NT-prefixed or relative
         sym_link_path_w: []const u16,
         flags: SymLinkFlags,
     ) !void {
         return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
+    pub const ReadLinkError = os.ReadLinkError;
+
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
-    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.readLinkWasi(sub_path, buffer);
         }
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
             return self.readLinkW(sub_path_w.span(), buffer);
         }
         const sub_path_c = try os.toPosixPath(sub_path);
@@ -2018,7 +2028,7 @@ pub const Dir = struct {
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
     pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
             return self.readLinkW(sub_path_w.span(), buffer);
         }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
@@ -2099,6 +2109,9 @@ pub const Dir = struct {
         /// On Windows, file paths cannot contain these characters:
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
+
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.UnexpectedError;
 
     /// Whether `full_path` describes a symlink, file, or directory, this function
@@ -2106,7 +2119,7 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .file)) orelse return;
 
         const StackItem = struct {
             name: []const u8,
@@ -2130,7 +2143,7 @@ pub const Dir = struct {
         process_stack: while (stack.len != 0) {
             var top = &(stack.slice()[stack.len - 1]);
             while (try top.iter.next()) |entry| {
-                var treat_as_dir = entry.kind == .Directory;
+                var treat_as_dir = entry.kind == .directory;
                 handle_entry: while (true) {
                     if (treat_as_dir) {
                         if (stack.ensureUnusedCapacity(1)) {
@@ -2155,6 +2168,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2191,6 +2205,7 @@ pub const Dir = struct {
                             error.FileSystem,
                             error.FileBusy,
                             error.BadPathName,
+                            error.NetworkNotFound,
                             error.Unexpected,
                             => |e| return e,
                         }
@@ -2244,6 +2259,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2270,6 +2286,7 @@ pub const Dir = struct {
                                 error.FileSystem,
                                 error.FileBusy,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.Unexpected,
                                 => |e| return e,
                             }
@@ -2291,7 +2308,7 @@ pub const Dir = struct {
     /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
     /// This is slower than `deleteTree` but uses less stack space.
     pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .File);
+        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .file);
     }
 
     fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
@@ -2316,7 +2333,7 @@ pub const Dir = struct {
             scan_dir: while (true) {
                 var dir_it = iterable_dir.iterateAssumeFirstIteration();
                 dir_it: while (try dir_it.next()) |entry| {
-                    var treat_as_dir = entry.kind == .Directory;
+                    var treat_as_dir = entry.kind == .directory;
                     handle_entry: while (true) {
                         if (treat_as_dir) {
                             const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
@@ -2340,6 +2357,7 @@ pub const Dir = struct {
                                 error.Unexpected,
                                 error.InvalidUtf8,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
@@ -2373,6 +2391,7 @@ pub const Dir = struct {
                                 error.FileSystem,
                                 error.FileBusy,
                                 error.BadPathName,
+                                error.NetworkNotFound,
                                 error.Unexpected,
                                 => |e| return e,
                             }
@@ -2407,7 +2426,7 @@ pub const Dir = struct {
     fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
         return iterable_dir: {
             // Treat as a file by default
-            var treat_as_dir = kind_hint == .Directory;
+            var treat_as_dir = kind_hint == .directory;
 
             handle_entry: while (true) {
                 if (treat_as_dir) {
@@ -2433,6 +2452,7 @@ pub const Dir = struct {
                         error.InvalidUtf8,
                         error.BadPathName,
                         error.DeviceBusy,
+                        error.NetworkNotFound,
                         => |e| return e,
                     };
                 } else {
@@ -2456,6 +2476,7 @@ pub const Dir = struct {
                         error.FileSystem,
                         error.FileBusy,
                         error.BadPathName,
+                        error.NetworkNotFound,
                         error.Unexpected,
                         => |e| return e,
                     }
@@ -2481,7 +2502,10 @@ pub const Dir = struct {
     /// open it and handle the error for file not found.
     pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            const sub_path_w = os.windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
+                error.AccessDenied => return error.PermissionDenied,
+                else => |e| return e,
+            };
             return self.accessW(sub_path_w.span().ptr, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
@@ -2491,7 +2515,10 @@ pub const Dir = struct {
     /// Same as `access` except the path parameter is null-terminated.
     pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
         if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path);
+            const sub_path_w = os.windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
+                error.AccessDenied => return error.PermissionDenied,
+                else => |e| return e,
+            };
             return self.accessW(sub_path_w.span().ptr, flags);
         }
         const os_mode = switch (flags.mode) {
@@ -2628,21 +2655,17 @@ pub const Dir = struct {
     ///
     /// `sub_path` may be absolute, in which case `self` is ignored.
     pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-        switch (builtin.os.tag) {
-            .windows => {
-                var file = try self.openFile(sub_path, .{});
-                defer file.close();
-                return file.stat();
-            },
-            .wasi => {
-                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
-                return Stat.fromSystem(st);
-            },
-            else => {
-                const st = try os.fstatat(self.fd, sub_path, 0);
-                return Stat.fromSystem(st);
-            },
+        if (builtin.os.tag == .windows) {
+            var file = try self.openFile(sub_path, .{});
+            defer file.close();
+            return file.stat();
         }
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+            return Stat.fromSystem(st);
+        }
+        const st = try os.fstatat(self.fd, sub_path, 0);
+        return Stat.fromSystem(st);
     }
 
     const Permissions = File.Permissions;
@@ -2770,7 +2793,7 @@ pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.
     try cwd().accessZ(absolute_path, flags);
 }
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
-pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+pub fn accessAbsoluteW(absolute_path: [*:0]const u16, flags: File.OpenFlags) Dir.AccessError!void {
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
 }
@@ -2874,8 +2897,8 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
-        const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
-        const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+        const target_path_w = try os.windows.sliceToPrefixedFileW(null, target_path);
+        const sym_link_path_w = try os.windows.sliceToPrefixedFileW(null, sym_link_path);
         return os.windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return os.symlink(target_path, sym_link_path);
@@ -2916,7 +2939,6 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -2925,8 +2947,12 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (builtin.os.tag == .windows) {
-        const wide_slice = selfExePathW();
-        const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
+        // If ImagePathName is a symlink, then it will contain the path of the symlink,
+        // not the path that the symlink points to. However, because we are opening
+        // the file, we can let the openFileW call follow the symlink for us.
+        const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+        const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+        const prefixed_path_w = try os.windows.wToPrefixedFileW(null, image_path_name);
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
@@ -2953,7 +2979,7 @@ pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
     return allocator.dupe(u8, try selfExePath(&buf));
 }
 
-/// Get the path to the current executable.
+/// Get the path to the current executable. Follows symlinks.
 /// If you only need the directory, use selfExeDirPath.
 /// If you only want an open file handle, use openSelfExe.
 /// This function may return an error if the current executable
@@ -2981,7 +3007,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
-        .solaris => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
+        .solaris, .illumos => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC, os.KERN.PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
@@ -2996,15 +3022,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .haiku => {
-            // The only possible issue when looking for the self image path is
-            // when the buffer is too short.
-            // TODO replace with proper constants
-            if (os.find_path(null, 1000, null, out_buffer.ptr, out_buffer.len) != 0)
-                return error.Overflow;
-            return mem.sliceTo(out_buffer, 0);
-        },
-        .openbsd => {
+        .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
@@ -3022,7 +3040,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             } else if (argv0.len != 0) {
                 // argv[0] is not empty (and not a path): search it inside PATH
                 const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
-                var path_it = mem.tokenize(u8, PATH, &[_]u8{path.delimiter});
+                var path_it = mem.tokenizeScalar(u8, PATH, path.delimiter);
                 while (path_it.next()) |a_path| {
                     var resolved_path_buf: [MAX_PATH_BYTES - 1:0]u8 = undefined;
                     const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
@@ -3044,21 +3062,20 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             return error.FileNotFound;
         },
         .windows => {
-            const utf16le_slice = selfExePathW();
-            // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
-            return out_buffer[0..end_index];
+            const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
+            const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+
+            // If ImagePathName is a symlink, then it will contain the path of the
+            // symlink, not the path that the symlink points to. We want the path
+            // that the symlink points to, though, so we need to get the realpath.
+            const pathname_w = try os.windows.wToPrefixedFileW(null, image_path_name);
+            return std.fs.cwd().realpathW(pathname_w.span(), out_buffer);
         },
-        .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
 }
 
-/// The result is UTF16LE-encoded.
-pub fn selfExePathW() [:0]const u16 {
-    const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return image_path_name.Buffer[0 .. image_path_name.Length / 2 :0];
-}
+pub const selfExePathW = @compileError("deprecated; use selfExePath instead");
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
@@ -3151,12 +3168,12 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError
 
 test {
     if (builtin.os.tag != .wasi) {
-        _ = makeDirAbsolute;
-        _ = makeDirAbsoluteZ;
-        _ = copyFileAbsolute;
-        _ = updateFileAbsolute;
+        _ = &makeDirAbsolute;
+        _ = &makeDirAbsoluteZ;
+        _ = &copyFileAbsolute;
+        _ = &updateFileAbsolute;
     }
-    _ = Dir.copyFile;
+    _ = &Dir.copyFile;
     _ = @import("fs/test.zig");
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");

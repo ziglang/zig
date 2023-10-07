@@ -55,10 +55,13 @@ pub const simple_cases = [_]SimpleCase{
         .os_filter = .windows,
         .link_libc = true,
     },
+    .{
+        .src_path = "test/standalone/http.zig",
+        .all_modes = true,
+    },
 
     // Ensure the development tools are buildable. Alphabetically sorted.
     // No need to build `tools/spirv/grammar.zig`.
-    .{ .src_path = "tools/extract-grammar.zig" },
     .{ .src_path = "tools/gen_outline_atomics.zig" },
     .{ .src_path = "tools/gen_spirv_spec.zig" },
     .{ .src_path = "tools/gen_stubs.zig" },
@@ -148,6 +151,10 @@ pub const build_cases = [_]BuildCase{
     //    .import = @import("standalone/issue_12588/build.zig"),
     //},
     .{
+        .build_root = "test/standalone/child_process",
+        .import = @import("standalone/child_process/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/embed_generated_file",
         .import = @import("standalone/embed_generated_file/build.zig"),
     },
@@ -188,8 +195,16 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/load_dynamic_library/build.zig"),
     },
     .{
+        .build_root = "test/standalone/windows_resources",
+        .import = @import("standalone/windows_resources/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/windows_spawn",
         .import = @import("standalone/windows_spawn/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/self_exe_symlink",
+        .import = @import("standalone/self_exe_symlink/build.zig"),
     },
     .{
         .build_root = "test/standalone/c_compiler",
@@ -209,10 +224,6 @@ pub const build_cases = [_]BuildCase{
     //    .build_root = "test/standalone/sigpipe",
     //    .import = @import("standalone/sigpipe/build.zig"),
     //},
-    .{
-        .build_root = "test/standalone/issue_13030",
-        .import = @import("standalone/issue_13030/build.zig"),
-    },
     // TODO restore this test
     //.{
     //    .build_root = "test/standalone/options",
@@ -221,6 +232,30 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/strip_empty_loop",
         .import = @import("standalone/strip_empty_loop/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/cmakedefine",
+        .import = @import("standalone/cmakedefine/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/zerolength_check",
+        .import = @import("standalone/zerolength_check/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/stack_iterator",
+        .import = @import("standalone/stack_iterator/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/coff_dwarf",
+        .import = @import("standalone/coff_dwarf/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/compiler_rt_panic",
+        .import = @import("standalone/compiler_rt_panic/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/ios",
+        .import = @import("standalone/ios/build.zig"),
     },
 };
 

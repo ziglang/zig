@@ -98,8 +98,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ++ " " ++ default_enum_type ++
             \\;
             \\pub const Bar = extern struct {
-            \\    a: c_int,
-            \\    b: c_int,
+            \\    a: c_int = @import("std").mem.zeroes(c_int),
+            \\    b: c_int = @import("std").mem.zeroes(c_int),
             \\};
     });
 
@@ -148,16 +148,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} a = {};
         \\#define PTR void *
     , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
-        \\    a: c_int,
+        \\pub const struct_Bar_1 = extern struct {
+        \\    a: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const struct_Foo = extern struct {
-        \\    a: c_int,
-        \\    b: struct_Bar,
+        \\    a: c_int = @import("std").mem.zeroes(c_int),
+        \\    b: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
         \\};
         \\pub export var a: struct_Foo = struct_Foo{
         \\    .a = 0,
-        \\    .b = @import("std").mem.zeroes(struct_Bar),
+        \\    .b = @import("std").mem.zeroes(struct_Bar_1),
         \\};
         ,
         \\pub const PTR = ?*anyopaque;
@@ -183,9 +183,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    const struct_Foo = extern struct {
-        \\        A: c_int,
-        \\        B: c_int,
-        \\        C: c_int,
+        \\        A: c_int = @import("std").mem.zeroes(c_int),
+        \\        B: c_int = @import("std").mem.zeroes(c_int),
+        \\        C: c_int = @import("std").mem.zeroes(c_int),
         \\    };
         \\    var a: struct_Foo = struct_Foo{
         \\        .A = @as(c_int, 0),
@@ -195,9 +195,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = @TypeOf(a);
         \\    {
         \\        const struct_Foo_1 = extern struct {
-        \\            A: c_int,
-        \\            B: c_int,
-        \\            C: c_int,
+        \\            A: c_int = @import("std").mem.zeroes(c_int),
+        \\            B: c_int = @import("std").mem.zeroes(c_int),
+        \\            C: c_int = @import("std").mem.zeroes(c_int),
         \\        };
         \\        var a_2: struct_Foo_1 = struct_Foo_1{
         \\            .A = @as(c_int, 0),
@@ -286,7 +286,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\source.h:1:9: warning: struct demoted to opaque type - unable to translate type of field foo
         \\pub const Foo = opaque {};
         \\pub const Bar = extern struct {
-        \\    bar: ?*Foo,
+        \\    bar: ?*Foo = @import("std").mem.zeroes(?*Foo),
         \\};
     });
 
@@ -300,7 +300,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = (foo + @as(c_int, 2)).*;
         ,
-        \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @boolToInt(@as(c_int, 8) == @as(c_int, 9));
+        \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @intFromBool(@as(c_int, 8) == @as(c_int, 9));
         ,
         \\pub inline fn _AL_READ3BYTES(p: anytype) @TypeOf((@import("std").zig.c_translation.cast([*c]u8, p).* | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16))) {
         \\    return (@import("std").zig.c_translation.cast([*c]u8, p).* | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 1)).* << @as(c_int, 8))) | ((@import("std").zig.c_translation.cast([*c]u8, p) + @as(c_int, 2)).* << @as(c_int, 16));
@@ -351,7 +351,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn main() void {
-        \\    var a: c_int = @bitCast(c_int, @truncate(c_uint, @alignOf(c_int)));
+        \\    var a: c_int = @as(c_int, @bitCast(@as(c_uint, @truncate(@alignOf(c_int)))));
         \\    _ = @TypeOf(a);
         \\}
     });
@@ -375,10 +375,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define B A(0.f)
     , &[_][]const u8{
         \\pub const struct_Color = extern struct {
-        \\    r: u8,
-        \\    g: u8,
-        \\    b: u8,
-        \\    a: u8,
+        \\    r: u8 = @import("std").mem.zeroes(u8),
+        \\    g: u8 = @import("std").mem.zeroes(u8),
+        \\    b: u8 = @import("std").mem.zeroes(u8),
+        \\    a: u8 = @import("std").mem.zeroes(u8),
         \\};
         \\pub const Color = struct_Color;
         ,
@@ -389,14 +389,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ @as(c_int, 200), @as(c_int, 200), @as(c_int, 200), @as(c_int, 255) });
         ,
         \\pub const struct_boom_t = extern struct {
-        \\    i1: c_int,
+        \\    i1: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const boom_t = struct_boom_t;
         ,
         \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{@as(c_int, 1)});
         ,
         \\pub const MyCStruct = extern struct {
-        \\    x: f32,
+        \\    x: f32 = @import("std").mem.zeroes(f32),
         \\};
         ,
         \\pub inline fn A(_x: anytype) MyCStruct {
@@ -439,8 +439,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) ((x >= 0) + (x >= 0))
         \\#define BAR 1 && 2 > 4
     , &[_][]const u8{
-        \\pub inline fn FOO(x: anytype) @TypeOf(@boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0))) {
-        \\    return @boolToInt(x >= @as(c_int, 0)) + @boolToInt(x >= @as(c_int, 0));
+        \\pub inline fn FOO(x: anytype) @TypeOf(@intFromBool(x >= @as(c_int, 0)) + @intFromBool(x >= @as(c_int, 0))) {
+        \\    return @intFromBool(x >= @as(c_int, 0)) + @intFromBool(x >= @as(c_int, 0));
         \\}
         ,
         \\pub const BAR = (@as(c_int, 1) != 0) and (@as(c_int, 2) > @as(c_int, 4));
@@ -452,7 +452,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_foo = extern struct {
-        \\    bar: c_short align(1),
+        \\    bar: c_short align(1) = @import("std").mem.zeroes(c_short),
         \\};
     });
 
@@ -461,19 +461,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct bar { int x; int y[0]; };
     , &[_][]const u8{
         \\pub const struct_foo = extern struct {
-        \\    x: c_int align(4),
+        \\    x: c_int align(4) = @import("std").mem.zeroes(c_int),
         \\    pub fn y(self: anytype) @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int) {
         \\        const Intermediate = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), u8);
         \\        const ReturnType = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int);
-        \\        return @ptrCast(ReturnType, @alignCast(@alignOf(c_int), @ptrCast(Intermediate, self) + 4));
+        \\        return @as(ReturnType, @ptrCast(@alignCast(@as(Intermediate, @ptrCast(self)) + 4)));
         \\    }
         \\};
         \\pub const struct_bar = extern struct {
-        \\    x: c_int align(4),
+        \\    x: c_int align(4) = @import("std").mem.zeroes(c_int),
         \\    pub fn y(self: anytype) @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int) {
         \\        const Intermediate = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), u8);
         \\        const ReturnType = @import("std").zig.c_translation.FlexibleArrayType(@TypeOf(self), c_int);
-        \\        return @ptrCast(ReturnType, @alignCast(@alignOf(c_int), @ptrCast(Intermediate, self) + 4));
+        \\        return @as(ReturnType, @ptrCast(@alignCast(@as(Intermediate, @ptrCast(self)) + 4)));
         \\    }
         \\};
     });
@@ -545,7 +545,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\source.h:4:8: warning: struct demoted to opaque type - unable to translate type of field abufused
         \\pub const struct_arcan_shmif_page = opaque {};
         \\pub const struct_arcan_shmif_cont = extern struct {
-        \\    addr: ?*struct_arcan_shmif_page,
+        \\    addr: ?*struct_arcan_shmif_page = @import("std").mem.zeroes(?*struct_arcan_shmif_page),
         \\};
     });
 
@@ -562,10 +562,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const fnptr_ty = ?*const fn () callconv(.C) void;
         \\pub const fnptr_attr_ty = ?*const fn () callconv(.C) void;
         \\pub const struct_foo = extern struct {
-        \\    foo: ?*const fn () callconv(.C) void,
-        \\    bar: ?*const fn () callconv(.C) void,
-        \\    baz: fnptr_ty,
-        \\    qux: fnptr_attr_ty,
+        \\    foo: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    bar: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    baz: fnptr_ty = @import("std").mem.zeroes(fnptr_ty),
+        \\    qux: fnptr_attr_ty = @import("std").mem.zeroes(fnptr_attr_ty),
         \\};
     });
 
@@ -624,18 +624,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void foo(outer *x) { x->y = x->x; }
     , &[_][]const u8{
         \\const struct_unnamed_2 = extern struct {
-        \\    y: c_int,
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\const union_unnamed_1 = extern union {
         \\    x: u8,
         \\    unnamed_0: struct_unnamed_2,
         \\};
         \\pub const outer = extern struct {
-        \\    unnamed_0: union_unnamed_1,
+        \\    unnamed_0: union_unnamed_1 = @import("std").mem.zeroes(union_unnamed_1),
         \\};
         \\pub export fn foo(arg_x: [*c]outer) void {
         \\    var x = arg_x;
-        \\    x.*.unnamed_0.unnamed_0.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_0.x));
+        \\    x.*.unnamed_0.unnamed_0.y = @as(c_int, @bitCast(@as(c_uint, x.*.unnamed_0.x)));
         \\}
     });
 
@@ -669,12 +669,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\foo s3 = { 123 };
     , &[_][]const u8{
         \\pub const foo = extern struct {
-        \\    x: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\const struct_unnamed_1 = extern struct {
-        \\    x: f64,
-        \\    y: f64,
-        \\    z: f64,
+        \\    x: f64 = @import("std").mem.zeroes(f64),
+        \\    y: f64 = @import("std").mem.zeroes(f64),
+        \\    z: f64 = @import("std").mem.zeroes(f64),
         \\};
         \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
         \\    .x = 1.2,
@@ -682,12 +682,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .z = 0,
         \\};
         \\const struct_unnamed_2 = extern struct {
-        \\    sec: c_int,
-        \\    min: c_int,
-        \\    hour: c_int,
-        \\    day: c_int,
-        \\    mon: c_int,
-        \\    year: c_int,
+        \\    sec: c_int = @import("std").mem.zeroes(c_int),
+        \\    min: c_int = @import("std").mem.zeroes(c_int),
+        \\    hour: c_int = @import("std").mem.zeroes(c_int),
+        \\    day: c_int = @import("std").mem.zeroes(c_int),
+        \\    mon: c_int = @import("std").mem.zeroes(c_int),
+        \\    year: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s1: struct_unnamed_2 = struct_unnamed_2{
         \\    .sec = @as(c_int, 30),
@@ -698,8 +698,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .year = @as(c_int, 2014),
         \\};
         \\const struct_unnamed_3 = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s2: struct_unnamed_3 = struct_unnamed_3{
         \\    .x = @as(c_int, 1),
@@ -721,7 +721,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_opaque_2 = opaque {};
         \\pub export fn function(arg_opaque_1: ?*struct_opaque) void {
         \\    var opaque_1 = arg_opaque_1;
-        \\    var cast: ?*struct_opaque_2 = @ptrCast(?*struct_opaque_2, opaque_1);
+        \\    var cast: ?*struct_opaque_2 = @as(?*struct_opaque_2, @ptrCast(opaque_1));
         \\    _ = @TypeOf(cast);
         \\}
     });
@@ -730,9 +730,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct {int x,y,z;} __attribute__((packed)) s0 = {1, 2};
     , &[_][]const u8{
         \\const struct_unnamed_1 = extern struct {
-        \\    x: c_int align(1),
-        \\    y: c_int align(1),
-        \\    z: c_int align(1),
+        \\    x: c_int align(1) = @import("std").mem.zeroes(c_int),
+        \\    y: c_int align(1) = @import("std").mem.zeroes(c_int),
+        \\    z: c_int align(1) = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
         \\    .x = @as(c_int, 1),
@@ -799,7 +799,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = @TypeOf(b);
         \\    const c: c_int = undefined;
         \\    _ = @TypeOf(c);
-        \\    const d: c_uint = @bitCast(c_uint, @as(c_int, 440));
+        \\    const d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
         \\    _ = @TypeOf(d);
         \\    var e: c_int = 10;
         \\    _ = @TypeOf(e);
@@ -904,8 +904,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern fn foo() void;
         \\pub export fn bar() void {
-        \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, &foo);
-        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @intToPtr(?*const fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
+        \\    var func_ptr: ?*anyopaque = @as(?*anyopaque, @ptrCast(&foo));
+        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
         \\    _ = @TypeOf(typed_func_ptr);
         \\}
     });
@@ -977,8 +977,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const lws_callback_function = fn () callconv(.C) void;
         \\pub const struct_Foo = extern struct {
-        \\    func: ?*const fn () callconv(.C) void,
-        \\    callback_http: ?*const lws_callback_function,
+        \\    func: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    callback_http: ?*const lws_callback_function = @import("std").mem.zeroes(?*const lws_callback_function),
         \\};
     });
 
@@ -993,7 +993,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = opaque {};
         ,
         \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo,
+        \\    foo: ?*struct_Foo = @import("std").mem.zeroes(?*struct_Foo),
         \\};
     });
 
@@ -1025,13 +1025,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    a: [*c]Foo,
+        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
         \\};
         ,
         \\pub const Foo = struct_Foo;
         ,
         \\pub const struct_Bar = extern struct {
-        \\    a: [*c]Foo,
+        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
         \\};
         ,
         \\pub const Bar = struct_Bar;
@@ -1044,8 +1044,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: [*c]u8,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: [*c]u8 = @import("std").mem.zeroes([*c]u8),
         \\};
         ,
         \\pub const Foo = struct_Foo;
@@ -1057,7 +1057,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void,
+        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.C) void),
         \\};
         ,
         \\pub const Foo = struct_Foo;
@@ -1101,11 +1101,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Bar = extern struct {
-        \\    next: [*c]struct_Foo,
+        \\    next: [*c]struct_Foo = @import("std").mem.zeroes([*c]struct_Foo),
         \\};
         ,
         \\pub const struct_Foo = extern struct {
-        \\    next: [*c]struct_Bar,
+        \\    next: [*c]struct_Bar = @import("std").mem.zeroes([*c]struct_Bar),
         \\};
     });
 
@@ -1121,7 +1121,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_comptime = extern struct {
-        \\    @"defer": c_int,
+        \\    @"defer": c_int = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const @"comptime" = struct_comptime;
@@ -1205,7 +1205,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define baz 1e1
         \\#define BAZ 42e-3f
         \\#define foobar -73.L
-    , &[_][]const u8{
+        \\extern const float my_float = 1.0f;
+        \\extern const double my_double = 1.0;
+        \\extern const long double my_longdouble = 1.0l;
+    , &([_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
         "pub const FOO = @as(f64, 0.12345);",
@@ -1213,7 +1216,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const baz = @as(f64, 1e1);",
         "pub const BAZ = @as(f32, 42e-3);",
         "pub const foobar = -@as(c_longdouble, 73.0);",
-    });
+        "pub export const my_float: f32 = 1.0;",
+        "pub export const my_double: f64 = 1.0;",
+    } ++ if (@bitSizeOf(c_longdouble) != 64) .{
+        // TODO properly translate non-64-bit long doubles
+        "source.h:10:42: warning: unsupported floating point constant format",
+        "source.h:10:26: warning: unable to translate variable initializer, demoted to extern",
+        "pub extern const my_longdouble: c_longdouble;",
+    } else .{
+        "pub export const my_longdouble: c_longdouble = 1.0;",
+    }));
 
     cases.add("macro defines hexadecimal float",
         \\#define FOO 0xf7p38
@@ -1353,7 +1365,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() ?*anyopaque {
         \\    var x: [*c]c_ushort = undefined;
-        \\    return @ptrCast(?*anyopaque, x);
+        \\    return @as(?*anyopaque, @ptrCast(x));
         \\}
     });
 
@@ -1409,8 +1421,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         // even though the parent struct is
         // this is consistent with GCC docs
         \\const struct_unnamed_1 = extern struct {
-        \\    a: u8,
-        \\    b: c_int,
+        \\    a: u8 = @import("std").mem.zeroes(u8),
+        \\    b: c_int = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const union_Foo = extern union {
@@ -1436,8 +1448,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         // have an independent packed declaration on
         // the nested type (see GCC docs for details)
         \\const struct_unnamed_1 = extern struct {
-        \\    a: u8 align(1),
-        \\    b: c_int align(1),
+        \\    a: u8 align(1) = @import("std").mem.zeroes(u8),
+        \\    b: c_int align(1) = @import("std").mem.zeroes(c_int),
         \\};
         ,
         \\pub const union_Foo = extern union {
@@ -1543,7 +1555,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn ptrcast() [*c]f32 {
         \\    var a: [*c]c_int = undefined;
-        \\    return @ptrCast([*c]f32, @alignCast(@import("std").meta.alignment([*c]f32), a));
+        \\    return @as([*c]f32, @ptrCast(@alignCast(a)));
         \\}
     });
 
@@ -1555,7 +1567,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn ptrptrcast() [*c][*c]f32 {
         \\    var a: [*c][*c]c_int = undefined;
-        \\    return @ptrCast([*c][*c]f32, @alignCast(@import("std").meta.alignment([*c][*c]f32), a));
+        \\    return @as([*c][*c]f32, @ptrCast(@alignCast(a)));
         \\}
     });
 
@@ -1579,23 +1591,23 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn test_ptr_cast() void {
         \\    var p: ?*anyopaque = undefined;
         \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), p));
+        \\        var to_char: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_char);
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@import("std").meta.alignment([*c]c_short), p));
+        \\        var to_short: [*c]c_short = @as([*c]c_short, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_short);
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@import("std").meta.alignment([*c]c_int), p));
+        \\        var to_int: [*c]c_int = @as([*c]c_int, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_int);
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@import("std").meta.alignment([*c]c_longlong), p));
+        \\        var to_longlong: [*c]c_longlong = @as([*c]c_longlong, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_longlong);
         \\    }
         \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), p));
+        \\        var to_char: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_char);
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@import("std").meta.alignment([*c]c_short), p));
+        \\        var to_short: [*c]c_short = @as([*c]c_short, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_short);
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@import("std").meta.alignment([*c]c_int), p));
+        \\        var to_int: [*c]c_int = @as([*c]c_int, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_int);
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@import("std").meta.alignment([*c]c_longlong), p));
+        \\        var to_longlong: [*c]c_longlong = @as([*c]c_longlong, @ptrCast(@alignCast(p)));
         \\        _ = @TypeOf(to_longlong);
         \\    }
         \\}
@@ -1651,7 +1663,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() c_int {
-        \\    return (@as(c_int, 1) << @intCast(@import("std").math.Log2Int(c_int), 2)) >> @intCast(@import("std").math.Log2Int(c_int), 1);
+        \\    return (@as(c_int, 1) << @intCast(2)) >> @intCast(1);
         \\}
     });
 
@@ -1719,10 +1731,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = undefined;
         \\    var b: f32 = undefined;
         \\    var c: ?*anyopaque = undefined;
-        \\    return @boolToInt(!(a == @as(c_int, 0)));
-        \\    return @boolToInt(!(a != 0));
-        \\    return @boolToInt(!(b != 0));
-        \\    return @boolToInt(!(c != null));
+        \\    return @intFromBool(!(a == @as(c_int, 0)));
+        \\    return @intFromBool(!(a != 0));
+        \\    return @intFromBool(!(b != 0));
+        \\    return @intFromBool(!(c != null));
         \\}
     });
 
@@ -1885,7 +1897,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\const enum_unnamed_1 =
         ++ " " ++ default_enum_type ++
             \\;
-            \\pub export var h: enum_unnamed_1 = @bitCast(c_uint, e);
+            \\pub export var h: enum_unnamed_1 = @as(c_uint, @bitCast(e));
             \\pub const i: c_int = 0;
             \\pub const j: c_int = 1;
             \\pub const k: c_int = 2;
@@ -1893,8 +1905,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ++ " " ++ default_enum_type ++
             \\;
             \\pub const struct_Baz = extern struct {
-            \\    l: enum_unnamed_2,
-            \\    m: d,
+            \\    l: enum_unnamed_2 = @import("std").mem.zeroes(enum_unnamed_2),
+            \\    m: d = @import("std").mem.zeroes(d),
             \\};
             \\pub const n: c_int = 0;
             \\pub const o: c_int = 1;
@@ -1998,7 +2010,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const PFNGLCLEARPROC = ?*const fn (GLbitfield) callconv(.C) void;
         \\pub const OpenGLProc = ?*const fn () callconv(.C) void;
         \\const struct_unnamed_1 = extern struct {
-        \\    Clear: PFNGLCLEARPROC,
+        \\    Clear: PFNGLCLEARPROC = @import("std").mem.zeroes(PFNGLCLEARPROC),
         \\};
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
@@ -2091,12 +2103,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = @TypeOf(c_1);
         \\    var a_2: c_int = undefined;
         \\    var b_3: u8 = 123;
-        \\    b_3 = @bitCast(u8, @truncate(i8, a_2));
+        \\    b_3 = @as(u8, @bitCast(@as(i8, @truncate(a_2))));
         \\    {
         \\        var d: c_int = 5;
         \\        _ = @TypeOf(d);
         \\    }
-        \\    var d: c_uint = @bitCast(c_uint, @as(c_int, 440));
+        \\    var d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
         \\    _ = @TypeOf(d);
         \\}
     });
@@ -2236,9 +2248,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\int c = 3.1415;
         \\double d = 3;
     , &[_][]const u8{
-        \\pub export var a: f32 = @floatCast(f32, 3.1415);
+        \\pub export var a: f32 = @as(f32, @floatCast(3.1415));
         \\pub export var b: f64 = 3.1415;
-        \\pub export var c: c_int = @floatToInt(c_int, 3.1415);
+        \\pub export var c: c_int = @as(c_int, @intFromFloat(3.1415));
         \\pub export var d: f64 = 3;
     });
 
@@ -2349,11 +2361,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    struct Bar c;
             \\};
         , &[_][]const u8{
-            \\pub const struct_Bar = extern struct {
-            \\    b: c_int,
+            \\pub const struct_Bar_1 = extern struct {
+            \\    b: c_int = @import("std").mem.zeroes(c_int),
             \\};
             \\pub const struct_Foo = extern struct {
-            \\    c: struct_Bar,
+            \\    c: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
             \\};
         });
     }
@@ -2417,13 +2429,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add("c style cast",
-        \\int float_to_int(float a) {
+        \\int int_from_float(float a) {
         \\    return (int)a;
         \\}
     , &[_][]const u8{
-        \\pub export fn float_to_int(arg_a: f32) c_int {
+        \\pub export fn int_from_float(arg_a: f32) c_int {
         \\    var a = arg_a;
-        \\    return @floatToInt(c_int, a);
+        \\    return @as(c_int, @intFromFloat(a));
         \\}
     });
 
@@ -2533,19 +2545,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    var a = arg_a;
             \\    var b = arg_b;
             \\    var c = arg_c;
-            \\    var d: enum_Foo = @bitCast(c_uint, FooA);
-            \\    var e: c_int = @boolToInt((a != 0) and (b != 0));
-            \\    var f: c_int = @boolToInt((b != 0) and (c != null));
-            \\    var g: c_int = @boolToInt((a != 0) and (c != null));
-            \\    var h: c_int = @boolToInt((a != 0) or (b != 0));
-            \\    var i: c_int = @boolToInt((b != 0) or (c != null));
-            \\    var j: c_int = @boolToInt((a != 0) or (c != null));
-            \\    var k: c_int = @boolToInt((a != 0) or (@bitCast(c_int, d) != 0));
-            \\    var l: c_int = @boolToInt((@bitCast(c_int, d) != 0) and (b != 0));
-            \\    var m: c_int = @boolToInt((c != null) or (d != 0));
+            \\    var d: enum_Foo = @as(c_uint, @bitCast(FooA));
+            \\    var e: c_int = @intFromBool((a != 0) and (b != 0));
+            \\    var f: c_int = @intFromBool((b != 0) and (c != null));
+            \\    var g: c_int = @intFromBool((a != 0) and (c != null));
+            \\    var h: c_int = @intFromBool((a != 0) or (b != 0));
+            \\    var i: c_int = @intFromBool((b != 0) or (c != null));
+            \\    var j: c_int = @intFromBool((a != 0) or (c != null));
+            \\    var k: c_int = @intFromBool((a != 0) or (@as(c_int, @bitCast(d)) != 0));
+            \\    var l: c_int = @intFromBool((@as(c_int, @bitCast(d)) != 0) and (b != 0));
+            \\    var m: c_int = @intFromBool((c != null) or (d != 0));
             \\    var td: SomeTypedef = 44;
-            \\    var o: c_int = @boolToInt((td != 0) or (b != 0));
-            \\    var p: c_int = @boolToInt((c != null) and (td != 0));
+            \\    var o: c_int = @intFromBool((td != 0) or (b != 0));
+            \\    var p: c_int = @intFromBool((c != null) and (td != 0));
             \\    return (((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p;
             \\}
         ,
@@ -2564,8 +2576,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void func(struct Foo *a, enum Bar **b);
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub const BarA: c_int = 0;
         \\pub const BarB: c_int = 1;
@@ -2605,13 +2617,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn test_comparisons(arg_a: c_int, arg_b: c_int) c_int {
         \\    var a = arg_a;
         \\    var b = arg_b;
-        \\    var c: c_int = @boolToInt(a < b);
-        \\    var d: c_int = @boolToInt(a > b);
-        \\    var e: c_int = @boolToInt(a <= b);
-        \\    var f: c_int = @boolToInt(a >= b);
-        \\    var g: c_int = @boolToInt(c < d);
-        \\    var h: c_int = @boolToInt(e < f);
-        \\    var i: c_int = @boolToInt(g < h);
+        \\    var c: c_int = @intFromBool(a < b);
+        \\    var d: c_int = @intFromBool(a > b);
+        \\    var e: c_int = @intFromBool(a <= b);
+        \\    var f: c_int = @intFromBool(a >= b);
+        \\    var g: c_int = @intFromBool(c < d);
+        \\    var h: c_int = @intFromBool(e < f);
+        \\    var i: c_int = @intFromBool(g < h);
         \\    return i;
         \\}
     });
@@ -2682,7 +2694,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    b: c_int,
+        \\    b: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub extern var a: struct_Foo;
         \\pub export var b: f32 = 2.0;
@@ -2707,10 +2719,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var array: [100]c_int = [1]c_int{0} ** 100;
         \\pub export fn foo(arg_index: c_int) c_int {
         \\    var index = arg_index;
-        \\    return array[@intCast(c_uint, index)];
+        \\    return array[@as(c_uint, @intCast(index))];
         \\}
         ,
-        \\pub const ACCESS = array[@intCast(usize, @as(c_int, 2))];
+        \\pub const ACCESS = array[@as(usize, @intCast(@as(c_int, 2)))];
     });
 
     cases.add("cast signed array index to unsigned",
@@ -2722,7 +2734,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: [10]c_int = undefined;
         \\    var i: c_int = 0;
-        \\    a[@intCast(c_uint, i)] = 0;
+        \\    a[@as(c_uint, @intCast(i))] = 0;
         \\}
     });
 
@@ -2735,7 +2747,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: [10]c_longlong = undefined;
         \\    var i: c_longlong = 0;
-        \\    a[@intCast(usize, i)] = 0;
+        \\    a[@as(usize, @intCast(i))] = 0;
         \\}
     });
 
@@ -3006,8 +3018,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(arg_a: c_uint) c_int {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
-        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\    while (a > @as(c_uint, @bitCast(@as(c_int, 0)))) {
+        \\        a >>= @intCast(@as(c_int, 1));
         \\    }
         \\    return i;
         \\}
@@ -3026,8 +3038,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(arg_a: u32) c_int {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > @bitCast(u32, @as(c_int, 0))) {
-        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\    while (a > @as(u32, @bitCast(@as(c_int, 0)))) {
+        \\        a >>= @intCast(@as(c_int, 1));
         \\    }
         \\    return i;
         \\}
@@ -3084,14 +3096,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* ^= @as(c_int, 1);
         \\        break :blk ref.*;
         \\    };
-        \\    a >>= @intCast(@import("std").math.Log2Int(c_int), blk: {
+        \\    a >>= @intCast(blk: {
         \\        const ref = &a;
-        \\        ref.* >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* >>= @intCast(@as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
-        \\    a <<= @intCast(@import("std").math.Log2Int(c_int), blk: {
+        \\    a <<= @intCast(blk: {
         \\        const ref = &a;
-        \\        ref.* <<= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* <<= @intCast(@as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
         \\    a = @divTrunc(a, blk: {
@@ -3106,12 +3118,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    });
         \\    b /= blk: {
         \\        const ref = &b;
-        \\        ref.* /= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* /= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    b %= blk: {
         \\        const ref = &b;
-        \\        ref.* %= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* %= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\}
@@ -3134,42 +3146,42 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_uint = 0;
         \\    a +%= blk: {
         \\        const ref = &a;
-        \\        ref.* +%= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* +%= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    a -%= blk: {
         \\        const ref = &a;
-        \\        ref.* -%= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* -%= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    a *%= blk: {
         \\        const ref = &a;
-        \\        ref.* *%= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* *%= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    a &= blk: {
         \\        const ref = &a;
-        \\        ref.* &= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* &= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    a |= blk: {
         \\        const ref = &a;
-        \\        ref.* |= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* |= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
         \\    a ^= blk: {
         \\        const ref = &a;
-        \\        ref.* ^= @bitCast(c_uint, @as(c_int, 1));
+        \\        ref.* ^= @as(c_uint, @bitCast(@as(c_int, 1)));
         \\        break :blk ref.*;
         \\    };
-        \\    a >>= @intCast(@import("std").math.Log2Int(c_uint), blk: {
+        \\    a >>= @intCast(blk: {
         \\        const ref = &a;
-        \\        ref.* >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* >>= @intCast(@as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
-        \\    a <<= @intCast(@import("std").math.Log2Int(c_uint), blk: {
+        \\    a <<= @intCast(blk: {
         \\        const ref = &a;
-        \\        ref.* <<= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* <<= @intCast(@as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
         \\}
@@ -3258,21 +3270,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*anyopaque) void;
         \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3.0));
-        \\    fn_int(@floatToInt(c_int, 3.0));
+        \\    fn_int(@as(c_int, @intFromFloat(3.0)));
+        \\    fn_int(@as(c_int, @intFromFloat(3.0)));
         \\    fn_int(@as(c_int, 1094861636));
-        \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
-        \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
+        \\    fn_f32(@as(f32, @floatFromInt(@as(c_int, 3))));
+        \\    fn_f64(@as(f64, @floatFromInt(@as(c_int, 3))));
+        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, '3'))))));
+        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, '\x01'))))));
+        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, 0))))));
         \\    fn_f32(3.0);
         \\    fn_f64(3.0);
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
-        \\    fn_bool(@ptrToInt(&fn_int) != 0);
-        \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
-        \\    fn_ptr(@intToPtr(?*anyopaque, @as(c_int, 42)));
+        \\    fn_bool(@intFromPtr(&fn_int) != 0);
+        \\    fn_int(@as(c_int, @intCast(@intFromPtr(&fn_int))));
+        \\    fn_ptr(@as(?*anyopaque, @ptrFromInt(@as(c_int, 42))));
         \\}
     });
 
@@ -3411,11 +3423,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() c_ulong {
-        \\    return @bitCast(c_ulong, @as(c_long, -@as(c_int, 1)));
+        \\    return @as(c_ulong, @bitCast(@as(c_long, -@as(c_int, 1))));
         \\}
         \\pub export fn bar(arg_x: c_long) c_ushort {
         \\    var x = arg_x;
-        \\    return @bitCast(c_ushort, @truncate(c_short, x));
+        \\    return @as(c_ushort, @bitCast(@as(c_short, @truncate(x))));
         \\}
     });
 
@@ -3473,11 +3485,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         \\pub export fn bar(arg_a: [*c]const c_int) void {
         \\    var a = arg_a;
-        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\    foo(@as([*c]c_int, @ptrCast(@volatileCast(@constCast(a)))));
         \\}
         \\pub export fn baz(arg_a: [*c]volatile c_int) void {
         \\    var a = arg_a;
-        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\    foo(@as([*c]c_int, @ptrCast(@volatileCast(@constCast(a)))));
         \\}
     });
 
@@ -3491,10 +3503,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(arg_x: bool) bool {
         \\    var x = arg_x;
-        \\    var a: bool = @as(c_int, @boolToInt(x)) != @as(c_int, 1);
-        \\    var b: bool = @as(c_int, @boolToInt(a)) != @as(c_int, 0);
-        \\    var c: bool = @ptrToInt(&foo) != 0;
-        \\    return foo(@as(c_int, @boolToInt(c)) != @as(c_int, @boolToInt(b)));
+        \\    var a: bool = @as(c_int, @intFromBool(x)) != @as(c_int, 1);
+        \\    var b: bool = @as(c_int, @intFromBool(a)) != @as(c_int, 0);
+        \\    var c: bool = @intFromPtr(&foo) != 0;
+        \\    return foo(@as(c_int, @intFromBool(c)) != @as(c_int, @intFromBool(b)));
         \\}
     });
 
@@ -3592,12 +3604,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\} ONENAMEWITHSTRUCT;
         , &[_][]const u8{
             \\pub const struct_NAMED = extern struct {
-            \\    name: c_long,
+            \\    name: c_long = @import("std").mem.zeroes(c_long),
             \\};
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
-            \\    unnamed_0: struct_NAMED,
-            \\    b: c_long,
+            \\    unnamed_0: struct_NAMED =  = @import("std").mem.zeroes(struct_NAMED),
+            \\    b: c_long = @import("std").mem.zeroes(c_long),
             \\};
         });
     } else {
@@ -3614,11 +3626,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\} ONENAMEWITHSTRUCT;
         , &[_][]const u8{
             \\pub const struct_NAMED = extern struct {
-            \\    name: c_long,
+            \\    name: c_long = @import("std").mem.zeroes(c_long),
             \\};
             \\pub const NAMED = struct_NAMED;
             \\pub const struct_ONENAMEWITHSTRUCT = extern struct {
-            \\    b: c_long,
+            \\    b: c_long = @import("std").mem.zeroes(c_long),
             \\};
         });
     }
@@ -3633,11 +3645,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\const struct_unnamed_1 = extern struct {};
         \\pub const struct_a = extern struct {
-        \\    unnamed_0: struct_unnamed_1,
+        \\    unnamed_0: struct_unnamed_1 = @import("std").mem.zeroes(struct_unnamed_1),
         \\};
         \\const struct_unnamed_2 = extern struct {};
         \\pub const struct_b = extern struct {
-        \\    unnamed_0: struct_unnamed_2,
+        \\    unnamed_0: struct_unnamed_2 = @import("std").mem.zeroes(struct_unnamed_2),
         \\};
     });
 
@@ -3771,8 +3783,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_inner = opaque {};
         ,
         \\pub const struct_outer = extern struct {
-        \\    thing: c_int,
-        \\    sub_struct: struct_inner,
+        \\    thing: c_int = @import("std").mem.zeroes(c_int),
+        \\    sub_struct: struct_inner = @import("std").mem.zeroes(struct_inner),
         \\};
         ,
         \\warning: unable to translate function, demoted to extern
@@ -3800,8 +3812,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub const struct_FOO = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\    y: c_int = @import("std").mem.zeroes(c_int),
         \\};
         \\pub export fn bar() c_int {
         \\    const foo = struct {
@@ -3860,9 +3872,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p[1];
         \\}
     , &[_][]const u8{
-        \\_ = p[@intCast(c_uint, @as(c_int, 0))];
+        \\_ = p[@as(c_uint, @intCast(@as(c_int, 0)))];
         ,
-        \\_ = p[@intCast(c_uint, @as(c_int, 1))];
+        \\_ = p[@as(c_uint, @intCast(@as(c_int, 1)))];
     });
 
     cases.add("Undefined macro identifier",
@@ -3910,7 +3922,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
         \\    if ((blk: {
-        \\        const tmp = @boolToInt(@as(c_int, 1) > @as(c_int, 0));
+        \\        const tmp = @intFromBool(@as(c_int, 1) > @as(c_int, 0));
         \\        a = tmp;
         \\        break :blk tmp;
         \\    }) != 0) {}
@@ -3928,7 +3940,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub export fn foo() void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
-            \\    var c: c_longlong = @divExact(@bitCast(c_longlong, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    var c: c_longlong = @divExact(@as(c_longlong, @bitCast(@intFromPtr(a) -% @intFromPtr(b))), @sizeOf(u8));
             \\    _ = @TypeOf(c);
             \\}
         });
@@ -3943,7 +3955,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub export fn foo() void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
-            \\    var c: c_long = @divExact(@bitCast(c_long, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    var c: c_long = @divExact(@as(c_long, @bitCast(@intFromPtr(a) -% @intFromPtr(b))), @sizeOf(u8));
             \\    _ = @TypeOf(c);
             \\}
         });
@@ -4116,5 +4128,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        break :blk tmp;
         \\    }) != 0) {}
         \\}
+    });
+
+    cases.add("macro using argument as struct name is not translated",
+        \\#define FOO(x) struct x
+    , &[_][]const u8{
+        \\pub const FOO = @compileError("unable to translate macro: untranslatable usage of arg `x`");
+    });
+
+    cases.add("global struct whose default name conflicts with global is mangled",
+        \\struct foo {
+        \\    int x;
+        \\};
+        \\const char *struct_foo = "hello world";
+    , &[_][]const u8{
+        \\pub const struct_foo_1 = extern struct {
+        \\    x: c_int = @import("std").mem.zeroes(c_int),
+        \\};
+        ,
+        \\pub const foo = struct_foo_1;
+        ,
+        \\pub export var struct_foo: [*c]const u8 = "hello world";
     });
 }

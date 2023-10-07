@@ -28,7 +28,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
 };
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
@@ -225,6 +225,19 @@ pub const EAI = enum(c_int) {
 
     _,
 };
+
+pub const passwd = extern struct {
+    pw_name: ?[*:0]const u8, // username
+    pw_passwd: ?[*:0]const u8, // user password
+    pw_uid: uid_t, // user ID
+    pw_gid: gid_t, // group ID
+    pw_gecos: ?[*:0]const u8, // user information
+    pw_dir: ?[*:0]const u8, // home directory
+    pw_shell: ?[*:0]const u8, // shell program
+};
+
+pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
 
 pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;

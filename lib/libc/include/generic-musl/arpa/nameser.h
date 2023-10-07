@@ -188,6 +188,36 @@ typedef enum __ns_type {
 	ns_t_sink = 40,
 	ns_t_opt = 41,
 	ns_t_apl = 42,
+	ns_t_ds = 43,
+	ns_t_sshfp = 44,
+	ns_t_ipseckey = 45,
+	ns_t_rrsig = 46,
+	ns_t_nsec = 47,
+	ns_t_dnskey = 48,
+	ns_t_dhcid = 49,
+	ns_t_nsec3 = 50,
+	ns_t_nsec3param = 51,
+	ns_t_tlsa = 52,
+	ns_t_smimea = 53,
+	ns_t_hip = 55,
+	ns_t_ninfo = 56,
+	ns_t_rkey = 57,
+	ns_t_talink = 58,
+	ns_t_cds = 59,
+	ns_t_cdnskey = 60,
+	ns_t_openpgpkey = 61,
+	ns_t_csync = 62,
+	ns_t_spf = 99,
+	ns_t_uinfo = 100,
+	ns_t_uid = 101,
+	ns_t_gid = 102,
+	ns_t_unspec = 103,
+	ns_t_nid = 104,
+	ns_t_l32 = 105,
+	ns_t_l64 = 106,
+	ns_t_lp = 107,
+	ns_t_eui48 = 108,
+	ns_t_eui64 = 109,
 	ns_t_tkey = 249,
 	ns_t_tsig = 250,
 	ns_t_ixfr = 251,
@@ -196,6 +226,11 @@ typedef enum __ns_type {
 	ns_t_maila = 254,
 	ns_t_any = 255,
 	ns_t_zxfr = 256,
+	ns_t_uri = 256,
+	ns_t_caa = 257,
+	ns_t_avc = 258,
+	ns_t_ta = 32768,
+	ns_t_dlv = 32769,
 	ns_t_max = 65536
 } ns_type;
 
@@ -430,12 +465,48 @@ typedef struct {
 #define T_NAPTR		ns_t_naptr
 #define T_A6		ns_t_a6
 #define T_DNAME		ns_t_dname
+#define T_DS		ns_t_ds
+#define T_SSHFP		ns_t_sshfp
+#define T_IPSECKEY	ns_t_ipseckey
+#define T_RRSIG		ns_t_rrsig
+#define T_NSEC		ns_t_nsec
+#define T_DNSKEY	ns_t_dnskey
+#define T_DHCID		ns_t_dhcid
+#define T_NSEC3		ns_t_nsec3
+#define T_NSEC3PARAM	ns_t_nsec3param
+#define T_TLSA		ns_t_tlsa
+#define T_SMIMEA	ns_t_smimea
+#define T_HIP		ns_t_hip
+#define T_NINFO		ns_t_ninfo
+#define T_RKEY		ns_t_rkey
+#define T_TALINK	ns_t_talink
+#define T_CDS		ns_t_cds
+#define T_CDNSKEY	ns_t_cdnskey
+#define T_OPENPGPKEY	ns_t_openpgpkey
+#define T_CSYNC		ns_t_csync
+#define T_SPF		ns_t_spf
+#define T_UINFO		ns_t_uinfo
+#define T_UID		ns_t_uid
+#define T_GID		ns_t_gid
+#define T_UNSPEC	ns_t_unspec
+#define T_NID		ns_t_nid
+#define T_L32		ns_t_l32
+#define T_L64		ns_t_l64
+#define T_LP		ns_t_lp
+#define T_EUI48		ns_t_eui48
+#define T_EUI64		ns_t_eui64
+#define T_TKEY		ns_t_tkey
 #define	T_TSIG		ns_t_tsig
 #define	T_IXFR		ns_t_ixfr
 #define T_AXFR		ns_t_axfr
 #define T_MAILB		ns_t_mailb
 #define T_MAILA		ns_t_maila
 #define T_ANY		ns_t_any
+#define T_URI		ns_t_uri
+#define T_CAA		ns_t_caa
+#define T_AVC		ns_t_avc
+#define T_TA		ns_t_ta
+#define T_DLV		ns_t_dlv
 
 #define C_IN		ns_c_in
 #define C_CHAOS		ns_c_chaos

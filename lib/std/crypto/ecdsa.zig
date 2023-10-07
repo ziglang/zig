@@ -122,9 +122,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             pub fn toDer(self: Signature, buf: *[der_encoded_max_length]u8) []u8 {
                 var fb = io.fixedBufferStream(buf);
                 const w = fb.writer();
-                const r_len = @intCast(u8, self.r.len + (self.r[0] >> 7));
-                const s_len = @intCast(u8, self.s.len + (self.s[0] >> 7));
-                const seq_len = @intCast(u8, 2 + r_len + 2 + s_len);
+                const r_len = @as(u8, @intCast(self.r.len + (self.r[0] >> 7)));
+                const s_len = @as(u8, @intCast(self.s.len + (self.s[0] >> 7)));
+                const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));
                 w.writeAll(&[_]u8{ 0x30, seq_len }) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, r_len }) catch unreachable;
                 if (self.r[0] >> 7 != 0) {

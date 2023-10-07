@@ -16,7 +16,7 @@ pub const Register = enum(u6) {
     // zig fmt: on
 
     pub fn id(self: Register) u5 {
-        return @truncate(u5, @enumToInt(self));
+        return @as(u5, @truncate(@intFromEnum(self)));
     }
 
     pub fn enc(self: Register) u5 {
@@ -96,9 +96,9 @@ pub const FloatingPointRegister = enum(u7) {
 
     pub fn id(self: FloatingPointRegister) u6 {
         return switch (self.size()) {
-            32 => @truncate(u6, @enumToInt(self)),
-            64 => @truncate(u6, (@enumToInt(self) - 32) * 2),
-            128 => @truncate(u6, (@enumToInt(self) - 64) * 4),
+            32 => @as(u6, @truncate(@intFromEnum(self))),
+            64 => @as(u6, @truncate((@intFromEnum(self) - 32) * 2)),
+            128 => @as(u6, @truncate((@intFromEnum(self) - 64) * 4)),
             else => unreachable,
         };
     }
@@ -109,12 +109,12 @@ pub const FloatingPointRegister = enum(u7) {
         // (See section 5.1.4.1 of SPARCv9 ISA specification)
 
         const reg_id = self.id();
-        return @truncate(u5, reg_id | (reg_id >> 5));
+        return @as(u5, @truncate(reg_id | (reg_id >> 5)));
     }
 
     /// Returns the bit-width of the register.
     pub fn size(self: FloatingPointRegister) u8 {
-        return switch (@enumToInt(self)) {
+        return switch (@intFromEnum(self)) {
             0...31 => 32,
             32...63 => 64,
             64...79 => 128,
@@ -696,8 +696,8 @@ pub const Instruction = union(enum) {
         /// Encodes the condition into the instruction bit pattern.
         pub fn enc(cond: Condition) u4 {
             return switch (cond) {
-                .icond => |c| @enumToInt(c),
-                .fcond => |c| @enumToInt(c),
+                .icond => |c| @intFromEnum(c),
+                .fcond => |c| @intFromEnum(c),
             };
         }
 
@@ -752,13 +752,13 @@ pub const Instruction = union(enum) {
     // See section 6.2 of the SPARCv9 ISA manual.
 
     fn format1(disp: i32) Instruction {
-        const udisp = @bitCast(u32, disp);
+        const udisp = @as(u32, @bitCast(disp));
 
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp_truncated = @truncate(u30, udisp >> 2);
+        const udisp_truncated = @as(u30, @truncate(udisp >> 2));
         return Instruction{
             .format_1 = .{
                 .disp30 = udisp_truncated,
@@ -777,16 +777,16 @@ pub const Instruction = union(enum) {
     }
 
     fn format2b(op2: u3, cond: Condition, annul: bool, disp: i24) Instruction {
-        const udisp = @bitCast(u24, disp);
+        const udisp = @as(u24, @bitCast(disp));
 
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp_truncated = @truncate(u22, udisp >> 2);
+        const udisp_truncated = @as(u22, @truncate(udisp >> 2));
         return Instruction{
             .format_2b = .{
-                .a = @boolToInt(annul),
+                .a = @intFromBool(annul),
                 .cond = cond.enc(),
                 .op2 = op2,
                 .disp22 = udisp_truncated,
@@ -795,46 +795,46 @@ pub const Instruction = union(enum) {
     }
 
     fn format2c(op2: u3, cond: Condition, annul: bool, pt: bool, ccr: CCR, disp: i21) Instruction {
-        const udisp = @bitCast(u21, disp);
+        const udisp = @as(u21, @bitCast(disp));
 
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero.
-        const udisp_truncated = @truncate(u19, udisp >> 2);
+        const udisp_truncated = @as(u19, @truncate(udisp >> 2));
 
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_2c = .{
-                .a = @boolToInt(annul),
+                .a = @intFromBool(annul),
                 .cond = cond.enc(),
                 .op2 = op2,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .p = @boolToInt(pt),
+                .p = @intFromBool(pt),
                 .disp19 = udisp_truncated,
             },
         };
     }
 
     fn format2d(op2: u3, rcond: RCondition, annul: bool, pt: bool, rs1: Register, disp: i18) Instruction {
-        const udisp = @bitCast(u18, disp);
+        const udisp = @as(u18, @bitCast(disp));
 
         // In SPARC, branch target needs to be aligned to 4 bytes.
         assert(udisp % 4 == 0);
 
         // Discard the last two bits since those are implicitly zero,
         // and split it into low and high parts.
-        const udisp_truncated = @truncate(u16, udisp >> 2);
-        const udisp_hi = @truncate(u2, (udisp_truncated & 0b1100_0000_0000_0000) >> 14);
-        const udisp_lo = @truncate(u14, udisp_truncated & 0b0011_1111_1111_1111);
+        const udisp_truncated = @as(u16, @truncate(udisp >> 2));
+        const udisp_hi = @as(u2, @truncate((udisp_truncated & 0b1100_0000_0000_0000) >> 14));
+        const udisp_lo = @as(u14, @truncate(udisp_truncated & 0b0011_1111_1111_1111));
         return Instruction{
             .format_2d = .{
-                .a = @boolToInt(annul),
-                .rcond = @enumToInt(rcond),
+                .a = @intFromBool(annul),
+                .rcond = @intFromEnum(rcond),
                 .op2 = op2,
-                .p = @boolToInt(pt),
+                .p = @intFromBool(pt),
                 .rs1 = rs1.enc(),
                 .d16hi = udisp_hi,
                 .d16lo = udisp_lo,
@@ -860,7 +860,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .simm13 = @bitCast(u13, imm),
+                .simm13 = @as(u13, @bitCast(imm)),
             },
         };
     }
@@ -880,7 +880,7 @@ pub const Instruction = union(enum) {
                 .op = op,
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .simm13 = @bitCast(u13, imm),
+                .simm13 = @as(u13, @bitCast(imm)),
             },
         };
     }
@@ -891,7 +891,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .rcond = @enumToInt(rcond),
+                .rcond = @intFromEnum(rcond),
                 .rs2 = rs2.enc(),
             },
         };
@@ -903,8 +903,8 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .rcond = @enumToInt(rcond),
-                .simm10 = @bitCast(u10, imm),
+                .rcond = @intFromEnum(rcond),
+                .simm10 = @as(u10, @bitCast(imm)),
             },
         };
     }
@@ -922,8 +922,8 @@ pub const Instruction = union(enum) {
     fn format3h(cmask: MemCompletionConstraint, mmask: MemOrderingConstraint) Instruction {
         return Instruction{
             .format_3h = .{
-                .cmask = @bitCast(u3, cmask),
-                .mmask = @bitCast(u4, mmask),
+                .cmask = @as(u3, @bitCast(cmask)),
+                .mmask = @as(u4, @bitCast(mmask)),
             },
         };
     }
@@ -934,7 +934,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .imm_asi = @enumToInt(asi),
+                .imm_asi = @intFromEnum(asi),
                 .rs2 = rs2.enc(),
             },
         };
@@ -956,7 +956,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .x = @enumToInt(sw),
+                .x = @intFromEnum(sw),
                 .rs2 = rs2.enc(),
             },
         };
@@ -995,8 +995,8 @@ pub const Instruction = union(enum) {
         };
     }
     fn format3o(op: u2, op3: u6, opf: u9, ccr: CCR, rs1: Register, rs2: Register) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_3o = .{
                 .op = op,
@@ -1051,8 +1051,8 @@ pub const Instruction = union(enum) {
     }
 
     fn format4a(op3: u6, ccr: CCR, rs1: Register, rs2: Register, rd: Register) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_4a = .{
                 .rd = rd.enc(),
@@ -1066,8 +1066,8 @@ pub const Instruction = union(enum) {
     }
 
     fn format4b(op3: u6, ccr: CCR, rs1: Register, imm: i11, rd: Register) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_4b = .{
                 .rd = rd.enc(),
@@ -1075,15 +1075,15 @@ pub const Instruction = union(enum) {
                 .rs1 = rs1.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = @bitCast(u11, imm),
+                .simm11 = @as(u11, @bitCast(imm)),
             },
         };
     }
 
     fn format4c(op3: u6, cond: Condition, ccr: CCR, rs2: Register, rd: Register) Instruction {
-        const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc2 = @as(u1, @truncate(@intFromEnum(ccr) >> 2));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_4c = .{
                 .rd = rd.enc(),
@@ -1098,9 +1098,9 @@ pub const Instruction = union(enum) {
     }
 
     fn format4d(op3: u6, cond: Condition, ccr: CCR, imm: i11, rd: Register) Instruction {
-        const ccr_cc2 = @truncate(u1, @enumToInt(ccr) >> 2);
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc2 = @as(u1, @truncate(@intFromEnum(ccr) >> 2));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_4d = .{
                 .rd = rd.enc(),
@@ -1109,14 +1109,14 @@ pub const Instruction = union(enum) {
                 .cond = cond.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
-                .simm11 = @bitCast(u11, imm),
+                .simm11 = @as(u11, @bitCast(imm)),
             },
         };
     }
 
     fn format4e(op3: u6, ccr: CCR, rs1: Register, rd: Register, sw_trap: u7) Instruction {
-        const ccr_cc1 = @truncate(u1, @enumToInt(ccr) >> 1);
-        const ccr_cc0 = @truncate(u1, @enumToInt(ccr));
+        const ccr_cc1 = @as(u1, @truncate(@intFromEnum(ccr) >> 1));
+        const ccr_cc0 = @as(u1, @truncate(@intFromEnum(ccr)));
         return Instruction{
             .format_4e = .{
                 .rd = rd.enc(),
@@ -1142,7 +1142,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .rs1 = rs1.enc(),
-                .rcond = @enumToInt(rcond),
+                .rcond = @intFromEnum(rcond),
                 .opf_low = opf_low,
                 .rs2 = rs2.enc(),
             },
@@ -1468,8 +1468,8 @@ pub const Instruction = union(enum) {
     pub fn trap(comptime s2: type, cond: ICondition, ccr: CCR, rs1: Register, rs2: s2) Instruction {
         // Tcc instructions abuse the rd field to store the conditionals.
         return switch (s2) {
-            Register => format4a(0b11_1010, ccr, rs1, rs2, @intToEnum(Register, @enumToInt(cond))),
-            u7 => format4e(0b11_1010, ccr, rs1, @intToEnum(Register, @enumToInt(cond)), rs2),
+            Register => format4a(0b11_1010, ccr, rs1, rs2, @as(Register, @enumFromInt(@intFromEnum(cond)))),
+            u7 => format4e(0b11_1010, ccr, rs1, @as(Register, @enumFromInt(@intFromEnum(cond))), rs2),
             else => unreachable,
         };
     }

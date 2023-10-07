@@ -16,7 +16,7 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
         : "memory"
     );
 }
@@ -24,7 +24,7 @@ pub fn syscall0(number: SYS) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
         : "memory"
     );
@@ -33,7 +33,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
         : "memory"
@@ -43,7 +43,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -54,7 +54,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -66,7 +66,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -87,7 +87,7 @@ pub fn syscall6(
 ) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
-        : [number] "{r7}" (@enumToInt(number)),
+        : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
@@ -103,20 +103,40 @@ const CloneFn = *const fn (arg: usize) callconv(.C) u8;
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
-pub fn restore() callconv(.Naked) void {
-    return asm volatile ("svc #0"
-        :
-        : [number] "{r7}" (@enumToInt(SYS.sigreturn)),
-        : "memory"
-    );
+pub fn restore() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            :
+            : [number] "I" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        ),
+        else => asm volatile (
+            \\ svc #0
+            :
+            : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
-pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("svc #0"
-        :
-        : [number] "{r7}" (@enumToInt(SYS.rt_sigreturn)),
-        : "memory"
-    );
+pub fn restore_rt() callconv(.Naked) noreturn {
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => asm volatile (
+            \\ mov r7, %[number]
+            \\ svc #0
+            :
+            : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+        else => asm volatile (
+            \\ svc #0
+            :
+            : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
+            : "memory"
+        ),
+    }
 }
 
 pub const MMAP2_UNIT = 4096;

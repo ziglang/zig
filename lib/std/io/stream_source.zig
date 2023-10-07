@@ -7,7 +7,8 @@ const io = std.io;
 /// For memory sources, if the supplied byte buffer is const, then `io.Writer` is not available.
 /// The error set of the stream functions is the error set of the corresponding file functions.
 pub const StreamSource = union(enum) {
-    const has_file = (builtin.os.tag != .freestanding);
+    // TODO: expose UEFI files to std.os in a way that allows this to be true
+    const has_file = (builtin.os.tag != .freestanding and builtin.os.tag != .uefi);
 
     /// The stream access is redirected to this buffer.
     buffer: io.FixedBufferStream([]u8),

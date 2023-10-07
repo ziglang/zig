@@ -1,7 +1,7 @@
 export fn f() void {
     try something();
 }
-fn something() anyerror!void { }
+fn something() anyerror!void {}
 
 // error
 // backend=stage2

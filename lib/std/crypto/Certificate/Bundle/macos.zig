@@ -21,7 +21,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     const reader = stream.reader();
 
     const db_header = try reader.readStructBig(ApplDbHeader);
-    assert(mem.eql(u8, "kych", &@bitCast([4]u8, db_header.signature)));
+    assert(mem.eql(u8, "kych", &@as([4]u8, @bitCast(db_header.signature))));
 
     try stream.seekTo(db_header.schema_offset);
 
@@ -42,7 +42,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
         const table_header = try reader.readStructBig(TableHeader);
 
-        if (@intToEnum(std.os.darwin.cssm.DB_RECORDTYPE, table_header.table_id) != .X509_CERTIFICATE) {
+        if (@as(std.os.darwin.cssm.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
             continue;
         }
 
@@ -61,7 +61,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
             try cb.bytes.ensureUnusedCapacity(gpa, cert_header.cert_size);
 
-            const cert_start = @intCast(u32, cb.bytes.items.len);
+            const cert_start = @as(u32, @intCast(cb.bytes.items.len));
             const dest_buf = cb.bytes.allocatedSlice()[cert_start..];
             cb.bytes.items.len += try reader.readAtLeast(dest_buf, cert_header.cert_size);
 

@@ -7,7 +7,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
     return struct {
         const Self = @This();
 
-        // Allow for compareFn to be fn(anytype, anytype) anytype
+        // Allow for compareFn to be fn (anytype, anytype) anytype
         // which allows the convenient use of std.math.order.
         fn compare(a: Key, b: Key) Order {
             return compareFn(a, b);
@@ -159,7 +159,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
                 if (order == .eq) break;
 
                 parent_ref.* = current;
-                node = current.children[@boolToInt(order == .gt)];
+                node = current.children[@intFromBool(order == .gt)];
             }
 
             return node;
@@ -168,12 +168,12 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
         fn insert(self: *Self, key: Key, parent: ?*Node, node: *Node) void {
             // generate a random priority & prepare the node to be inserted into the tree
             node.key = key;
-            node.priority = self.prng.random(@ptrToInt(node));
+            node.priority = self.prng.random(@intFromPtr(node));
             node.parent = parent;
             node.children = [_]?*Node{ null, null };
 
             // point the parent at the new node
-            const link = if (parent) |p| &p.children[@boolToInt(compare(key, p.key) == .gt)] else &self.root;
+            const link = if (parent) |p| &p.children[@intFromBool(compare(key, p.key) == .gt)] else &self.root;
             assert(link.* == null);
             link.* = node;
 
@@ -182,7 +182,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
                 if (p.priority <= node.priority) break;
 
                 const is_right = p.children[1] == node;
-                assert(p.children[@boolToInt(is_right)] == node);
+                assert(p.children[@intFromBool(is_right)] == node);
 
                 const rotate_right = !is_right;
                 self.rotate(p, rotate_right);
@@ -197,7 +197,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             new.children = old.children;
 
             // point the parent at the new node
-            const link = if (old.parent) |p| &p.children[@boolToInt(p.children[1] == old)] else &self.root;
+            const link = if (old.parent) |p| &p.children[@intFromBool(p.children[1] == old)] else &self.root;
             assert(link.* == old);
             link.* = new;
 
@@ -220,12 +220,11 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             }
 
             // node is a now a leaf; remove by nulling out the parent's reference to it.
-            const link = if (node.parent) |p| &p.children[@boolToInt(p.children[1] == node)] else &self.root;
+            const link = if (node.parent) |p| &p.children[@intFromBool(p.children[1] == node)] else &self.root;
             assert(link.* == node);
             link.* = null;
 
             // clean up after ourselves
-            node.key = undefined;
             node.priority = 0;
             node.parent = null;
             node.children = [_]?*Node{ null, null };
@@ -240,12 +239,12 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             //      parent -> (node (target YY adjacent) XX)
             //      parent -> (target YY (node adjacent XX))
             const parent = node.parent;
-            const target = node.children[@boolToInt(!right)] orelse unreachable;
-            const adjacent = target.children[@boolToInt(right)];
+            const target = node.children[@intFromBool(!right)] orelse unreachable;
+            const adjacent = target.children[@intFromBool(right)];
 
             // rotate the children
-            target.children[@boolToInt(right)] = node;
-            node.children[@boolToInt(!right)] = adjacent;
+            target.children[@intFromBool(right)] = node;
+            node.children[@intFromBool(!right)] = adjacent;
 
             // rotate the parents
             node.parent = target;
@@ -253,9 +252,51 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             if (adjacent) |adj| adj.parent = node;
 
             // fix the parent link
-            const link = if (parent) |p| &p.children[@boolToInt(p.children[1] == node)] else &self.root;
+            const link = if (parent) |p| &p.children[@intFromBool(p.children[1] == node)] else &self.root;
             assert(link.* == node);
             link.* = target;
+        }
+
+        pub const InorderIterator = struct {
+            current: ?*Node,
+            previous: ?*Node = null,
+
+            pub fn next(it: *InorderIterator) ?*Node {
+                while (true) {
+                    if (it.current) |current| {
+                        const previous = it.previous;
+                        it.previous = current;
+                        if (previous == current.parent) {
+                            if (current.children[0]) |left_child| {
+                                it.current = left_child;
+                            } else {
+                                if (current.children[1]) |right_child| {
+                                    it.current = right_child;
+                                } else {
+                                    it.current = current.parent;
+                                }
+                                return current;
+                            }
+                        } else if (previous == current.children[0]) {
+                            if (current.children[1]) |right_child| {
+                                it.current = right_child;
+                            } else {
+                                it.current = current.parent;
+                            }
+                            return current;
+                        } else {
+                            std.debug.assert(previous == current.children[1]);
+                            it.current = current.parent;
+                        }
+                    } else {
+                        return null;
+                    }
+                }
+            }
+        };
+
+        pub fn inorderIterator(self: *Self) InorderIterator {
+            return .{ .current = self.root };
         }
     };
 }
@@ -342,6 +383,16 @@ test "std.Treap: insert, find, replace, remove" {
         try testing.expectEqual(entry.key, key);
         try testing.expectEqual(entry.node, node);
         try testing.expectEqual(entry.node, treap.getEntryForExisting(node).node);
+    }
+
+    // in-order iterator check
+    {
+        var it = treap.inorderIterator();
+        var last_key: u64 = 0;
+        while (it.next()) |node| {
+            try std.testing.expect(node.key >= last_key);
+            last_key = node.key;
+        }
     }
 
     // replace check

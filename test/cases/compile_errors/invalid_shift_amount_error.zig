@@ -1,8 +1,10 @@
-const x : u8 = 2;
+const x: u8 = 2;
 fn f() u16 {
     return x << 8;
 }
-export fn entry() u16 { return f(); }
+export fn entry() u16 {
+    return f();
+}
 
 // error
 // backend=stage2

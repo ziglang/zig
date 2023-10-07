@@ -6,9 +6,10 @@ test "store array of array of structs at comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(storeArrayOfArrayOfStructs() == 15);
-    comptime try expect(storeArrayOfArrayOfStructs() == 15);
+    try comptime expect(storeArrayOfArrayOfStructs() == 15);
 }
 
 fn storeArrayOfArrayOfStructs() u8 {

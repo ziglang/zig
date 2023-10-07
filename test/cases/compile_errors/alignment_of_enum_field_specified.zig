@@ -1,7 +1,10 @@
+// zig fmt: off
 const Number = enum {
     a,
     b align(i32),
 };
+// zig fmt: on
+
 export fn entry1() void {
     var x: Number = undefined;
     _ = x;
@@ -11,4 +14,4 @@ export fn entry1() void {
 // backend=stage2
 // target=native
 //
-// :3:13: error: enum fields cannot be aligned
+// :4:13: error: enum fields cannot be aligned

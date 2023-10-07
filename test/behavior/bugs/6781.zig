@@ -23,7 +23,7 @@ pub const JournalHeader = packed struct {
 
         var target: [32]u8 = undefined;
         std.crypto.hash.Blake3.hash(entry[checksum_offset + checksum_size ..], target[0..], .{});
-        return @bitCast(u128, target[0..checksum_size].*);
+        return @as(u128, @bitCast(target[0..checksum_size].*));
     }
 
     pub fn calculate_hash_chain_root(self: *const JournalHeader) u128 {
@@ -42,16 +42,16 @@ pub const JournalHeader = packed struct {
 
         assert(prev_hash_chain_root_offset + prev_hash_chain_root_size == checksum_offset);
 
-        const header = @bitCast([@sizeOf(JournalHeader)]u8, self.*);
+        const header = @as([@sizeOf(JournalHeader)]u8, @bitCast(self.*));
         const source = header[prev_hash_chain_root_offset .. checksum_offset + checksum_size];
         assert(source.len == prev_hash_chain_root_size + checksum_size);
         var target: [32]u8 = undefined;
         std.crypto.hash.Blake3.hash(source, target[0..], .{});
         if (segfault) {
-            return @bitCast(u128, target[0..hash_chain_root_size].*);
+            return @as(u128, @bitCast(target[0..hash_chain_root_size].*));
         } else {
             var array = target[0..hash_chain_root_size].*;
-            return @bitCast(u128, array);
+            return @as(u128, @bitCast(array));
         }
     }
 
@@ -68,6 +68,7 @@ test "fixed" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buffer align(@alignOf(JournalHeader)) = [_]u8{0} ** 65536;
     var entry = std.mem.bytesAsValue(JournalHeader, buffer[0..@sizeOf(JournalHeader)]);

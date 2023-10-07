@@ -1,5 +1,5 @@
 comptime {
-    const array = [2]u8{1, 2, 3};
+    const array = [2]u8{ 1, 2, 3 };
     _ = array;
 }
 

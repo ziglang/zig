@@ -4,6 +4,7 @@
 #include <sys/resource.h>
 #include <signal.h>
 #include <sys/sysinfo.h>
+#include <sys/auxv.h>
 #include "syscall.h"
 #include "libc.h"
 
@@ -19,6 +20,8 @@
 #define JT_AVPHYS_PAGES JT(9)
 #define JT_ZERO JT(10)
 #define JT_DELAYTIMER_MAX JT(11)
+#define JT_MINSIGSTKSZ JT(12)
+#define JT_SIGSTKSZ JT(13)
 
 #define RLIM(x) (-32768|(RLIMIT_ ## x))
 
@@ -165,6 +168,9 @@ long sysconf(int name)
 		[_SC_XOPEN_STREAMS] = JT_ZERO,
 		[_SC_THREAD_ROBUST_PRIO_INHERIT] = -1,
 		[_SC_THREAD_ROBUST_PRIO_PROTECT] = -1,
+
+		[_SC_MINSIGSTKSZ] = JT_MINSIGSTKSZ,
+		[_SC_SIGSTKSZ] = JT_SIGSTKSZ,
 	};
 
 	if (name >= sizeof(values)/sizeof(values[0]) || !values[name]) {
@@ -212,6 +218,13 @@ long sysconf(int name)
 		mem *= si.mem_unit;
 		mem /= PAGE_SIZE;
 		return (mem > LONG_MAX) ? LONG_MAX : mem;
+	case JT_MINSIGSTKSZ & 255:
+	case JT_SIGSTKSZ & 255: ;
+		long val = __getauxval(AT_MINSIGSTKSZ);
+		if (val < MINSIGSTKSZ) val = MINSIGSTKSZ;
+		if (values[name] == JT_SIGSTKSZ)
+			val += SIGSTKSZ - MINSIGSTKSZ;
+		return val;
 	case JT_ZERO & 255:
 		return 0;
 	}

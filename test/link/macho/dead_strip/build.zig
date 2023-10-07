@@ -15,11 +15,13 @@ pub fn build(b: *std.Build) void {
 
         const check = exe.checkObject();
         check.checkInSymtab();
-        check.checkNext("{*} (__TEXT,__text) external _iAmUnused");
+        check.checkContains("(__TEXT,__text) external _iAmUnused");
+        test_step.dependOn(&check.step);
 
-        const run_cmd = check.runAndCompare();
-        run_cmd.expectStdOutEqual("Hello!\n");
-        test_step.dependOn(&run_cmd.step);
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
+        run.expectStdOutEqual("Hello!\n");
+        test_step.dependOn(&run.step);
     }
 
     {
@@ -29,11 +31,13 @@ pub fn build(b: *std.Build) void {
 
         const check = exe.checkObject();
         check.checkInSymtab();
-        check.checkNotPresent("{*} (__TEXT,__text) external _iAmUnused");
+        check.checkNotPresent("(__TEXT,__text) external _iAmUnused");
+        test_step.dependOn(&check.step);
 
-        const run_cmd = check.runAndCompare();
-        run_cmd.expectStdOutEqual("Hello!\n");
-        test_step.dependOn(&run_cmd.step);
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
+        run.expectStdOutEqual("Hello!\n");
+        test_step.dependOn(&run.step);
     }
 }
 
@@ -48,7 +52,7 @@ fn createScenario(
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     return exe;
 }

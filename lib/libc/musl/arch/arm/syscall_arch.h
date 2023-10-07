@@ -101,3 +101,10 @@ static inline long __syscall6(long n, long a, long b, long c, long d, long e, lo
 #define SYSCALL_FADVISE_6_ARG
 
 #define SYSCALL_IPC_BROKEN_MODE
+
+#define VDSO_USEFUL
+#define VDSO_CGT32_SYM "__vdso_clock_gettime"
+#define VDSO_CGT32_VER "LINUX_2.6"
+#define VDSO_CGT_SYM "__vdso_clock_gettime64"
+#define VDSO_CGT_VER "LINUX_2.6"
+#define VDSO_CGT_WORKAROUND 1

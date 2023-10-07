@@ -6,13 +6,15 @@ pub fn testTrickyDefer() !void {
     const a = maybeInt() orelse return;
 }
 
-fn canFail() anyerror!void { }
+fn canFail() anyerror!void {}
 
 pub fn maybeInt() ?i32 {
     return 0;
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(testTrickyDefer)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(testTrickyDefer));
+}
 
 // error
 // backend=stage2

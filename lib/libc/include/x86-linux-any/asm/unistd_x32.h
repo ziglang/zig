@@ -315,6 +315,7 @@
 #define __NR_memfd_secret (__X32_SYSCALL_BIT + 447)
 #define __NR_process_mrelease (__X32_SYSCALL_BIT + 448)
 #define __NR_futex_waitv (__X32_SYSCALL_BIT + 449)
+#define __NR_set_mempolicy_home_node (__X32_SYSCALL_BIT + 450)
 #define __NR_rt_sigaction (__X32_SYSCALL_BIT + 512)
 #define __NR_rt_sigreturn (__X32_SYSCALL_BIT + 513)
 #define __NR_ioctl (__X32_SYSCALL_BIT + 514)

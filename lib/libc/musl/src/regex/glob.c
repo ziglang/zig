@@ -306,6 +306,3 @@ void globfree(glob_t *g)
 	g->gl_pathc = 0;
 	g->gl_pathv = NULL;
 }
-
-weak_alias(glob, glob64);
-weak_alias(globfree, globfree64);

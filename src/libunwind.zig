@@ -42,11 +42,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 try cflags.append("-std=c11");
             },
             .cpp => {
-                try cflags.appendSlice(&[_][]const u8{
-                    "-fno-rtti",
-                    "-I",
-                    try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" }),
-                });
+                try cflags.appendSlice(&[_][]const u8{"-fno-rtti"});
             },
             .assembly_with_cpp => {},
             else => unreachable, // You can see the entire list of files just above.

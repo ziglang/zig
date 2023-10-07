@@ -20,7 +20,7 @@ const ChunkIterator = struct {
     }
 
     fn next(self: *ChunkIterator) ?[]u8 {
-        const next_chunk = self.slice[0..math.min(self.chunk_len, self.slice.len)];
+        const next_chunk = self.slice[0..@min(self.chunk_len, self.slice.len)];
         self.slice = self.slice[next_chunk.len..];
         return if (next_chunk.len > 0) next_chunk else null;
     }
@@ -89,7 +89,7 @@ const CompressVectorized = struct {
         counter: u64,
         flags: u8,
     ) [16]u32 {
-        const md = Lane{ @truncate(u32, counter), @truncate(u32, counter >> 32), block_len, @as(u32, flags) };
+        const md = Lane{ @as(u32, @truncate(counter)), @as(u32, @truncate(counter >> 32)), block_len, @as(u32, flags) };
         var rows = Rows{ chaining_value[0..4].*, chaining_value[4..8].*, IV[0..4].*, md };
 
         var m = Rows{ block_words[0..4].*, block_words[4..8].*, block_words[8..12].*, block_words[12..16].* };
@@ -134,7 +134,7 @@ const CompressVectorized = struct {
         rows[2] ^= @Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
         rows[3] ^= @Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
 
-        return @bitCast([16]u32, rows);
+        return @as([16]u32, @bitCast(rows));
     }
 };
 
@@ -184,8 +184,8 @@ const CompressGeneric = struct {
             IV[1],
             IV[2],
             IV[3],
-            @truncate(u32, counter),
-            @truncate(u32, counter >> 32),
+            @as(u32, @truncate(counter)),
+            @as(u32, @truncate(counter >> 32)),
             block_len,
             flags,
         };
@@ -206,7 +206,7 @@ else
     CompressGeneric.compress;
 
 fn first8Words(words: [16]u32) [8]u32 {
-    return @ptrCast(*const [8]u32, &words).*;
+    return @as(*const [8]u32, @ptrCast(&words)).*;
 }
 
 fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
@@ -283,9 +283,9 @@ const ChunkState = struct {
 
     fn fillBlockBuf(self: *ChunkState, input: []const u8) []const u8 {
         const want = BLOCK_LEN - self.block_len;
-        const take = math.min(want, input.len);
+        const take = @min(want, input.len);
         @memcpy(self.block[self.block_len..][0..take], input[0..take]);
-        self.block_len += @truncate(u8, take);
+        self.block_len += @as(u8, @truncate(take));
         return input[take..];
     }
 
@@ -450,7 +450,7 @@ pub const Blake3 = struct {
 
             // Compress input bytes into the current chunk state.
             const want = CHUNK_LEN - self.chunk_state.len();
-            const take = math.min(want, input.len);
+            const take = @min(want, input.len);
             self.chunk_state.update(input[0..take]);
             input = input[take..];
         }
@@ -658,12 +658,12 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
-    for (&input_pattern, 0..) |*e, i| e.* = @truncate(u8, i);
+    for (&input_pattern, 0..) |*e, i| e.* = @as(u8, @truncate(i));
 
     // Write repeating input pattern to hasher
     var input_counter = input_len;
     while (input_counter > 0) {
-        const update_len = math.min(input_counter, input_pattern.len);
+        const update_len = @min(input_counter, input_pattern.len);
         hasher.update(input_pattern[0..update_len]);
         input_counter -= update_len;
     }

@@ -554,7 +554,6 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI bool isunordered(_A1 __x, _A2
 
 // acos
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       acos(float __x) _NOEXCEPT       {return __builtin_acosf(__x);}
 
 template <class = int>
@@ -563,7 +562,6 @@ _LIBCPP_HIDE_FROM_ABI double acos(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double acos(long double __x) _NOEXCEPT {return __builtin_acosl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -572,7 +570,6 @@ acos(_A1 __x) _NOEXCEPT {return __builtin_acos((double)__x);}
 
 // asin
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       asin(float __x) _NOEXCEPT       {return __builtin_asinf(__x);}
 
 template <class = int>
@@ -581,7 +578,6 @@ _LIBCPP_HIDE_FROM_ABI double asin(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double asin(long double __x) _NOEXCEPT {return __builtin_asinl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -590,7 +586,6 @@ asin(_A1 __x) _NOEXCEPT {return __builtin_asin((double)__x);}
 
 // atan
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       atan(float __x) _NOEXCEPT       {return __builtin_atanf(__x);}
 
 template <class = int>
@@ -599,7 +594,6 @@ _LIBCPP_HIDE_FROM_ABI double atan(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double atan(long double __x) _NOEXCEPT {return __builtin_atanl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -608,7 +602,6 @@ atan(_A1 __x) _NOEXCEPT {return __builtin_atan((double)__x);}
 
 // atan2
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       atan2(float __y, float __x) _NOEXCEPT             {return __builtin_atan2f(__y, __x);}
 
 template <class = int>
@@ -617,7 +610,6 @@ _LIBCPP_HIDE_FROM_ABI double atan2(double __x, double __y) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double atan2(long double __y, long double __x) _NOEXCEPT {return __builtin_atan2l(__y, __x);}
-#    endif
 
 template <class _A1, class _A2>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -637,7 +629,6 @@ atan2(_A1 __y, _A2 __x) _NOEXCEPT
 
 // ceil
 
-#    if !defined(__sun__)
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI float       ceil(float __x) _NOEXCEPT       {return __builtin_ceilf(__x);}
 
 template <class = int>
@@ -646,7 +637,6 @@ _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI double ceil(double __x) _NOEXCEPT {
 }
 
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI long double ceil(long double __x) _NOEXCEPT {return __builtin_ceill(__x);}
-#    endif
 
 template <class _A1>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI
@@ -655,7 +645,6 @@ ceil(_A1 __x) _NOEXCEPT {return __builtin_ceil((double)__x);}
 
 // cos
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       cos(float __x) _NOEXCEPT       {return __builtin_cosf(__x);}
 
 template <class = int>
@@ -664,7 +653,6 @@ _LIBCPP_HIDE_FROM_ABI double cos(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double cos(long double __x) _NOEXCEPT {return __builtin_cosl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -673,7 +661,6 @@ cos(_A1 __x) _NOEXCEPT {return __builtin_cos((double)__x);}
 
 // cosh
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       cosh(float __x) _NOEXCEPT       {return __builtin_coshf(__x);}
 
 template <class = int>
@@ -682,7 +669,6 @@ _LIBCPP_HIDE_FROM_ABI double cosh(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double cosh(long double __x) _NOEXCEPT {return __builtin_coshl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -691,7 +677,6 @@ cosh(_A1 __x) _NOEXCEPT {return __builtin_cosh((double)__x);}
 
 // exp
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       exp(float __x) _NOEXCEPT       {return __builtin_expf(__x);}
 
 template <class = int>
@@ -700,7 +685,6 @@ _LIBCPP_HIDE_FROM_ABI double exp(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double exp(long double __x) _NOEXCEPT {return __builtin_expl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -709,7 +693,6 @@ exp(_A1 __x) _NOEXCEPT {return __builtin_exp((double)__x);}
 
 // fabs
 
-#    if !defined(__sun__)
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI float       fabs(float __x) _NOEXCEPT       {return __builtin_fabsf(__x);}
 
 template <class = int>
@@ -718,7 +701,6 @@ _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI double fabs(double __x) _NOEXCEPT {
 }
 
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI long double fabs(long double __x) _NOEXCEPT {return __builtin_fabsl(__x);}
-#    endif
 
 template <class _A1>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI
@@ -727,7 +709,6 @@ fabs(_A1 __x) _NOEXCEPT {return __builtin_fabs((double)__x);}
 
 // floor
 
-#    if !defined(__sun__)
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI float       floor(float __x) _NOEXCEPT       {return __builtin_floorf(__x);}
 
 template <class = int>
@@ -736,7 +717,6 @@ _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI double floor(double __x) _NOEXCEPT {
 }
 
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI long double floor(long double __x) _NOEXCEPT {return __builtin_floorl(__x);}
-#    endif
 
 template <class _A1>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI
@@ -745,7 +725,6 @@ floor(_A1 __x) _NOEXCEPT {return __builtin_floor((double)__x);}
 
 // fmod
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       fmod(float __x, float __y) _NOEXCEPT             {return __builtin_fmodf(__x, __y);}
 
 template <class = int>
@@ -754,7 +733,6 @@ _LIBCPP_HIDE_FROM_ABI double fmod(double __x, double __y) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double fmod(long double __x, long double __y) _NOEXCEPT {return __builtin_fmodl(__x, __y);}
-#    endif
 
 template <class _A1, class _A2>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -774,7 +752,6 @@ fmod(_A1 __x, _A2 __y) _NOEXCEPT
 
 // frexp
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       frexp(float __x, int* __e) _NOEXCEPT       {return __builtin_frexpf(__x, __e);}
 
 template <class = int>
@@ -783,7 +760,6 @@ _LIBCPP_HIDE_FROM_ABI double frexp(double __x, int* __e) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double frexp(long double __x, int* __e) _NOEXCEPT {return __builtin_frexpl(__x, __e);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -792,7 +768,6 @@ frexp(_A1 __x, int* __e) _NOEXCEPT {return __builtin_frexp((double)__x, __e);}
 
 // ldexp
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       ldexp(float __x, int __e) _NOEXCEPT       {return __builtin_ldexpf(__x, __e);}
 
 template <class = int>
@@ -801,7 +776,6 @@ _LIBCPP_HIDE_FROM_ABI double ldexp(double __x, int __e) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double ldexp(long double __x, int __e) _NOEXCEPT {return __builtin_ldexpl(__x, __e);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -810,7 +784,6 @@ ldexp(_A1 __x, int __e) _NOEXCEPT {return __builtin_ldexp((double)__x, __e);}
 
 // log
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       log(float __x) _NOEXCEPT       {return __builtin_logf(__x);}
 
 template <class = int>
@@ -819,7 +792,6 @@ _LIBCPP_HIDE_FROM_ABI double log(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double log(long double __x) _NOEXCEPT {return __builtin_logl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -828,7 +800,6 @@ log(_A1 __x) _NOEXCEPT {return __builtin_log((double)__x);}
 
 // log10
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       log10(float __x) _NOEXCEPT       {return __builtin_log10f(__x);}
 
 
@@ -838,7 +809,6 @@ _LIBCPP_HIDE_FROM_ABI double log10(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double log10(long double __x) _NOEXCEPT {return __builtin_log10l(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -847,7 +817,6 @@ log10(_A1 __x) _NOEXCEPT {return __builtin_log10((double)__x);}
 
 // modf
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       modf(float __x, float* __y) _NOEXCEPT             {return __builtin_modff(__x, __y);}
 
 template <class = int>
@@ -856,11 +825,9 @@ _LIBCPP_HIDE_FROM_ABI double modf(double __x, double* __y) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double modf(long double __x, long double* __y) _NOEXCEPT {return __builtin_modfl(__x, __y);}
-#    endif
 
 // pow
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       pow(float __x, float __y) _NOEXCEPT             {return __builtin_powf(__x, __y);}
 
 template <class = int>
@@ -869,7 +836,6 @@ _LIBCPP_HIDE_FROM_ABI double pow(double __x, double __y) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double pow(long double __x, long double __y) _NOEXCEPT {return __builtin_powl(__x, __y);}
-#    endif
 
 template <class _A1, class _A2>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -889,7 +855,6 @@ pow(_A1 __x, _A2 __y) _NOEXCEPT
 
 // sin
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       sin(float __x) _NOEXCEPT       {return __builtin_sinf(__x);}
 
 template <class = int>
@@ -898,7 +863,6 @@ _LIBCPP_HIDE_FROM_ABI double sin(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double sin(long double __x) _NOEXCEPT {return __builtin_sinl(__x);}
-#endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -907,7 +871,6 @@ sin(_A1 __x) _NOEXCEPT {return __builtin_sin((double)__x);}
 
 // sinh
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       sinh(float __x) _NOEXCEPT       {return __builtin_sinhf(__x);}
 
 template <class = int>
@@ -916,7 +879,6 @@ _LIBCPP_HIDE_FROM_ABI double sinh(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double sinh(long double __x) _NOEXCEPT {return __builtin_sinhl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -925,7 +887,6 @@ sinh(_A1 __x) _NOEXCEPT {return __builtin_sinh((double)__x);}
 
 // sqrt
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       sqrt(float __x) _NOEXCEPT       {return __builtin_sqrtf(__x);}
 
 template <class = int>
@@ -934,7 +895,6 @@ _LIBCPP_HIDE_FROM_ABI double sqrt(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double sqrt(long double __x) _NOEXCEPT {return __builtin_sqrtl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -943,7 +903,6 @@ sqrt(_A1 __x) _NOEXCEPT {return __builtin_sqrt((double)__x);}
 
 // tan
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       tan(float __x) _NOEXCEPT       {return __builtin_tanf(__x);}
 
 template <class = int>
@@ -952,7 +911,6 @@ _LIBCPP_HIDE_FROM_ABI double tan(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double tan(long double __x) _NOEXCEPT {return __builtin_tanl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -961,7 +919,6 @@ tan(_A1 __x) _NOEXCEPT {return __builtin_tan((double)__x);}
 
 // tanh
 
-#    if !defined(__sun__)
 inline _LIBCPP_HIDE_FROM_ABI float       tanh(float __x) _NOEXCEPT       {return __builtin_tanhf(__x);}
 
 template <class = int>
@@ -970,7 +927,6 @@ _LIBCPP_HIDE_FROM_ABI double tanh(double __x) _NOEXCEPT {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI long double tanh(long double __x) _NOEXCEPT {return __builtin_tanhl(__x);}
-#    endif
 
 template <class _A1>
 inline _LIBCPP_HIDE_FROM_ABI

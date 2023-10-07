@@ -54,7 +54,7 @@ pub const Curve25519 = struct {
         var swap: u8 = 0;
         var pos: usize = bits - 1;
         while (true) : (pos -= 1) {
-            const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 1;
+            const bit = (s[pos >> 3] >> @as(u3, @truncate(pos))) & 1;
             swap ^= bit;
             Fe.cSwap2(&x2, &x3, &z2, &z3, swap);
             swap = bit;

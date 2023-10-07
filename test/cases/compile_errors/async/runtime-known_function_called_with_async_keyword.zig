@@ -3,7 +3,7 @@ export fn entry() void {
     _ = async ptr();
 }
 
-fn afunc() callconv(.Async) void { }
+fn afunc() callconv(.Async) void {}
 
 // error
 // backend=stage1

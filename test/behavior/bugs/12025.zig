@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 test {
     comptime var st = .{
         .foo = &1,

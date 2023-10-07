@@ -36,7 +36,7 @@ fn r32(z: f32) f32 {
 fn asin32(x: f32) f32 {
     const pio2 = 1.570796326794896558e+00;
 
-    const hx: u32 = @bitCast(u32, x);
+    const hx: u32 = @as(u32, @bitCast(x));
     const ix: u32 = hx & 0x7FFFFFFF;
 
     // |x| >= 1
@@ -60,7 +60,7 @@ fn asin32(x: f32) f32 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const fx = pio2 - 2 * (s + s * r32(z));
 
@@ -92,13 +92,13 @@ fn asin64(x: f64) f64 {
     const pio2_hi: f64 = 1.57079632679489655800e+00;
     const pio2_lo: f64 = 6.12323399573676603587e-17;
 
-    const ux = @bitCast(u64, x);
-    const hx = @intCast(u32, ux >> 32);
+    const ux = @as(u64, @bitCast(x));
+    const hx = @as(u32, @intCast(ux >> 32));
     const ix = hx & 0x7FFFFFFF;
 
     // |x| >= 1 or nan
     if (ix >= 0x3FF00000) {
-        const lx = @intCast(u32, ux & 0xFFFFFFFF);
+        const lx = @as(u32, @intCast(ux & 0xFFFFFFFF));
 
         // asin(1) = +-pi/2 with inexact
         if ((ix - 0x3FF00000) | lx == 0) {
@@ -119,7 +119,7 @@ fn asin64(x: f64) f64 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const r = r64(z);
     var fx: f64 = undefined;
@@ -128,8 +128,8 @@ fn asin64(x: f64) f64 {
     if (ix >= 0x3FEF3333) {
         fx = pio2_hi - 2 * (s + s * r);
     } else {
-        const jx = @bitCast(u64, s);
-        const df = @bitCast(f64, jx & 0xFFFFFFFF00000000);
+        const jx = @as(u64, @bitCast(s));
+        const df = @as(f64, @bitCast(jx & 0xFFFFFFFF00000000));
         const c = (z - df * df) / (s + df);
         fx = 0.5 * pio2_hi - (2 * s * r - (pio2_lo - 2 * c) - (0.5 * pio2_hi - 2 * df));
     }

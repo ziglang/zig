@@ -9,6 +9,10 @@ int accept4(int fd, struct sockaddr *restrict addr, socklen_t *restrict len, int
 	if (!flg) return accept(fd, addr, len);
 	int ret = socketcall_cp(accept4, fd, addr, len, flg, 0, 0);
 	if (ret>=0 || (errno != ENOSYS && errno != EINVAL)) return ret;
+	if (flg & ~(SOCK_CLOEXEC|SOCK_NONBLOCK)) {
+		errno = EINVAL;
+		return -1;
+	}
 	ret = accept(fd, addr, len);
 	if (ret<0) return ret;
 	if (flg & SOCK_CLOEXEC)

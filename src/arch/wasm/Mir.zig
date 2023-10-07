@@ -544,12 +544,12 @@ pub const Inst = struct {
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
-            return @intToEnum(Tag, @enumToInt(opcode)); // Given `Opcode` is not present as a tag for MIR yet
+            return @as(Tag, @enumFromInt(@intFromEnum(opcode))); // Given `Opcode` is not present as a tag for MIR yet
         }
 
         /// Returns a wasm opcode from a given MIR tag.
         pub fn toOpcode(self: Tag) std.wasm.Opcode {
-            return @intToEnum(std.wasm.Opcode, @enumToInt(self));
+            return @as(std.wasm.Opcode, @enumFromInt(@intFromEnum(self)));
         }
     };
 
@@ -621,8 +621,8 @@ pub const Imm64 = struct {
 
     pub fn fromU64(imm: u64) Imm64 {
         return .{
-            .msb = @truncate(u32, imm >> 32),
-            .lsb = @truncate(u32, imm),
+            .msb = @as(u32, @truncate(imm >> 32)),
+            .lsb = @as(u32, @truncate(imm)),
         };
     }
 
@@ -639,15 +639,15 @@ pub const Float64 = struct {
     lsb: u32,
 
     pub fn fromFloat64(float: f64) Float64 {
-        const tmp = @bitCast(u64, float);
+        const tmp = @as(u64, @bitCast(float));
         return .{
-            .msb = @truncate(u32, tmp >> 32),
-            .lsb = @truncate(u32, tmp),
+            .msb = @as(u32, @truncate(tmp >> 32)),
+            .lsb = @as(u32, @truncate(tmp)),
         };
     }
 
     pub fn toF64(self: Float64) f64 {
-        @bitCast(f64, self.toU64());
+        @as(f64, @bitCast(self.toU64()));
     }
 
     pub fn toU64(self: Float64) u64 {

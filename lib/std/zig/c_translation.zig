@@ -21,30 +21,30 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         .Int => {
             switch (@typeInfo(SourceType)) {
                 .Pointer => {
-                    return castInt(DestType, @ptrToInt(target));
+                    return castInt(DestType, @intFromPtr(target));
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return castInt(DestType, @ptrToInt(target));
+                        return castInt(DestType, @intFromPtr(target));
                     }
                 },
                 .Int => {
                     return castInt(DestType, target);
                 },
                 .Fn => {
-                    return castInt(DestType, @ptrToInt(&target));
+                    return castInt(DestType, @intFromPtr(&target));
                 },
                 .Bool => {
-                    return @boolToInt(target);
+                    return @intFromBool(target);
                 },
                 else => {},
             }
         },
         .Float => {
             switch (@typeInfo(SourceType)) {
-                .Int => return @intToFloat(DestType, target),
-                .Float => return @floatCast(DestType, target),
-                .Bool => return @intToFloat(DestType, @boolToInt(target)),
+                .Int => return @as(DestType, @floatFromInt(target)),
+                .Float => return @as(DestType, @floatCast(target)),
+                .Bool => return @as(DestType, @floatFromInt(@intFromBool(target))),
                 else => {},
             }
         },
@@ -65,36 +65,25 @@ fn castInt(comptime DestType: type, target: anytype) DestType {
     const source = @typeInfo(@TypeOf(target)).Int;
 
     if (dest.bits < source.bits)
-        return @bitCast(DestType, @truncate(std.meta.Int(source.signedness, dest.bits), target))
+        return @as(DestType, @bitCast(@as(std.meta.Int(source.signedness, dest.bits), @truncate(target))))
     else
-        return @bitCast(DestType, @as(std.meta.Int(source.signedness, dest.bits), target));
+        return @as(DestType, @bitCast(@as(std.meta.Int(source.signedness, dest.bits), target)));
 }
 
 fn castPtr(comptime DestType: type, target: anytype) DestType {
-    const dest = ptrInfo(DestType);
-    const source = ptrInfo(@TypeOf(target));
-
-    if (source.is_const and !dest.is_const)
-        return @constCast(target)
-    else if (source.is_volatile and !dest.is_volatile)
-        return @volatileCast(target)
-    else if (@typeInfo(dest.child) == .Opaque)
-        // dest.alignment would error out
-        return @ptrCast(DestType, target)
-    else
-        return @ptrCast(DestType, @alignCast(dest.alignment, target));
+    return @constCast(@volatileCast(@alignCast(@ptrCast(target))));
 }
 
 fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype) DestType {
     switch (@typeInfo(SourceType)) {
         .Int => {
-            return @intToPtr(DestType, castInt(usize, target));
+            return @as(DestType, @ptrFromInt(castInt(usize, target)));
         },
         .ComptimeInt => {
             if (target < 0)
-                return @intToPtr(DestType, @bitCast(usize, @intCast(isize, target)))
+                return @as(DestType, @ptrFromInt(@as(usize, @bitCast(@as(isize, @intCast(target))))))
             else
-                return @intToPtr(DestType, @intCast(usize, target));
+                return @as(DestType, @ptrFromInt(@as(usize, @intCast(target))));
         },
         .Pointer => {
             return castPtr(DestType, target);
@@ -120,34 +109,34 @@ fn ptrInfo(comptime PtrType: type) std.builtin.Type.Pointer {
 test "cast" {
     var i = @as(i64, 10);
 
-    try testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
+    try testing.expect(cast(*u8, 16) == @as(*u8, @ptrFromInt(16)));
     try testing.expect(cast(*u64, &i).* == @as(u64, 10));
     try testing.expect(cast(*i64, @as(?*align(1) i64, &i)) == &i);
 
-    try testing.expect(cast(?*u8, 2) == @intToPtr(*u8, 2));
+    try testing.expect(cast(?*u8, 2) == @as(*u8, @ptrFromInt(2)));
     try testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
     try testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
 
-    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
-    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @as(*u32, @ptrFromInt(4))));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @as(?*u32, @ptrFromInt(4))));
     try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
 
-    try testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
+    try testing.expectEqual(@as(i32, @bitCast(@as(u32, 0x8000_0000))), cast(i32, @as(u32, 0x8000_0000)));
 
-    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
-    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
+    try testing.expectEqual(@as(*u8, @ptrFromInt(2)), cast(*u8, @as(*const u8, @ptrFromInt(2))));
+    try testing.expectEqual(@as(*u8, @ptrFromInt(2)), cast(*u8, @as(*volatile u8, @ptrFromInt(2))));
 
-    try testing.expectEqual(@intToPtr(?*anyopaque, 2), cast(?*anyopaque, @intToPtr(*u8, 2)));
+    try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
     var foo: c_int = -1;
-    try testing.expect(cast(*anyopaque, -1) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(*anyopaque, foo) == @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*anyopaque, -1) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
-    try testing.expect(cast(?*anyopaque, foo) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
+    try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
+    try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
+    try testing.expect(cast(?*anyopaque, foo) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
 
     const FnPtr = ?*align(1) const fn (*anyopaque) void;
-    try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
-    try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
+    try testing.expect(cast(FnPtr, 0) == @as(FnPtr, @ptrFromInt(@as(usize, 0))));
+    try testing.expect(cast(FnPtr, foo) == @as(FnPtr, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
@@ -192,7 +181,7 @@ pub fn sizeof(target: anytype) usize {
                 const array_info = @typeInfo(ptr.child).Array;
                 if ((array_info.child == u8 or array_info.child == u16) and
                     array_info.sentinel != null and
-                    @ptrCast(*align(1) const array_info.child, array_info.sentinel.?).* == 0)
+                    @as(*align(1) const array_info.child, @ptrCast(array_info.sentinel.?)).* == 0)
                 {
                     // length of the string plus one for the null terminator.
                     return (array_info.len + 1) * @sizeOf(array_info.child);
@@ -262,16 +251,19 @@ test "sizeof" {
     try testing.expect(sizeof(anyopaque) == 1);
 }
 
-pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
+pub const CIntLiteralBase = enum { decimal, octal, hexadecimal };
 
-fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime radix: CIntLiteralRadix) type {
+/// Deprecated: use `CIntLiteralBase`
+pub const CIntLiteralRadix = CIntLiteralBase;
+
+fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime base: CIntLiteralBase) type {
     const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };
     const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
     const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
 
     const list: []const type = if (@typeInfo(SuffixType).Int.signedness == .unsigned)
         &unsigned
-    else if (radix == .decimal)
+    else if (base == .decimal)
         &signed_decimal
     else
         &signed_oct_hex;
@@ -290,8 +282,8 @@ fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: compt
 pub fn promoteIntLiteral(
     comptime SuffixType: type,
     comptime number: comptime_int,
-    comptime radix: CIntLiteralRadix,
-) PromoteIntLiteralReturnType(SuffixType, number, radix) {
+    comptime base: CIntLiteralBase,
+) PromoteIntLiteralReturnType(SuffixType, number, base) {
     return number;
 }
 
@@ -322,10 +314,10 @@ test "promoteIntLiteral" {
 pub fn shuffleVectorIndex(comptime this_index: c_int, comptime source_vector_len: usize) i32 {
     if (this_index <= 0) return 0;
 
-    const positive_index = @intCast(usize, this_index);
-    if (positive_index < source_vector_len) return @intCast(i32, this_index);
+    const positive_index = @as(usize, @intCast(this_index));
+    if (positive_index < source_vector_len) return @as(i32, @intCast(this_index));
     const b_index = positive_index - source_vector_len;
-    return ~@intCast(i32, b_index);
+    return ~@as(i32, @intCast(b_index));
 }
 
 test "shuffleVectorIndex" {
@@ -392,16 +384,16 @@ pub const Macros = struct {
     }
 
     fn L_SUFFIX_ReturnType(comptime number: anytype) type {
-        switch (@TypeOf(number)) {
-            comptime_int => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
-            comptime_float => return c_longdouble,
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
+            .Float, .ComptimeFloat => return c_longdouble,
             else => @compileError("Invalid value for L suffix"),
         }
     }
     pub fn L_SUFFIX(comptime number: anytype) L_SUFFIX_ReturnType(number) {
-        switch (@TypeOf(number)) {
-            comptime_int => return promoteIntLiteral(c_long, number, .decimal),
-            comptime_float => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return promoteIntLiteral(c_long, number, .decimal),
+            .Float, .ComptimeFloat => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
             else => @compileError("Invalid value for L suffix"),
         }
     }
@@ -651,4 +643,31 @@ test "CAST_OR_CALL calling" {
     try testing.expectEqual(Helper.returnsBool(-1), Macros.CAST_OR_CALL(Helper.returnsBool, @as(f32, -1)));
 
     try testing.expectEqual(Helper.identity(@as(c_uint, 100)), Macros.CAST_OR_CALL(Helper.identity, @as(c_uint, 100)));
+}
+
+test "Extended C ABI casting" {
+    if (math.maxInt(c_long) > math.maxInt(c_char)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_char, math.maxInt(c_char) - 1))) == c_long); // c_char
+    }
+    if (math.maxInt(c_long) > math.maxInt(c_short)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_short, math.maxInt(c_short) - 1))) == c_long); // c_short
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_ushort)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_ushort, math.maxInt(c_ushort) - 1))) == c_long); //c_ushort
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_int, math.maxInt(c_int) - 1))) == c_long); // c_int
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_uint)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_uint, math.maxInt(c_uint) - 1))) == c_long); // c_uint
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_uint) + 1)) == c_long); // comptime_int -> c_long
+    }
+
+    if (math.maxInt(c_longlong) > math.maxInt(c_long)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
+    }
 }

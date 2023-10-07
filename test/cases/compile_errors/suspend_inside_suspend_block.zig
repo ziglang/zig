@@ -3,8 +3,7 @@ export fn entry() void {
 }
 fn foo() void {
     suspend {
-        suspend {
-        }
+        suspend {}
     }
 }
 

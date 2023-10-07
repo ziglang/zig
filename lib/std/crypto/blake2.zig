@@ -80,7 +80,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, options.expected_out_bits >> 3);
+            d.h[0] ^= 0x01010000 ^ @as(u32, @truncate(key_len << 8)) ^ @as(u32, @intCast(options.expected_out_bits >> 3));
             d.t = 0;
             d.buf_len = 0;
 
@@ -127,7 +127,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             // Copy any remainder for next pass.
             const b_slice = b[off..];
             @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b_slice.len);
+            d.buf_len += @as(u8, @intCast(b_slice.len));
         }
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
@@ -135,7 +135,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
             for (&d.h) |*x| x.* = mem.nativeToLittle(u32, x.*);
-            out.* = @ptrCast(*[digest_length]u8, &d.h).*;
+            out.* = @as(*[digest_length]u8, @ptrCast(&d.h)).*;
         }
 
         fn round(d: *Self, b: *const [64]u8, last: bool) void {
@@ -152,8 +152,8 @@ pub fn Blake2s(comptime out_bits: usize) type {
                 v[k + 8] = iv[k];
             }
 
-            v[12] ^= @truncate(u32, d.t);
-            v[13] ^= @intCast(u32, d.t >> 32);
+            v[12] ^= @as(u32, @truncate(d.t));
+            v[13] ^= @as(u32, @intCast(d.t >> 32));
             if (last) v[14] = ~v[14];
 
             const rounds = comptime [_]RoundParam{
@@ -563,7 +563,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             // Copy any remainder for next pass.
             const b_slice = b[off..];
             @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b_slice.len);
+            d.buf_len += @as(u8, @intCast(b_slice.len));
         }
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
@@ -571,7 +571,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
             for (&d.h) |*x| x.* = mem.nativeToLittle(u64, x.*);
-            out.* = @ptrCast(*[digest_length]u8, &d.h).*;
+            out.* = @as(*[digest_length]u8, @ptrCast(&d.h)).*;
         }
 
         fn round(d: *Self, b: *const [128]u8, last: bool) void {
@@ -588,8 +588,8 @@ pub fn Blake2b(comptime out_bits: usize) type {
                 v[k + 8] = iv[k];
             }
 
-            v[12] ^= @truncate(u64, d.t);
-            v[13] ^= @intCast(u64, d.t >> 64);
+            v[12] ^= @as(u64, @truncate(d.t));
+            v[13] ^= @as(u64, @intCast(d.t >> 64));
             if (last) v[14] = ~v[14];
 
             const rounds = comptime [_]RoundParam{

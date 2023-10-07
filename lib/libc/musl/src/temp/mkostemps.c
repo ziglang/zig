@@ -26,4 +26,3 @@ int __mkostemps(char *template, int len, int flags)
 }
 
 weak_alias(__mkostemps, mkostemps);
-weak_alias(__mkostemps, mkostemps64);

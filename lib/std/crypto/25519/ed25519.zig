@@ -480,13 +480,7 @@ pub const Ed25519 = struct {
             hx.final(&blind_h);
             return blind_h;
         }
-
-        pub const sign = @compileError("deprecated; use BlindKeyPair.sign instead");
-        pub const unblindPublicKey = @compileError("deprecated; use BlindPublicKey.unblind instead");
     };
-
-    pub const sign = @compileError("deprecated; use KeyPair.sign instead");
-    pub const verify = @compileError("deprecated; use PublicKey.verify instead");
 };
 
 test "ed25519 key pair creation" {

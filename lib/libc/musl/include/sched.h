@@ -124,7 +124,7 @@ __CPU_op_func_S(XOR, ^)
 #define CPU_ALLOC(n) ((cpu_set_t *)calloc(1,CPU_ALLOC_SIZE(n)))
 #define CPU_FREE(set) free(set)
 
-#define CPU_SETSIZE 128
+#define CPU_SETSIZE 1024
 
 #define CPU_SET(i, set) CPU_SET_S(i,sizeof(cpu_set_t),set)
 #define CPU_CLR(i, set) CPU_CLR_S(i,sizeof(cpu_set_t),set)

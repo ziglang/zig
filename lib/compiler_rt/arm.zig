@@ -9,7 +9,7 @@ pub const panic = common.panic;
 
 comptime {
     if (!builtin.is_test) {
-        if (arch.isARM() or arch.isThumb()) {
+        if (arch.isArmOrThumb()) {
             @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
@@ -51,7 +51,7 @@ const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 const __divmoddi4 = @import("int.zig").__divmoddi4;
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
+extern fn memset(dest: ?[*]u8, c: i32, n: usize) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
@@ -81,17 +81,17 @@ pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void
     _ = memmove(dest, src, n);
 }
 
-pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     // This is dentical to the standard `memset` definition but with the last
     // two arguments swapped
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
@@ -192,6 +192,6 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
 }
 
 pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
-    const neg_a = @bitCast(f64, @bitCast(u64, a) ^ (@as(u64, 1) << 63));
+    const neg_a: f64 = @bitCast(@as(u64, @bitCast(a)) ^ (@as(u64, 1) << 63));
     return b + neg_a;
 }

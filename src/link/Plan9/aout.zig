@@ -21,7 +21,7 @@ pub const ExecHdr = extern struct {
         var buf: [40]u8 = undefined;
         var i: u8 = 0;
         inline for (std.meta.fields(@This())) |f| {
-            std.mem.writeIntSliceBig(u32, buf[i .. i + 4], @field(self, f.name));
+            std.mem.writeIntSliceBig(u32, buf[i..][0..4], @field(self, f.name));
             i += 4;
         }
         return buf;

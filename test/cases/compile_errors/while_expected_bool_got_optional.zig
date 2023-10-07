@@ -1,7 +1,9 @@
 export fn foo() void {
     while (bar()) {}
 }
-fn bar() ?i32 { return 1; }
+fn bar() ?i32 {
+    return 1;
+}
 
 // error
 // backend=stage2

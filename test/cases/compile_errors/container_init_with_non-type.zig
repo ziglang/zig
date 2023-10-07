@@ -1,7 +1,9 @@
 const zero: i32 = 0;
 const a = zero{1};
 
-export fn entry() usize { return @sizeOf(@TypeOf(a)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(a));
+}
 
 // error
 // backend=stage2

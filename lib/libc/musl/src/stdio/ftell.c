@@ -37,5 +37,3 @@ long ftell(FILE *f)
 }
 
 weak_alias(__ftello, ftello);
-
-weak_alias(ftello, ftello64);

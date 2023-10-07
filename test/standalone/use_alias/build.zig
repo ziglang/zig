@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
     });
-    main.addIncludePath(".");
+    main.addIncludePath(.{ .path = "." });
 
     test_step.dependOn(&b.addRunArtifact(main).step);
 }

@@ -28,19 +28,17 @@ template <class _Tp>
 void __test_implicit_default_constructible(_Tp);
 
 template <class _Tp, class = void, class = typename is_default_constructible<_Tp>::type>
-struct __is_implicitly_default_constructible
-    : false_type
-{ };
+struct __is_implicitly_default_constructible : false_type {};
 
 template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(std::__test_implicit_default_constructible<_Tp const&>({})), true_type>
-    : true_type
-{ };
+struct __is_implicitly_default_constructible<_Tp,
+                                             decltype(std::__test_implicit_default_constructible<_Tp const&>({})),
+                                             true_type> : true_type {};
 
 template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(std::__test_implicit_default_constructible<_Tp const&>({})), false_type>
-    : false_type
-{ };
+struct __is_implicitly_default_constructible<_Tp,
+                                             decltype(std::__test_implicit_default_constructible<_Tp const&>({})),
+                                             false_type> : false_type {};
 #endif // !C++03
 
 _LIBCPP_END_NAMESPACE_STD

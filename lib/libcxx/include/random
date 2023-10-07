@@ -1734,6 +1734,7 @@ class piecewise_linear_distribution
 #  include <concepts>
 #  include <cstddef>
 #  include <cstdint>
+#  include <cstdlib>
 #  include <iosfwd>
 #  include <limits>
 #  include <numeric>

@@ -11,29 +11,27 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime try expect(@alignOf(Foo) != maxInt(usize));
+    try comptime expect(@alignOf(Foo) != maxInt(usize));
     if (native_arch == .x86_64) {
-        comptime try expect(@alignOf(Foo) == 4);
+        try comptime expect(@alignOf(Foo) == 4);
     }
 }
 
 test "comparison of @alignOf(T) against zero" {
-    {
-        const T = struct { x: u32 };
-        try expect(!(@alignOf(T) == 0));
-        try expect(@alignOf(T) != 0);
-        try expect(!(@alignOf(T) < 0));
-        try expect(!(@alignOf(T) <= 0));
-        try expect(@alignOf(T) > 0);
-        try expect(@alignOf(T) >= 0);
-    }
-    {
-        const T = struct {};
-        try expect(@alignOf(T) == 0);
-        try expect(!(@alignOf(T) != 0));
-        try expect(!(@alignOf(T) < 0));
-        try expect(@alignOf(T) <= 0);
-        try expect(!(@alignOf(T) > 0));
-        try expect(@alignOf(T) >= 0);
-    }
+    const T = struct { x: u32 };
+    try expect(!(@alignOf(T) == 0));
+    try expect(@alignOf(T) != 0);
+    try expect(!(@alignOf(T) < 0));
+    try expect(!(@alignOf(T) <= 0));
+    try expect(@alignOf(T) > 0);
+    try expect(@alignOf(T) >= 0);
+}
+
+test "correct alignment for elements and slices of aligned array" {
+    var buf: [1024]u8 align(64) = undefined;
+    var start: usize = 1;
+    var end: usize = undefined;
+    try expect(@alignOf(@TypeOf(buf[start..end])) == @alignOf(*u8));
+    try expect(@alignOf(@TypeOf(&buf[start..end])) == @alignOf(*u8));
+    try expect(@alignOf(@TypeOf(&buf[start])) == @alignOf(*u8));
 }

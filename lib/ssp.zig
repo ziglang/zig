@@ -46,7 +46,7 @@ export var __stack_chk_guard: usize = blk: {
     var buf = [1]u8{0} ** @sizeOf(usize);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';
-    break :blk @bitCast(usize, buf);
+    break :blk @as(usize, @bitCast(buf));
 };
 
 export fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [*:0]u8 {

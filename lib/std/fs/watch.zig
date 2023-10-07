@@ -279,13 +279,13 @@ pub fn Watch(comptime V: type) type {
 
             while (!put.cancelled) {
                 kev.* = os.Kevent{
-                    .ident = @intCast(usize, fd),
+                    .ident = @as(usize, @intCast(fd)),
                     .filter = os.EVFILT_VNODE,
                     .flags = os.EV_ADD | os.EV_ENABLE | os.EV_CLEAR | os.EV_ONESHOT |
                         os.NOTE_WRITE | os.NOTE_DELETE | os.NOTE_REVOKE,
                     .fflags = 0,
                     .data = 0,
-                    .udata = @ptrToInt(&resume_node.base),
+                    .udata = @intFromPtr(&resume_node.base),
                 };
                 suspend {
                     global_event_loop.beginOneEvent();
@@ -486,15 +486,15 @@ pub fn Watch(comptime V: type) type {
                 } else {
                     var ptr: [*]u8 = &event_buf;
                     const end_ptr = ptr + bytes_transferred;
-                    while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) {
-                        const ev = @ptrCast(*const windows.FILE_NOTIFY_INFORMATION, ptr);
+                    while (@intFromPtr(ptr) < @intFromPtr(end_ptr)) {
+                        const ev = @as(*const windows.FILE_NOTIFY_INFORMATION, @ptrCast(ptr));
                         const emit = switch (ev.Action) {
                             windows.FILE_ACTION_REMOVED => WatchEventId.Delete,
                             windows.FILE_ACTION_MODIFIED => .CloseWrite,
                             else => null,
                         };
                         if (emit) |id| {
-                            const basename_ptr = @ptrCast([*]u16, ptr + @sizeOf(windows.FILE_NOTIFY_INFORMATION));
+                            const basename_ptr = @as([*]u16, @ptrCast(ptr + @sizeOf(windows.FILE_NOTIFY_INFORMATION)));
                             const basename_utf16le = basename_ptr[0 .. ev.FileNameLength / 2];
                             var basename_data: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                             const basename = basename_data[0 .. std.unicode.utf16leToUtf8(&basename_data, basename_utf16le) catch unreachable];
@@ -510,7 +510,7 @@ pub fn Watch(comptime V: type) type {
                         }
 
                         if (ev.NextEntryOffset == 0) break;
-                        ptr = @alignCast(@alignOf(windows.FILE_NOTIFY_INFORMATION), ptr + ev.NextEntryOffset);
+                        ptr = @alignCast(ptr + ev.NextEntryOffset);
                     }
                 }
             }
@@ -585,11 +585,11 @@ pub fn Watch(comptime V: type) type {
 
                 var ptr: [*]u8 = &event_buf;
                 const end_ptr = ptr + bytes_read;
-                while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) {
-                    const ev = @ptrCast(*const os.linux.inotify_event, ptr);
+                while (@intFromPtr(ptr) < @intFromPtr(end_ptr)) {
+                    const ev = @as(*const os.linux.inotify_event, @ptrCast(ptr));
                     if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                         const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
-                        const basename = std.mem.span(@ptrCast([*:0]u8, basename_ptr));
+                        const basename = std.mem.span(@as([*:0]u8, @ptrCast(basename_ptr)));
 
                         const dir = &self.os_data.wd_table.get(ev.wd).?;
                         if (dir.file_table.getEntry(basename)) |file_value| {
@@ -615,7 +615,7 @@ pub fn Watch(comptime V: type) type {
                     } else if (ev.mask & os.linux.IN_DELETE == os.linux.IN_DELETE) {
                         // File or directory was removed or deleted
                         const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
-                        const basename = std.mem.span(@ptrCast([*:0]u8, basename_ptr));
+                        const basename = std.mem.span(@as([*:0]u8, @ptrCast(basename_ptr)));
 
                         const dir = &self.os_data.wd_table.get(ev.wd).?;
                         if (dir.file_table.getEntry(basename)) |file_value| {
@@ -628,7 +628,7 @@ pub fn Watch(comptime V: type) type {
                         }
                     }
 
-                    ptr = @alignCast(@alignOf(os.linux.inotify_event), ptr + @sizeOf(os.linux.inotify_event) + ev.len);
+                    ptr = @alignCast(ptr + @sizeOf(os.linux.inotify_event) + ev.len);
                 }
             }
         }

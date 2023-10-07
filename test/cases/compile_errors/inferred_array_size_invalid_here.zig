@@ -4,7 +4,7 @@ export fn entry() void {
 }
 export fn entry2() void {
     const S = struct { a: *const [_]u8 };
-    var a = .{ S{} };
+    var a = .{S{}};
     _ = a;
 }
 

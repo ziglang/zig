@@ -28,6 +28,7 @@ const LibCTarget = struct {
 const MultiArch = union(enum) {
     arm,
     arm64,
+    loongarch,
     mips,
     powerpc,
     riscv,
@@ -36,7 +37,7 @@ const MultiArch = union(enum) {
     specific: Arch,
 
     fn eql(a: MultiArch, b: MultiArch) bool {
-        if (@enumToInt(a) != @enumToInt(b))
+        if (@intFromEnum(a) != @intFromEnum(b))
             return false;
         if (a != .specific)
             return true;
@@ -70,6 +71,10 @@ const linux_targets = [_]LibCTarget{
         .arch = .{ .specific = .m68k },
     },
     LibCTarget{
+        .name = "loongarch",
+        .arch = .loongarch,
+    },
+    LibCTarget{
         .name = "mips",
         .arch = .mips,
     },
@@ -93,6 +98,10 @@ const linux_targets = [_]LibCTarget{
         .name = "x86",
         .arch = .x86,
     },
+    LibCTarget{
+        .name = "xtensa",
+        .arch = .{ .specific = .xtensa },
+    },
 };
 
 const DestTarget = struct {
@@ -103,7 +112,7 @@ const DestTarget = struct {
             _ = self;
             var hasher = std.hash.Wyhash.init(0);
             std.hash.autoHash(&hasher, a.arch);
-            return @truncate(u32, hasher.final());
+            return @as(u32, @truncate(hasher.final()));
         }
 
         pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
@@ -193,8 +202,8 @@ pub fn main() !void {
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(arena, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
-                        .Directory => try dir_stack.append(full_path),
-                        .File => {
+                        .directory => try dir_stack.append(full_path),
+                        .file => {
                             const rel_path = try std.fs.path.relative(arena, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
                             const raw_bytes = try std.fs.cwd().readFileAlloc(arena, full_path, max_size);
@@ -260,7 +269,7 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
+        std.mem.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic

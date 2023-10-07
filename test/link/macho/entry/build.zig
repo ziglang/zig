@@ -18,24 +18,28 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
 
     const check_exe = exe.checkObject();
 
-    check_exe.checkStart("segname __TEXT");
-    check_exe.checkNext("vmaddr {vmaddr}");
+    check_exe.checkStart();
+    check_exe.checkExact("segname __TEXT");
+    check_exe.checkExtract("vmaddr {vmaddr}");
 
-    check_exe.checkStart("cmd MAIN");
-    check_exe.checkNext("entryoff {entryoff}");
+    check_exe.checkStart();
+    check_exe.checkExact("cmd MAIN");
+    check_exe.checkExtract("entryoff {entryoff}");
 
     check_exe.checkInSymtab();
-    check_exe.checkNext("{n_value} (__TEXT,__text) external _non_main");
+    check_exe.checkExtract("{n_value} (__TEXT,__text) external _non_main");
 
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
+    test_step.dependOn(&check_exe.step);
 
-    const run = check_exe.runAndCompare();
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("42");
     test_step.dependOn(&run.step);
 }

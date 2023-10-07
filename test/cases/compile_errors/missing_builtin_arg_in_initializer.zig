@@ -1,8 +1,11 @@
 comptime {
-    const v = @as();
+    const a = @as();
 }
 comptime {
-    const u = @bitCast(u32);
+    const b = @bitCast();
+}
+comptime {
+    const c = @as(u32);
 }
 
 // error
@@ -10,4 +13,5 @@ comptime {
 // target=native
 //
 // :2:15: error: expected 2 arguments, found 0
-// :5:15: error: expected 2 arguments, found 1
+// :5:15: error: expected 1 argument, found 0
+// :8:15: error: expected 2 arguments, found 1

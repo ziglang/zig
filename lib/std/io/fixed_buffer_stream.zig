@@ -76,12 +76,12 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| std.math.min(self.buffer.len, x) else self.buffer.len;
+            self.pos = if (std.math.cast(usize, pos)) |x| @min(self.buffer.len, x) else self.buffer.len;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
             if (amt < 0) {
-                const abs_amt = std.math.absCast(amt);
+                const abs_amt = @abs(amt);
                 const abs_amt_usize = std.math.cast(usize, abs_amt) orelse std.math.maxInt(usize);
                 if (abs_amt_usize > self.pos) {
                     self.pos = 0;
@@ -91,7 +91,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             } else {
                 const amt_usize = std.math.cast(usize, amt) orelse std.math.maxInt(usize);
                 const new_pos = std.math.add(usize, self.pos, amt_usize) catch std.math.maxInt(usize);
-                self.pos = std.math.min(self.buffer.len, new_pos);
+                self.pos = @min(self.buffer.len, new_pos);
             }
         }
 

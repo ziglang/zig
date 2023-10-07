@@ -56,8 +56,3 @@ int fstatvfs(int fd, struct statvfs *buf)
 	fixup(buf, &kbuf);
 	return 0;
 }
-
-weak_alias(statvfs, statvfs64);
-weak_alias(statfs, statfs64);
-weak_alias(fstatvfs, fstatvfs64);
-weak_alias(fstatfs, fstatfs64);

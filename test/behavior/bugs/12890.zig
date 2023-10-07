@@ -11,6 +11,7 @@ fn a(b: []u3, c: u3) void {
 test {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var arr: [8]u3 = undefined;
     a(&arr, 5);

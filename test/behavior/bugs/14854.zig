@@ -1,4 +1,5 @@
 const testing = @import("std").testing;
+const builtin = @import("builtin");
 
 test {
     try testing.expect(getGeneric(u8, getU8) == 123);

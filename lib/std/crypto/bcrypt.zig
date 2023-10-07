@@ -7,6 +7,7 @@ const math = std.math;
 const mem = std.mem;
 const pwhash = crypto.pwhash;
 const testing = std.testing;
+const HmacSha512 = crypto.auth.hmac.sha2.HmacSha512;
 const Sha512 = crypto.hash.sha2.Sha512;
 const utils = crypto.utils;
 
@@ -375,10 +376,10 @@ pub const State = struct {
     const Halves = struct { l: u32, r: u32 };
 
     fn halfRound(state: *const State, i: u32, j: u32, n: usize) u32 {
-        var r = state.sboxes[0][@truncate(u8, j >> 24)];
-        r +%= state.sboxes[1][@truncate(u8, j >> 16)];
-        r ^= state.sboxes[2][@truncate(u8, j >> 8)];
-        r +%= state.sboxes[3][@truncate(u8, j)];
+        var r = state.sboxes[0][@as(u8, @truncate(j >> 24))];
+        r +%= state.sboxes[1][@as(u8, @truncate(j >> 16))];
+        r ^= state.sboxes[2][@as(u8, @truncate(j >> 8))];
+        r +%= state.sboxes[3][@as(u8, @truncate(j))];
         return i ^ r ^ state.subkeys[n];
     }
 
@@ -405,10 +406,21 @@ pub const State = struct {
     }
 };
 
+/// bcrypt parameters
 pub const Params = struct {
+    /// log2 of the number of rounds
     rounds_log: u6,
 };
 
+/// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
+/// bcrypt is a computationally expensive and cache-hard function, explicitly designed to slow down exhaustive searches.
+///
+/// The function returns the hash as a `dk_length` byte array, that doesn't include anything besides the hash output.
+///
+/// For a generic key-derivation function, use `bcrypt.pbkdf()` instead.
+///
+/// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
+/// If this is an issue for your application, use `bcryptWithoutTruncation` instead.
 pub fn bcrypt(
     password: []const u8,
     salt: [salt_length]u8,
@@ -443,6 +455,34 @@ pub fn bcrypt(
     return ct[0..dk_length].*;
 }
 
+/// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
+/// bcrypt is a computationally expensive and cache-hard function, explicitly designed to slow down exhaustive searches.
+///
+/// The function returns the hash as a `dk_length` byte array, that doesn't include anything besides the hash output.
+///
+/// For a generic key-derivation function, use `bcrypt.pbkdf()` instead.
+///
+/// This function is identical to `bcrypt`, except that it doesn't silently truncate passwords.
+/// Instead, passwords longer than 72 bytes are pre-hashed using HMAC-SHA512 before being passed to bcrypt.
+pub fn bcryptWithoutTruncation(
+    password: []const u8,
+    salt: [salt_length]u8,
+    params: Params,
+) [dk_length]u8 {
+    if (password.len <= 72) {
+        return bcrypt(password, salt, params);
+    }
+
+    var pre_hash: [HmacSha512.mac_length]u8 = undefined;
+    HmacSha512.create(&pre_hash, password, &salt);
+
+    const Encoder = crypt_format.Codec.Encoder;
+    var pre_hash_b64: [Encoder.calcSize(pre_hash.len)]u8 = undefined;
+    _ = Encoder.encode(&pre_hash_b64, &pre_hash);
+
+    return bcrypt(&pre_hash_b64, salt, params);
+}
+
 const pbkdf_prf = struct {
     const Self = @This();
     pub const mac_length = 32;
@@ -450,24 +490,24 @@ const pbkdf_prf = struct {
     hasher: Sha512,
     sha2pass: [Sha512.digest_length]u8,
 
-    pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
+    fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
         var ctx = Self.init(key);
         ctx.update(msg);
         ctx.final(out);
     }
 
-    pub fn init(key: []const u8) Self {
+    fn init(key: []const u8) Self {
         var self: Self = undefined;
         self.hasher = Sha512.init(.{});
         Sha512.hash(key, &self.sha2pass, .{});
         return self;
     }
 
-    pub fn update(self: *Self, msg: []const u8) void {
+    fn update(self: *Self, msg: []const u8) void {
         self.hasher.update(msg);
     }
 
-    pub fn final(self: *Self, out: *[mac_length]u8) void {
+    fn final(self: *Self, out: *[mac_length]u8) void {
         var sha2salt: [Sha512.digest_length]u8 = undefined;
         self.hasher.final(&sha2salt);
         out.* = hash(self.sha2pass, sha2salt);
@@ -517,10 +557,12 @@ const pbkdf_prf = struct {
     }
 };
 
-/// bcrypt PBKDF2 implementation with variations to match OpenBSD
-/// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
+/// bcrypt-pbkdf is a key derivation function based on bcrypt.
+/// This is the function used in OpenSSH to derive encryption keys from passphrases.
 ///
-/// This particular variant is used in e.g. SSH
+/// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
+///
+/// Unlike the password hashing function `bcrypt`, this function doesn't silently truncate passwords longer than 72 bytes.
 pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
     try crypto.pwhash.pbkdf2(key, pass, salt, rounds, pbkdf_prf);
 }
@@ -540,8 +582,9 @@ const crypt_format = struct {
         password: []const u8,
         salt: [salt_length]u8,
         params: Params,
+        silently_truncate_password: bool,
     ) [hash_length]u8 {
-        var dk = bcrypt(password, salt, params);
+        var dk = if (silently_truncate_password) bcrypt(password, salt, params) else bcryptWithoutTruncation(password, salt, params);
 
         var salt_str: [salt_str_length]u8 = undefined;
         _ = Codec.Encoder.encode(salt_str[0..], salt[0..]);
@@ -573,15 +616,16 @@ const PhcFormatHasher = struct {
     };
 
     /// Return a non-deterministic hash of the password encoded as a PHC-format string
-    pub fn create(
+    fn create(
         password: []const u8,
         params: Params,
+        silently_truncate_password: bool,
         buf: []u8,
     ) HasherError![]const u8 {
         var salt: [salt_length]u8 = undefined;
         crypto.random.bytes(&salt);
 
-        const hash = bcrypt(password, salt, params);
+        const hash = if (silently_truncate_password) bcrypt(password, salt, params) else bcryptWithoutTruncation(password, salt, params);
 
         return phc_format.serialize(HashResult{
             .alg_id = alg_id,
@@ -592,9 +636,10 @@ const PhcFormatHasher = struct {
     }
 
     /// Verify a password against a PHC-format encoded string
-    pub fn verify(
+    fn verify(
         str: []const u8,
         password: []const u8,
+        silently_truncate_password: bool,
     ) HasherError!void {
         const hash_result = try phc_format.deserialize(HashResult, str);
 
@@ -602,7 +647,8 @@ const PhcFormatHasher = struct {
         if (hash_result.salt.len != salt_length or hash_result.hash.len != dk_length)
             return HasherError.InvalidEncoding;
 
-        const hash = bcrypt(password, hash_result.salt.buf, .{ .rounds_log = hash_result.r });
+        const params = Params{ .rounds_log = hash_result.r };
+        const hash = if (silently_truncate_password) bcrypt(password, hash_result.salt.buf, params) else bcryptWithoutTruncation(password, hash_result.salt.buf, params);
         const expected_hash = hash_result.hash.constSlice();
 
         if (!mem.eql(u8, &hash, expected_hash)) return HasherError.PasswordVerificationFailed;
@@ -612,12 +658,13 @@ const PhcFormatHasher = struct {
 /// Hash and verify passwords using the modular crypt format.
 const CryptFormatHasher = struct {
     /// Length of a string returned by the create() function
-    pub const pwhash_str_length: usize = hash_length;
+    const pwhash_str_length: usize = hash_length;
 
     /// Return a non-deterministic hash of the password encoded into the modular crypt format
-    pub fn create(
+    fn create(
         password: []const u8,
         params: Params,
+        silently_truncate_password: bool,
         buf: []u8,
     ) HasherError![]const u8 {
         if (buf.len < pwhash_str_length) return HasherError.NoSpaceLeft;
@@ -625,16 +672,17 @@ const CryptFormatHasher = struct {
         var salt: [salt_length]u8 = undefined;
         crypto.random.bytes(&salt);
 
-        const hash = crypt_format.strHashInternal(password, salt, params);
+        const hash = crypt_format.strHashInternal(password, salt, params, silently_truncate_password);
         @memcpy(buf[0..hash.len], &hash);
 
         return buf[0..pwhash_str_length];
     }
 
     /// Verify a password against a string in modular crypt format
-    pub fn verify(
+    fn verify(
         str: []const u8,
         password: []const u8,
+        silently_truncate_password: bool,
     ) HasherError!void {
         if (str.len != pwhash_str_length or str[3] != '$' or str[6] != '$')
             return HasherError.InvalidEncoding;
@@ -647,16 +695,22 @@ const CryptFormatHasher = struct {
         var salt: [salt_length]u8 = undefined;
         crypt_format.Codec.Decoder.decode(salt[0..], salt_str[0..]) catch return HasherError.InvalidEncoding;
 
-        const wanted_s = crypt_format.strHashInternal(password, salt, .{ .rounds_log = rounds_log });
+        const wanted_s = crypt_format.strHashInternal(password, salt, .{ .rounds_log = rounds_log }, silently_truncate_password);
         if (!mem.eql(u8, wanted_s[0..], str[0..])) return HasherError.PasswordVerificationFailed;
     }
 };
 
 /// Options for hashing a password.
 pub const HashOptions = struct {
+    /// For `bcrypt`, that can be left to `null`.
     allocator: ?mem.Allocator = null,
+    /// Internal bcrypt parameters.
     params: Params,
+    /// Encoding to use for the output of the hash function.
     encoding: pwhash.Encoding,
+    /// Whether to silently truncate the password to 72 bytes, or pre-hash the password when it is longer.
+    /// The default is `true`, for compatibility with the original bcrypt implementation.
+    silently_truncate_password: bool = true,
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
@@ -665,34 +719,36 @@ pub const HashOptions = struct {
 /// The function returns a string that includes all the parameters required for verification.
 ///
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
-/// If this is an issue for your application, hash the password first using a function such as SHA-512,
-/// and then use the resulting hash as the password parameter for bcrypt.
+/// If this is an issue for your application, set the `silently_truncate_password` option to `false`.
 pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
 ) Error![]const u8 {
     switch (options.encoding) {
-        .phc => return PhcFormatHasher.create(password, options.params, out),
-        .crypt => return CryptFormatHasher.create(password, options.params, out),
+        .phc => return PhcFormatHasher.create(password, options.params, options.silently_truncate_password, out),
+        .crypt => return CryptFormatHasher.create(password, options.params, options.silently_truncate_password, out),
     }
 }
 
 /// Options for hash verification.
 pub const VerifyOptions = struct {
+    /// For `bcrypt`, that can be left to `null`.
     allocator: ?mem.Allocator = null,
+    /// Whether to silently truncate the password to 72 bytes, or pre-hash the password when it is longer.
+    silently_truncate_password: bool = false,
 };
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
     str: []const u8,
     password: []const u8,
-    _: VerifyOptions,
+    options: VerifyOptions,
 ) Error!void {
     if (mem.startsWith(u8, str, crypt_format.prefix)) {
-        return CryptFormatHasher.verify(str, password);
+        return CryptFormatHasher.verify(str, password, options.silently_truncate_password);
     } else {
-        return PhcFormatHasher.verify(str, password);
+        return PhcFormatHasher.verify(str, password, options.silently_truncate_password);
     }
 }
 
@@ -707,11 +763,12 @@ test "bcrypt codec" {
 }
 
 test "bcrypt crypt format" {
-    const hash_options = HashOptions{
+    var hash_options = HashOptions{
         .params = .{ .rounds_log = 5 },
         .encoding = .crypt,
+        .silently_truncate_password = false,
     };
-    const verify_options = VerifyOptions{};
+    var verify_options = VerifyOptions{};
 
     var buf: [hash_length]u8 = undefined;
     const s = try strHash("password", hash_options, &buf);
@@ -724,10 +781,18 @@ test "bcrypt crypt format" {
     );
 
     var long_buf: [hash_length]u8 = undefined;
-    const long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
 
     try testing.expect(mem.startsWith(u8, long_s, crypt_format.prefix));
     try strVerify(long_s, "password" ** 100, verify_options);
+    try testing.expectError(
+        error.PasswordVerificationFailed,
+        strVerify(long_s, "password" ** 101, verify_options),
+    );
+
+    hash_options.silently_truncate_password = true;
+    verify_options.silently_truncate_password = true;
+    long_s = try strHash("password" ** 100, hash_options, &long_buf);
     try strVerify(long_s, "password" ** 101, verify_options);
 
     try strVerify(
@@ -738,11 +803,12 @@ test "bcrypt crypt format" {
 }
 
 test "bcrypt phc format" {
-    const hash_options = HashOptions{
+    var hash_options = HashOptions{
         .params = .{ .rounds_log = 5 },
         .encoding = .phc,
+        .silently_truncate_password = false,
     };
-    const verify_options = VerifyOptions{};
+    var verify_options = VerifyOptions{};
     const prefix = "$bcrypt$";
 
     var buf: [hash_length * 2]u8 = undefined;
@@ -756,10 +822,18 @@ test "bcrypt phc format" {
     );
 
     var long_buf: [hash_length * 2]u8 = undefined;
-    const long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
 
     try testing.expect(mem.startsWith(u8, long_s, prefix));
     try strVerify(long_s, "password" ** 100, verify_options);
+    try testing.expectError(
+        error.PasswordVerificationFailed,
+        strVerify(long_s, "password" ** 101, verify_options),
+    );
+
+    hash_options.silently_truncate_password = true;
+    verify_options.silently_truncate_password = true;
+    long_s = try strHash("password" ** 100, hash_options, &long_buf);
     try strVerify(long_s, "password" ** 101, verify_options);
 
     try strVerify(

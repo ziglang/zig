@@ -63,7 +63,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -71,6 +71,11 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
+        }
+        if (!build_options.only_core_functionality) {
+            for (comp.win32_resource_table.keys()) |key| {
+                _ = try man.addFile(key.status.success.res_path, null);
+            }
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(self.base.options.entry);
@@ -88,7 +93,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 }
             }
         }
-        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
+        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
         man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
         man.hash.addOptional(self.base.options.subsystem);
         man.hash.add(self.base.options.is_test);
@@ -199,7 +204,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
         } else if (target.cpu.arch.isARM()) {
-            if (target.cpu.arch.ptrBitWidth() == 32) {
+            if (target.ptrBitWidth() == 32) {
                 try argv.append("-MACHINE:ARM");
             } else {
                 try argv.append("-MACHINE:ARM64");
@@ -266,6 +271,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);
+        }
+
+        if (!build_options.only_core_functionality) {
+            for (comp.win32_resource_table.keys()) |key| {
+                try argv.append(key.status.success.res_path);
+            }
         }
 
         if (module_obj_path) |p| {
@@ -405,6 +416,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                         try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
                         try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
                         try argv.append(try comp.get_libc_crt_file(arena, "msvcrt-os.lib"));
+                        try argv.append(try comp.get_libc_crt_file(arena, "uuid.lib"));
 
                         for (mingw.always_link_libs) |name| {
                             if (!self.base.options.system_libs.contains(name)) {
@@ -545,7 +557,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
+                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
                     log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });

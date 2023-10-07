@@ -20,14 +20,15 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "test",
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
+    exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
     exe.linkFrameworkNeeded("Cocoa");
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();
-    check.checkStart("cmd LOAD_DYLIB");
-    check.checkNext("name {*}Cocoa");
+    check.checkStart();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkContains("Cocoa");
     test_step.dependOn(&check.step);
 
     const run_cmd = b.addRunArtifact(exe);

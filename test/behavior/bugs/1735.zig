@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const mystruct = struct {
     pending: ?listofstructs,
 };
-pub fn TailQueue(comptime T: type) type {
+pub fn DoublyLinkedList(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -27,7 +27,7 @@ pub fn TailQueue(comptime T: type) type {
         }
     };
 }
-const listofstructs = TailQueue(mystruct);
+const listofstructs = DoublyLinkedList(mystruct);
 
 const a = struct {
     const Self = @This();
@@ -44,6 +44,8 @@ const a = struct {
 test "initialization" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var t = a.init();
     try std.testing.expect(t.foo.len == 0);
 }

@@ -155,8 +155,8 @@ pub const Tz = struct {
             if (corr > std.math.maxInt(i16)) return error.Malformed; // Unreasonably large correction
 
             leapseconds[i] = .{
-                .occurrence = @intCast(i48, occur),
-                .correction = @intCast(i16, corr),
+                .occurrence = @as(i48, @intCast(occur)),
+                .correction = @as(i16, @intCast(corr)),
             };
         }
 

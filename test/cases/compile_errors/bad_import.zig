@@ -1,4 +1,6 @@
-const bogus = @import("bogus-does-not-exist.zig",);
+const bogus = @import(
+    "bogus-does-not-exist.zig",
+);
 
 // error
 // backend=stage2

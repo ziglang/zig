@@ -7,20 +7,49 @@ const mem = std.mem;
 ///
 /// `kvs_list` expects a list of `struct { []const u8, V }` (key-value pair) tuples.
 /// You can pass `struct { []const u8 }` (only keys) tuples if `V` is `void`.
-pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
+pub fn ComptimeStringMap(
+    comptime V: type,
+    comptime kvs_list: anytype,
+) type {
+    return ComptimeStringMapWithEql(V, kvs_list, defaultEql);
+}
+
+/// Like `std.mem.eql`, but takes advantage of the fact that the lengths
+/// of `a` and `b` are known to be equal.
+pub fn defaultEql(a: []const u8, b: []const u8) bool {
+    if (a.ptr == b.ptr) return true;
+    for (a, b) |a_elem, b_elem| {
+        if (a_elem != b_elem) return false;
+    }
+    return true;
+}
+
+/// Like `std.ascii.eqlIgnoreCase` but takes advantage of the fact that
+/// the lengths of `a` and `b` are known to be equal.
+pub fn eqlAsciiIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.ptr == b.ptr) return true;
+    for (a, b) |a_c, b_c| {
+        if (std.ascii.toLower(a_c) != std.ascii.toLower(b_c)) return false;
+    }
+    return true;
+}
+
+/// ComptimeStringMap, but accepts an equality function (`eql`).
+/// The `eql` function is only called to determine the equality
+/// of equal length strings. Any strings that are not equal length
+/// are never compared using the `eql` function.
+pub fn ComptimeStringMapWithEql(
+    comptime V: type,
+    comptime kvs_list: anytype,
+    comptime eql: fn (a: []const u8, b: []const u8) bool,
+) type {
     const precomputed = comptime blk: {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(1500);
         const KV = struct {
             key: []const u8,
             value: V,
         };
         var sorted_kvs: [kvs_list.len]KV = undefined;
-        const lenAsc = (struct {
-            fn lenAsc(context: void, a: KV, b: KV) bool {
-                _ = context;
-                return a.key.len < b.key.len;
-            }
-        }).lenAsc;
         for (kvs_list, 0..) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
@@ -28,7 +57,20 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        std.sort.sort(KV, &sorted_kvs, {}, lenAsc);
+
+        const SortContext = struct {
+            kvs: []KV,
+
+            pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+                return ctx.kvs[a].key.len < ctx.kvs[b].key.len;
+            }
+
+            pub fn swap(ctx: @This(), a: usize, b: usize) void {
+                return std.mem.swap(KV, &ctx.kvs[a], &ctx.kvs[b]);
+            }
+        };
+        mem.sortUnstableContext(0, sorted_kvs.len, SortContext{ .kvs = &sorted_kvs });
+
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;
@@ -69,7 +111,7 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
                 const kv = precomputed.sorted_kvs[i];
                 if (kv.key.len != str.len)
                     return null;
-                if (mem.eql(u8, kv.key, str))
+                if (eql(kv.key, str))
                     return kv.value;
                 i += 1;
                 if (i >= precomputed.sorted_kvs.len)
@@ -172,4 +214,21 @@ fn testSet(comptime map: anytype) !void {
 
     try std.testing.expect(!map.has("missing"));
     try std.testing.expect(map.has("these"));
+}
+
+test "ComptimeStringMapWithEql" {
+    const map = ComptimeStringMapWithEql(TestEnum, .{
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
+    }, eqlAsciiIgnoreCase);
+
+    try testMap(map);
+    try std.testing.expectEqual(TestEnum.A, map.get("HAVE").?);
+    try std.testing.expectEqual(TestEnum.E, map.get("SameLen").?);
+    try std.testing.expect(null == map.get("SameLength"));
+
+    try std.testing.expect(map.has("ThESe"));
 }

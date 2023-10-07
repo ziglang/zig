@@ -1,10 +1,10 @@
 const A = struct {
-    x : i32,
-    y : i32,
-    z : i32,
+    x: i32,
+    y: i32,
+    z: i32,
 };
 export fn f() void {
-    const a = A {
+    const a = A{
         .z = 1,
         .y = 2,
         .x = 3,

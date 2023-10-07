@@ -109,16 +109,18 @@ pub const SubsectionType = enum(u8) {
     WASM_SYMBOL_TABLE = 8,
 };
 
+pub const Alignment = @import("../../InternPool.zig").Alignment;
+
 pub const Segment = struct {
     /// Segment's name, encoded as UTF-8 bytes.
     name: []const u8,
     /// The required alignment of the segment, encoded as a power of 2
-    alignment: u32,
+    alignment: Alignment,
     /// Bitfield containing flags for a segment
     flags: u32,
 
     pub fn isTLS(segment: Segment) bool {
-        return segment.flags & @enumToInt(Flags.WASM_SEG_FLAG_TLS) != 0;
+        return segment.flags & @intFromEnum(Flags.WASM_SEG_FLAG_TLS) != 0;
     }
 
     /// Returns the name as how it will be output into the final object
@@ -205,7 +207,7 @@ pub const Feature = struct {
 
         /// From a given cpu feature, returns its linker feature
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
-            return @intToEnum(Tag, @enumToInt(feature));
+            return @as(Tag, @enumFromInt(@intFromEnum(feature)));
         }
 
         pub fn format(tag: Tag, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {

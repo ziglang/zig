@@ -7,7 +7,7 @@ pub fn main() void {
 }
 
 fn print() void {
-    _ = write(1, @ptrToInt("hello\n"), 6);
+    _ = write(1, @intFromPtr("hello\n"), 6);
 }
 
 // run

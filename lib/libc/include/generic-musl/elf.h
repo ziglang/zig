@@ -385,7 +385,8 @@ typedef struct {
 #define SHT_PREINIT_ARRAY 16
 #define SHT_GROUP	  17
 #define SHT_SYMTAB_SHNDX  18
-#define	SHT_NUM		  19
+#define SHT_RELR	  19
+#define	SHT_NUM		  20
 #define SHT_LOOS	  0x60000000
 #define SHT_GNU_ATTRIBUTES 0x6ffffff5
 #define SHT_GNU_HASH	  0x6ffffff6
@@ -436,6 +437,7 @@ typedef struct {
 } Elf64_Chdr;
 
 #define ELFCOMPRESS_ZLIB	1
+#define ELFCOMPRESS_ZSTD	2
 #define ELFCOMPRESS_LOOS	0x60000000
 #define ELFCOMPRESS_HIOS	0x6fffffff
 #define ELFCOMPRESS_LOPROC	0x70000000
@@ -754,7 +756,10 @@ typedef struct {
 #define DT_PREINIT_ARRAY 32
 #define DT_PREINIT_ARRAYSZ 33
 #define DT_SYMTAB_SHNDX	34
-#define	DT_NUM		35
+#define DT_RELRSZ	35
+#define DT_RELR		36
+#define DT_RELRENT	37
+#define	DT_NUM		38
 #define DT_LOOS		0x6000000d
 #define DT_HIOS		0x6ffff000
 #define DT_LOPROC	0x70000000

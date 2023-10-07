@@ -3,16 +3,12 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "switch on empty enum" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-
     const E = enum {};
     var e: E = undefined;
     switch (e) {}
 }
 
 test "switch on empty enum with a specified tag type" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-
     const E = enum(u8) {};
     var e: E = undefined;
     switch (e) {}
@@ -20,7 +16,6 @@ test "switch on empty enum with a specified tag type" {
 
 test "switch on empty auto numbered tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const U = union(enum(u8)) {};
     var u: U = undefined;
@@ -29,7 +24,6 @@ test "switch on empty auto numbered tagged union" {
 
 test "switch on empty tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const E = enum {};
     const U = union(E) {};
@@ -40,7 +34,7 @@ test "switch on empty tagged union" {
 test "empty union" {
     const U = union {};
     try expect(@sizeOf(U) == 0);
-    try expect(@alignOf(U) == 0);
+    try expect(@alignOf(U) == 1);
 }
 
 test "empty extern union" {
@@ -50,6 +44,8 @@ test "empty extern union" {
 }
 
 test "empty union passed as argument" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const U = union(enum) {
         fn f(u: @This()) void {
             switch (u) {}
@@ -59,6 +55,8 @@ test "empty union passed as argument" {
 }
 
 test "empty enum passed as argument" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const E = enum {
         fn f(e: @This()) void {
             switch (e) {}

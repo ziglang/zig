@@ -2,7 +2,7 @@ const ffs = @import("count0bits.zig");
 const testing = @import("std").testing;
 
 fn test__ffsdi2(a: u64, expected: i32) !void {
-    var x = @bitCast(i64, a);
+    var x = @as(i64, @bitCast(a));
     var result = ffs.__ffsdi2(x);
     try testing.expectEqual(expected, result);
 }

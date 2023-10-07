@@ -95,7 +95,11 @@ pub const SingleThreadedRwLock = struct {
                 rwl.shared_count = 1;
                 return true;
             },
-            .locked_exclusive, .locked_shared => return false,
+            .locked_shared => {
+                rwl.shared_count += 1;
+                return true;
+            },
+            .locked_exclusive => return false,
         }
     }
 

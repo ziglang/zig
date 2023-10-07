@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
-    c_obj.addCSourceFile("foo.c", &.{});
+    c_obj.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &.{} });
 
     // Wasm library that doesn't have any features specified. This will
     // infer its featureset from other linked object files.
@@ -33,15 +33,16 @@ pub fn build(b: *std.Build) void {
 
     // Verify the result contains the features from the C Object file.
     const check = lib.checkObject();
-    check.checkStart("name target_features");
-    check.checkNext("features 7");
-    check.checkNext("+ atomics");
-    check.checkNext("+ bulk-memory");
-    check.checkNext("+ mutable-globals");
-    check.checkNext("+ nontrapping-fptoint");
-    check.checkNext("+ sign-ext");
-    check.checkNext("+ simd128");
-    check.checkNext("+ tail-call");
+    check.checkStart();
+    check.checkExact("name target_features");
+    check.checkExact("features 7");
+    check.checkExact("+ atomics");
+    check.checkExact("+ bulk-memory");
+    check.checkExact("+ mutable-globals");
+    check.checkExact("+ nontrapping-fptoint");
+    check.checkExact("+ sign-ext");
+    check.checkExact("+ simd128");
+    check.checkExact("+ tail-call");
 
     const test_step = b.step("test", "Run linker test");
     test_step.dependOn(&check.step);

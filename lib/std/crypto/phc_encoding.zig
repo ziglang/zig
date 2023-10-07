@@ -7,9 +7,12 @@ const mem = std.mem;
 const meta = std.meta;
 
 const fields_delimiter = "$";
+const fields_delimiter_scalar = '$';
 const version_param_name = "v";
 const params_delimiter = ",";
+const params_delimiter_scalar = ',';
 const kv_delimiter = "=";
+const kv_delimiter_scalar = '=';
 
 pub const Error = std.crypto.errors.EncodingError || error{NoSpaceLeft};
 
@@ -73,7 +76,7 @@ pub fn BinValue(comptime max_len: usize) type {
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
     var out = mem.zeroes(HashResult);
-    var it = mem.split(u8, str, fields_delimiter);
+    var it = mem.splitScalar(u8, str, fields_delimiter_scalar);
     var set_fields: usize = 0;
 
     while (true) {
@@ -104,7 +107,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
 
         // Read optional parameters
         var has_params = false;
-        var it_params = mem.split(u8, field, params_delimiter);
+        var it_params = mem.splitScalar(u8, field, params_delimiter_scalar);
         while (it_params.next()) |params| {
             const param = kvSplit(params) catch break;
             var found = false;
@@ -190,7 +193,7 @@ pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
 pub fn calcSize(params: anytype) usize {
     var buf = io.countingWriter(io.null_writer);
     serializeTo(params, buf.writer()) catch unreachable;
-    return @intCast(usize, buf.bytes_written);
+    return @as(usize, @intCast(buf.bytes_written));
 }
 
 fn serializeTo(params: anytype, out: anytype) !void {
@@ -252,7 +255,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
 // Split a `key=value` string into `key` and `value`
 fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
-    var it = mem.split(u8, str, kv_delimiter);
+    var it = mem.splitScalar(u8, str, kv_delimiter_scalar);
     const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
     const ret = .{ .key = key, .value = value };

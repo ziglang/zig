@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const testing = std.testing;
 
 test {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const g: error{Test}!void = error.Test;
 
     var v: u32 = 0;

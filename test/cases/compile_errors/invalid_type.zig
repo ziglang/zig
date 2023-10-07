@@ -1,5 +1,7 @@
 fn a() bogus {}
-export fn entry() void { _ = a(); }
+export fn entry() void {
+    _ = a();
+}
 
 // error
 // backend=stage2

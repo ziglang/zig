@@ -40,8 +40,12 @@ fail:
 static size_t wms_write(FILE *f, const unsigned char *buf, size_t len)
 {
 	struct cookie *c = f->cookie;
-	size_t len2;
+	size_t len2 = f->wpos - f->wbase;
 	wchar_t *newbuf;
+	if (len2) {
+		f->wpos = f->wbase;
+		if (wms_write(f, f->wbase, len2) < len2) return 0;
+	}
 	if (len + c->pos >= c->space) {
 		len2 = 2*c->space+1 | c->pos+len+1;
 		if (len2 > SSIZE_MAX/4) return 0;

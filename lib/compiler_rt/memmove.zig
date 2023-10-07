@@ -8,7 +8,7 @@ comptime {
 pub fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
-    if (@ptrToInt(dest) < @ptrToInt(src)) {
+    if (@intFromPtr(dest) < @intFromPtr(src)) {
         var index: usize = 0;
         while (index != n) : (index += 1) {
             dest.?[index] = src.?[index];

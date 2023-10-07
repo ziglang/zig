@@ -1,6 +1,6 @@
 export fn entry() void {
     var x: u32 = 0;
-    switch(x) {}
+    switch (x) {}
 }
 
 // error

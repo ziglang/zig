@@ -415,5 +415,6 @@
 #define __NR_landlock_restrict_self (__NR_SYSCALL_BASE + 446)
 #define __NR_process_mrelease (__NR_SYSCALL_BASE + 448)
 #define __NR_futex_waitv (__NR_SYSCALL_BASE + 449)
+#define __NR_set_mempolicy_home_node (__NR_SYSCALL_BASE + 450)
 
 #endif /* _ASM_UNISTD_OABI_H */

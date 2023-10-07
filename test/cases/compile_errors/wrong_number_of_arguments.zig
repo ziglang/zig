@@ -1,7 +1,11 @@
 export fn a() void {
     c(1);
 }
-fn c(d: i32, e: i32, f: i32) void { _ = d; _ = e; _ = f; }
+fn c(d: i32, e: i32, f: i32) void {
+    _ = d;
+    _ = e;
+    _ = f;
+}
 
 // error
 // backend=stage2

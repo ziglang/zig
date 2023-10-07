@@ -57,7 +57,7 @@ pub fn main() !void {
         defer walker.deinit();
 
         walk: while (try walker.next()) |entry| {
-            if (entry.kind != .File) continue;
+            if (entry.kind != .file) continue;
             if (mem.startsWith(u8, entry.basename, ".")) continue;
             for (exempt_files) |p| {
                 if (mem.eql(u8, entry.path, p)) continue :walk;
@@ -98,7 +98,7 @@ pub fn main() !void {
     defer walker.deinit();
 
     walk: while (try walker.next()) |entry| {
-        if (entry.kind != .File) continue;
+        if (entry.kind != .file) continue;
         if (mem.startsWith(u8, entry.basename, ".")) continue;
         for (exempt_files) |p| {
             if (mem.eql(u8, entry.path, p)) continue :walk;

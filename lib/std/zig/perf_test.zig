@@ -18,9 +18,9 @@ pub fn main() !void {
     }
     const end = timer.read();
     memory_used /= iterations;
-    const elapsed_s = @intToFloat(f64, end - start) / std.time.ns_per_s;
-    const bytes_per_sec_float = @intToFloat(f64, source.len * iterations) / elapsed_s;
-    const bytes_per_sec = @floatToInt(u64, @floor(bytes_per_sec_float));
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / std.time.ns_per_s;
+    const bytes_per_sec_float = @as(f64, @floatFromInt(source.len * iterations)) / elapsed_s;
+    const bytes_per_sec = @as(u64, @intFromFloat(@floor(bytes_per_sec_float)));
 
     var stdout_file = std.io.getStdOut();
     const stdout = stdout_file.writer();

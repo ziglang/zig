@@ -54,9 +54,10 @@ int gethostbyaddr_r(const void *a, socklen_t l, int af,
 	case EAI_OVERFLOW:
 		return ERANGE;
 	default:
-	case EAI_MEMORY:
-	case EAI_SYSTEM:
 	case EAI_FAIL:
+		*err = NO_RECOVERY;
+		return EBADMSG;
+	case EAI_SYSTEM:
 		*err = NO_RECOVERY;
 		return errno;
 	case 0:

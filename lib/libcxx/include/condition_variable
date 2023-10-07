@@ -107,10 +107,18 @@ public:
 */
 
 #include <__assert> // all public C++ headers provide the assertion handler
+#include <__chrono/duration.h>
+#include <__chrono/steady_clock.h>
+#include <__chrono/time_point.h>
+#include <__condition_variable/condition_variable.h>
 #include <__config>
 #include <__memory/shared_ptr.h>
 #include <__memory/unique_ptr.h>
-#include <__mutex_base>
+#include <__mutex/lock_guard.h>
+#include <__mutex/mutex.h>
+#include <__mutex/tag_types.h>
+#include <__mutex/unique_lock.h>
+#include <__utility/move.h>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -121,7 +129,7 @@ public:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-class _LIBCPP_TYPE_VIS condition_variable_any
+class _LIBCPP_EXPORTED_FROM_ABI condition_variable_any
 {
     condition_variable __cv_;
     shared_ptr<mutex>  __mut_;
@@ -191,7 +199,7 @@ condition_variable_any::notify_all() _NOEXCEPT
 struct __lock_external
 {
     template <class _Lock>
-    void operator()(_Lock* __m) {__m->lock();}
+    _LIBCPP_HIDE_FROM_ABI void operator()(_Lock* __m) {__m->lock();}
 };
 
 template <class _Lock>
@@ -202,7 +210,7 @@ condition_variable_any::wait(_Lock& __lock)
     unique_lock<mutex> __lk(*__mut);
     __lock.unlock();
     unique_ptr<_Lock, __lock_external> __lxx(&__lock);
-    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock);
+    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
     __cv_.wait(__lk);
 }  // __mut_.unlock(), __lock.lock()
 
@@ -224,7 +232,7 @@ condition_variable_any::wait_until(_Lock& __lock,
     unique_lock<mutex> __lk(*__mut);
     __lock.unlock();
     unique_ptr<_Lock, __lock_external> __lxx(&__lock);
-    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock);
+    lock_guard<unique_lock<mutex> > __lx(__lk, adopt_lock_t());
     return __cv_.wait_until(__lk, __t);
 }  // __mut_.unlock(), __lock.lock()
 
@@ -261,16 +269,24 @@ condition_variable_any::wait_for(_Lock& __lock,
                       _VSTD::move(__pred));
 }
 
-_LIBCPP_FUNC_VIS
-void notify_all_at_thread_exit(condition_variable&, unique_lock<mutex>);
+_LIBCPP_EXPORTED_FROM_ABI void notify_all_at_thread_exit(condition_variable&, unique_lock<mutex>);
 
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // !_LIBCPP_HAS_NO_THREADS
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
 #  include <concepts>
+#  include <cstdint>
+#  include <cstdlib>
+#  include <cstring>
+#  include <initializer_list>
+#  include <new>
+#  include <stdexcept>
+#  include <system_error>
 #  include <type_traits>
+#  include <typeinfo>
 #endif
 
 #endif // _LIBCPP_CONDITION_VARIABLE

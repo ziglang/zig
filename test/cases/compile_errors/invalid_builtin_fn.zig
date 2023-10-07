@@ -1,6 +1,7 @@
-fn f() @bogus(foo) {
+fn f() @bogus(foo) {}
+export fn entry() void {
+    _ = f();
 }
-export fn entry() void { _ = f(); }
 
 // error
 // backend=stage2

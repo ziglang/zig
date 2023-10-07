@@ -102,7 +102,7 @@ pub fn isFull(self: RingBuffer) bool {
 
 /// Returns the length
 pub fn len(self: RingBuffer) usize {
-    const wrap_offset = 2 * self.data.len * @boolToInt(self.write_index < self.read_index);
+    const wrap_offset = 2 * self.data.len * @intFromBool(self.write_index < self.read_index);
     const adjusted_write_index = self.write_index + wrap_offset;
     return adjusted_write_index - self.read_index;
 }

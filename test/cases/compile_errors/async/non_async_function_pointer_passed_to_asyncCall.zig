@@ -3,10 +3,10 @@ export fn entry() void {
     var bytes: [100]u8 align(16) = undefined;
     _ = @asyncCall(&bytes, {}, ptr, .{});
 }
-fn afunc() void { }
+fn afunc() void {}
 
 // error
 // backend=stage1
 // target=native
 //
-// tmp.zig:4:32: error: expected async function, found 'fn() void'
+// tmp.zig:4:32: error: expected async function, found 'fn () void'

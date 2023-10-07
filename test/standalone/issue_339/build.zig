@@ -14,5 +14,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // TODO: actually check the output
+    _ = obj.getEmittedBin();
+
     test_step.dependOn(&obj.step);
 }

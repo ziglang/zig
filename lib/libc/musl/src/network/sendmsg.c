@@ -8,13 +8,16 @@ ssize_t sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 #if LONG_MAX > INT_MAX
 	struct msghdr h;
-	struct cmsghdr chbuf[1024/sizeof(struct cmsghdr)+1], *c;
+	/* Kernels before 2.6.38 set SCM_MAX_FD to 255, allocate enough
+	 * space to support an SCM_RIGHTS ancillary message with 255 fds.
+	 * Kernels since 2.6.38 set SCM_MAX_FD to 253. */
+	struct cmsghdr chbuf[CMSG_SPACE(255*sizeof(int))/sizeof(struct cmsghdr)+1], *c;
 	if (msg) {
 		h = *msg;
 		h.__pad1 = h.__pad2 = 0;
 		msg = &h;
 		if (h.msg_controllen) {
-			if (h.msg_controllen > 1024) {
+			if (h.msg_controllen > sizeof chbuf) {
 				errno = ENOMEM;
 				return -1;
 			}

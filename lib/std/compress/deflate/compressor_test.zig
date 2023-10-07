@@ -172,7 +172,7 @@ test "deflate/inflate" {
     defer testing.allocator.free(large_data_chunk);
     // fill with random data
     for (large_data_chunk, 0..) |_, i| {
-        large_data_chunk[i] = @truncate(u8, i) *% @truncate(u8, i);
+        large_data_chunk[i] = @as(u8, @truncate(i)) *% @as(u8, @truncate(i));
     }
     try testToFromWithLimit(large_data_chunk, limits);
 }

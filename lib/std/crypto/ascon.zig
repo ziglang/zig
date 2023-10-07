@@ -95,8 +95,8 @@ pub fn State(comptime endian: builtin.Endian) type {
         /// XOR a byte into the state at a given offset.
         pub fn addByte(self: *Self, byte: u8, offset: usize) void {
             const z = switch (endian) {
-                .Big => 64 - 8 - 8 * @truncate(u6, offset % 8),
-                .Little => 8 * @truncate(u6, offset % 8),
+                .Big => 64 - 8 - 8 * @as(u6, @truncate(offset % 8)),
+                .Little => 8 * @as(u6, @truncate(offset % 8)),
             };
             self.st[offset / 8] ^= @as(u64, byte) << z;
         }

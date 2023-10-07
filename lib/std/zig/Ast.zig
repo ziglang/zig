@@ -62,7 +62,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         const token = tokenizer.next();
         try tokens.append(gpa, .{
             .tag = token.tag,
-            .start = @intCast(u32, token.loc.start),
+            .start = @as(u32, @intCast(token.loc.start)),
         });
         if (token.tag == .eof) break;
     }
@@ -123,7 +123,7 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
     return if (parse_error.token_is_prev)
-        @intCast(u32, tree.tokenSlice(parse_error.token).len)
+        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
     else
         0;
 }
@@ -208,22 +208,22 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_block => {
             return stream.print("expected block, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_assignment => {
             return stream.print("expected block or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_expr => {
             return stream.print("expected block or expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_field => {
             return stream.print("expected block or field, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container_members => {
@@ -233,42 +233,47 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_expr => {
             return stream.print("expected expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_expr_or_assignment => {
             return stream.print("expected expression or assignment, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
+            });
+        },
+        .expected_expr_or_var_decl => {
+            return stream.print("expected expression or var decl, found '{s}'", .{
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_fn => {
             return stream.print("expected function, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_inlinable => {
             return stream.print("expected 'while' or 'for', found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_labelable => {
             return stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_param_list => {
             return stream.print("expected parameter list, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_prefix_expr => {
             return stream.print("expected prefix expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_primary_type_expr => {
             return stream.print("expected primary type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_pub_item => {
@@ -276,7 +281,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_return_type => {
             return stream.print("expected return type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_semi_or_else => {
@@ -292,32 +297,32 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_suffix_op => {
             return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_type_expr => {
             return stream.print("expected type expression, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl => {
             return stream.print("expected variable declaration, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl_or_fn => {
             return stream.print("expected variable declaration or function, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_loop_payload => {
             return stream.print("expected loop payload, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container => {
             return stream.print("expected a struct, enum or union, found '{s}'", .{
-                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
         .extern_fn_body => {
@@ -434,7 +439,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
 
         .expected_token => {
-            const found_tag = token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)];
+            const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
                 .invalid => return stream.print("expected '{s}', found invalid bytes", .{
@@ -583,6 +588,13 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .for_range,
         .error_union,
         => n = datas[n].lhs,
+
+        .assign_destructure => {
+            const extra_idx = datas[n].lhs;
+            const lhs_len = tree.extra_data[extra_idx];
+            assert(lhs_len > 0);
+            n = tree.extra_data[extra_idx + 1];
+        },
 
         .fn_decl,
         .fn_proto_simple,
@@ -752,11 +764,11 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             // Look for a label and inline.
             const main_token = main_tokens[n];
             var result = main_token;
-            if (token_tags[result - 1] == .keyword_inline) {
+            if (token_tags[result -| 1] == .keyword_inline) {
                 result -= 1;
             }
-            if (token_tags[result - 1] == .colon) {
-                result -= 2;
+            if (token_tags[result -| 1] == .colon) {
+                result -|= 2;
             }
             return result - end_offset;
         },
@@ -772,7 +784,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     var n = node;
     var end_offset: TokenIndex = 0;
     while (true) switch (tags[n]) {
-        .root => return @intCast(TokenIndex, tree.tokens.len - 1),
+        .root => return @as(TokenIndex, @intCast(tree.tokens.len - 1)),
 
         .@"usingnamespace",
         .bool_not,
@@ -816,6 +828,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .assign_add_sat,
         .assign_sub_sat,
         .assign,
+        .assign_destructure,
         .merge_error_sets,
         .mul,
         .div,
@@ -1288,8 +1301,8 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = extra.else_expr;
         },
         .@"for" => {
-            const extra = @bitCast(Node.For, datas[n].rhs);
-            n = tree.extra_data[datas[n].lhs + extra.inputs + @boolToInt(extra.has_else)];
+            const extra = @as(Node.For, @bitCast(datas[n].rhs));
+            n = tree.extra_data[datas[n].lhs + extra.inputs + @intFromBool(extra.has_else)];
         },
         .@"suspend" => {
             if (datas[n].lhs != 0) {
@@ -1955,7 +1968,7 @@ pub fn forSimple(tree: Ast, node: Node.Index) full.For {
 
 pub fn forFull(tree: Ast, node: Node.Index) full.For {
     const data = tree.nodes.items(.data)[node];
-    const extra = @bitCast(Node.For, data.rhs);
+    const extra = @as(Node.For, @bitCast(data.rhs));
     const inputs = tree.extra_data[data.lhs..][0..extra.inputs];
     const then_expr = tree.extra_data[data.lhs + extra.inputs];
     const else_expr = if (extra.has_else) tree.extra_data[data.lhs + extra.inputs + 1] else 0;
@@ -2246,13 +2259,13 @@ fn fullWhileComponents(tree: Ast, info: full.While.Components) full.While {
         .else_token = undefined,
         .error_token = null,
     };
-    var tok_i = info.while_token - 1;
+    var tok_i = info.while_token -| 1;
     if (token_tags[tok_i] == .keyword_inline) {
         result.inline_token = tok_i;
-        tok_i -= 1;
+        tok_i -|= 1;
     }
     if (token_tags[tok_i] == .colon and
-        token_tags[tok_i - 1] == .identifier)
+        token_tags[tok_i -| 1] == .identifier)
     {
         result.label_token = tok_i - 1;
     }
@@ -2280,18 +2293,18 @@ fn fullForComponents(tree: Ast, info: full.For.Components) full.For {
         .payload_token = undefined,
         .else_token = undefined,
     };
-    var tok_i = info.for_token - 1;
+    var tok_i = info.for_token -| 1;
     if (token_tags[tok_i] == .keyword_inline) {
         result.inline_token = tok_i;
-        tok_i -= 1;
+        tok_i -|= 1;
     }
     if (token_tags[tok_i] == .colon and
-        token_tags[tok_i - 1] == .identifier)
+        token_tags[tok_i -| 1] == .identifier)
     {
         result.label_token = tok_i - 1;
     }
     const last_cond_token = tree.lastToken(info.inputs[info.inputs.len - 1]);
-    result.payload_token = last_cond_token + 3 + @boolToInt(token_tags[last_cond_token + 1] == .comma);
+    result.payload_token = last_cond_token + 3 + @intFromBool(token_tags[last_cond_token + 1] == .comma);
     if (info.else_expr != 0) {
         result.else_token = tree.lastToken(info.then_expr) + 1;
     }
@@ -2846,6 +2859,7 @@ pub const Error = struct {
         expected_container_members,
         expected_expr,
         expected_expr_or_assignment,
+        expected_expr_or_var_decl,
         expected_fn,
         expected_inlinable,
         expected_labelable,
@@ -3006,6 +3020,20 @@ pub const Node = struct {
         assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
+        /// `a, b, ... = rhs`. main_token is op. lhs is index into `extra_data`
+        /// of an lhs elem count followed by an array of that many `Node.Index`,
+        /// with each node having one of the following types:
+        /// * `global_var_decl`
+        /// * `local_var_decl`
+        /// * `simple_var_decl`
+        /// * `aligned_var_decl`
+        /// * Any expression node
+        /// The first 3 types correspond to a `var` or `const` lhs node (note
+        /// that their `rhs` is always 0). An expression node corresponds to a
+        /// standard assignment LHS (which must be evaluated as an lvalue).
+        /// There may be a preceding `comptime` token, which does not create a
+        /// corresponding `comptime` node so must be manually detected.
+        assign_destructure,
         /// `lhs || rhs`. main_token is the `||`.
         merge_error_sets,
         /// `lhs * rhs`. main_token is the `*`.
@@ -3227,23 +3255,23 @@ pub const Node = struct {
         @"break",
         /// `return lhs`. lhs can be omitted. rhs is unused.
         @"return",
-        /// `fn(a: lhs) rhs`. lhs can be omitted.
+        /// `fn (a: lhs) rhs`. lhs can be omitted.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_simple,
-        /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
+        /// `fn (a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn(a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn(a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
@@ -3511,3 +3539,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+
+test {
+    testing.refAllDecls(@This());
+}

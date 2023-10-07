@@ -4,7 +4,10 @@ pub export fn entry1() void {
     comptime var b: []const u8 = s.fn_name;
     comptime var c: u32 = s.column;
     comptime var d: u32 = s.line;
-    _ = a; _ = b; _ = c; _ = d;
+    _ = a;
+    _ = b;
+    _ = c;
+    _ = d;
 }
 
 // error

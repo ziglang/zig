@@ -1,7 +1,9 @@
 export fn foo() void {
     defer bar();
 }
-fn bar() anyerror!i32 { return 0; }
+fn bar() anyerror!i32 {
+    return 0;
+}
 
 // error
 // backend=stage2

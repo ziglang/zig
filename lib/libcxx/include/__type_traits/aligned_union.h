@@ -20,33 +20,28 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <size_t _I0, size_t ..._In>
+template <size_t _I0, size_t... _In>
 struct __static_max;
 
 template <size_t _I0>
-struct __static_max<_I0>
-{
-    static const size_t value = _I0;
+struct __static_max<_I0> {
+  static const size_t value = _I0;
 };
 
-template <size_t _I0, size_t _I1, size_t ..._In>
-struct __static_max<_I0, _I1, _In...>
-{
-    static const size_t value = _I0 >= _I1 ? __static_max<_I0, _In...>::value :
-                                             __static_max<_I1, _In...>::value;
+template <size_t _I0, size_t _I1, size_t... _In>
+struct __static_max<_I0, _I1, _In...> {
+  static const size_t value = _I0 >= _I1 ? __static_max<_I0, _In...>::value : __static_max<_I1, _In...>::value;
 };
 
-template <size_t _Len, class _Type0, class ..._Types>
-struct _LIBCPP_DEPRECATED_IN_CXX23 aligned_union
-{
-    static const size_t alignment_value = __static_max<_LIBCPP_PREFERRED_ALIGNOF(_Type0),
-                                                       _LIBCPP_PREFERRED_ALIGNOF(_Types)...>::value;
-    static const size_t __len = __static_max<_Len, sizeof(_Type0),
-                                             sizeof(_Types)...>::value;
-    typedef typename aligned_storage<__len, alignment_value>::type type;
+template <size_t _Len, class _Type0, class... _Types>
+struct _LIBCPP_DEPRECATED_IN_CXX23 aligned_union {
+  static const size_t alignment_value =
+      __static_max<_LIBCPP_PREFERRED_ALIGNOF(_Type0), _LIBCPP_PREFERRED_ALIGNOF(_Types)...>::value;
+  static const size_t __len = __static_max<_Len, sizeof(_Type0), sizeof(_Types)...>::value;
+  typedef typename aligned_storage<__len, alignment_value>::type type;
 };
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 template <size_t _Len, class... _Types>
 using aligned_union_t _LIBCPP_DEPRECATED_IN_CXX23 = typename aligned_union<_Len, _Types...>::type;
 #endif

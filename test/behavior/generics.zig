@@ -22,11 +22,7 @@ test "simple generic fn" {
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (false) {
-        // TODO: zig is incorrectly emitting the following:
-        // error: cast of value 1.23e-01 to type 'f32' loses information
-        try expect(max(f32, 0.123, 0.456) == 0.456);
-    }
+    try expect(max(f32, 0.123, 0.456) == 0.456);
     try expect(add(2, 3) == 5);
 }
 
@@ -98,7 +94,7 @@ test "type constructed by comptime function call" {
     l.array[0] = 10;
     l.array[1] = 11;
     l.array[2] = 12;
-    const ptr = @ptrCast([*]u8, &l.array);
+    const ptr = @as([*]u8, @ptrCast(&l.array));
     try expect(ptr[0] == 10);
     try expect(ptr[1] == 11);
     try expect(ptr[2] == 12);
@@ -157,6 +153,7 @@ test "generic fn with implicit cast" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(getFirstByte(u8, &[_]u8{13}) == 13);
     try expect(getFirstByte(u16, &[_]u16{
@@ -168,7 +165,7 @@ fn getByte(ptr: ?*const u8) u8 {
     return ptr.?.*;
 }
 fn getFirstByte(comptime T: type, mem: []const T) u8 {
-    return getByte(@ptrCast(*const u8, &mem[0]));
+    return getByte(@as(*const u8, @ptrCast(&mem[0])));
 }
 
 test "generic fn keeps non-generic parameter types" {
@@ -209,6 +206,7 @@ fn foo2(arg: anytype) bool {
 
 test "generic struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a1 = GenNode(i32){
         .value = 13,
@@ -261,7 +259,7 @@ test "generic function instantiation turns into comptime call" {
             .Enum => std.builtin.Type.EnumField,
             else => void,
         } {
-            return @typeInfo(T).Enum.fields[@enumToInt(field)];
+            return @typeInfo(T).Enum.fields[@intFromEnum(field)];
         }
 
         pub fn FieldEnum(comptime T: type) type {
@@ -282,6 +280,7 @@ test "generic function instantiation turns into comptime call" {
 
 test "generic function with void and comptime parameter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct { x: i32 };
     const namespace = struct {
@@ -316,6 +315,7 @@ test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
@@ -351,6 +351,8 @@ test "generic instantiation of tagged union with only one field" {
 }
 
 test "nested generic function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
             try callback(data);
@@ -366,6 +368,8 @@ test "nested generic function" {
 }
 
 test "extern function used as generic parameter" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         extern fn usedAsGenericParameterFoo() void;
         extern fn usedAsGenericParameterBar() void;
@@ -409,10 +413,10 @@ test "slice as parameter type" {
 test "null sentinel pointer passed as generic argument" {
     const S = struct {
         fn doTheTest(a: anytype) !void {
-            try std.testing.expect(@ptrToInt(a) == 8);
+            try std.testing.expect(@intFromPtr(a) == 8);
         }
     };
-    try S.doTheTest((@intToPtr([*:null]const [*c]const u8, 8)));
+    try S.doTheTest((@as([*:null]const [*c]const u8, @ptrFromInt(8))));
 }
 
 test "generic function passed as comptime argument" {
@@ -425,4 +429,37 @@ test "generic function passed as comptime argument" {
         }
     };
     try S.doMath(std.math.add, 5, 6);
+}
+
+test "return type of generic function is function pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn b(comptime T: type) ?*const fn () error{}!T {
+            return null;
+        }
+    };
+
+    try expect(null == S.b(void));
+}
+
+test "coerced function body has inequal value with its uncoerced body" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        const A = B(i32, c);
+        fn c() !i32 {
+            return 1234;
+        }
+        fn B(comptime T: type, comptime d: ?fn () anyerror!T) type {
+            return struct {
+                fn do() T {
+                    return d.?() catch @panic("fail");
+                }
+            };
+        }
+    };
+    try expect(S.A.do() == 1234);
 }

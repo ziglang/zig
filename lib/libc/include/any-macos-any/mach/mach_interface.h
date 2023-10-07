@@ -42,7 +42,6 @@
 #include <mach/clock_priv.h>
 #include <mach/host_priv.h>
 #include <mach/host_security.h>
-#include <mach/lock_set.h>
 #include <mach/processor.h>
 #include <mach/processor_set.h>
 #include <mach/semaphore.h>

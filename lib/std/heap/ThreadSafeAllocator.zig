@@ -15,7 +15,7 @@ pub fn allocator(self: *ThreadSafeAllocator) Allocator {
 }
 
 fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-    const self = @ptrCast(*ThreadSafeAllocator, @alignCast(@alignOf(ThreadSafeAllocator), ctx));
+    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
     self.mutex.lock();
     defer self.mutex.unlock();
 
@@ -23,7 +23,7 @@ fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
 }
 
 fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_addr: usize) bool {
-    const self = @ptrCast(*ThreadSafeAllocator, @alignCast(@alignOf(ThreadSafeAllocator), ctx));
+    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();
@@ -32,7 +32,7 @@ fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_ad
 }
 
 fn free(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
-    const self = @ptrCast(*ThreadSafeAllocator, @alignCast(@alignOf(ThreadSafeAllocator), ctx));
+    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();

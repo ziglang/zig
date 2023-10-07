@@ -7,6 +7,7 @@ const mem = std.mem;
 test "continue in for loop" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const array = [_]i32{ 1, 2, 3, 4, 5 };
     var sum: i32 = 0;
@@ -22,7 +23,7 @@ test "continue in for loop" {
 
 test "break from outer for loop" {
     try testBreakOuter();
-    comptime try testBreakOuter();
+    try comptime testBreakOuter();
 }
 
 fn testBreakOuter() !void {
@@ -39,7 +40,7 @@ fn testBreakOuter() !void {
 
 test "continue outer for loop" {
     try testContinueOuter();
-    comptime try testContinueOuter();
+    try comptime testContinueOuter();
 }
 
 fn testContinueOuter() !void {
@@ -69,6 +70,7 @@ test "basic for loop" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const expected_result = [_]u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
 
@@ -82,7 +84,7 @@ test "basic for loop" {
     }
     for (array, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const array_ptr = &array;
@@ -92,7 +94,7 @@ test "basic for loop" {
     }
     for (array_ptr, 0..) |item, index| {
         _ = item;
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
     const unknown_size: []const u8 = &array;
@@ -101,7 +103,7 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (unknown_size, 0..) |_, index| {
-        buffer[buf_index] = @intCast(u8, index);
+        buffer[buf_index] = @as(u8, @intCast(index));
         buf_index += 1;
     }
 
@@ -112,6 +114,7 @@ test "for with null and T peer types and inferred result location type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
@@ -126,12 +129,13 @@ test "for with null and T peer types and inferred result location type" {
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2 });
 }
 
 test "2 break statements and an else" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry(t: bool, f: bool) !void {
@@ -146,13 +150,14 @@ test "2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "for loop with pointer elem var" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
@@ -179,6 +184,7 @@ fn mangleString(s: []u8) void {
 test "for copies its payload" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -191,28 +197,30 @@ test "for copies its payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "for on slice with allowzero ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
-            var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
+            var ptr = @as([*]allowzero const u8, @ptrCast(slice.ptr))[0..slice.len];
             for (ptr, 0..) |x, i| try expect(x == i + 1);
             for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }
 
 test "else continue outer for" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var i: usize = 6;
     var buf: [5]u8 = undefined;
@@ -226,6 +234,7 @@ test "else continue outer for" {
 
 test "for loop with else branch" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var x = [_]u32{ 1, 2 };
@@ -273,6 +282,7 @@ test "two counters" {
 test "1-based counter and ptr to array" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var ok: usize = 0;
 
@@ -334,6 +344,7 @@ test "two slices, one captured by-ref" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buf: [10]u8 = undefined;
     const slice1: []const u8 = "blah";
@@ -353,6 +364,7 @@ test "raw pointer and slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buf: [10]u8 = undefined;
     const slice: []const u8 = "blah";
@@ -372,12 +384,13 @@ test "raw pointer and counter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buf: [10]u8 = undefined;
     const ptr: [*]u8 = &buf;
 
     for (ptr, 0..4) |*a, b| {
-        a.* = @intCast(u8, 'A' + b);
+        a.* = @as(u8, @intCast('A' + b));
     }
 
     try expect(buf[0] == 'A');
@@ -420,6 +433,7 @@ test "inline for with counter as the comptime-known" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var runtime_slice = "hello";
     var runtime_i: usize = 3;
@@ -444,4 +458,58 @@ test "inline for with counter as the comptime-known" {
     }
 
     try expect(S.ok == 2);
+}
+
+test "inline for on tuple pointer" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct { u32, u32, u32 };
+    var s: S = .{ 100, 200, 300 };
+
+    inline for (&s, 0..) |*x, i| {
+        x.* = i;
+    }
+
+    try expectEqual(S{ 0, 1, 2 }, s);
+}
+
+test "ref counter that starts at zero" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    for ([_]usize{ 0, 1, 2 }, 0..) |i, j| {
+        try expectEqual(i, j);
+        try expectEqual((&i).*, (&j).*);
+    }
+    inline for (.{ 0, 1, 2 }, 0..) |i, j| {
+        try expectEqual(i, j);
+        try expectEqual((&i).*, (&j).*);
+    }
+}
+
+test "inferred alloc ptr of for loop" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    {
+        var cond = false;
+        var opt = for (0..1) |_| {
+            if (cond) break cond;
+        } else null;
+        try expectEqual(@as(?bool, null), opt);
+    }
+    {
+        var cond = true;
+        var opt = for (0..1) |_| {
+            if (cond) break cond;
+        } else null;
+        try expectEqual(@as(?bool, true), opt);
+    }
 }

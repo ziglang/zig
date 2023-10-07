@@ -2,7 +2,7 @@ fn entry(x: []i32) i32 {
     return x.*;
 }
 comptime {
-    _ = entry;
+    _ = &entry;
 }
 
 // error

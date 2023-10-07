@@ -28,62 +28,62 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.atomics)] = .{
+    result[@intFromEnum(Feature.atomics)] = .{
         .llvm_name = "atomics",
         .description = "Enable Atomics",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.bulk_memory)] = .{
+    result[@intFromEnum(Feature.bulk_memory)] = .{
         .llvm_name = "bulk-memory",
         .description = "Enable bulk memory operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.exception_handling)] = .{
+    result[@intFromEnum(Feature.exception_handling)] = .{
         .llvm_name = "exception-handling",
         .description = "Enable Wasm exception handling",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.extended_const)] = .{
+    result[@intFromEnum(Feature.extended_const)] = .{
         .llvm_name = "extended-const",
         .description = "Enable extended const expressions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.multivalue)] = .{
+    result[@intFromEnum(Feature.multivalue)] = .{
         .llvm_name = "multivalue",
         .description = "Enable multivalue blocks, instructions, and functions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.mutable_globals)] = .{
+    result[@intFromEnum(Feature.mutable_globals)] = .{
         .llvm_name = "mutable-globals",
         .description = "Enable mutable globals",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.nontrapping_fptoint)] = .{
+    result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
         .description = "Enable non-trapping float-to-int conversion operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.reference_types)] = .{
+    result[@intFromEnum(Feature.reference_types)] = .{
         .llvm_name = "reference-types",
         .description = "Enable reference types",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.relaxed_simd)] = .{
+    result[@intFromEnum(Feature.relaxed_simd)] = .{
         .llvm_name = "relaxed-simd",
         .description = "Enable relaxed-simd instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.sign_ext)] = .{
+    result[@intFromEnum(Feature.sign_ext)] = .{
         .llvm_name = "sign-ext",
         .description = "Enable sign extension operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.simd128)] = .{
+    result[@intFromEnum(Feature.simd128)] = .{
         .llvm_name = "simd128",
         .description = "Enable 128-bit SIMD",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.tail_call)] = .{
+    result[@intFromEnum(Feature.tail_call)] = .{
         .llvm_name = "tail-call",
         .description = "Enable tail call instructions",
         .dependencies = featureSet(&[_]Feature{}),

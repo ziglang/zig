@@ -1,7 +1,9 @@
 const stroo = extern struct {
     moo: ?[*c]u8,
 };
-export fn testf(fluff: *stroo) void { _ = fluff; }
+export fn testf(fluff: *stroo) void {
+    _ = fluff;
+}
 
 // error
 // backend=stage2

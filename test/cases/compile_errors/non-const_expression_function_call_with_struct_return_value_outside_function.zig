@@ -4,11 +4,13 @@ const Foo = struct {
 const a = get_it();
 fn get_it() Foo {
     global_side_effect = true;
-    return Foo {.x = 13};
+    return Foo{ .x = 13 };
 }
 var global_side_effect = false;
 
-export fn entry() usize { return @sizeOf(@TypeOf(a)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(a));
+}
 
 // error
 // backend=stage2

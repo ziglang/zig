@@ -198,7 +198,7 @@ pub const Opcode = enum(u8) {
 /// Returns the integer value of an `Opcode`. Used by the Zig compiler
 /// to write instructions to the wasm binary file
 pub fn opcode(op: Opcode) u8 {
-    return @enumToInt(op);
+    return @intFromEnum(op);
 }
 
 test "Wasm - opcodes" {
@@ -244,7 +244,7 @@ pub const MiscOpcode = enum(u32) {
 /// Returns the integer value of an `MiscOpcode`. Used by the Zig compiler
 /// to write instructions to the wasm binary file
 pub fn miscOpcode(op: MiscOpcode) u32 {
-    return @enumToInt(op);
+    return @intFromEnum(op);
 }
 
 /// Simd opcodes that require a prefix `0xFD`.
@@ -515,7 +515,7 @@ pub const SimdOpcode = enum(u32) {
 /// Returns the integer value of an `SimdOpcode`. Used by the Zig compiler
 /// to write instructions to the wasm binary file
 pub fn simdOpcode(op: SimdOpcode) u32 {
-    return @enumToInt(op);
+    return @intFromEnum(op);
 }
 
 /// Simd opcodes that require a prefix `0xFE`.
@@ -595,7 +595,7 @@ pub const AtomicsOpcode = enum(u32) {
 /// Returns the integer value of an `AtomicsOpcode`. Used by the Zig compiler
 /// to write instructions to the wasm binary file
 pub fn atomicsOpcode(op: AtomicsOpcode) u32 {
-    return @enumToInt(op);
+    return @intFromEnum(op);
 }
 
 /// Enum representing all Wasm value types as per spec:
@@ -610,7 +610,7 @@ pub const Valtype = enum(u8) {
 
 /// Returns the integer value of a `Valtype`
 pub fn valtype(value: Valtype) u8 {
-    return @enumToInt(value);
+    return @intFromEnum(value);
 }
 
 /// Reference types, where the funcref references to a function regardless of its type
@@ -622,7 +622,7 @@ pub const RefType = enum(u8) {
 
 /// Returns the integer value of a `Reftype`
 pub fn reftype(value: RefType) u8 {
-    return @enumToInt(value);
+    return @intFromEnum(value);
 }
 
 test "Wasm - valtypes" {
@@ -649,11 +649,11 @@ pub const Limits = struct {
     };
 
     pub fn hasFlag(limits: Limits, flag: Flags) bool {
-        return limits.flags & @enumToInt(flag) != 0;
+        return limits.flags & @intFromEnum(flag) != 0;
     }
 
     pub fn setFlag(limits: *Limits, flag: Flags) void {
-        limits.flags |= @enumToInt(flag);
+        limits.flags |= @intFromEnum(flag);
     }
 };
 
@@ -790,7 +790,7 @@ pub const Section = enum(u8) {
 
 /// Returns the integer value of a given `Section`
 pub fn section(val: Section) u8 {
-    return @enumToInt(val);
+    return @intFromEnum(val);
 }
 
 /// The kind of the type when importing or exporting to/from the host environment
@@ -804,7 +804,7 @@ pub const ExternalKind = enum(u8) {
 
 /// Returns the integer value of a given `ExternalKind`
 pub fn externalKind(val: ExternalKind) u8 {
-    return @enumToInt(val);
+    return @intFromEnum(val);
 }
 
 /// Defines the enum values for each subsection id for the "Names" custom section

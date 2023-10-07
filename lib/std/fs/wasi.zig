@@ -17,7 +17,7 @@ pub const Preopens = struct {
     pub fn find(p: Preopens, name: []const u8) ?os.fd_t {
         for (p.names, 0..) |elem_name, i| {
             if (mem.eql(u8, elem_name, name)) {
-                return @intCast(os.fd_t, i);
+                return @as(os.fd_t, @intCast(i));
             }
         }
         return null;
@@ -34,7 +34,7 @@ pub fn preopensAlloc(gpa: Allocator) Allocator.Error!Preopens {
     names.appendAssumeCapacity("stdout"); // 1
     names.appendAssumeCapacity("stderr"); // 2
     while (true) {
-        const fd = @intCast(wasi.fd_t, names.items.len);
+        const fd = @as(wasi.fd_t, @intCast(names.items.len));
         var prestat: prestat_t = undefined;
         switch (wasi.fd_prestat_get(fd, &prestat)) {
             .SUCCESS => {},

@@ -39,8 +39,8 @@ struct ifaddrs_storage {
 };
 
 struct ifaddrs_ctx {
-	struct ifaddrs_storage *first;
-	struct ifaddrs_storage *last;
+	struct ifaddrs *first;
+	struct ifaddrs *last;
 	struct ifaddrs_storage *hash[IFADDRS_HASH_SIZE];
 };
 
@@ -195,9 +195,9 @@ static int netlink_msg_to_ifaddr(void *pctx, struct nlmsghdr *h)
 	}
 
 	if (ifs->ifa.ifa_name) {
-		if (!ctx->first) ctx->first = ifs;
-		if (ctx->last) ctx->last->ifa.ifa_next = &ifs->ifa;
-		ctx->last = ifs;
+		if (!ctx->first) ctx->first = &ifs->ifa;
+		if (ctx->last) ctx->last->ifa_next = &ifs->ifa;
+		ctx->last = &ifs->ifa;
 	} else {
 		free(ifs);
 	}
@@ -210,7 +210,7 @@ int getifaddrs(struct ifaddrs **ifap)
 	int r;
 	memset(ctx, 0, sizeof *ctx);
 	r = __rtnetlink_enumerate(AF_UNSPEC, AF_UNSPEC, netlink_msg_to_ifaddr, ctx);
-	if (r == 0) *ifap = &ctx->first->ifa;
-	else freeifaddrs(&ctx->first->ifa);
+	if (r == 0) *ifap = ctx->first;
+	else freeifaddrs(ctx->first);
 	return r;
 }

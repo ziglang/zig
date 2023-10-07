@@ -8,8 +8,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "main.zig" },
         .optimize = b.standardOptimizeOption(.{}),
     });
-    main.emit_asm = .{ .emit_to = b.pathFromRoot("main.s") };
-    main.emit_bin = .{ .emit_to = b.pathFromRoot("main") };
+    // TODO: actually check these two artifacts for correctness
+    _ = main.getEmittedBin();
+    _ = main.getEmittedAsm();
 
     test_step.dependOn(&b.addRunArtifact(main).step);
 }

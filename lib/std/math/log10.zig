@@ -49,9 +49,9 @@ pub fn log10_int(x: anytype) Log2Int(@TypeOf(x)) {
     const bit_size = @typeInfo(T).Int.bits;
 
     if (bit_size <= 8) {
-        return @intCast(OutT, log10_int_u8(x));
+        return @as(OutT, @intCast(log10_int_u8(x)));
     } else if (bit_size <= 16) {
-        return @intCast(OutT, less_than_5(x));
+        return @as(OutT, @intCast(less_than_5(x)));
     }
 
     var val = x;
@@ -71,7 +71,7 @@ pub fn log10_int(x: anytype) Log2Int(@TypeOf(x)) {
         log += 5;
     }
 
-    return @intCast(OutT, log + less_than_5(@intCast(u32, val)));
+    return @as(OutT, @intCast(log + less_than_5(@as(u32, @intCast(val)))));
 }
 
 fn pow10(comptime y: comptime_int) comptime_int {
@@ -134,7 +134,7 @@ inline fn less_than_5(x: u32) u32 {
 }
 
 fn oldlog10(x: anytype) u8 {
-    return @floatToInt(u8, @log10(@intToFloat(f64, x)));
+    return @as(u8, @intFromFloat(@log10(@as(f64, @floatFromInt(x)))));
 }
 
 test "oldlog10 doesn't work" {
@@ -158,7 +158,7 @@ test "log10_int vs old implementation" {
     inline for (int_types) |T| {
         const last = @min(maxInt(T), 100_000);
         for (1..last) |i| {
-            const x = @intCast(T, i);
+            const x = @as(T, @intCast(i));
             try testing.expectEqual(oldlog10(x), log10_int(x));
         }
 
@@ -185,10 +185,10 @@ test "log10_int close to powers of 10" {
         try testing.expectEqual(expected_max_ilog, log10_int(max_val));
 
         for (0..(expected_max_ilog + 1)) |idx| {
-            const i = @intCast(T, idx);
+            const i = @as(T, @intCast(idx));
             const p: T = try math.powi(T, 10, i);
 
-            const b = @intCast(Log2Int(T), i);
+            const b = @as(Log2Int(T), @intCast(i));
 
             if (p >= 10) {
                 try testing.expectEqual(b - 1, log10_int(p - 9));

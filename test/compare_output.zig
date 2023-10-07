@@ -15,7 +15,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
-    , "Hello, world!" ++ std.cstr.line_sep);
+    , "Hello, world!" ++ if (@import("builtin").os.tag == .windows) "\r\n" else "\n");
 
     cases.add("hello world without libc",
         \\const io = @import("std").io;
@@ -180,8 +180,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
         \\export fn compare_fn(a: ?*const anyopaque, b: ?*const anyopaque) c_int {
-        \\    const a_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), a));
-        \\    const b_int = @ptrCast(*const i32, @alignCast(@alignOf(i32), b));
+        \\    const a_int: *const i32 = @ptrCast(@alignCast(a));
+        \\    const b_int: *const i32 = @ptrCast(@alignCast(b));
         \\    if (a_int.* < b_int.*) {
         \\        return -1;
         \\    } else if (a_int.* > b_int.*) {
@@ -194,7 +194,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub export fn main() c_int {
         \\    var array = [_]u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrCast(?*anyopaque, &array), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(&array), @intCast(array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array, 0..) |item, i| {
         \\        if (item != i) {
@@ -229,8 +229,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\    const small: f32 = 3.25;
         \\    const x: f64 = small;
-        \\    const y = @floatToInt(i32, x);
-        \\    const z = @intToFloat(f64, y);
+        \\    const y: i32 = @intFromFloat(x);
+        \\    const z: f64 = @floatFromInt(y);
         \\    _ = c.printf("%.2f\n%d\n%.2f\n%.2f\n", x, y, z, @as(f64, -0.4));
         \\    return 0;
         \\}

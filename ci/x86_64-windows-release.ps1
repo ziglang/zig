@@ -1,11 +1,12 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.11.0-dev.1869+df4cfc2ec"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
 
+choco install ninja
 Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
 Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$ZIG_LLVM_CLANG_LLD_NAME.zip"
 
@@ -45,7 +46,8 @@ Set-Location -Path 'build-release'
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON `
+  -DZIG_NO_LIB=ON
 CheckLastExitCode
 
 ninja install
@@ -58,13 +60,6 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows
-CheckLastExitCode
-
-Write-Output "Testing Autodocs..."
-& "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
-  --zig-lib-dir "$ZIG_LIB_DIR" `
-  -femit-docs `
-  -fno-emit-bin
 CheckLastExitCode
 
 Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."

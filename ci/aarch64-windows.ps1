@@ -1,5 +1,5 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.11.0-dev.1869+df4cfc2ec"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\..\$ZIG_LLVM_CLANG_LLD_NAME"
@@ -55,7 +55,8 @@ $Env:ZIG_LOCAL_CACHE_DIR="$(Get-Location)\zig-local-cache"
   -DZIG_AR_WORKAROUND=ON `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
-  -DZIG_STATIC=ON
+  -DZIG_STATIC=ON `
+  -DZIG_NO_LIB=ON
 CheckLastExitCode
 
 ninja install
@@ -69,11 +70,3 @@ Write-Output "Main test suite..."
   -Dskip-non-native `
   -Denable-symlinks-windows
 CheckLastExitCode
-
-Write-Output "Testing Autodocs..."
-& "stage3-release\bin\zig.exe" test "..\lib\std\std.zig" `
-  --zig-lib-dir "$ZIG_LIB_DIR" `
-  -femit-docs `
-  -fno-emit-bin
-CheckLastExitCode
-

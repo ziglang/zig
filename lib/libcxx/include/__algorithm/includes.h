@@ -61,13 +61,7 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 template <class _InputIterator1, class _InputIterator2>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2) {
-  return std::includes(
-      std::move(__first1),
-      std::move(__last1),
-      std::move(__first2),
-      std::move(__last2),
-      __less<typename iterator_traits<_InputIterator1>::value_type,
-             typename iterator_traits<_InputIterator2>::value_type>());
+  return std::includes(std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2), __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD
