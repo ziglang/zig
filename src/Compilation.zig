@@ -1034,7 +1034,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const must_pic: bool = b: {
             if (target_util.requiresPIC(options.target, link_libc))
                 break :b true;
-            break :b link_mode == .Dynamic;
+            break :b link_mode == .Dynamic and options.output_mode == .Lib;
         };
         const pic = if (options.want_pic) |explicit| pic: {
             if (!explicit) {
@@ -5162,8 +5162,12 @@ pub fn addCCArgs(
                 },
             }
 
-            if (target_util.supports_fpic(target) and comp.bin_file.options.pic) {
-                try argv.append("-fPIC");
+            if (target_util.supports_fpic(target)) {
+                if (comp.bin_file.options.pic) {
+                    try argv.append("-fPIC");
+                } else {
+                    try argv.append("-fno-PIC");
+                }
             }
 
             if (comp.unwind_tables) {

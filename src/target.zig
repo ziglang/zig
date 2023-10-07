@@ -192,10 +192,10 @@ pub fn requiresPIE(target: std.Target) bool {
 
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
+    _ = linking_libc;
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
-        osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC());
+        osRequiresLibC(target);
 }
 
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
