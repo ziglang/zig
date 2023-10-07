@@ -4877,6 +4877,12 @@ fn updateSymtabSize(self: *Elf) !void {
         sizes.nglobals += object.output_symtab_size.nglobals;
     }
 
+    for (self.shared_objects.items) |index| {
+        const shared_object = self.file(index).?.shared_object;
+        shared_object.updateSymtabSize(self);
+        sizes.nglobals += shared_object.output_symtab_size.nglobals;
+    }
+
     if (self.got_section_index) |_| {
         self.got.updateSymtabSize(self);
         sizes.nlocals += self.got.output_symtab_size.nlocals;

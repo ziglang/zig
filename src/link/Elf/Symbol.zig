@@ -51,10 +51,10 @@ pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
 }
 
 pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
-    const s_sym = symbol.elfSym(elf_file);
+    const esym = symbol.elfSym(elf_file);
     const file_ptr = symbol.file(elf_file).?;
-    if (s_sym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared_object) return elf.STT_FUNC;
-    return s_sym.st_type();
+    if (esym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared_object) return elf.STT_FUNC;
+    return esym.st_type();
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
@@ -111,7 +111,7 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
 }
 
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) u64 {
-    if (!(symbol.flags.has_plt and symbol.flags.has_got and !symbol.flags.is_canonical)) return 0;
+    if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
     const extras = symbol.extra(elf_file).?;
     const shdr = elf_file.shdrs.items[elf_file.plt_got_section_index.?];
     return shdr.sh_addr + extras.plt_got * 16;

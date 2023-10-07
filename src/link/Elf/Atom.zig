@@ -479,9 +479,8 @@ fn scanReloc(
                     try self.reportNoPicError(symbol, rel, elf_file)
                 else
                     try self.reportPicError(symbol, rel, elf_file);
-            } else {
-                symbol.flags.needs_copy_rel = true;
             }
+            symbol.flags.needs_copy_rel = true;
         },
 
         .dyn_copyrel => {
