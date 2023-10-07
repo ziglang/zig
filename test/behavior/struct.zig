@@ -887,8 +887,6 @@ test "anonymous struct literal syntax" {
 }
 
 test "fully anonymous struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             try dump(.{
@@ -911,8 +909,6 @@ test "fully anonymous struct" {
 }
 
 test "fully anonymous list literal" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
@@ -1715,8 +1711,6 @@ test "extern struct field pointer has correct alignment" {
 }
 
 test "packed struct field in anonymous struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const T = packed struct {
         f1: bool = false,
     };

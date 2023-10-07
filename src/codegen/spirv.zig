@@ -1242,14 +1242,19 @@ const DeclGen = struct {
 
                     const param_ty_refs = try self.gpa.alloc(CacheRef, fn_info.param_types.len);
                     defer self.gpa.free(param_ty_refs);
-                    for (param_ty_refs, fn_info.param_types.get(ip)) |*param_type, fn_param_type| {
-                        param_type.* = try self.resolveType(fn_param_type.toType(), .direct);
+                    var param_index: usize = 0;
+                    for (fn_info.param_types.get(ip)) |param_ty_index| {
+                        const param_ty = param_ty_index.toType();
+                        if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                        param_ty_refs[param_index] = try self.resolveType(param_ty, .direct);
+                        param_index += 1;
                     }
                     const return_ty_ref = try self.resolveType(fn_info.return_type.toType(), .direct);
 
                     const ty_ref = try self.spv.resolve(.{ .function_type = .{
                         .return_type = return_ty_ref,
-                        .parameters = param_ty_refs,
+                        .parameters = param_ty_refs[0..param_index],
                     } });
 
                     try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
@@ -1675,9 +1680,11 @@ const DeclGen = struct {
             const fn_info = mod.typeToFunc(decl.ty).?;
 
             try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
-            for (0..fn_info.param_types.len) |i| {
-                const param_type = fn_info.param_types.get(ip)[i];
-                const param_type_id = try self.resolveTypeId(param_type.toType());
+            for (fn_info.param_types.get(ip)) |param_ty_index| {
+                const param_ty = param_ty_index.toType();
+                if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                const param_type_id = try self.resolveTypeId(param_ty);
                 const arg_result_id = self.spv.allocId();
                 try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
                     .id_result_type = param_type_id,
@@ -3986,9 +3993,9 @@ const DeclGen = struct {
             // Note: resolve() might emit instructions, so we need to call it
             // before starting to emit OpFunctionCall instructions. Hence the
             // temporary params buffer.
-            const arg_id = try self.resolve(arg);
             const arg_ty = self.typeOf(arg);
             if (!arg_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+            const arg_id = try self.resolve(arg);
 
             params[n_params] = arg_id;
             n_params += 1;
