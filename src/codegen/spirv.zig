@@ -2454,7 +2454,7 @@ const DeclGen = struct {
                 },
                 .float => break :opcode switch (op) {
                     .eq => .OpFOrdEqual,
-                    .neq => .OpFOrdNotEqual,
+                    .neq => .OpFUnordNotEqual,
                     .lt => .OpFOrdLessThan,
                     .lte => .OpFOrdLessThanEqual,
                     .gt => .OpFOrdGreaterThan,
