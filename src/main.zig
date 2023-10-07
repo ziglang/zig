@@ -845,8 +845,7 @@ fn buildOutputType(
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
     var linker_sort_section: ?link.SortSection = null;
-    var linker_undefined_version: ?bool = null;
-    var linker_no_undefined_version: ?bool = null;
+    var linker_allow_undefined_version: ?bool = null;
     var linker_gc_sections: ?bool = null;
     var linker_compress_debug_sections: ?link.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
