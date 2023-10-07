@@ -2527,7 +2527,12 @@ const DeclGen = struct {
         src_id: IdRef,
     ) !IdRef {
         const mod = self.module;
+        const src_ty_ref = try self.resolveType(src_ty, .direct);
         const dst_ty_ref = try self.resolveType(dst_ty, .direct);
+        if (src_ty_ref == dst_ty_ref) {
+            return src_id;
+        }
+
         const result_id = self.spv.allocId();
 
         // TODO: Some more cases are missing here
@@ -2811,7 +2816,8 @@ const DeclGen = struct {
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const slice_ty = self.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
 
