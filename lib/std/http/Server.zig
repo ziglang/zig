@@ -228,27 +228,23 @@ pub const Request = struct {
                 // Transfer-Encoding: deflate, chunked
                 var iter = mem.splitBackwardsScalar(u8, header_value, ',');
 
-                if (iter.next()) |first| {
-                    const trimmed = mem.trim(u8, first, " ");
+                const first = iter.first();
+                const trimmed_first = mem.trim(u8, first, " ");
 
-                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
-                        if (req.transfer_encoding != null) return error.HttpHeadersInvalid;
-                        req.transfer_encoding = te;
-                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        if (req.transfer_compression != null) return error.HttpHeadersInvalid;
-                        req.transfer_compression = ce;
-                    } else {
-                        return error.HttpTransferEncodingUnsupported;
-                    }
+                var next: ?[]const u8 = first;
+                if (std.meta.stringToEnum(http.TransferEncoding, trimmed_first)) |transfer| {
+                    if (req.transfer_encoding != .none) return error.HttpHeadersInvalid; // we already have a transfer encoding
+                    req.transfer_encoding = transfer;
+
+                    next = iter.next();
                 }
 
-                if (iter.next()) |second| {
-                    if (req.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
+                if (next) |second| {
+                    const trimmed_second = mem.trim(u8, second, " ");
 
-                    const trimmed = mem.trim(u8, second, " ");
-
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        req.transfer_compression = ce;
+                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
+                        if (req.transfer_compression != .identity) return error.HttpHeadersInvalid; // double compression is not supported
+                        req.transfer_compression = transfer;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
                     }
@@ -256,7 +252,7 @@ pub const Request = struct {
 
                 if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
             } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+                if (req.transfer_compression != .identity) return error.HttpHeadersInvalid;
 
                 const trimmed = mem.trim(u8, header_value, " ");
 
@@ -278,8 +274,8 @@ pub const Request = struct {
     version: http.Version,
 
     content_length: ?u64 = null,
-    transfer_encoding: ?http.TransferEncoding = null,
-    transfer_compression: ?http.ContentEncoding = null,
+    transfer_encoding: http.TransferEncoding = .none,
+    transfer_compression: http.ContentEncoding = .identity,
 
     headers: http.Headers,
     parser: proto.HeadersParser,
@@ -511,8 +507,9 @@ pub const Response = struct {
         res.request.headers = .{ .allocator = res.allocator, .owned = true };
         try res.request.parse(res.request.parser.header_bytes.items);
 
-        if (res.request.transfer_encoding) |te| {
-            switch (te) {
+        if (res.request.transfer_encoding != .none) {
+            switch (res.request.transfer_encoding) {
+                .none => unreachable,
                 .chunked => {
                     res.request.parser.next_chunk_length = 0;
                     res.request.parser.state = .chunk_head_size;
@@ -527,19 +524,19 @@ pub const Response = struct {
         }
 
         if (!res.request.parser.done) {
-            if (res.request.transfer_compression) |tc| switch (tc) {
+            switch (res.request.transfer_compression) {
                 .identity => res.request.compression = .none,
-                .compress => return error.CompressionNotSupported,
+                .compress, .@"x-compress" => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
                     .deflate = std.compress.zlib.decompressStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
-                .gzip => res.request.compression = .{
+                .gzip, .@"x-gzip" => res.request.compression = .{
                     .gzip = std.compress.gzip.decompress(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .zstd => res.request.compression = .{
                     .zstd = std.compress.zstd.decompressStream(res.allocator, res.transferReader()),
                 },
-            };
+            }
         }
     }
 
@@ -754,7 +751,7 @@ test "HTTP server handles a chunked transfer coding request" {
             defer _ = res.reset();
             try res.wait();
 
-            try expect(res.request.transfer_encoding.? == .chunked);
+            try expect(res.request.transfer_encoding == .chunked);
 
             const server_body: []const u8 = "message from server!\n";
             res.transfer_encoding = .{ .content_length = server_body.len };

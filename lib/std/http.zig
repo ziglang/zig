@@ -289,14 +289,17 @@ pub const Status = enum(u10) {
 
 pub const TransferEncoding = enum {
     chunked,
+    none,
     // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
 };
 
 pub const ContentEncoding = enum {
     identity,
     compress,
+    @"x-compress",
     deflate,
     gzip,
+    @"x-gzip",
     zstd,
 };
 
