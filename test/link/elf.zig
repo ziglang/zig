@@ -35,6 +35,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
+    elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
     elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
@@ -48,12 +49,9 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-
-    for (&[_]CrossTarget{ musl_target, glibc_target }) |target| {
-        elf_step.dependOn(testEntryPoint(b, .{ .target = target }));
-        elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = target }));
-    }
+    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -592,7 +590,9 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
     }
 
     {
-        // TODO if I rename this to `main` it fails
+        // TODO looks like not assigning a unique name to this executable will
+        // cause an artifact collision taking the cached executable from the above
+        // step instead of generating a new one.
         const exe = addExecutable(b, "other", opts);
         exe.addObject(a_o);
         exe.addObject(b_o);
@@ -604,6 +604,48 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
         check.checkExact("entry 2000");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testExportDynamic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "export-dynamic", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addAsmSourceBytes(obj,
+        \\.text
+        \\  .globl foo
+        \\  .hidden foo
+        \\foo:
+        \\  nop
+        \\  .globl bar
+        \\bar:
+        \\  nop
+        \\  .globl _start
+        \\_start:
+        \\  nop
+    );
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso, "int baz = 10;", &.{"-fPIC"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int baz;
+        \\int callBaz() {
+        \\  return baz;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibrary(dso);
+    exe.rdynamic = true;
+
+    const check = exe.checkObject();
+    check.checkInDynamicSymtab();
+    check.checkContains("bar");
+    check.checkInDynamicSymtab();
+    check.checkContains("_start");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
