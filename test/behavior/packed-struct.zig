@@ -1033,7 +1033,7 @@ test "modify nested packed struct aligned field" {
 
     var opts = Options{};
     opts.pretty_print.indent += 1;
-    try std.testing.expectEqual(@as(u17, 0b00000000100100000), @bitCast(opts));
+    try std.testing.expectEqual(@as(u17, 0b00000000100100000), @as(u17, @bitCast(opts)));
     try std.testing.expect(!opts.foo);
     try std.testing.expect(!opts.bar);
     try std.testing.expect(!opts.pretty_print.enabled);

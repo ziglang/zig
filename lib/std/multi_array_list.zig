@@ -842,24 +842,24 @@ test "union" {
         &.{ .a, .b, .b, .a, .a, .a, .a, .a, .a },
         list.items(.tags),
     );
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
-    try testing.expectEqual(list.get(3), .{ .a = 4 });
-    try testing.expectEqual(list.get(4), .{ .a = 5 });
-    try testing.expectEqual(list.get(5), .{ .a = 6 });
-    try testing.expectEqual(list.get(6), .{ .a = 7 });
-    try testing.expectEqual(list.get(7), .{ .a = 8 });
-    try testing.expectEqual(list.get(8), .{ .a = 9 });
+    try testing.expectEqual(list.get(0), Foo{ .a = 1 });
+    try testing.expectEqual(list.get(1), Foo{ .b = "zigzag" });
+    try testing.expectEqual(list.get(2), Foo{ .b = "foobar" });
+    try testing.expectEqual(list.get(3), Foo{ .a = 4 });
+    try testing.expectEqual(list.get(4), Foo{ .a = 5 });
+    try testing.expectEqual(list.get(5), Foo{ .a = 6 });
+    try testing.expectEqual(list.get(6), Foo{ .a = 7 });
+    try testing.expectEqual(list.get(7), Foo{ .a = 8 });
+    try testing.expectEqual(list.get(8), Foo{ .a = 9 });
 
     list.shrinkAndFree(ally, 3);
 
     try testing.expectEqual(@as(usize, 3), list.items(.tags).len);
     try testing.expectEqualSlices(meta.Tag(Foo), list.items(.tags), &.{ .a, .b, .b });
 
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
+    try testing.expectEqual(list.get(0), Foo{ .a = 1 });
+    try testing.expectEqual(list.get(1), Foo{ .b = "zigzag" });
+    try testing.expectEqual(list.get(2), Foo{ .b = "foobar" });
 }
 
 test "sorting a span" {

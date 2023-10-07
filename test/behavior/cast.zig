@@ -1156,7 +1156,7 @@ test "cast function with an opaque parameter" {
         .func = @ptrCast(&Foo.funcImpl),
     };
     c.func(c.ctx);
-    try std.testing.expectEqual(foo, .{ .x = 101, .y = 201 });
+    try std.testing.expectEqual(foo, Foo{ .x = 101, .y = 201 });
 }
 
 test "implicit ptr to *anyopaque" {
