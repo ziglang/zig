@@ -61,6 +61,8 @@ oom_flag: bool,
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
     mutex: std.Thread.Mutex = .{},
+    /// It's an array hash map so that it can be sorted before rendering the
+    /// dependencies.zig source file.
     /// Protected by `mutex`.
     table: Table = .{},
     /// `table` may be missing some tasks such as ones that failed, so this
@@ -75,7 +77,7 @@ pub const JobQueue = struct {
     recursive: bool,
     work_around_btrfs_bug: bool,
 
-    pub const Table = std.AutoHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
+    pub const Table = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
 
     pub fn deinit(jq: *JobQueue) void {
         if (jq.all_fetches.items.len == 0) return;
@@ -105,17 +107,74 @@ pub const JobQueue = struct {
 
     /// Creates the dependencies.zig file and corresponding `Module` for the
     /// build runner to obtain via `@import("@dependencies")`.
-    pub fn createDependenciesModule(
-        jq: *JobQueue,
-        arena: Allocator,
-        local_cache_directory: Cache.Directory,
-        basename: []const u8,
-    ) !*Package.Module {
-        _ = jq;
-        _ = arena;
-        _ = local_cache_directory;
-        _ = basename;
-        @panic("TODO: createDependenciesModule");
+    pub fn createDependenciesModule(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
+        try buf.appendSlice("pub const packages = struct {\n");
+
+        // Ensure the generated .zig file is deterministic.
+        jq.table.sortUnstable(@as(struct {
+            keys: []const Manifest.MultiHashHexDigest,
+            pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+                return std.mem.lessThan(u8, &ctx.keys[a_index], &ctx.keys[b_index]);
+            }
+        }, .{ .keys = jq.table.keys() }));
+
+        for (jq.table.keys()[1..], jq.table.values()[1..]) |hash, fetch| {
+            try buf.writer().print(
+                \\    pub const {} = struct {{
+                \\        pub const build_root = "{q}";
+                \\
+            , .{ std.zig.fmtId(&hash), fetch.package_root });
+
+            if (fetch.has_build_zig) {
+                try buf.writer().print(
+                    \\        pub const build_zig = @import("{}");
+                    \\
+                , .{std.zig.fmtEscapes(&hash)});
+            }
+
+            if (fetch.manifest) |*manifest| {
+                try buf.appendSlice(
+                    \\        pub const deps: []const struct { []const u8, []const u8 } = &.{
+                    \\
+                );
+                for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
+                    try buf.writer().print(
+                        "            .{{ \"{}\", \"{}\" }},\n",
+                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+                    );
+                }
+
+                try buf.appendSlice(
+                    \\        };
+                    \\    };
+                    \\
+                );
+            } else {
+                try buf.appendSlice(
+                    \\        pub const deps: []const struct { []const u8, []const u8 } = &.{};
+                    \\    };
+                    \\
+                );
+            }
+        }
+
+        try buf.appendSlice(
+            \\};
+            \\
+            \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{
+            \\
+        );
+
+        const root_fetch = jq.all_fetches.items[0];
+        const root_manifest = &root_fetch.manifest.?;
+
+        for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
+            try buf.writer().print(
+                "    .{{ \"{}\", \"{}\" }},\n",
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+            );
+        }
+        try buf.appendSlice("};\n");
     }
 };
 

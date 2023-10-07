@@ -4887,12 +4887,19 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 process.exit(1);
             }
 
-            const deps_mod = try job_queue.createDependenciesModule(
-                arena,
-                local_cache_directory,
-                "dependencies.zig",
-            );
-            try main_mod.deps.put(arena, "@dependencies", deps_mod);
+            var buf = std.ArrayList(u8).init(gpa);
+            defer buf.deinit();
+            try job_queue.createDependenciesModule(&buf);
+            if (true) {
+                std.debug.print("dependencies source:\n\n{s}\n", .{buf.items});
+                @panic("TODO");
+            }
+            //const deps_mod = try job_queue.createDependenciesModule(
+            //    arena,
+            //    local_cache_directory,
+            //    "dependencies.zig",
+            //);
+            //try main_mod.deps.put(arena, "@dependencies", deps_mod);
         }
         try main_mod.deps.put(arena, "@build", &build_mod);
 
