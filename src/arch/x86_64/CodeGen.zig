@@ -5263,21 +5263,29 @@ fn airRound(self: *Self, inst: Air.Inst.Index, mode: RoundMode) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.typeOf(un_op);
 
-    const src_mcv = try self.resolveInst(un_op);
-    const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
-        src_mcv
-    else
-        try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
-    const dst_reg = dst_mcv.getReg().?;
-    const dst_lock = self.register_manager.lockReg(dst_reg);
-    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
-    try self.genRound(ty, dst_reg, src_mcv, mode);
-    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+    const result = result: {
+        switch (try self.genRoundLibcall(ty, .{ .air_ref = un_op }, mode)) {
+            .none => {},
+            else => |dst_mcv| break :result dst_mcv,
+        }
+
+        const src_mcv = try self.resolveInst(un_op);
+        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
+            src_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+        const dst_reg = dst_mcv.getReg().?;
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+        try self.genRound(ty, dst_reg, src_mcv, mode);
+        break :result dst_mcv;
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
-fn genRound(self: *Self, ty: Type, dst_reg: Register, src_mcv: MCValue, mode: RoundMode) !void {
+fn getRoundTag(self: *Self, ty: Type) ?Mir.Inst.FixedTag {
     const mod = self.bin_file.options.module.?;
-    const mir_tag = @as(?Mir.Inst.FixedTag, if (self.hasFeature(.sse4_1)) switch (ty.zigTypeTag(mod)) {
+    return if (self.hasFeature(.sse4_1)) switch (ty.zigTypeTag(mod)) {
         .Float => switch (ty.floatBits(self.target.*)) {
             32 => if (self.hasFeature(.avx)) .{ .v_ss, .round } else .{ ._ss, .round },
             64 => if (self.hasFeature(.avx)) .{ .v_sd, .round } else .{ ._sd, .round },
@@ -5304,26 +5312,38 @@ fn genRound(self: *Self, ty: Type, dst_reg: Register, src_mcv: MCValue, mode: Ro
             else => null,
         },
         else => unreachable,
-    } else null) orelse {
-        if (ty.zigTypeTag(mod) != .Float)
-            return self.fail("TODO implement genRound for {}", .{ty.fmt(mod)});
+    } else null;
+}
 
-        var callee: ["__trunc?".len]u8 = undefined;
-        const res = try self.genCall(.{ .lib = .{
-            .return_type = ty.toIntern(),
-            .param_types = &.{ty.toIntern()},
-            .callee = std.fmt.bufPrint(&callee, "{s}{s}{s}", .{
-                floatLibcAbiPrefix(ty),
-                switch (mode.mode) {
-                    .down => "floor",
-                    .up => "ceil",
-                    .zero => "trunc",
-                    else => unreachable,
-                },
-                floatLibcAbiSuffix(ty),
-            }) catch unreachable,
-        } }, &.{ty}, &.{src_mcv});
-        return self.genSetReg(dst_reg, ty, res);
+fn genRoundLibcall(self: *Self, ty: Type, src_mcv: MCValue, mode: RoundMode) !MCValue {
+    const mod = self.bin_file.options.module.?;
+    if (self.getRoundTag(ty)) |_| return .none;
+
+    if (ty.zigTypeTag(mod) != .Float)
+        return self.fail("TODO implement genRound for {}", .{ty.fmt(mod)});
+
+    var callee: ["__trunc?".len]u8 = undefined;
+    return try self.genCall(.{ .lib = .{
+        .return_type = ty.toIntern(),
+        .param_types = &.{ty.toIntern()},
+        .callee = std.fmt.bufPrint(&callee, "{s}{s}{s}", .{
+            floatLibcAbiPrefix(ty),
+            switch (mode.mode) {
+                .down => "floor",
+                .up => "ceil",
+                .zero => "trunc",
+                else => unreachable,
+            },
+            floatLibcAbiSuffix(ty),
+        }) catch unreachable,
+    } }, &.{ty}, &.{src_mcv});
+}
+
+fn genRound(self: *Self, ty: Type, dst_reg: Register, src_mcv: MCValue, mode: RoundMode) !void {
+    const mod = self.bin_file.options.module.?;
+    const mir_tag = self.getRoundTag(ty) orelse {
+        const result = try self.genRoundLibcall(ty, src_mcv, mode);
+        return self.genSetReg(dst_reg, ty, result);
     };
     const abi_size: u32 = @intCast(ty.abiSize(mod));
     const dst_alias = registerAlias(dst_reg, abi_size);
@@ -6760,11 +6780,17 @@ fn genBinOp(
         else => unreachable,
     }) {
         var callee: ["__add?f3".len]u8 = undefined;
-        return self.genCall(.{ .lib = .{
+        const result = try self.genCall(.{ .lib = .{
             .return_type = lhs_ty.toIntern(),
             .param_types = &.{ lhs_ty.toIntern(), rhs_ty.toIntern() },
             .callee = switch (air_tag) {
-                .add, .sub, .mul, .div_float => std.fmt.bufPrint(&callee, "__{s}{c}f3", .{
+                .add,
+                .sub,
+                .mul,
+                .div_float,
+                .div_trunc,
+                .div_floor,
+                => std.fmt.bufPrint(&callee, "__{s}{c}f3", .{
                     @tagName(air_tag)[0..3],
                     floatCompilerRtAbiName(lhs_ty.floatBits(self.target.*)),
                 }),
@@ -6778,6 +6804,17 @@ fn genBinOp(
                 }),
             } catch unreachable,
         } }, &.{ lhs_ty, rhs_ty }, &.{ .{ .air_ref = lhs_air }, .{ .air_ref = rhs_air } });
+        return switch (air_tag) {
+            .div_trunc, .div_floor => try self.genRoundLibcall(lhs_ty, result, .{
+                .mode = switch (air_tag) {
+                    .div_trunc => .zero,
+                    .div_floor => .down,
+                    else => unreachable,
+                },
+                .precision = .inexact,
+            }),
+            else => result,
+        };
     }
 
     if ((lhs_ty.scalarType(mod).isRuntimeFloat() and
@@ -7666,16 +7703,14 @@ fn genBinOp(
 
     switch (air_tag) {
         .add, .add_wrap, .sub, .sub_wrap, .mul, .mul_wrap, .div_float, .div_exact => {},
-        .div_trunc, .div_floor => try self.genRound(
-            lhs_ty,
-            dst_reg,
-            .{ .register = dst_reg },
-            .{ .mode = switch (air_tag) {
+        .div_trunc, .div_floor => try self.genRound(lhs_ty, dst_reg, .{ .register = dst_reg }, .{
+            .mode = switch (air_tag) {
                 .div_trunc => .zero,
                 .div_floor => .down,
                 else => unreachable,
-            }, .precision = .inexact },
-        ),
+            },
+            .precision = .inexact,
+        }),
         .bit_and, .bit_or, .xor => {},
         .max, .min => if (maybe_mask_reg) |mask_reg| if (self.hasFeature(.avx)) {
             const rhs_copy_reg = registerAlias(src_mcv.getReg().?, abi_size);
@@ -8673,7 +8708,10 @@ fn genCall(self: *Self, info: union(enum) {
             try self.spillRegisters(&regs);
             try arg_locks.appendSlice(&self.register_manager.lockRegs(2, regs));
         },
-        .load_frame => try self.genCopy(arg_ty, dst_arg, src_arg),
+        .load_frame => {
+            try self.genCopy(arg_ty, dst_arg, src_arg);
+            try self.freeValue(src_arg);
+        },
         else => unreachable,
     };
 
