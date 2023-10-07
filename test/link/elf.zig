@@ -51,6 +51,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
 
     for (&[_]CrossTarget{ musl_target, glibc_target }) |target| {
+        elf_step.dependOn(testEntryPoint(b, .{ .target = target }));
         elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = target }));
     }
 }
@@ -560,6 +561,49 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testEntryPoint(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "entry-point", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addAsmSourceBytes(a_o,
+        \\.globl foo, bar
+        \\foo = 0x1000
+        \\bar = 0x2000
+    );
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o, "int main() { return 0; }", &.{});
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.entry_symbol_name = "foo";
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("header");
+        check.checkExact("entry 1000");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        // TODO if I rename this to `main` it fails
+        const exe = addExecutable(b, "other", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.entry_symbol_name = "bar";
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("header");
+        check.checkExact("entry 2000");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
