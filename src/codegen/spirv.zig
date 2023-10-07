@@ -53,20 +53,141 @@ const Block = struct {
 const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, *Block);
 
 /// Maps Zig decl indices to SPIR-V linking information.
-pub const DeclLinkMap = std.AutoHashMap(Module.Decl.Index, SpvModule.Decl.Index);
+pub const DeclLinkMap = std.AutoHashMapUnmanaged(Decl.Index, SpvModule.Decl.Index);
 
 /// Maps anon decl indices to SPIR-V linking information.
-pub const AnonDeclLinkMap = std.AutoHashMap(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index);
+pub const AnonDeclLinkMap = std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index);
+
+/// This structure holds information that is relevant to the entire compilation,
+/// in contrast to `DeclGen`, which only holds relevant information about a
+/// single decl.
+pub const Object = struct {
+    /// A general-purpose allocator that can be used for any allocation for this Object.
+    gpa: Allocator,
+
+    /// the SPIR-V module that represents the final binary.
+    spv: SpvModule,
+
+    /// The Zig module that this object file is generated for.
+    /// A map of Zig decl indices to SPIR-V decl indices.
+    decl_link: DeclLinkMap = .{},
+
+    /// A map of Zig InternPool indices for anonymous decls to SPIR-V decl indices.
+    anon_decl_link: AnonDeclLinkMap = .{},
+
+    /// A map that maps AIR intern pool indices to SPIR-V cache references (which
+    /// is basically the same thing except for SPIR-V).
+    /// This map is typically only used for structures that are deemed heavy enough
+    /// that it is worth to store them here. The SPIR-V module also interns types,
+    /// and so the main purpose of this map is to avoid recomputation and to
+    /// cache extra information about the type rather than to aid in validity
+    /// of the SPIR-V module.
+    type_map: TypeMap = .{},
+
+    pub fn init(gpa: Allocator) Object {
+        return .{
+            .gpa = gpa,
+            .spv = SpvModule.init(gpa),
+        };
+    }
+
+    pub fn deinit(self: *Object) void {
+        self.spv.deinit();
+        self.decl_link.deinit(self.gpa);
+        self.anon_decl_link.deinit(self.gpa);
+        self.type_map.deinit(self.gpa);
+    }
+
+    fn genDecl(
+        self: *Object,
+        mod: *Module,
+        decl_index: Decl.Index,
+        air: Air,
+        liveness: Liveness,
+    ) !void {
+        var decl_gen = DeclGen{
+            .gpa = self.gpa,
+            .object = self,
+            .module = mod,
+            .spv = &self.spv,
+            .decl_index = decl_index,
+            .air = air,
+            .liveness = liveness,
+            .type_map = &self.type_map,
+            .current_block_label_id = undefined,
+        };
+        defer decl_gen.deinit();
+
+        decl_gen.genDecl() catch |err| switch (err) {
+            error.CodegenFail => {
+                try mod.failed_decls.put(mod.gpa, decl_index, decl_gen.error_msg.?);
+            },
+            else => |other| {
+                // There might be an error that happened *after* self.error_msg
+                // was already allocated, so be sure to free it.
+                if (decl_gen.error_msg) |error_msg| {
+                    error_msg.deinit(mod.gpa);
+                }
+
+                return other;
+            },
+        };
+    }
+
+    pub fn updateFunc(
+        self: *Object,
+        mod: *Module,
+        func_index: InternPool.Index,
+        air: Air,
+        liveness: Liveness,
+    ) !void {
+        const decl_index = mod.funcInfo(func_index).owner_decl;
+        // TODO: Separate types for generating decls and functions?
+        try self.genDecl(mod, decl_index, air, liveness);
+    }
+
+    pub fn updateDecl(
+        self: *Object,
+        mod: *Module,
+        decl_index: Decl.Index,
+    ) !void {
+        try self.genDecl(mod, decl_index, undefined, undefined);
+    }
+
+    /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
+    /// Note: Function does not actually generate the decl, it just allocates an index.
+    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: Decl.Index) !SpvModule.Decl.Index {
+        const decl = mod.declPtr(decl_index);
+        try mod.markDeclAlive(decl);
+
+        const entry = try self.decl_link.getOrPut(self.gpa, decl_index);
+        if (!entry.found_existing) {
+            // TODO: Extern fn?
+            const kind: SpvModule.DeclKind = if (decl.val.isFuncBody(mod))
+                .func
+            else
+                .global;
+
+            entry.value_ptr.* = try self.spv.allocDecl(kind);
+        }
+
+        return entry.value_ptr.*;
+    }
+};
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
-pub const DeclGen = struct {
+const DeclGen = struct {
     /// A general-purpose allocator that can be used for any allocations for this DeclGen.
     gpa: Allocator,
+
+    /// The object that this decl is generated into.
+    object: *Object,
 
     /// The Zig module that we are generating decls for.
     module: *Module,
 
     /// The SPIR-V module that instructions should be emitted into.
+    /// This is the same as `self.object.spv`, repeated here for brevity.
     spv: *SpvModule,
 
     /// The decl we are currently generating code for.
@@ -80,30 +201,19 @@ pub const DeclGen = struct {
     /// Note: If the declaration is not a function, this value will be undefined!
     liveness: Liveness,
 
-    /// Maps Zig Decl indices to SPIR-V decl indices.
-    decl_link: *DeclLinkMap,
-
-    /// Maps Zig anon decl indices to SPIR-V decl indices.
-    anon_decl_link: *AnonDeclLinkMap,
-
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
     args: std.ArrayListUnmanaged(IdRef) = .{},
 
     /// A counter to keep track of how many `arg` instructions we've seen yet.
-    next_arg_index: u32,
+    next_arg_index: u32 = 0,
 
     /// A map keeping track of which instruction generated which result-id.
     inst_results: InstMap = .{},
 
-    /// A map that maps AIR intern pool indices to SPIR-V cache references (which
-    /// is basically the same thing except for SPIR-V).
-    /// This map is typically only used for structures that are deemed heavy enough
-    /// that it is worth to store them here. The SPIR-V module also interns types,
-    /// and so the main purpose of this map is to avoid recomputation and to
-    /// cache extra information about the type rather than to aid in validity
-    /// of the SPIR-V module.
-    type_map: TypeMap = .{},
+    /// A map that maps AIR intern pool indices to SPIR-V cache references.
+    /// See Object.type_map
+    type_map: *TypeMap,
 
     /// We need to keep track of result ids for block labels, as well as the 'incoming'
     /// blocks for a block.
@@ -121,7 +231,7 @@ pub const DeclGen = struct {
 
     /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
-    error_msg: ?*Module.ErrorMsg,
+    error_msg: ?*Module.ErrorMsg = null,
 
     /// Possible errors the `genDecl` function may return.
     const Error = error{ CodegenFail, OutOfMemory };
@@ -181,67 +291,10 @@ pub const DeclGen = struct {
         indirect,
     };
 
-    /// Initialize the common resources of a DeclGen. Some fields are left uninitialized,
-    /// only set when `gen` is called.
-    pub fn init(
-        allocator: Allocator,
-        module: *Module,
-        spv: *SpvModule,
-        decl_link: *DeclLinkMap,
-        anon_decl_link: *AnonDeclLinkMap,
-    ) DeclGen {
-        return .{
-            .gpa = allocator,
-            .module = module,
-            .spv = spv,
-            .decl_index = undefined,
-            .air = undefined,
-            .liveness = undefined,
-            .decl_link = decl_link,
-            .anon_decl_link = anon_decl_link,
-            .next_arg_index = undefined,
-            .current_block_label_id = undefined,
-            .error_msg = undefined,
-        };
-    }
-
-    /// Generate the code for `decl`. If a reportable error occurred during code generation,
-    /// a message is returned by this function. Callee owns the memory. If this function
-    /// returns such a reportable error, it is valid to be called again for a different decl.
-    pub fn gen(self: *DeclGen, decl_index: Decl.Index, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
-        // Reset internal resources, we don't want to re-allocate these.
-        self.decl_index = decl_index;
-        self.air = air;
-        self.liveness = liveness;
-        self.args.items.len = 0;
-        self.next_arg_index = 0;
-        self.inst_results.clearRetainingCapacity();
-        self.blocks.clearRetainingCapacity();
-        self.current_block_label_id = undefined;
-        self.func.reset();
-        self.base_line_stack.items.len = 0;
-        self.error_msg = null;
-
-        self.genDecl() catch |err| switch (err) {
-            error.CodegenFail => return self.error_msg,
-            else => |others| {
-                // There might be an error that happened *after* self.error_msg
-                // was already allocated, so be sure to free it.
-                if (self.error_msg) |error_msg| {
-                    error_msg.deinit(self.module.gpa);
-                }
-                return others;
-            },
-        };
-
-        return null;
-    }
-
     /// Free resources owned by the DeclGen.
     pub fn deinit(self: *DeclGen) void {
         self.args.deinit(self.gpa);
         self.inst_results.deinit(self.gpa);
-        self.type_map.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
         self.func.deinit(self.gpa);
         self.base_line_stack.deinit(self.gpa);
@@ -277,7 +330,7 @@ pub const DeclGen = struct {
                     .func => |func| func.owner_decl,
                     else => unreachable,
                 };
-                const spv_decl_index = try self.resolveDecl(fn_decl_index);
+                const spv_decl_index = try self.object.resolveDecl(mod, fn_decl_index);
                 try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
                 return self.spv.declPtr(spv_decl_index).result_id;
             }
@@ -288,31 +341,10 @@ pub const DeclGen = struct {
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
-    /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
-    /// Note: Function does not actually generate the decl.
-    fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !SpvModule.Decl.Index {
-        const mod = self.module;
-        const decl = mod.declPtr(decl_index);
-        try mod.markDeclAlive(decl);
-
-        const entry = try self.decl_link.getOrPut(decl_index);
-        if (!entry.found_existing) {
-            // TODO: Extern fn?
-            const kind: SpvModule.DeclKind = if (decl.val.isFuncBody(mod))
-                .func
-            else
-                .global;
-
-            entry.value_ptr.* = try self.spv.allocDecl(kind);
-        }
-
-        return entry.value_ptr.*;
-    }
-
     fn resolveAnonDecl(self: *DeclGen, val: InternPool.Index, storage_class: StorageClass) !IdRef {
         // TODO: This cannot be a function at this point, but it should probably be handled anyway.
         const spv_decl_index = blk: {
-            const entry = try self.anon_decl_link.getOrPut(.{ val, storage_class });
+            const entry = try self.object.anon_decl_link.getOrPut(self.object.gpa, .{ val, storage_class });
             if (entry.found_existing) {
                 try self.func.decl_deps.put(self.spv.gpa, entry.value_ptr.*, {});
                 return self.spv.declPtr(entry.value_ptr.*).result_id;
@@ -988,7 +1020,7 @@ pub const DeclGen = struct {
             return self.spv.constUndef(ty_ref);
         }
 
-        const spv_decl_index = try self.resolveDecl(decl_index);
+        const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
         try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
@@ -1624,7 +1656,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         const ip = &mod.intern_pool;
         const decl = mod.declPtr(self.decl_index);
-        const spv_decl_index = try self.resolveDecl(self.decl_index);
+        const spv_decl_index = try self.object.resolveDecl(mod, self.decl_index);
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
 
