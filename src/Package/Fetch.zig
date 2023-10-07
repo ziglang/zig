@@ -108,6 +108,12 @@ pub const JobQueue = struct {
     /// Creates the dependencies.zig file and corresponding `Module` for the
     /// build runner to obtain via `@import("@dependencies")`.
     pub fn createDependenciesModule(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
+        const keys = jq.table.keys();
+        const values = jq.table.values();
+
+        if (keys.len == 0)
+            return createEmptyDependenciesModule(buf);
+
         try buf.appendSlice("pub const packages = struct {\n");
 
         // Ensure the generated .zig file is deterministic.
@@ -116,9 +122,9 @@ pub const JobQueue = struct {
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
                 return std.mem.lessThan(u8, &ctx.keys[a_index], &ctx.keys[b_index]);
             }
-        }, .{ .keys = jq.table.keys() }));
+        }, .{ .keys = keys }));
 
-        for (jq.table.keys()[1..], jq.table.values()[1..]) |hash, fetch| {
+        for (keys[1..], values[1..]) |hash, fetch| {
             try buf.writer().print(
                 \\    pub const {} = struct {{
                 \\        pub const build_root = "{q}";
@@ -175,6 +181,14 @@ pub const JobQueue = struct {
             );
         }
         try buf.appendSlice("};\n");
+    }
+
+    pub fn createEmptyDependenciesModule(buf: *std.ArrayList(u8)) Allocator.Error!void {
+        try buf.appendSlice(
+            \\pub const packages = struct {};
+            \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
+            \\
+        );
     }
 };
 

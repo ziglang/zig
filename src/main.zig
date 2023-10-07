@@ -4827,13 +4827,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .root = .{ .root_dir = build_root },
             .root_src_path = build_zig_basename,
         };
+        var dependencies_zig_src = std.ArrayList(u8).init(gpa);
+        defer dependencies_zig_src.deinit();
         if (build_options.only_core_functionality) {
-            const deps_mod = try Package.createFilePkg(gpa, local_cache_directory, "dependencies.zig",
-                \\pub const packages = struct {};
-                \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
-                \\
-            );
-            try main_mod.deps.put(arena, "@dependencies", deps_mod);
+            try Package.Fetch.createEmptyDependenciesModule(&dependencies_zig_src);
         } else {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
@@ -4887,19 +4884,39 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 process.exit(1);
             }
 
-            var buf = std.ArrayList(u8).init(gpa);
-            defer buf.deinit();
-            try job_queue.createDependenciesModule(&buf);
-            if (true) {
-                std.debug.print("dependencies source:\n\n{s}\n", .{buf.items});
-                @panic("TODO");
+            try job_queue.createDependenciesModule(&dependencies_zig_src);
+        }
+        {
+            // Atomically create the file in a directory named after the hash of its contents.
+            const basename = "dependencies.zig";
+            const rand_int = std.crypto.random.int(u64);
+            const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ Package.Manifest.hex64(rand_int);
+            {
+                var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+                defer tmp_dir.close();
+                try tmp_dir.writeFile(basename, dependencies_zig_src.items);
             }
-            //const deps_mod = try job_queue.createDependenciesModule(
-            //    arena,
-            //    local_cache_directory,
-            //    "dependencies.zig",
-            //);
-            //try main_mod.deps.put(arena, "@dependencies", deps_mod);
+
+            var hh: Cache.HashHelper = .{};
+            hh.addBytes(build_options.version);
+            hh.addBytes(dependencies_zig_src.items);
+            const hex_digest = hh.final();
+
+            const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
+            try Package.Fetch.renameTmpIntoCache(
+                local_cache_directory.handle,
+                tmp_dir_sub_path,
+                o_dir_sub_path,
+            );
+
+            const deps_mod = try Package.Module.create(arena, .{
+                .root = .{
+                    .root_dir = local_cache_directory,
+                    .sub_path = o_dir_sub_path,
+                },
+                .root_src_path = basename,
+            });
+            try main_mod.deps.put(arena, "@dependencies", deps_mod);
         }
         try main_mod.deps.put(arena, "@build", &build_mod);
 
