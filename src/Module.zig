@@ -55,10 +55,10 @@ comp: *Compilation,
 /// Where build artifacts and incremental compilation metadata serialization go.
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource.
-root_pkg: *Package,
-/// Normally, `main_pkg` and `root_pkg` are the same. The exception is `zig test`, in which
-/// `root_pkg` is the test runner, and `main_pkg` is the user's source file which has the tests.
-main_pkg: *Package,
+root_mod: *Package.Module,
+/// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
+/// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
+main_mod: *Package.Module,
 sema_prog_node: std.Progress.Node = undefined,
 
 /// Used by AstGen worker to load and store ZIR cache.
@@ -973,8 +973,8 @@ pub const File = struct {
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
     zir: Zir,
-    /// Package that this file is a part of, managed externally.
-    pkg: *Package,
+    /// Module that this file is a part of, managed externally.
+    mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
@@ -1058,14 +1058,9 @@ pub const File = struct {
             .stat = file.stat,
         };
 
-        const root_dir_path = file.pkg.root_src_directory.path orelse ".";
-        log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
-            root_dir_path, file.sub_file_path,
-        });
-
         // Keep track of inode, file size, mtime, hash so we can detect which files
         // have been modified when an incremental update is requested.
-        var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+        var f = try file.mod.root.openFile(file.sub_file_path, .{});
         defer f.close();
 
         const stat = try f.stat();
@@ -1134,14 +1129,12 @@ pub const File = struct {
         return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start);
     }
 
-    /// Returns the full path to this file relative to its package.
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {
-        return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
+        return file.mod.root.joinString(ally, file.sub_file_path);
     }
 
-    /// Returns the full path to this file relative to its package.
     pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
-        return file.pkg.root_src_directory.joinZ(ally, &[_][]const u8{file.sub_file_path});
+        return file.mod.root.joinStringZ(ally, file.sub_file_path);
     }
 
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -2543,25 +2536,25 @@ pub fn deinit(mod: *Module) void {
 
     mod.deletion_set.deinit(gpa);
 
-    // The callsite of `Compilation.create` owns the `main_pkg`, however
+    // The callsite of `Compilation.create` owns the `main_mod`, however
     // Module owns the builtin and std packages that it adds.
-    if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
+    if (mod.main_mod.table.fetchRemove("builtin")) |kv| {
         gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
-    if (mod.main_pkg.table.fetchRemove("std")) |kv| {
+    if (mod.main_mod.table.fetchRemove("std")) |kv| {
         gpa.free(kv.key);
-        // It's possible for main_pkg to be std when running 'zig test'! In this case, we must not
+        // It's possible for main_mod to be std when running 'zig test'! In this case, we must not
         // destroy it, since it would lead to a double-free.
-        if (kv.value != mod.main_pkg) {
+        if (kv.value != mod.main_mod) {
             kv.value.destroy(gpa);
         }
     }
-    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
+    if (mod.main_mod.table.fetchRemove("root")) |kv| {
         gpa.free(kv.key);
     }
-    if (mod.root_pkg != mod.main_pkg) {
-        mod.root_pkg.destroy(gpa);
+    if (mod.root_mod != mod.main_mod) {
+        mod.root_mod.destroy(gpa);
     }
 
     mod.compile_log_text.deinit(gpa);
@@ -2715,7 +2708,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
     const stat = try source_file.stat();
 
-    const want_local_cache = file.pkg == mod.main_pkg;
+    const want_local_cache = file.pkg == mod.main_mod;
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
@@ -3158,23 +3151,23 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         comp.mutex.lock();
         defer comp.mutex.unlock();
 
-        const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-        const result = try mod.importPkg(builtin_pkg);
+        const builtin_mod = mod.main_mod.table.get("builtin").?;
+        const result = try mod.importPkg(builtin_mod);
         break :blk .{
             .file = result.file,
-            .pkg = builtin_pkg,
+            .pkg = builtin_mod,
         };
     };
     const file = pkg_and_file.file;
-    const builtin_pkg = pkg_and_file.pkg;
+    const builtin_mod = pkg_and_file.pkg;
     const gpa = mod.gpa;
     file.source = try comp.generateBuiltinZigSource(gpa);
     file.source_loaded = true;
 
-    if (builtin_pkg.root_src_directory.handle.statFile(builtin_pkg.root_src_path)) |stat| {
+    if (builtin_mod.root_src_directory.handle.statFile(builtin_mod.root_src_path)) |stat| {
         if (stat.size != file.source.len) {
-            const full_path = try builtin_pkg.root_src_directory.join(gpa, &.{
-                builtin_pkg.root_src_path,
+            const full_path = try builtin_mod.root_src_directory.join(gpa, &.{
+                builtin_mod.root_src_path,
             });
             defer gpa.free(full_path);
 
@@ -3184,7 +3177,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
                 .{ full_path, file.source.len, stat.size },
             );
 
-            try writeBuiltinFile(file, builtin_pkg);
+            try writeBuiltinFile(file, builtin_mod);
         } else {
             file.stat = .{
                 .size = stat.size,
@@ -3198,7 +3191,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         error.PipeBusy => unreachable, // it's not a pipe
         error.WouldBlock => unreachable, // not asking for non-blocking I/O
 
-        error.FileNotFound => try writeBuiltinFile(file, builtin_pkg),
+        error.FileNotFound => try writeBuiltinFile(file, builtin_mod),
 
         else => |e| return e,
     }
@@ -3212,8 +3205,8 @@ pub fn populateBuiltinFile(mod: *Module) !void {
     file.status = .success_zir;
 }
 
-fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
-    var af = try builtin_pkg.root_src_directory.handle.atomicFile(builtin_pkg.root_src_path, .{});
+fn writeBuiltinFile(file: *File, builtin_mod: *Package.Module) !void {
+    var af = try builtin_mod.root_src_directory.handle.atomicFile(builtin_mod.root_src_path, .{});
     defer af.deinit();
     try af.file.writeAll(file.source);
     try af.finish();
@@ -3748,7 +3741,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     // TODO: figure out how this works under incremental changes to builtin.zig!
     const builtin_type_target_index: InternPool.Index = blk: {
-        const std_mod = mod.main_pkg.table.get("std").?;
+        const std_mod = mod.main_mod.table.get("std").?;
         if (decl.getFileScope(mod).pkg != std_mod) break :blk .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
@@ -4100,13 +4093,13 @@ pub fn importFile(
     import_string: []const u8,
 ) !ImportFileResult {
     if (std.mem.eql(u8, import_string, "std")) {
-        return mod.importPkg(mod.main_pkg.table.get("std").?);
+        return mod.importPkg(mod.main_mod.table.get("std").?);
     }
     if (std.mem.eql(u8, import_string, "builtin")) {
-        return mod.importPkg(mod.main_pkg.table.get("builtin").?);
+        return mod.importPkg(mod.main_mod.table.get("builtin").?);
     }
     if (std.mem.eql(u8, import_string, "root")) {
-        return mod.importPkg(mod.root_pkg);
+        return mod.importPkg(mod.root_mod);
     }
     if (cur_file.pkg.table.get(import_string)) |pkg| {
         return mod.importPkg(pkg);
@@ -4462,14 +4455,14 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_pkg != mod.main_mod) break :blk false;
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_pkg != mod.main_mod) break :blk false;
                 if (comp.test_filter) |test_filter| {
                     if (mem.indexOf(u8, ip.stringToSlice(decl_name), test_filter) == null) {
                         break :blk false;
@@ -5596,8 +5589,8 @@ pub fn populateTestFunctions(
 ) !void {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-    const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
+    const builtin_mod = mod.main_mod.table.get("builtin").?;
+    const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
     const test_functions_str = try ip.getOrPutString(gpa, "test_functions");

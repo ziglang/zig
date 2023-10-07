@@ -1,6 +1,10 @@
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
+pub const Digest = [Hash.digest_length]u8;
+pub const multihash_len = 1 + 1 + Hash.digest_length;
+pub const multihash_hex_digest_len = 2 * multihash_len;
+pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
 pub const Dependency = struct {
     location: union(enum) {
@@ -46,7 +50,6 @@ comptime {
     assert(@intFromEnum(multihash_function) < 127);
     assert(Hash.digest_length < 127);
 }
-pub const multihash_len = 1 + 1 + Hash.digest_length;
 
 name: []const u8,
 version: std.SemanticVersion,
@@ -122,8 +125,8 @@ test hex64 {
     try std.testing.expectEqualStrings("[00efcdab78563412]", s);
 }
 
-pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
-    var result: [multihash_len * 2]u8 = undefined;
+pub fn hexDigest(digest: Digest) MultiHashHexDigest {
+    var result: MultiHashHexDigest = undefined;
 
     result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
     result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
@@ -339,10 +342,9 @@ const Parse = struct {
             }
         }
 
-        const hex_multihash_len = 2 * Manifest.multihash_len;
-        if (h.len != hex_multihash_len) {
+        if (h.len != multihash_hex_digest_len) {
             return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                hex_multihash_len, h.len,
+                multihash_hex_digest_len, h.len,
             });
         }
 

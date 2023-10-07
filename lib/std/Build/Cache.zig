@@ -9,6 +9,13 @@ pub const Directory = struct {
     path: ?[]const u8,
     handle: fs.Dir,
 
+    pub fn cwd() Directory {
+        return .{
+            .path = null,
+            .handle = fs.cwd(),
+        };
+    }
+
     pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
@@ -52,6 +59,10 @@ pub const Directory = struct {
             try writer.writeAll(p);
             try writer.writeAll(fs.path.sep_str);
         }
+    }
+
+    pub fn eql(self: Directory, other: Directory) bool {
+        return self.handle.fd == other.handle.fd;
     }
 };
 

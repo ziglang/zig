@@ -88,7 +88,7 @@ pub fn build(b: *std.Build) !void {
         .name = "check-case",
         .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
-        .main_pkg_path = .{ .path = "." },
+        .main_mod_path = .{ .path = "." },
     });
     check_case_exe.stack_size = stack_size;
     check_case_exe.single_threaded = single_threaded;
