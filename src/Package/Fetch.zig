@@ -486,7 +486,7 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
                 .prog_node = f.prog_node,
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
-                .allow_missing_paths_field = false,
+                .allow_missing_paths_field = true,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
