@@ -14,7 +14,7 @@ pub var allocator_instance = b: {
 };
 
 pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
+pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
 
 pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
@@ -691,8 +691,9 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
 ///
-/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
-pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+/// Note: Self-referential structs are supported (e.g. things like std.SinglyLinkedList)
+/// but may cause infinite recursion or stack overflow when a container has a pointer to itself.
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) error{TestExpectedEqual}!void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,
@@ -1081,16 +1082,16 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
     // Try it once with unlimited memory, make sure it works
     const needed_alloc_count = x: {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{});
         args.@"0" = failing_allocator_inst.allocator();
 
         try @call(.auto, test_fn, args);
-        break :x failing_allocator_inst.index;
+        break :x failing_allocator_inst.alloc_index;
     };
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{ .fail_index = fail_index });
         args.@"0" = failing_allocator_inst.allocator();
 
         if (@call(.auto, test_fn, args)) |_| {

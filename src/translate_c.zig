@@ -7,311 +7,23 @@ const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
+const CallingConvention = std.builtin.CallingConvention;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
-
-const CallingConvention = std.builtin.CallingConvention;
-
-pub const Error = std.mem.Allocator.Error;
-const MacroProcessingError = Error || error{UnexpectedMacroToken};
-const TypeError = Error || error{UnsupportedType};
-const TransError = TypeError || error{UnsupportedTranslation};
-
-const SymbolTable = std.StringArrayHashMap(Node);
-const AliasList = std.ArrayList(struct {
-    alias: []const u8,
-    name: []const u8,
-});
+const common = @import("translate_c/common.zig");
+const Error = common.Error;
+const MacroProcessingError = common.MacroProcessingError;
+const TypeError = common.TypeError;
+const TransError = common.TransError;
+const SymbolTable = common.SymbolTable;
+const AliasList = common.AliasList;
+const ResultUsed = common.ResultUsed;
+const Scope = common.ScopeExtra(Context, clang.QualType);
 
 // Maps macro parameter names to token position, for determining if different
 // identifiers refer to the same positional argument in different macros.
 const ArgsPositionMap = std.StringArrayHashMapUnmanaged(usize);
-
-const Scope = struct {
-    id: Id,
-    parent: ?*Scope,
-
-    const Id = enum {
-        block,
-        root,
-        condition,
-        loop,
-        do_loop,
-    };
-
-    /// Used for the scope of condition expressions, for example `if (cond)`.
-    /// The block is lazily initialised because it is only needed for rare
-    /// cases of comma operators being used.
-    const Condition = struct {
-        base: Scope,
-        block: ?Block = null,
-
-        fn getBlockScope(self: *Condition, c: *Context) !*Block {
-            if (self.block) |*b| return b;
-            self.block = try Block.init(c, &self.base, true);
-            return &self.block.?;
-        }
-
-        fn deinit(self: *Condition) void {
-            if (self.block) |*b| b.deinit();
-        }
-    };
-
-    /// Represents an in-progress Node.Block. This struct is stack-allocated.
-    /// When it is deinitialized, it produces an Node.Block which is allocated
-    /// into the main arena.
-    const Block = struct {
-        base: Scope,
-        statements: std.ArrayList(Node),
-        variables: AliasList,
-        mangle_count: u32 = 0,
-        label: ?[]const u8 = null,
-
-        /// By default all variables are discarded, since we do not know in advance if they
-        /// will be used. This maps the variable's name to the Discard payload, so that if
-        /// the variable is subsequently referenced we can indicate that the discard should
-        /// be skipped during the intermediate AST -> Zig AST render step.
-        variable_discards: std.StringArrayHashMap(*ast.Payload.Discard),
-
-        /// When the block corresponds to a function, keep track of the return type
-        /// so that the return expression can be cast, if necessary
-        return_type: ?clang.QualType = null,
-
-        /// C static local variables are wrapped in a block-local struct. The struct
-        /// is named after the (mangled) variable name, the Zig variable within the
-        /// struct itself is given this name.
-        const StaticInnerName = "static";
-
-        fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
-            var blk = Block{
-                .base = .{
-                    .id = .block,
-                    .parent = parent,
-                },
-                .statements = std.ArrayList(Node).init(c.gpa),
-                .variables = AliasList.init(c.gpa),
-                .variable_discards = std.StringArrayHashMap(*ast.Payload.Discard).init(c.gpa),
-            };
-            if (labeled) {
-                blk.label = try blk.makeMangledName(c, "blk");
-            }
-            return blk;
-        }
-
-        fn deinit(self: *Block) void {
-            self.statements.deinit();
-            self.variables.deinit();
-            self.variable_discards.deinit();
-            self.* = undefined;
-        }
-
-        fn complete(self: *Block, c: *Context) !Node {
-            if (self.base.parent.?.id == .do_loop) {
-                // We reserve 1 extra statement if the parent is a do_loop. This is in case of
-                // do while, we want to put `if (cond) break;` at the end.
-                const alloc_len = self.statements.items.len + @intFromBool(self.base.parent.?.id == .do_loop);
-                var stmts = try c.arena.alloc(Node, alloc_len);
-                stmts.len = self.statements.items.len;
-                @memcpy(stmts[0..self.statements.items.len], self.statements.items);
-                return Tag.block.create(c.arena, .{
-                    .label = self.label,
-                    .stmts = stmts,
-                });
-            }
-            if (self.statements.items.len == 0) return Tag.empty_block.init();
-            return Tag.block.create(c.arena, .{
-                .label = self.label,
-                .stmts = try c.arena.dupe(Node, self.statements.items),
-            });
-        }
-
-        /// Given the desired name, return a name that does not shadow anything from outer scopes.
-        /// Inserts the returned name into the scope.
-        /// The name will not be visible to callers of getAlias.
-        fn reserveMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
-            return scope.createMangledName(c, name, true);
-        }
-
-        /// Same as reserveMangledName, but enables the alias immediately.
-        fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
-            return scope.createMangledName(c, name, false);
-        }
-
-        fn createMangledName(scope: *Block, c: *Context, name: []const u8, reservation: bool) ![]const u8 {
-            const name_copy = try c.arena.dupe(u8, name);
-            var proposed_name = name_copy;
-            while (scope.contains(proposed_name)) {
-                scope.mangle_count += 1;
-                proposed_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, scope.mangle_count });
-            }
-            const new_mangle = try scope.variables.addOne();
-            if (reservation) {
-                new_mangle.* = .{ .name = name_copy, .alias = name_copy };
-            } else {
-                new_mangle.* = .{ .name = name_copy, .alias = proposed_name };
-            }
-            return proposed_name;
-        }
-
-        fn getAlias(scope: *Block, name: []const u8) []const u8 {
-            for (scope.variables.items) |p| {
-                if (mem.eql(u8, p.name, name))
-                    return p.alias;
-            }
-            return scope.base.parent.?.getAlias(name);
-        }
-
-        fn localContains(scope: *Block, name: []const u8) bool {
-            for (scope.variables.items) |p| {
-                if (mem.eql(u8, p.alias, name))
-                    return true;
-            }
-            return false;
-        }
-
-        fn contains(scope: *Block, name: []const u8) bool {
-            if (scope.localContains(name))
-                return true;
-            return scope.base.parent.?.contains(name);
-        }
-
-        fn discardVariable(scope: *Block, c: *Context, name: []const u8) Error!void {
-            const name_node = try Tag.identifier.create(c.arena, name);
-            const discard = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = name_node });
-            try scope.statements.append(discard);
-            try scope.variable_discards.putNoClobber(name, discard.castTag(.discard).?);
-        }
-    };
-
-    const Root = struct {
-        base: Scope,
-        sym_table: SymbolTable,
-        macro_table: SymbolTable,
-        context: *Context,
-        nodes: std.ArrayList(Node),
-
-        fn init(c: *Context) Root {
-            return .{
-                .base = .{
-                    .id = .root,
-                    .parent = null,
-                },
-                .sym_table = SymbolTable.init(c.gpa),
-                .macro_table = SymbolTable.init(c.gpa),
-                .context = c,
-                .nodes = std.ArrayList(Node).init(c.gpa),
-            };
-        }
-
-        fn deinit(scope: *Root) void {
-            scope.sym_table.deinit();
-            scope.macro_table.deinit();
-            scope.nodes.deinit();
-        }
-
-        /// Check if the global scope contains this name, without looking into the "future", e.g.
-        /// ignore the preprocessed decl and macro names.
-        fn containsNow(scope: *Root, name: []const u8) bool {
-            return scope.sym_table.contains(name) or scope.macro_table.contains(name);
-        }
-
-        /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
-        fn contains(scope: *Root, name: []const u8) bool {
-            return scope.containsNow(name) or scope.context.global_names.contains(name);
-        }
-    };
-
-    fn findBlockScope(inner: *Scope, c: *Context) !*Scope.Block {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => unreachable,
-                .block => return @fieldParentPtr(Block, "base", scope),
-                .condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
-                else => scope = scope.parent.?,
-            }
-        }
-    }
-
-    fn findBlockReturnType(inner: *Scope) clang.QualType {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => unreachable,
-                .block => {
-                    const block = @fieldParentPtr(Block, "base", scope);
-                    if (block.return_type) |qt| return qt;
-                    scope = scope.parent.?;
-                },
-                else => scope = scope.parent.?,
-            }
-        }
-    }
-
-    fn getAlias(scope: *Scope, name: []const u8) []const u8 {
-        return switch (scope.id) {
-            .root => return name,
-            .block => @fieldParentPtr(Block, "base", scope).getAlias(name),
-            .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
-        };
-    }
-
-    fn contains(scope: *Scope, name: []const u8) bool {
-        return switch (scope.id) {
-            .root => @fieldParentPtr(Root, "base", scope).contains(name),
-            .block => @fieldParentPtr(Block, "base", scope).contains(name),
-            .loop, .do_loop, .condition => scope.parent.?.contains(name),
-        };
-    }
-
-    fn getBreakableScope(inner: *Scope) *Scope {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => unreachable,
-                .loop, .do_loop => return scope,
-                else => scope = scope.parent.?,
-            }
-        }
-    }
-
-    /// Appends a node to the first block scope if inside a function, or to the root tree if not.
-    fn appendNode(inner: *Scope, node: Node) !void {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => {
-                    const root = @fieldParentPtr(Root, "base", scope);
-                    return root.nodes.append(node);
-                },
-                .block => {
-                    const block = @fieldParentPtr(Block, "base", scope);
-                    return block.statements.append(node);
-                },
-                else => scope = scope.parent.?,
-            }
-        }
-    }
-
-    fn skipVariableDiscard(inner: *Scope, name: []const u8) void {
-        var scope = inner;
-        while (true) {
-            switch (scope.id) {
-                .root => return,
-                .block => {
-                    const block = @fieldParentPtr(Block, "base", scope);
-                    if (block.variable_discards.get(name)) |discard| {
-                        discard.data.should_skip = true;
-                        return;
-                    }
-                },
-                else => {},
-            }
-            scope = scope.parent.?;
-        }
-    }
-};
 
 pub const Context = struct {
     gpa: mem.Allocator,
@@ -334,6 +46,15 @@ pub const Context = struct {
     /// translating them. The other maps are updated as we translate; this one is updated
     /// up front in a pre-processing step.
     global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+
+    /// This is similar to `global_names`, but contains names which we would
+    /// *like* to use, but do not strictly *have* to if they are unavailable.
+    /// These are relevant to types, which ideally we would name like
+    /// 'struct_foo' with an alias 'foo', but if either of those names is taken,
+    /// may be mangled.
+    /// This is distinct from `global_names` so we can detect at a type
+    /// declaration whether or not the name is available.
+    weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 
     pattern_list: PatternList,
 
@@ -363,19 +84,54 @@ pub fn translate(
     gpa: mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    errors: *[]clang.ErrorMsg,
+    errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
-    // TODO stage2 bug
-    var tmp = errors;
+    var clang_errors: []clang.ErrorMsg = &.{};
+
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
-        &tmp.ptr,
-        &tmp.len,
+        &clang_errors.ptr,
+        &clang_errors.len,
         resources_path,
     ) orelse {
-        if (errors.len == 0) return error.ASTUnitFailure;
+        defer clang.ErrorMsg.delete(clang_errors.ptr, clang_errors.len);
+
+        var bundle: std.zig.ErrorBundle.Wip = undefined;
+        try bundle.init(gpa);
+        defer bundle.deinit();
+
+        for (clang_errors) |c_error| {
+            const line = line: {
+                const source = c_error.source orelse break :line 0;
+                var start = c_error.offset;
+                while (start > 0) : (start -= 1) {
+                    if (source[start - 1] == '\n') break;
+                }
+                var end = c_error.offset;
+                while (true) : (end += 1) {
+                    if (source[end] == 0) break;
+                    if (source[end] == '\n') break;
+                }
+                break :line try bundle.addString(source[start..end]);
+            };
+
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.addString(c_error.msg_ptr[0..c_error.msg_len]),
+                .src_loc = if (c_error.filename_ptr) |filename_ptr| try bundle.addSourceLocation(.{
+                    .src_path = try bundle.addString(filename_ptr[0..c_error.filename_len]),
+                    .span_start = c_error.offset,
+                    .span_main = c_error.offset,
+                    .span_end = c_error.offset + 1,
+                    .line = c_error.line,
+                    .column = c_error.column,
+                    .source_line = line,
+                }) else .none,
+            });
+        }
+        errors.* = try bundle.toOwnedBundle("");
+
         return error.SemanticAnalyzeFail;
     };
     defer ast_unit.delete();
@@ -425,10 +181,8 @@ pub fn translate(
 
     try addMacros(&context);
     for (context.alias_list.items) |alias| {
-        if (!context.global_scope.sym_table.contains(alias.alias)) {
-            const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
-            try addTopLevelDecl(&context, alias.alias, node);
-        }
+        const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
+        try addTopLevelDecl(&context, alias.alias, node);
     }
 
     return ast.render(gpa, context.global_scope.nodes.items);
@@ -493,7 +247,29 @@ fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool
 fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
-        try c.global_names.put(c.gpa, decl_name, {});
+
+        switch (decl.getKind()) {
+            .Record, .Enum => {
+                // These types are prefixed with the container kind.
+                const container_prefix = if (decl.getKind() == .Record) prefix: {
+                    const record_decl: *const clang.RecordDecl = @ptrCast(decl);
+                    if (record_decl.isUnion()) {
+                        break :prefix "union";
+                    } else {
+                        break :prefix "struct";
+                    }
+                } else "enum";
+                const prefixed_name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_prefix, decl_name });
+                // `decl_name` and `prefixed_name` are the preferred names for this type.
+                // However, we can name it anything else if necessary, so these are "weak names".
+                try c.weak_global_names.ensureUnusedCapacity(c.gpa, 2);
+                c.weak_global_names.putAssumeCapacity(decl_name, {});
+                c.weak_global_names.putAssumeCapacity(prefixed_name, {});
+            },
+            else => {
+                try c.global_names.put(c.gpa, decl_name, {});
+            },
+        }
 
         // Check for typedefs with unnamed enum/record child types.
         if (decl.getKind() == .Typedef) {
@@ -765,7 +541,7 @@ fn transQualTypeMaybeInitialized(c: *Context, scope: *Scope, qt: clang.QualType,
 ///     var static = S.*;
 /// }).static;
 fn stringLiteralToCharStar(c: *Context, str: Node) Error!Node {
-    const var_name = Scope.Block.StaticInnerName;
+    const var_name = Scope.Block.static_inner_name;
 
     const variables = try c.arena.alloc(Node, 1);
     variables[0] = try Tag.mut_str.create(c.arena, .{ .name = var_name, .init = str });
@@ -1079,6 +855,21 @@ fn flexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) ?*const 
     return flexible_field;
 }
 
+fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
+    var cur_name = want_name;
+
+    if (!c.weak_global_names.contains(want_name)) {
+        // This type wasn't noticed by the name detection pass, so nothing has been treating this as
+        // a weak global name. We must mangle it to avoid conflicts with locals.
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+
+    while (c.global_names.contains(cur_name)) {
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+    return cur_name;
+}
+
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
     if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |_|
         return; // Avoid processing this decl twice
@@ -1113,6 +904,9 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             is_unnamed = true;
         }
         name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+        if (toplevel and !is_unnamed) {
+            name = try mangleWeakGlobalName(c, name);
+        }
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), name);
@@ -1182,6 +976,14 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
+            // C99 introduced designated initializers for structs. Omitted fields are implicitly
+            // initialized to zero. Some C APIs are designed with this in mind. Defaulting to zero
+            // values for translated struct fields permits Zig code to comfortably use such an API.
+            const default_value = if (record_decl.isStruct())
+                try Tag.std_mem_zeroes.create(c.arena, field_type)
+            else
+                null;
+
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @intFromPtr(field_decl.getCanonicalDecl()), field_name);
             }
@@ -1190,6 +992,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .name = field_name,
                 .type = field_type,
                 .alignment = alignment,
+                .default_value = default_value,
             });
         }
 
@@ -1217,7 +1020,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const node = Node.initPayload(&payload.base);
     if (toplevel) {
         try addTopLevelDecl(c, name, node);
-        if (!is_unnamed)
+        // Only add the alias if the name is available *and* it was caught by
+        // name detection. Don't bother performing a weak mangle, since a
+        // mangled name is of no real use here.
+        if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(node);
@@ -1246,6 +1052,9 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
             is_unnamed = true;
         }
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
+        if (toplevel and !is_unnamed) {
+            name = try mangleWeakGlobalName(c, name);
+        }
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl.getCanonicalDecl()), name);
@@ -1313,7 +1122,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     const node = Node.initPayload(&payload.base);
     if (toplevel) {
         try addTopLevelDecl(c, name, node);
-        if (!is_unnamed)
+        // Only add the alias if the name is available *and* it was caught by
+        // name detection. Don't bother performing a weak mangle, since a
+        // mangled name is of no real use here.
+        if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
             try c.alias_list.append(.{ .alias = bare_name, .name = name });
     } else {
         try scope.appendNode(node);
@@ -1322,11 +1134,6 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         }
     }
 }
-
-const ResultUsed = enum {
-    used,
-    unused,
-};
 
 fn transStmt(
     c: *Context,
@@ -1970,7 +1777,7 @@ fn transDeclStmtOne(
                 init_node = try removeCVQualifiers(c, dst_type_node, init_node);
             }
 
-            const var_name: []const u8 = if (is_static_local) Scope.Block.StaticInnerName else mangled_name;
+            const var_name: []const u8 = if (is_static_local) Scope.Block.static_inner_name else mangled_name;
             var node = try Tag.var_decl.create(c.arena, .{
                 .is_pub = false,
                 .is_const = is_const,
@@ -2053,7 +1860,7 @@ fn transDeclRefExpr(
         if (var_decl.isStaticLocal()) {
             ref_expr = try Tag.field_access.create(c.arena, .{
                 .lhs = ref_expr,
-                .field_name = Scope.Block.StaticInnerName,
+                .field_name = Scope.Block.static_inner_name,
             });
         }
     }
@@ -4881,7 +4688,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             var trans_scope = scope;
             if (@as(*const clang.Decl, @ptrCast(record_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
-                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
             }
             try transRecordDecl(c, trans_scope, record_decl);
             const name = c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl())).?;
@@ -4894,7 +4701,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             var trans_scope = scope;
             if (@as(*const clang.Decl, @ptrCast(enum_decl)).castToNamedDecl()) |named_decl| {
                 const decl_name = try c.str(named_decl.getName_bytes_begin());
-                if (c.global_names.get(decl_name)) |_| trans_scope = &c.global_scope.base;
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
             }
             try transEnumDecl(c, trans_scope, enum_decl);
             const name = c.decl_table.get(@intFromPtr(enum_decl.getCanonicalDecl())).?;
@@ -5222,7 +5029,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
 }
 
-const PatternList = struct {
+pub const PatternList = struct {
     patterns: []Pattern,
 
     /// Templates must be function-like macros
@@ -5355,7 +5162,7 @@ const PatternList = struct {
         /// macro. Please review this logic carefully if changing that assumption. Two
         /// function-like macros are considered equivalent if and only if they contain the same
         /// list of tokens, modulo parameter names.
-        fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
+        pub fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
             if (self.tokens.len != ms.tokens.len) return false;
             if (args_hash.count() != self.args_hash.count()) return false;
 
@@ -5396,7 +5203,7 @@ const PatternList = struct {
         }
     };
 
-    fn init(allocator: mem.Allocator) Error!PatternList {
+    pub fn init(allocator: mem.Allocator) Error!PatternList {
         const patterns = try allocator.alloc(Pattern, templates.len);
         for (templates, 0..) |template, i| {
             try patterns[i].init(allocator, template);
@@ -5404,12 +5211,12 @@ const PatternList = struct {
         return PatternList{ .patterns = patterns };
     }
 
-    fn deinit(self: *PatternList, allocator: mem.Allocator) void {
+    pub fn deinit(self: *PatternList, allocator: mem.Allocator) void {
         for (self.patterns) |*pattern| pattern.deinit(allocator);
         allocator.free(self.patterns);
     }
 
-    fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
+    pub fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
         var args_hash: ArgsPositionMap = .{};
         defer args_hash.deinit(allocator);
 
@@ -5524,22 +5331,38 @@ const MacroCtx = struct {
         return MacroSlicer{ .source = self.source, .tokens = self.list };
     }
 
-    fn containsUndefinedIdentifier(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?[]const u8 {
+    const MacroTranslateError = union(enum) {
+        undefined_identifier: []const u8,
+        invalid_arg_usage: []const u8,
+    };
+
+    fn checkTranslatableMacro(self: *MacroCtx, scope: *Scope, params: []const ast.Payload.Param) ?MacroTranslateError {
         const slicer = self.makeSlicer();
+        var last_is_type_kw = false;
         var i: usize = 1; // index 0 is the macro name
         while (i < self.list.len) : (i += 1) {
             const token = self.list[i];
             switch (token.id) {
                 .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
+                .Keyword_struct, .Keyword_union, .Keyword_enum => if (!last_is_type_kw) {
+                    last_is_type_kw = true;
+                    continue;
+                },
                 .Identifier => {
                     const identifier = slicer.slice(token);
                     const is_param = for (params) |param| {
                         if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
                     } else false;
-                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) return identifier;
+                    if (is_param and last_is_type_kw) {
+                        return .{ .invalid_arg_usage = identifier };
+                    }
+                    if (!scope.contains(identifier) and !isBuiltinDefined(identifier) and !is_param) {
+                        return .{ .undefined_identifier = identifier };
+                    }
                 },
                 else => {},
             }
+            last_is_type_kw = false;
         }
         return null;
     }
@@ -5649,8 +5472,10 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     const scope = &c.global_scope.base;
 
-    if (m.containsUndefinedIdentifier(scope, &.{})) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, &.{})) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => unreachable, // no args
+    };
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5698,8 +5523,10 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     try m.skip(c, .RParen);
 
-    if (m.containsUndefinedIdentifier(scope, fn_params.items)) |ident|
-        return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident});
+    if (m.checkTranslatableMacro(scope, fn_params.items)) |err| switch (err) {
+        .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
+        .invalid_arg_usage => |ident| return m.fail(c, "unable to translate macro: untranslatable usage of arg `{s}`", .{ident}),
+    };
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;

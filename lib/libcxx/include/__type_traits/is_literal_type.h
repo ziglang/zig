@@ -19,15 +19,15 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 is_literal_type
-    : public integral_constant<bool, __is_literal_type(_Tp)>
-    {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 is_literal_type
+    : public integral_constant<bool, __is_literal_type(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 _LIBCPP_DEPRECATED_IN_CXX17 inline constexpr bool is_literal_type_v = __is_literal_type(_Tp);
-#endif // _LIBCPP_STD_VER > 14
-#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
+#  endif // _LIBCPP_STD_VER >= 17
+#endif   // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
 
 _LIBCPP_END_NAMESPACE_STD
 

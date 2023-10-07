@@ -500,6 +500,8 @@ test "cast slice to const slice nested in error union and optional" {
 }
 
 test "variable of optional of noreturn" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var null_opv: ?noreturn = null;
     try std.testing.expectEqual(@as(?noreturn, null), null_opv);
 }

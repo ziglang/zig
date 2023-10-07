@@ -461,8 +461,7 @@ test "parse into tagged union errors" {
     try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"nothing\":{\"no\":0}}", .{}));
 
     // Allocator failure
-    var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
-    try testing.expectError(error.OutOfMemory, parseFromSlice(T, fail_alloc.allocator(), "{\"string\"\"foo\"}", .{}));
+    try testing.expectError(error.OutOfMemory, parseFromSlice(T, testing.failing_allocator, "{\"string\"\"foo\"}", .{}));
 }
 
 test "parse into struct with no fields" {

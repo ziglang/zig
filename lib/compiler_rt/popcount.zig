@@ -37,7 +37,7 @@ inline fn popcountXi2(comptime ST: type, a: ST) i32 {
         i128 => u128,
         else => unreachable,
     };
-    var x = @as(UT, @bitCast(a));
+    var x: UT = @bitCast(a);
     x -= (x >> 1) & (~@as(UT, 0) / 3); // 0x55...55, aggregate duos
     x = ((x >> 2) & (~@as(UT, 0) / 5)) // 0x33...33, aggregate nibbles
     + (x & (~@as(UT, 0) / 5));
@@ -46,7 +46,7 @@ inline fn popcountXi2(comptime ST: type, a: ST) i32 {
     // 8 most significant bits of x + (x<<8) + (x<<16) + ..
     x *%= ~@as(UT, 0) / 255; // 0x01...01
     x >>= (@bitSizeOf(ST) - 8);
-    return @as(i32, @intCast(x));
+    return @intCast(x);
 }
 
 test {

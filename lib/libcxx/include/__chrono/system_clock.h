@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace chrono
 {
 
-class _LIBCPP_TYPE_VIS system_clock
+class _LIBCPP_EXPORTED_FROM_ABI system_clock
 {
 public:
     typedef microseconds                     duration;
@@ -38,7 +38,7 @@ public:
     static time_point from_time_t(time_t __t) _NOEXCEPT;
 };
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <class _Duration>
 using sys_time    = time_point<system_clock, _Duration>;

@@ -137,7 +137,9 @@ pub const Options = struct {
     link_libc: bool,
     link_libcpp: bool,
     link_libunwind: bool,
+    darwin_sdk_layout: ?DarwinSdkLayout,
     function_sections: bool,
+    data_sections: bool,
     no_builtin: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
@@ -228,7 +230,6 @@ pub const Options = struct {
 
     version: ?std.SemanticVersion,
     compatibility_version: ?std.SemanticVersion,
-    darwin_sdk_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation,
 
     dwarf_format: ?std.dwarf.Format,
@@ -281,7 +282,15 @@ pub const Options = struct {
 
 pub const HashStyle = enum { sysv, gnu, both };
 
-pub const CompressDebugSections = enum { none, zlib };
+pub const CompressDebugSections = enum { none, zlib, zstd };
+
+/// The filesystem layout of darwin SDK elements.
+pub const DarwinSdkLayout = enum {
+    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
+    sdk,
+    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
+    vendored,
+};
 
 pub const File = struct {
     tag: Tag,
@@ -457,9 +466,10 @@ pub const File = struct {
             .Exe => {},
         }
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9, .wasm => if (base.file) |f| {
+            .elf => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
-                if (base.intermediary_basename != null) {
+                const use_lld = build_options.have_llvm and base.options.use_lld;
+                if (base.intermediary_basename != null and use_lld) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
                     return;
@@ -472,6 +482,22 @@ pub const File = struct {
                         .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
+            },
+            .coff, .macho, .plan9, .wasm => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
+                if (base.intermediary_basename != null) {
+                    // The file we have open is not the final file that we want to
+                    // make executable, so we don't have to close it.
+                    return;
+                }
+                f.close();
+                base.file = null;
+
+                if (base.child_pid) |pid| {
+                    switch (builtin.os.tag) {
                         .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
@@ -550,7 +576,7 @@ pub const File = struct {
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name, lib_name),
-            .elf   => unreachable,
+            .elf   => return @fieldParentPtr(Elf, "base", base).getGlobalSymbol(name, lib_name),
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name, lib_name),
             .plan9 => unreachable,
             .spirv => unreachable,
@@ -694,19 +720,15 @@ pub const File = struct {
     /// TODO audit this error set. most of these should be collapsed into one error,
     /// and ErrorFlags should be updated to convey the meaning to the user.
     pub const FlushError = error{
-        BadDwarfCfi,
         CacheUnavailable,
         CurrentWorkingDirectoryUnlinked,
         DivisionByZero,
         DllImportLibraryNotFound,
-        EmptyStubFile,
         ExpectedFuncType,
         FailedToEmit,
-        FailedToResolveRelocationTarget,
         FileSystem,
         FilesOpenedWithWrongFlags,
         FlushFailure,
-        FrameworkNotFound,
         FunctionSignatureMismatch,
         GlobalTypeMismatch,
         HotSwapUnavailableOnHostOperatingSystem,
@@ -723,27 +745,19 @@ pub const File = struct {
         LLD_LinkingIsTODO_ForSpirV,
         LibCInstallationMissingCRTDir,
         LibCInstallationNotAvailable,
-        LibraryNotFound,
         LinkingWithoutZigSourceUnimplemented,
         MalformedArchive,
         MalformedDwarf,
         MalformedSection,
         MemoryTooBig,
         MemoryTooSmall,
-        MismatchedCpuArchitecture,
         MissAlignment,
         MissingEndForBody,
         MissingEndForExpression,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingMainEntrypoint,
-        /// TODO: this should be removed from the error set in favor of using ErrorFlags
-        MissingSection,
         MissingSymbol,
         MissingTableSymbols,
         ModuleNameMismatch,
-        MultipleSymbolDefinitions,
         NoObjectsToLink,
-        NotObject,
         NotObjectFile,
         NotSupported,
         OutOfMemory,
@@ -755,21 +769,15 @@ pub const File = struct {
         SymbolMismatchingType,
         TODOImplementPlan9Objs,
         TODOImplementWritingLibFiles,
-        TODOImplementWritingStaticLibFiles,
         UnableToSpawnSelf,
         UnableToSpawnWasm,
         UnableToWriteArchive,
         UndefinedLocal,
-        /// TODO: merge with UndefinedSymbolReference
         UndefinedSymbol,
-        /// TODO: merge with UndefinedSymbol
-        UndefinedSymbolReference,
         Underflow,
         UnexpectedRemainder,
         UnexpectedTable,
         UnexpectedValue,
-        UnhandledDwFormValue,
-        UnhandledSymbolType,
         UnknownFeature,
         Unseekable,
         UnsupportedCpuArchitecture,
@@ -866,6 +874,14 @@ pub const File = struct {
         }
     }
 
+    pub fn miscErrors(base: *File) []const ErrorMsg {
+        switch (base.tag) {
+            .elf => return @fieldParentPtr(Elf, "base", base).misc_errors.items,
+            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
+            else => return &.{},
+        }
+    }
+
     pub const UpdateDeclExportsError = error{
         OutOfMemory,
         AnalysisFail,
@@ -917,6 +933,36 @@ pub const File = struct {
             .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl_index, reloc_info),
             .c => unreachable,
             .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .spirv => unreachable,
+            .nvptx => unreachable,
+        }
+    }
+
+    pub const LowerResult = @import("codegen.zig").Result;
+
+    pub fn lowerAnonDecl(base: *File, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !LowerResult {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .elf => return @fieldParentPtr(Elf, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .c => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .spirv => unreachable,
+            .nvptx => unreachable,
+        }
+    }
+
+    pub fn getAnonDeclVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .elf => return @fieldParentPtr(Elf, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .macho => return @fieldParentPtr(MachO, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
+            .c => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
             .spirv => unreachable,
             .nvptx => unreachable,
         }
@@ -1038,6 +1084,11 @@ pub const File = struct {
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
+            if (!build_options.only_core_functionality) {
+                for (comp.win32_resource_table.keys()) |key| {
+                    _ = try man.addFile(key.status.success.res_path, null);
+                }
+            }
             try man.addOptionalFile(module_obj_path);
             try man.addOptionalFile(compiler_rt_path);
 
@@ -1067,7 +1118,8 @@ pub const File = struct {
             };
         }
 
-        const num_object_files = base.options.objects.len + comp.c_object_table.count() + 2;
+        const win32_resource_table_len = if (build_options.only_core_functionality) 0 else comp.win32_resource_table.count();
+        const num_object_files = base.options.objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
@@ -1076,6 +1128,11 @@ pub const File = struct {
         }
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
+        }
+        if (!build_options.only_core_functionality) {
+            for (comp.win32_resource_table.keys()) |key| {
+                object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
+            }
         }
         if (module_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
@@ -1127,6 +1184,19 @@ pub const File = struct {
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
+    };
+
+    pub const ErrorMsg = struct {
+        msg: []const u8,
+        notes: []ErrorMsg = &.{},
+
+        pub fn deinit(self: *ErrorMsg, gpa: Allocator) void {
+            for (self.notes) |*note| {
+                note.deinit(gpa);
+            }
+            gpa.free(self.notes);
+            gpa.free(self.msg);
+        }
     };
 
     pub const LazySymbol = struct {

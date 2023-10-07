@@ -45,10 +45,11 @@ pub const TestResults = struct {
     fail_count: u32 = 0,
     skip_count: u32 = 0,
     leak_count: u32 = 0,
+    log_err_count: u32 = 0,
     test_count: u32 = 0,
 
     pub fn isSuccess(tr: TestResults) bool {
-        return tr.fail_count == 0 and tr.leak_count == 0;
+        return tr.fail_count == 0 and tr.leak_count == 0 and tr.log_err_count == 0;
     }
 
     pub fn passCount(tr: TestResults) u32 {
@@ -69,6 +70,9 @@ pub const State = enum {
     /// This state indicates that the step did not complete, however, it also did not fail,
     /// and it is safe to continue executing its dependencies.
     skipped,
+    /// This step was skipped because it specified a max_rss that exceeded the runner's maximum.
+    /// It is not safe to run its dependencies.
+    skipped_oom,
 };
 
 pub const Id = enum {

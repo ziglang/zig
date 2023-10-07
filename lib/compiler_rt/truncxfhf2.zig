@@ -8,5 +8,5 @@ comptime {
 }
 
 fn __truncxfhf2(a: f80) callconv(.C) common.F16T(f80) {
-    return @as(common.F16T(f80), @bitCast(trunc_f80(f16, a)));
+    return @bitCast(trunc_f80(f16, a));
 }

@@ -13,13 +13,13 @@ comptime {
 }
 
 pub fn __truncsfhf2(a: f32) callconv(.C) common.F16T(f32) {
-    return @as(common.F16T(f32), @bitCast(truncf(f16, f32, a)));
+    return @bitCast(truncf(f16, f32, a));
 }
 
 fn __gnu_f2h_ieee(a: f32) callconv(.C) common.F16T(f32) {
-    return @as(common.F16T(f32), @bitCast(truncf(f16, f32, a)));
+    return @bitCast(truncf(f16, f32, a));
 }
 
 fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
-    return @as(common.F16T(f32), @bitCast(truncf(f16, f32, a)));
+    return @bitCast(truncf(f16, f32, a));
 }

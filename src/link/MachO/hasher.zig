@@ -1,12 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
-
 pub fn ParallelHasher(comptime Hasher: type) type {
     const hash_size = Hasher.digest_length;
 
@@ -69,3 +60,12 @@ pub fn ParallelHasher(comptime Hasher: type) type {
         const Self = @This();
     };
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const fs = std.fs;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;

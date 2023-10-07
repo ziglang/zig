@@ -16,7 +16,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -107,6 +107,6 @@ noop_coroutine_handle noop_coroutine() noexcept { return noop_coroutine_handle()
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // __LIBCPP_STD_VER > 17
+#endif // __LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___COROUTINE_NOOP_COROUTINE_HANDLE_H

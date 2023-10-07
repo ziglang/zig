@@ -332,6 +332,30 @@ struct au_evclass_map {
 };
 typedef struct au_evclass_map   au_evclass_map_t;
 
+/*
+ * Audit session flags for the ai_flags member of auditinfo_addr.
+ */
+enum audit_session_flags {
+	/* The initial session created by PID 1. */
+	AU_SESSION_FLAG_IS_INITIAL         = 0x0001,
+
+	/* The graphics subsystem (CoreGraphics, etc.) is available. */
+	AU_SESSION_FLAG_HAS_GRAPHIC_ACCESS = 0x0010,
+
+	/* /dev/tty is available. */
+	AU_SESSION_FLAG_HAS_TTY            = 0x0020,
+
+	/* The session was created for a remote connection. */
+	AU_SESSION_FLAG_IS_REMOTE          = 0x1000,
+
+	/* The console and associated devices are available. */
+	AU_SESSION_FLAG_HAS_CONSOLE_ACCESS = 0x2000,
+
+	/* An active, authenticated user is associated with the session. */
+	AU_SESSION_FLAG_HAS_AUTHENTICATED =  0x4000,
+};
+
+__END_DECLS
 
 #if !defined(_KERNEL) && !defined(KERNEL)
 #include <Availability.h>
@@ -344,6 +368,9 @@ typedef struct au_evclass_map   au_evclass_map_t;
  * Audit system calls.
  */
 #if !defined(_KERNEL) && !defined(KERNEL)
+
+__BEGIN_DECLS
+
 int     audit(const void *, int)
 __AUDIT_API_DEPRECATED;
 int     auditon(int, void *, int)
@@ -355,8 +382,12 @@ int     setauid(const au_id_t *);
 int     getaudit_addr(struct auditinfo_addr *, int);
 int     setaudit_addr(const struct auditinfo_addr *, int);
 
+__END_DECLS
+
 #if defined(__APPLE__)
 #include <Availability.h>
+
+__BEGIN_DECLS
 
 /*
  * getaudit()/setaudit() are deprecated and have been replaced with
@@ -369,23 +400,35 @@ __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0, __MAC_10_8,
 int     setaudit(const struct auditinfo *)
 __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0, __MAC_10_8,
     __IPHONE_2_0, __IPHONE_6_0);
+
+__END_DECLS
+
 #else
+
+__BEGIN_DECLS
 
 int     getaudit(struct auditinfo *)
 __AUDIT_API_DEPRECATED;
 int     setaudit(const struct auditinfo *)
 __AUDIT_API_DEPRECATED;
+
+__END_DECLS
+
 #endif /* !__APPLE__ */
 
 #ifdef __APPLE_API_PRIVATE
 #include <mach/port.h>
+
+__BEGIN_DECLS
+
 mach_port_name_t audit_session_self(void);
 au_asid_t        audit_session_join(mach_port_name_t port);
 int              audit_session_port(au_asid_t asid, mach_port_name_t *portname);
+
+__END_DECLS
+
 #endif /* __APPLE_API_PRIVATE */
 
 #endif /* defined(_KERNEL) || defined(KERNEL) */
-
-__END_DECLS
 
 #endif /* !_BSM_AUDIT_H */

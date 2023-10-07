@@ -1,12 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const leb = std.leb;
-const log = std.log.scoped(.dyld_info);
-const macho = std.macho;
-const testing = std.testing;
-
-const Allocator = std.mem.Allocator;
-
 pub fn Bind(comptime Ctx: type, comptime Target: type) type {
     return struct {
         entries: std.ArrayListUnmanaged(Entry) = .{},
@@ -738,3 +729,12 @@ test "lazy bind" {
         macho.BIND_OPCODE_DONE,
     }, bind.buffer.items);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const leb = std.leb;
+const log = std.log.scoped(.dyld_info);
+const macho = std.macho;
+const testing = std.testing;
+
+const Allocator = std.mem.Allocator;

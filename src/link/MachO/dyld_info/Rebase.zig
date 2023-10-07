@@ -1,14 +1,3 @@
-const Rebase = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const leb = std.leb;
-const log = std.log.scoped(.dyld_info);
-const macho = std.macho;
-const testing = std.testing;
-
-const Allocator = std.mem.Allocator;
-
 entries: std.ArrayListUnmanaged(Entry) = .{},
 buffer: std.ArrayListUnmanaged(u8) = .{},
 
@@ -572,3 +561,14 @@ test "rebase - composite" {
         macho.REBASE_OPCODE_DONE,
     }, rebase.buffer.items);
 }
+
+const Rebase = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const leb = std.leb;
+const log = std.log.scoped(.dyld_info);
+const macho = std.macho;
+const testing = std.testing;
+
+const Allocator = std.mem.Allocator;

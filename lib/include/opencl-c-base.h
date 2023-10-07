@@ -474,6 +474,9 @@ typedef enum memory_order
 #define CLK_HALF_FLOAT        0x10DD
 #define CLK_FLOAT             0x10DE
 #define CLK_UNORM_INT24       0x10DF
+#if __OPENCL_C_VERSION__ >= CL_VERSION_3_0
+#define CLK_UNORM_INT_101010_2 0x10E0
+#endif // __OPENCL_C_VERSION__ >= CL_VERSION_3_0
 
 // Channel order, numbering must be aligned with cl_channel_order in cl.h
 //

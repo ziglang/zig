@@ -30,9 +30,9 @@ fn test__divxf3(a: f80, b: f80) !void {
     const x_minus_eps: f80 = @bitCast((@as(u80, @bitCast(x)) - 1) | integerBit);
 
     // Make sure result is more accurate than the adjacent floats
-    const err_x = @fabs(@mulAdd(f80, x, b, -a));
-    const err_x_plus_eps = @fabs(@mulAdd(f80, x_plus_eps, b, -a));
-    const err_x_minus_eps = @fabs(@mulAdd(f80, x_minus_eps, b, -a));
+    const err_x = @abs(@mulAdd(f80, x, b, -a));
+    const err_x_plus_eps = @abs(@mulAdd(f80, x_plus_eps, b, -a));
+    const err_x_minus_eps = @abs(@mulAdd(f80, x_minus_eps, b, -a));
 
     try testing.expect(err_x_minus_eps > err_x);
     try testing.expect(err_x_plus_eps > err_x);

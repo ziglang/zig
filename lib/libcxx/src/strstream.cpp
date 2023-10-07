@@ -173,7 +173,7 @@ strstreambuf::overflow(int_type __c)
         if (buf == nullptr)
             return int_type(EOF);
         if (old_size != 0) {
-            _LIBCPP_ASSERT(eback(), "overflow copying from NULL");
+            _LIBCPP_ASSERT_UNCATEGORIZED(eback(), "overflow copying from NULL");
             memcpy(buf, eback(), static_cast<size_t>(old_size));
         }
         ptrdiff_t ninp = gptr()  - eback();

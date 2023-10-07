@@ -12,9 +12,12 @@
 
 #include <__availability>
 #include <__config>
+#include <__memory/shared_ptr.h> // __shared_count
+#include <__type_traits/make_unsigned.h>
 #include <cctype>
+#include <clocale>
 #include <cstdint>
-#include <locale.h>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 
@@ -22,15 +25,18 @@
 #include <cstddef>
 #include <cstring>
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  include <cwchar>
+#else
+#  include <__std_mbstate_t.h>
+#endif
+
 #if defined(_LIBCPP_MSVCRT_LIKE)
 # include <__support/win32/locale_win32.h>
 #elif defined(_AIX) || defined(__MVS__)
 # include <__support/ibm/xlocale.h>
 #elif defined(__ANDROID__)
 # include <__support/android/locale_bionic.h>
-#elif defined(__sun__)
-# include <__support/solaris/xlocale.h>
-# include <xlocale.h>
 #elif defined(_NEWLIB_VERSION)
 # include <__support/newlib/xlocale.h>
 #elif defined(__OpenBSD__)
@@ -52,64 +58,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_LOCALE__L_EXTENSIONS)
-struct __libcpp_locale_guard {
-  _LIBCPP_INLINE_VISIBILITY
-  __libcpp_locale_guard(locale_t& __loc) : __old_loc_(uselocale(__loc)) {}
-
-  _LIBCPP_INLINE_VISIBILITY
-  ~__libcpp_locale_guard() {
-    if (__old_loc_)
-      uselocale(__old_loc_);
-  }
-
-  locale_t __old_loc_;
-private:
-  __libcpp_locale_guard(__libcpp_locale_guard const&);
-  __libcpp_locale_guard& operator=(__libcpp_locale_guard const&);
-};
-#elif defined(_LIBCPP_MSVCRT_LIKE)
-struct __libcpp_locale_guard {
-    __libcpp_locale_guard(locale_t __l) :
-        __status(_configthreadlocale(_ENABLE_PER_THREAD_LOCALE)) {
-      // Setting the locale can be expensive even when the locale given is
-      // already the current locale, so do an explicit check to see if the
-      // current locale is already the one we want.
-      const char* __lc = __setlocale(nullptr);
-      // If every category is the same, the locale string will simply be the
-      // locale name, otherwise it will be a semicolon-separated string listing
-      // each category.  In the second case, we know at least one category won't
-      // be what we want, so we only have to check the first case.
-      if (_VSTD::strcmp(__l.__get_locale(), __lc) != 0) {
-        __locale_all = _strdup(__lc);
-        if (__locale_all == nullptr)
-          __throw_bad_alloc();
-        __setlocale(__l.__get_locale());
-      }
-    }
-    ~__libcpp_locale_guard() {
-      // The CRT documentation doesn't explicitly say, but setlocale() does the
-      // right thing when given a semicolon-separated list of locale settings
-      // for the different categories in the same format as returned by
-      // setlocale(LC_ALL, nullptr).
-      if (__locale_all != nullptr) {
-        __setlocale(__locale_all);
-        free(__locale_all);
-      }
-      _configthreadlocale(__status);
-    }
-    static const char* __setlocale(const char* __locale) {
-      const char* __new_locale = setlocale(LC_ALL, __locale);
-      if (__new_locale == nullptr)
-        __throw_bad_alloc();
-      return __new_locale;
-    }
-    int __status;
-    char* __locale_all = nullptr;
-};
-#endif
-
-class _LIBCPP_TYPE_VIS locale;
+class _LIBCPP_EXPORTED_FROM_ABI locale;
 
 template <class _Facet>
 _LIBCPP_INLINE_VISIBILITY
@@ -121,12 +70,12 @@ _LIBCPP_INLINE_VISIBILITY
 const _Facet&
 use_facet(const locale&);
 
-class _LIBCPP_TYPE_VIS locale
+class _LIBCPP_EXPORTED_FROM_ABI locale
 {
 public:
     // types:
-    class _LIBCPP_TYPE_VIS facet;
-    class _LIBCPP_TYPE_VIS id;
+    class _LIBCPP_EXPORTED_FROM_ABI facet;
+    class _LIBCPP_EXPORTED_FROM_ABI id;
 
     typedef int category;
     _LIBCPP_AVAILABILITY_LOCALE_CATEGORY
@@ -162,7 +111,9 @@ public:
     // locale operations:
     string name() const;
     bool operator==(const locale&) const;
-    bool operator!=(const locale& __y) const {return !(*this == __y);}
+#if _LIBCPP_STD_VER <= 17
+    _LIBCPP_HIDE_FROM_ABI bool operator!=(const locale& __y) const {return !(*this == __y);}
+#endif
     template <class _CharT, class _Traits, class _Allocator>
       _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
       bool operator()(const basic_string<_CharT, _Traits, _Allocator>&,
@@ -185,7 +136,7 @@ private:
     template <class _Facet> friend const _Facet& use_facet(const locale&);
 };
 
-class _LIBCPP_TYPE_VIS locale::facet
+class _LIBCPP_EXPORTED_FROM_ABI locale::facet
     : public __shared_count
 {
 protected:
@@ -201,7 +152,7 @@ private:
     void __on_zero_shared() _NOEXCEPT override;
 };
 
-class _LIBCPP_TYPE_VIS locale::id
+class _LIBCPP_EXPORTED_FROM_ABI locale::id
 {
     once_flag      __flag_;
     int32_t        __id_;
@@ -349,7 +300,7 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>;
 template <class _CharT> class _LIBCPP_TEMPLATE_VIS collate_byname;
 
 template <>
-class _LIBCPP_TYPE_VIS collate_byname<char>
+class _LIBCPP_EXPORTED_FROM_ABI collate_byname<char>
     : public collate<char>
 {
     locale_t __l_;
@@ -369,7 +320,7 @@ protected:
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS collate_byname<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI collate_byname<wchar_t>
     : public collate<wchar_t>
 {
     locale_t __l_;
@@ -401,7 +352,7 @@ locale::operator()(const basic_string<_CharT, _Traits, _Allocator>& __x,
 
 // template <class charT> class ctype
 
-class _LIBCPP_TYPE_VIS ctype_base
+class _LIBCPP_EXPORTED_FROM_ABI ctype_base
 {
 public:
 #if defined(_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE)
@@ -482,7 +433,7 @@ public:
     static const mask blank  = _CTYPE_B;
     static const mask __regex_word = 0x80;
 # endif
-#elif defined(__sun__) || defined(_AIX)
+#elif defined(_AIX)
     typedef unsigned int mask;
     static const mask space  = _ISSPACE;
     static const mask print  = _ISPRINT;
@@ -494,11 +445,7 @@ public:
     static const mask punct  = _ISPUNCT;
     static const mask xdigit = _ISXDIGIT;
     static const mask blank  = _ISBLANK;
-# if defined(_AIX)
     static const mask __regex_word = 0x8000;
-# else
-    static const mask __regex_word = 0x80;
-# endif
 #elif defined(_NEWLIB_VERSION)
     // Same type as Newlib's _ctype_ array in newlib/libc/include/ctype.h.
     typedef char mask;
@@ -561,7 +508,7 @@ template <class _CharT> class _LIBCPP_TEMPLATE_VIS ctype;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS ctype<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI ctype<wchar_t>
     : public locale::facet,
       public ctype_base
 {
@@ -664,7 +611,7 @@ protected:
 #endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 template <>
-class _LIBCPP_TYPE_VIS ctype<char>
+class _LIBCPP_EXPORTED_FROM_ABI ctype<char>
     : public locale::facet, public ctype_base
 {
     const mask* __tab_;
@@ -793,7 +740,7 @@ protected:
 template <class _CharT> class _LIBCPP_TEMPLATE_VIS ctype_byname;
 
 template <>
-class _LIBCPP_TYPE_VIS ctype_byname<char>
+class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<char>
     : public ctype<char>
 {
     locale_t __l_;
@@ -812,7 +759,7 @@ protected:
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS ctype_byname<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<wchar_t>
     : public ctype<wchar_t>
 {
     locale_t __l_;
@@ -927,6 +874,11 @@ isgraph(_CharT __c, const locale& __loc)
 }
 
 template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI bool isblank(_CharT __c, const locale& __loc) {
+    return std::use_facet<ctype<_CharT> >(__loc).is(ctype_base::blank, __c);
+}
+
+template <class _CharT>
 inline _LIBCPP_INLINE_VISIBILITY
 _CharT
 toupper(_CharT __c, const locale& __loc)
@@ -944,7 +896,7 @@ tolower(_CharT __c, const locale& __loc)
 
 // codecvt_base
 
-class _LIBCPP_TYPE_VIS codecvt_base
+class _LIBCPP_EXPORTED_FROM_ABI codecvt_base
 {
 public:
     _LIBCPP_INLINE_VISIBILITY codecvt_base() {}
@@ -958,7 +910,7 @@ template <class _InternT, class _ExternT, class _StateT> class _LIBCPP_TEMPLATE_
 // template <> class codecvt<char, char, mbstate_t>
 
 template <>
-class _LIBCPP_TYPE_VIS codecvt<char, char, mbstate_t>
+class _LIBCPP_EXPORTED_FROM_ABI codecvt<char, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1045,7 +997,7 @@ protected:
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS codecvt<wchar_t, char, mbstate_t>
+class _LIBCPP_EXPORTED_FROM_ABI codecvt<wchar_t, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1129,7 +1081,7 @@ protected:
 // template <> class codecvt<char16_t, char, mbstate_t> // deprecated in C++20
 
 template <>
-class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_TYPE_VIS codecvt<char16_t, char, mbstate_t>
+class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXPORTED_FROM_ABI codecvt<char16_t, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1217,7 +1169,7 @@ protected:
 // template <> class codecvt<char16_t, char8_t, mbstate_t> // C++20
 
 template <>
-class _LIBCPP_TYPE_VIS codecvt<char16_t, char8_t, mbstate_t>
+class _LIBCPP_EXPORTED_FROM_ABI codecvt<char16_t, char8_t, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1305,7 +1257,7 @@ protected:
 // template <> class codecvt<char32_t, char, mbstate_t> // deprecated in C++20
 
 template <>
-class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_TYPE_VIS codecvt<char32_t, char, mbstate_t>
+class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXPORTED_FROM_ABI codecvt<char32_t, char, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1393,7 +1345,7 @@ protected:
 // template <> class codecvt<char32_t, char8_t, mbstate_t> // C++20
 
 template <>
-class _LIBCPP_TYPE_VIS codecvt<char32_t, char8_t, mbstate_t>
+class _LIBCPP_EXPORTED_FROM_ABI codecvt<char32_t, char8_t, mbstate_t>
     : public locale::facet,
       public codecvt_base
 {
@@ -1537,7 +1489,7 @@ struct __narrow_to_utf8<8>
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TYPE_VIS __narrow_to_utf8<16>
+struct _LIBCPP_EXPORTED_FROM_ABI __narrow_to_utf8<16>
     : public codecvt<char16_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
@@ -1573,7 +1525,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TYPE_VIS __narrow_to_utf8<32>
+struct _LIBCPP_EXPORTED_FROM_ABI __narrow_to_utf8<32>
     : public codecvt<char32_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
@@ -1631,7 +1583,7 @@ struct __widen_from_utf8<8>
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TYPE_VIS __widen_from_utf8<16>
+struct _LIBCPP_EXPORTED_FROM_ABI __widen_from_utf8<16>
     : public codecvt<char16_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
@@ -1667,7 +1619,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
-struct _LIBCPP_TYPE_VIS __widen_from_utf8<32>
+struct _LIBCPP_EXPORTED_FROM_ABI __widen_from_utf8<32>
     : public codecvt<char32_t, char, mbstate_t>
 {
     _LIBCPP_INLINE_VISIBILITY
@@ -1706,7 +1658,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 template <class _CharT> class _LIBCPP_TEMPLATE_VIS numpunct;
 
 template <>
-class _LIBCPP_TYPE_VIS numpunct<char>
+class _LIBCPP_EXPORTED_FROM_ABI numpunct<char>
     : public locale::facet
 {
 public:
@@ -1738,7 +1690,7 @@ protected:
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS numpunct<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI numpunct<wchar_t>
     : public locale::facet
 {
 public:
@@ -1774,7 +1726,7 @@ protected:
 template <class _CharT> class _LIBCPP_TEMPLATE_VIS numpunct_byname;
 
 template <>
-class _LIBCPP_TYPE_VIS numpunct_byname<char>
+class _LIBCPP_EXPORTED_FROM_ABI numpunct_byname<char>
 : public numpunct<char>
 {
 public:
@@ -1793,7 +1745,7 @@ private:
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-class _LIBCPP_TYPE_VIS numpunct_byname<wchar_t>
+class _LIBCPP_EXPORTED_FROM_ABI numpunct_byname<wchar_t>
 : public numpunct<wchar_t>
 {
 public:

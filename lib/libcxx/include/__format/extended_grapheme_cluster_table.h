@@ -73,7 +73,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace __extended_grapheme_custer_property_boundary {
 
@@ -1654,7 +1654,7 @@ inline constexpr uint32_t __entries[1496] = {
 
 } // namespace __extended_grapheme_custer_property_boundary
 
-#endif //_LIBCPP_STD_VER > 17
+#endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

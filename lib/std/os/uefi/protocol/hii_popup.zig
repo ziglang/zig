@@ -6,12 +6,12 @@ const hii = uefi.hii;
 const cc = uefi.cc;
 
 /// Display a popup window
-pub const HIIPopup = extern struct {
+pub const HiiPopup = extern struct {
     revision: u64,
-    _create_popup: *const fn (*const HIIPopup, PopupStyle, PopupType, hii.HIIHandle, u16, ?*PopupSelection) callconv(cc) Status,
+    _create_popup: *const fn (*const HiiPopup, PopupStyle, PopupType, hii.Handle, u16, ?*PopupSelection) callconv(cc) Status,
 
     /// Displays a popup window.
-    pub fn createPopup(self: *const HIIPopup, style: PopupStyle, popup_type: PopupType, handle: hii.HIIHandle, msg: u16, user_selection: ?*PopupSelection) Status {
+    pub fn createPopup(self: *const HiiPopup, style: PopupStyle, popup_type: PopupType, handle: hii.Handle, msg: u16, user_selection: ?*PopupSelection) Status {
         return self._create_popup(self, style, popup_type, handle, msg, user_selection);
     }
 

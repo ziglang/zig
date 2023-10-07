@@ -37,7 +37,7 @@ false_type __and_helper(...);
 template <class... _Pred>
 using _And _LIBCPP_NODEBUG = decltype(std::__and_helper<_Pred...>(0));
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 template <class...>
 struct conjunction : true_type {};
@@ -51,7 +51,7 @@ struct conjunction<_Arg, _Args...> : conditional_t<!bool(_Arg::value), _Arg, con
 template <class... _Args>
 inline constexpr bool conjunction_v = conjunction<_Args...>::value;
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

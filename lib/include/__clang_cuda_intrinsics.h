@@ -513,6 +513,197 @@ __device__ inline cuuint32_t __nvvm_get_smem_pointer(void *__ptr) {
   return __nv_cvta_generic_to_shared_impl(__ptr);
 }
 } // extern "C"
+
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
+__device__ inline unsigned __reduce_add_sync(unsigned __mask,
+                                             unsigned __value) {
+  return __nvvm_redux_sync_add(__mask, __value);
+}
+__device__ inline unsigned __reduce_min_sync(unsigned __mask,
+                                             unsigned __value) {
+  return __nvvm_redux_sync_umin(__mask, __value);
+}
+__device__ inline unsigned __reduce_max_sync(unsigned __mask,
+                                             unsigned __value) {
+  return __nvvm_redux_sync_umax(__mask, __value);
+}
+__device__ inline int __reduce_min_sync(unsigned __mask, int __value) {
+  return __nvvm_redux_sync_min(__mask, __value);
+}
+__device__ inline int __reduce_max_sync(unsigned __mask, int __value) {
+  return __nvvm_redux_sync_max(__mask, __value);
+}
+__device__ inline unsigned __reduce_or_sync(unsigned __mask, unsigned __value) {
+  return __nvvm_redux_sync_or(__mask, __value);
+}
+__device__ inline unsigned __reduce_and_sync(unsigned __mask,
+                                             unsigned __value) {
+  return __nvvm_redux_sync_and(__mask, __value);
+}
+__device__ inline unsigned __reduce_xor_sync(unsigned __mask,
+                                             unsigned __value) {
+  return __nvvm_redux_sync_xor(__mask, __value);
+}
+
+__device__ inline void __nv_memcpy_async_shared_global_4(void *__dst,
+                                                         const void *__src,
+                                                         unsigned __src_size) {
+  __nvvm_cp_async_ca_shared_global_4(
+      (void __attribute__((address_space(3))) *)__dst,
+      (const void __attribute__((address_space(1))) *)__src, __src_size);
+}
+__device__ inline void __nv_memcpy_async_shared_global_8(void *__dst,
+                                                         const void *__src,
+                                                         unsigned __src_size) {
+  __nvvm_cp_async_ca_shared_global_8(
+      (void __attribute__((address_space(3))) *)__dst,
+      (const void __attribute__((address_space(1))) *)__src, __src_size);
+}
+__device__ inline void __nv_memcpy_async_shared_global_16(void *__dst,
+                                                          const void *__src,
+                                                          unsigned __src_size) {
+  __nvvm_cp_async_ca_shared_global_16(
+      (void __attribute__((address_space(3))) *)__dst,
+      (const void __attribute__((address_space(1))) *)__src, __src_size);
+}
+
+__device__ inline void *
+__nv_associate_access_property(const void *__ptr, unsigned long long __prop) {
+  // TODO: it appears to provide compiler with some sort of a hint. We do not
+  // know what exactly it is supposed to do. However, CUDA headers suggest that
+  // just passing through __ptr should not affect correctness. They do so on
+  // pre-sm80 GPUs where this builtin is not available.
+  return (void*)__ptr;
+}
+#endif // !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
+
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 900
+__device__ inline unsigned __isCtaShared(const void *ptr) {
+  return __isShared(ptr);
+}
+
+__device__ inline unsigned __isClusterShared(const void *__ptr) {
+  return __nvvm_isspacep_shared_cluster(__ptr);
+}
+
+__device__ inline void *__cluster_map_shared_rank(const void *__ptr,
+                                                  unsigned __rank) {
+  return __nvvm_mapa((void *)__ptr, __rank);
+}
+
+__device__ inline unsigned __cluster_query_shared_rank(const void *__ptr) {
+  return __nvvm_getctarank((void *)__ptr);
+}
+
+__device__ inline uint2
+__cluster_map_shared_multicast(const void *__ptr,
+                               unsigned int __cluster_cta_mask) {
+  return make_uint2((unsigned)__cvta_generic_to_shared(__ptr),
+                    __cluster_cta_mask);
+}
+
+__device__ inline unsigned __clusterDimIsSpecified() {
+  return __nvvm_is_explicit_cluster();
+}
+
+__device__ inline dim3 __clusterDim() {
+  return dim3(__nvvm_read_ptx_sreg_cluster_nctaid_x(),
+              __nvvm_read_ptx_sreg_cluster_nctaid_y(),
+              __nvvm_read_ptx_sreg_cluster_nctaid_z());
+}
+
+__device__ inline dim3 __clusterRelativeBlockIdx() {
+  return dim3(__nvvm_read_ptx_sreg_cluster_ctaid_x(),
+              __nvvm_read_ptx_sreg_cluster_ctaid_y(),
+              __nvvm_read_ptx_sreg_cluster_ctaid_z());
+}
+
+__device__ inline dim3 __clusterGridDimInClusters() {
+  return dim3(__nvvm_read_ptx_sreg_nclusterid_x(),
+              __nvvm_read_ptx_sreg_nclusterid_y(),
+              __nvvm_read_ptx_sreg_nclusterid_z());
+}
+
+__device__ inline dim3 __clusterIdx() {
+  return dim3(__nvvm_read_ptx_sreg_clusterid_x(),
+              __nvvm_read_ptx_sreg_clusterid_y(),
+              __nvvm_read_ptx_sreg_clusterid_z());
+}
+
+__device__ inline unsigned __clusterRelativeBlockRank() {
+  return __nvvm_read_ptx_sreg_cluster_ctarank();
+}
+
+__device__ inline unsigned __clusterSizeInBlocks() {
+  return __nvvm_read_ptx_sreg_cluster_nctarank();
+}
+
+__device__ inline void __cluster_barrier_arrive() {
+  __nvvm_barrier_cluster_arrive();
+}
+
+__device__ inline void __cluster_barrier_arrive_relaxed() {
+  __nvvm_barrier_cluster_arrive_relaxed();
+}
+
+__device__ inline void __cluster_barrier_wait() {
+  __nvvm_barrier_cluster_wait();
+}
+
+__device__ inline void __threadfence_cluster() { __nvvm_fence_sc_cluster(); }
+
+__device__ inline float2 atomicAdd(float2 *__ptr, float2 __val) {
+  float2 __ret;
+  __asm__("atom.add.v2.f32         {%0, %1}, [%2], {%3, %4};"
+          : "=f"(__ret.x), "=f"(__ret.y)
+          : "l"(__ptr), "f"(__val.x), "f"(__val.y));
+  return __ret;
+}
+
+__device__ inline float2 atomicAdd_block(float2 *__ptr, float2 __val) {
+  float2 __ret;
+  __asm__("atom.cta.add.v2.f32         {%0, %1}, [%2], {%3, %4};"
+          : "=f"(__ret.x), "=f"(__ret.y)
+          : "l"(__ptr), "f"(__val.x), "f"(__val.y));
+  return __ret;
+}
+
+__device__ inline float2 atomicAdd_system(float2 *__ptr, float2 __val) {
+  float2 __ret;
+  __asm__("atom.sys.add.v2.f32         {%0, %1}, [%2], {%3, %4};"
+          : "=f"(__ret.x), "=f"(__ret.y)
+          : "l"(__ptr), "f"(__val.x), "f"(__val.y));
+  return __ret;
+}
+
+__device__ inline float4 atomicAdd(float4 *__ptr, float4 __val) {
+  float4 __ret;
+  __asm__("atom.add.v4.f32         {%0, %1, %2, %3}, [%4], {%5, %6, %7, %8};"
+          : "=f"(__ret.x), "=f"(__ret.y), "=f"(__ret.z), "=f"(__ret.w)
+          : "l"(__ptr), "f"(__val.x), "f"(__val.y), "f"(__val.z), "f"(__val.w));
+  return __ret;
+}
+
+__device__ inline float4 atomicAdd_block(float4 *__ptr, float4 __val) {
+  float4 __ret;
+  __asm__(
+      "atom.cta.add.v4.f32         {%0, %1, %2, %3}, [%4], {%5, %6, %7, %8};"
+      : "=f"(__ret.x), "=f"(__ret.y), "=f"(__ret.z), "=f"(__ret.w)
+      : "l"(__ptr), "f"(__val.x), "f"(__val.y), "f"(__val.z), "f"(__val.w));
+  return __ret;
+}
+
+__device__ inline float4 atomicAdd_system(float4 *__ptr, float4 __val) {
+  float4 __ret;
+  __asm__(
+      "atom.sys.add.v4.f32         {%0, %1, %2, %3}, [%4], {%5, %6, %7, %8};"
+      : "=f"(__ret.x), "=f"(__ret.y), "=f"(__ret.z), "=f"(__ret.w)
+      : "l"(__ptr), "f"(__val.x), "f"(__val.y), "f"(__val.z), "f"(__val.w)
+      :);
+  return __ret;
+}
+
+#endif // !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 900
 #endif // CUDA_VERSION >= 11000
 
 #endif // defined(__CLANG_CUDA_INTRINSICS_H__)

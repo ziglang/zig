@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cxxabi.h"
+#include <exception>
 #include <new>
 #include <typeinfo>
 

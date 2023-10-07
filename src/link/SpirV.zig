@@ -110,6 +110,8 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
     }
 
     const func = module.funcInfo(func_index);
+    const decl = module.declPtr(func.owner_decl);
+    log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
@@ -123,6 +125,9 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+
+    const decl = module.declPtr(decl_index);
+    log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
     var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
@@ -212,7 +217,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .GenericPointer },
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .GenericPointer },
         .glsl450 => &.{.Shader},
         .vulkan => &.{.Shader},
         else => unreachable, // TODO

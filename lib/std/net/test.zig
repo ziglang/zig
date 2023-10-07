@@ -13,6 +13,7 @@ test "parse and render IPv6 addresses" {
         "FF01::Fb",
         "::1",
         "::",
+        "1::",
         "2001:db8::",
         "::1234:5678",
         "2001:db8::1234:5678",
@@ -24,6 +25,7 @@ test "parse and render IPv6 addresses" {
         "ff01::fb",
         "::1",
         "::",
+        "1::",
         "2001:db8::",
         "::1234:5678",
         "2001:db8::1234:5678",
@@ -48,6 +50,7 @@ test "parse and render IPv6 addresses" {
     try testing.expectError(error.InvalidEnd, net.Address.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
     try testing.expectError(error.Incomplete, net.Address.parseIp6("FF01:", 0));
     try testing.expectError(error.InvalidIpv4Mapping, net.Address.parseIp6("::123.123.123.123", 0));
+    try testing.expectError(error.Incomplete, net.Address.parseIp6("1", 0));
     // TODO Make this test pass on other operating systems.
     if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin()) {
         try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));

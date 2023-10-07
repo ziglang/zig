@@ -23,26 +23,27 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __is_sorted {
 struct __fn {
-  template <forward_iterator _Iter, sentinel_for<_Iter> _Sent,
-            class _Proj = identity,
+  template <forward_iterator _Iter,
+            sentinel_for<_Iter> _Sent,
+            class _Proj                                               = identity,
             indirect_strict_weak_order<projected<_Iter, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  bool operator()(_Iter __first, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr bool
+  operator()(_Iter __first, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
     return ranges::__is_sorted_until_impl(std::move(__first), __last, __comp, __proj) == __last;
   }
 
   template <forward_range _Range,
-            class _Proj = identity,
+            class _Proj                                                            = identity,
             indirect_strict_weak_order<projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  bool operator()(_Range&& __range, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr bool
+  operator()(_Range&& __range, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __last = ranges::end(__range);
     return ranges::__is_sorted_until_impl(ranges::begin(__range), __last, __comp, __proj) == __last;
   }
@@ -50,12 +51,12 @@ struct __fn {
 } // namespace __is_sorted
 
 inline namespace __cpo {
-  inline constexpr auto is_sorted = __is_sorted::__fn{};
+inline constexpr auto is_sorted = __is_sorted::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP__ALGORITHM_RANGES_IS_SORTED_H

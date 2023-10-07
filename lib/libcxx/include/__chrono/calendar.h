@@ -18,7 +18,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -26,12 +26,12 @@ namespace chrono
 {
 
 struct local_t {};
-template<class Duration>
-using local_time  = time_point<local_t, Duration>;
+template<class _Duration>
+using local_time  = time_point<local_t, _Duration>;
 using local_seconds = local_time<seconds>;
 using local_days    = local_time<days>;
 
-struct last_spec { _LIBCPP_HIDE_FROM_ABI explicit last_spec() = default; };
+struct last_spec { explicit last_spec() = default; };
 inline constexpr last_spec last{};
 
 
@@ -39,6 +39,6 @@ inline constexpr last_spec last{};
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_CALENDAR_H

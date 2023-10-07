@@ -47,7 +47,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
                 const field_ty = ty.structFieldType(i, mod);
                 const field_alignment = ty.structFieldAlign(i, mod);
                 const field_size = field_ty.bitSize(mod);
-                if (field_size > 32 or field_alignment > 32) {
+                if (field_size > 32 or field_alignment.compare(.gt, .@"32")) {
                     return Class.arrSize(bit_size, 64);
                 }
             }
@@ -66,7 +66,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
 
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
                 if (field_ty.toType().bitSize(mod) > 32 or
-                    mod.unionFieldNormalAlignment(union_obj, @intCast(field_index)) > 32)
+                    mod.unionFieldNormalAlignment(union_obj, @intCast(field_index)).compare(.gt, .@"32"))
                 {
                     return Class.arrSize(bit_size, 64);
                 }

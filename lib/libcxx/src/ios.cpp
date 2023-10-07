@@ -413,20 +413,20 @@ void
 ios_base::__set_badbit_and_consider_rethrow()
 {
     __rdstate_ |= badbit;
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     if (__exceptions_ & badbit)
         throw;
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
 }
 
 void
 ios_base::__set_failbit_and_consider_rethrow()
 {
     __rdstate_ |= failbit;
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     if (__exceptions_ & failbit)
         throw;
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
 }
 
 bool

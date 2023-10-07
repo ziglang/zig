@@ -9,7 +9,6 @@ pub inline fn extendf(
     const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
-    const DstShift = std.math.Log2Int(dst_rep_t);
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
@@ -56,9 +55,8 @@ pub inline fn extendf(
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
-        const scale: u32 = @clz(aAbs) -
-            @clz(@as(src_rep_t, srcMinNormal));
-        absResult = @as(dst_rep_t, aAbs) << @as(DstShift, @intCast(dstSigBits - srcSigBits + scale));
+        const scale: u32 = @clz(aAbs) - @clz(@as(src_rep_t, srcMinNormal));
+        absResult = @as(dst_rep_t, aAbs) << @intCast(dstSigBits - srcSigBits + scale);
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;
         absResult |= @as(dst_rep_t, @intCast(resultExponent)) << dstSigBits;
@@ -69,7 +67,7 @@ pub inline fn extendf(
 
     // Apply the signbit to (dst_t)abs(a).
     const result: dst_rep_t align(@alignOf(dst_t)) = absResult | @as(dst_rep_t, sign) << (dstBits - srcBits);
-    return @as(dst_t, @bitCast(result));
+    return @bitCast(result);
 }
 
 pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) f80 {
@@ -91,8 +89,6 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
     const src_abs_mask = src_sign_mask - 1;
     const src_qnan = 1 << (src_sig_bits - 1);
     const src_nan_code = src_qnan - 1;
-
-    const SrcShift = std.math.Log2Int(src_rep_t);
 
     var dst: std.math.F80 = undefined;
 
@@ -121,12 +117,11 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
-        const scale: u16 = @clz(a_abs) -
-            @clz(@as(src_rep_t, src_min_normal));
+        const scale: u16 = @clz(a_abs) - @clz(@as(src_rep_t, src_min_normal));
 
-        dst.fraction = @as(u64, a_abs) << @as(u6, @intCast(dst_sig_bits - src_sig_bits + scale));
+        dst.fraction = @as(u64, a_abs) << @intCast(dst_sig_bits - src_sig_bits + scale);
         dst.fraction |= dst_int_bit; // bit 64 is always set for normal numbers
-        dst.exp = @truncate(a_abs >> @as(SrcShift, @intCast(src_sig_bits - scale)));
+        dst.exp = @truncate(a_abs >> @intCast(src_sig_bits - scale));
         dst.exp ^= 1;
         dst.exp |= dst_exp_bias - src_exp_bias - scale + 1;
     } else {

@@ -20,7 +20,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -32,7 +32,7 @@ private:
    chrono::month __m_;
    chrono::day   __d_;
 public:
-    _LIBCPP_HIDE_FROM_ABI month_day() = default;
+    month_day() = default;
     _LIBCPP_HIDE_FROM_ABI constexpr month_day(const chrono::month& __mval, const chrono::day& __dval) noexcept
         : __m_{__mval}, __d_{__dval} {}
     _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::month month() const noexcept { return __m_; }
@@ -124,6 +124,6 @@ month_day_last operator/(last_spec, int __rhs) noexcept
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_MONTHDAY_H

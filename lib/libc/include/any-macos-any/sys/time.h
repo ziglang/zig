@@ -68,6 +68,7 @@
 #include <sys/_types.h>
 #include <Availability.h>
 
+
 /*
  * [XSI] The fd_set type shall be defined as described in <sys/select.h>.
  * The timespec structure shall be defined as described in <time.h>
@@ -123,7 +124,7 @@ struct  itimerval {
 }
 #define TIMESPEC_TO_TIMEVAL(tv, ts) {                                   \
 	(tv)->tv_sec = (ts)->tv_sec;                                    \
-	(tv)->tv_usec = (ts)->tv_nsec / 1000;                           \
+	(tv)->tv_usec = (__darwin_suseconds_t)((ts)->tv_nsec / 1000);   \
 }
 
 struct timezone {
@@ -196,13 +197,18 @@ int     settimeofday(const struct timeval *, const struct timezone *);
 int     getitimer(int, struct itimerval *);
 int     gettimeofday(struct timeval * __restrict, void * __restrict);
 
+__END_DECLS
+
 #include <sys/_select.h>        /* select() prototype */
+
+__BEGIN_DECLS
 
 int     setitimer(int, const struct itimerval * __restrict,
     struct itimerval * __restrict);
 int     utimes(const char *, const struct timeval *);
 
 __END_DECLS
+
 
 
 #endif /* !_SYS_TIME_H_ */

@@ -25,12 +25,12 @@ pub const Feature = enum {
     elpmx,
     ijmpcall,
     jmpcall,
+    lowbytefirst,
     lpm,
     lpmx,
     memmappedregs,
     movw,
     mul,
-    progmem,
     rmw,
     smallstack,
     special,
@@ -69,7 +69,6 @@ pub const all_features = blk: {
             .avr0,
             .lpm,
             .memmappedregs,
-            .progmem,
         }),
     };
     result[@intFromEnum(Feature.avr2)] = .{
@@ -207,6 +206,11 @@ pub const all_features = blk: {
         .description = "The device supports the `JMP` and `CALL` instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.lowbytefirst)] = .{
+        .llvm_name = "lowbytefirst",
+        .description = "Do the low byte first when writing a 16-bit port or storing a 16-bit word",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.lpm)] = .{
         .llvm_name = "lpm",
         .description = "The device supports the `LPM` instruction",
@@ -230,11 +234,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.mul)] = .{
         .llvm_name = "mul",
         .description = "The device supports the multiplication instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.progmem)] = .{
-        .llvm_name = "progmem",
-        .description = "The device has a separate flash namespace",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rmw)] = .{
@@ -303,11 +302,11 @@ pub const all_features = blk: {
             .elpmx,
             .ijmpcall,
             .jmpcall,
+            .lowbytefirst,
             .lpm,
             .lpmx,
             .movw,
             .mul,
-            .progmem,
             .spm,
             .spmx,
             .sram,
@@ -322,11 +321,11 @@ pub const all_features = blk: {
             .@"break",
             .ijmpcall,
             .jmpcall,
+            .lowbytefirst,
             .lpm,
             .lpmx,
             .movw,
             .mul,
-            .progmem,
             .sram,
         }),
     };

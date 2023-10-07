@@ -135,3 +135,21 @@ test "memset with large array element, comptime known" {
     for (buf[3]) |elem| try expect(elem == 0);
     for (buf[4]) |elem| try expect(elem == 0);
 }
+
+test "@memset provides result type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct { x: u32 };
+
+    var buf1: [5]S = undefined;
+    @memset(&buf1, .{ .x = @intCast(12) });
+
+    var buf2: [5]S = undefined;
+    @memset(@as([]S, &buf2), .{ .x = @intCast(34) });
+
+    for (buf1) |s| try expect(s.x == 12);
+    for (buf2) |s| try expect(s.x == 34);
+}

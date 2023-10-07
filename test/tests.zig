@@ -196,6 +196,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .use_lld = false,
+        },
 
         .{
             .target = .{
@@ -275,22 +284,24 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -302,22 +313,24 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -1027,16 +1040,23 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             "-selfhosted"
         else
             "";
+        const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
 
         these_tests.addIncludePath(.{ .path = "test" });
 
-        const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
+        if (test_target.target.getOs().tag == .wasi) {
+            // WASI's default stack size can be too small for some big tests.
+            these_tests.stack_size = 2 * 1024 * 1024;
+        }
+
+        const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
             @tagName(test_target.optimize_mode),
             libc_suffix,
             single_threaded_suffix,
             backend_suffix,
+            use_lld,
         });
 
         if (test_target.target.ofmt == std.Target.ObjectFormat.c) {

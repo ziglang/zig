@@ -19,5 +19,5 @@ pub fn __fixhfti(a: f16) callconv(.C) i128 {
 const v2u64 = @Vector(2, u64);
 
 fn __fixhfti_windows_x86_64(a: f16) callconv(.C) v2u64 {
-    return @as(v2u64, @bitCast(intFromFloat(i128, a)));
+    return @bitCast(intFromFloat(i128, a));
 }

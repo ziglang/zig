@@ -162,10 +162,14 @@
 #define _LIBUNWIND_LOG0(msg)
 #define _LIBUNWIND_LOG(msg, ...)
 #else
-#define _LIBUNWIND_LOG0(msg)                                               \
-  fprintf(stderr, "libunwind: " msg "\n")
-#define _LIBUNWIND_LOG(msg, ...)                                               \
-  fprintf(stderr, "libunwind: " msg "\n", __VA_ARGS__)
+#define _LIBUNWIND_LOG0(msg) do {                                              \
+    fprintf(stderr, "libunwind: " msg "\n");                                   \
+    fflush(stderr);                                                            \
+  } while (0)
+#define _LIBUNWIND_LOG(msg, ...) do {                                          \
+    fprintf(stderr, "libunwind: " msg "\n", __VA_ARGS__);                      \
+    fflush(stderr);                                                            \
+  } while (0)
 #endif
 
 #if defined(NDEBUG)

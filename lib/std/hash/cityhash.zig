@@ -342,64 +342,35 @@ pub const CityHash64 = struct {
     }
 };
 
-fn SMHasherTest(comptime hash_fn: anytype) u32 {
-    const HashResult = @typeInfo(@TypeOf(hash_fn)).Fn.return_type.?;
-
-    var key: [256]u8 = undefined;
-    var hashes_bytes: [256 * @sizeOf(HashResult)]u8 = undefined;
-
-    @memset(&key, 0);
-    @memset(&hashes_bytes, 0);
-
-    var i: u32 = 0;
-    while (i < 256) : (i += 1) {
-        key[i] = @as(u8, @intCast(i));
-
-        var h: HashResult = hash_fn(key[0..i], 256 - i);
-
-        // comptime can't really do reinterpret casting yet,
-        // so we need to write the bytes manually.
-        for (hashes_bytes[i * @sizeOf(HashResult) ..][0..@sizeOf(HashResult)]) |*byte| {
-            byte.* = @as(u8, @truncate(h));
-            h = h >> 8;
-        }
-    }
-
-    return @as(u32, @truncate(hash_fn(&hashes_bytes, 0)));
-}
-
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
     _ = seed;
     return CityHash32.hash(str);
 }
 
+const verify = @import("verify.zig");
+
 test "cityhash32" {
     const Test = struct {
-        fn doTest() !void {
-            // Note: SMHasher doesn't provide a 32bit version of the algorithm.
-            // Note: The implementation was verified against the Google Abseil version.
-            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
-            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
+        fn do() !void {
+            // SMHasher doesn't provide a 32bit version of the algorithm.
+            // The implementation was verified against the Google Abseil version.
+            try std.testing.expectEqual(verify.smhasher(CityHash32hashIgnoreSeed), 0x68254F81);
         }
     };
-    try Test.doTest();
-    // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
-    // case once we ship stage2.
-    //@setEvalBranchQuota(50000);
-    //comptime Test.doTest();
+    try Test.do();
+    @setEvalBranchQuota(75000);
+    try comptime Test.do();
 }
 
 test "cityhash64" {
     const Test = struct {
-        fn doTest() !void {
-            // Note: This is not compliant with the SMHasher implementation of CityHash64!
-            // Note: The implementation was verified against the Google Abseil version.
-            try std.testing.expectEqual(SMHasherTest(CityHash64.hashWithSeed), 0x5FABC5C5);
+        fn do() !void {
+            // This is not compliant with the SMHasher implementation of CityHash64!
+            // The implementation was verified against the Google Abseil version.
+            try std.testing.expectEqual(verify.smhasher(CityHash64.hashWithSeed), 0x5FABC5C5);
         }
     };
-    try Test.doTest();
-    // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
-    // case once we ship stage2.
-    //@setEvalBranchQuota(50000);
-    //comptime Test.doTest();
+    try Test.do();
+    @setEvalBranchQuota(75000);
+    try comptime Test.do();
 }

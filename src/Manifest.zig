@@ -2,8 +2,11 @@ pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
 
 pub const Dependency = struct {
-    url: []const u8,
-    url_tok: Ast.TokenIndex,
+    location: union(enum) {
+        url: []const u8,
+        path: []const u8,
+    },
+    location_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
 };
@@ -218,12 +221,12 @@ const Parse = struct {
         };
 
         var dep: Dependency = .{
-            .url = undefined,
-            .url_tok = undefined,
+            .location = undefined,
+            .location_tok = undefined,
             .hash = null,
             .hash_tok = undefined,
         };
-        var have_url = false;
+        var has_location = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -232,12 +235,29 @@ const Parse = struct {
             // things manually provides an opportunity to do any additional verification
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "url")) {
-                dep.url = parseString(p, field_init) catch |err| switch (err) {
-                    error.ParseFailure => continue,
-                    else => |e| return e,
+                if (has_location) {
+                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                }
+                dep.location = .{
+                    .url = parseString(p, field_init) catch |err| switch (err) {
+                        error.ParseFailure => continue,
+                        else => |e| return e,
+                    },
                 };
-                dep.url_tok = main_tokens[field_init];
-                have_url = true;
+                has_location = true;
+                dep.location_tok = main_tokens[field_init];
+            } else if (mem.eql(u8, field_name, "path")) {
+                if (has_location) {
+                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                }
+                dep.location = .{
+                    .path = parseString(p, field_init) catch |err| switch (err) {
+                        error.ParseFailure => continue,
+                        else => |e| return e,
+                    },
+                };
+                has_location = true;
+                dep.location_tok = main_tokens[field_init];
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
@@ -250,8 +270,8 @@ const Parse = struct {
             }
         }
 
-        if (!have_url) {
-            try appendError(p, main_tokens[node], "dependency is missing 'url' field", .{});
+        if (!has_location) {
+            try appendError(p, main_tokens[node], "dependency requires location field, one of 'url' or 'path'.", .{});
         }
 
         return dep;

@@ -13,8 +13,11 @@
 #include <__config>
 #include <__functional/invoke.h>
 #include <__functional/perfect_forward.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_constructible.h>
+#include <__type_traits/is_move_constructible.h>
 #include <__utility/forward.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,7 +25,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 struct __not_fn_op {
     template <class... _Args>
@@ -47,7 +50,7 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 auto not_fn(_Fn&& __f) {
     return __not_fn_t<decay_t<_Fn>>(_VSTD::forward<_Fn>(__f));
 }
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -21,7 +21,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -33,7 +33,6 @@ template <>
 struct _LIBCPP_TEMPLATE_VIS coroutine_handle<void> {
 public:
     // [coroutine.handle.con], construct/reset
-    _LIBCPP_HIDE_FROM_ABI
     constexpr coroutine_handle() noexcept = default;
 
     _LIBCPP_HIDE_FROM_ABI
@@ -64,7 +63,7 @@ public:
 
     _LIBCPP_HIDE_FROM_ABI
     bool done() const {
-        _LIBCPP_ASSERT(__is_suspended(), "done() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "done() can be called only on suspended coroutines");
         return __builtin_coro_done(__handle_);
     }
 
@@ -74,19 +73,19 @@ public:
 
     _LIBCPP_HIDE_FROM_ABI
     void resume() const {
-        _LIBCPP_ASSERT(__is_suspended(), "resume() can be called only on suspended coroutines");
-        _LIBCPP_ASSERT(!done(), "resume() has undefined behavior when the coroutine is done");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "resume() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(!done(), "resume() has undefined behavior when the coroutine is done");
         __builtin_coro_resume(__handle_);
     }
 
     _LIBCPP_HIDE_FROM_ABI
     void destroy() const {
-        _LIBCPP_ASSERT(__is_suspended(), "destroy() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "destroy() can be called only on suspended coroutines");
         __builtin_coro_destroy(__handle_);
     }
 
 private:
-    bool __is_suspended() const {
+    _LIBCPP_HIDE_FROM_ABI bool __is_suspended() const {
         // FIXME actually implement a check for if the coro is suspended.
         return __handle_ != nullptr;
     }
@@ -108,7 +107,6 @@ template <class _Promise>
 struct _LIBCPP_TEMPLATE_VIS coroutine_handle {
 public:
     // [coroutine.handle.con], construct/reset
-    _LIBCPP_HIDE_FROM_ABI
     constexpr coroutine_handle() noexcept = default;
 
     _LIBCPP_HIDE_FROM_ABI
@@ -154,7 +152,7 @@ public:
 
     _LIBCPP_HIDE_FROM_ABI
     bool done() const {
-        _LIBCPP_ASSERT(__is_suspended(), "done() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "done() can be called only on suspended coroutines");
         return __builtin_coro_done(__handle_);
     }
 
@@ -164,14 +162,14 @@ public:
 
     _LIBCPP_HIDE_FROM_ABI
     void resume() const {
-        _LIBCPP_ASSERT(__is_suspended(), "resume() can be called only on suspended coroutines");
-        _LIBCPP_ASSERT(!done(), "resume() has undefined behavior when the coroutine is done");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "resume() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(!done(), "resume() has undefined behavior when the coroutine is done");
         __builtin_coro_resume(__handle_);
     }
 
     _LIBCPP_HIDE_FROM_ABI
     void destroy() const {
-        _LIBCPP_ASSERT(__is_suspended(), "destroy() can be called only on suspended coroutines");
+        _LIBCPP_ASSERT_UNCATEGORIZED(__is_suspended(), "destroy() can be called only on suspended coroutines");
         __builtin_coro_destroy(__handle_);
     }
 
@@ -182,7 +180,7 @@ public:
     }
 
 private:
-    bool __is_suspended() const {
+    _LIBCPP_HIDE_FROM_ABI bool __is_suspended() const {
         // FIXME actually implement a check for if the coro is suspended.
         return __handle_ != nullptr;
     }
@@ -198,6 +196,6 @@ struct hash<coroutine_handle<_Tp>> {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // __LIBCPP_STD_VER > 17
+#endif // __LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___COROUTINE_COROUTINE_HANDLE_H

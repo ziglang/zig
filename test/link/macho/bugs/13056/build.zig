@@ -23,13 +23,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "test",
         .optimize = optimize,
     });
-    exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/include" }) });
-    exe.addIncludePath(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/include/c++/v1" }) });
+    exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    exe.addIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include/c++/v1" }) });
     exe.addCSourceFile(.{ .file = .{ .path = "test.cpp" }, .flags = &.{
         "-nostdlib++",
         "-nostdinc++",
     } });
-    exe.addObjectFile(.{ .path = b.pathJoin(&.{ sdk.path, "/usr/lib/libc++.tbd" }) });
+    exe.addObjectFile(.{ .path = b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" }) });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectStdErrEqual("x: 5\n");

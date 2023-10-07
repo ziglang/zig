@@ -22,20 +22,20 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [concepts.arithmetic], arithmetic concepts
 
-template<class _Tp>
+template <class _Tp>
 concept integral = is_integral_v<_Tp>;
 
-template<class _Tp>
+template <class _Tp>
 concept signed_integral = integral<_Tp> && is_signed_v<_Tp>;
 
-template<class _Tp>
+template <class _Tp>
 concept unsigned_integral = integral<_Tp> && !signed_integral<_Tp>;
 
-template<class _Tp>
+template <class _Tp>
 concept floating_point = is_floating_point_v<_Tp>;
 
 // Concept helpers for the internal type traits for the fundamental types.
@@ -45,7 +45,7 @@ concept __libcpp_unsigned_integer = __libcpp_is_unsigned_integer<_Tp>::value;
 template <class _Tp>
 concept __libcpp_signed_integer = __libcpp_is_signed_integer<_Tp>::value;
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

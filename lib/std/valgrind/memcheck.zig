@@ -29,35 +29,29 @@ fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: us
 }
 
 /// Mark memory at qzz.ptr as unaddressable for qzz.len bytes.
-/// This returns -1 when run on Valgrind and 0 otherwise.
-pub fn makeMemNoAccess(qzz: []u8) i1 {
-    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
-        .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
+pub fn makeMemNoAccess(qzz: []u8) void {
+    _ = doMemCheckClientRequestExpr(0, // default return
+        .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
-/// Similarly, mark memory at qzz.ptr as addressable but undefined
-/// for qzz.len bytes.
-/// This returns -1 when run on Valgrind and 0 otherwise.
-pub fn makeMemUndefined(qzz: []u8) i1 {
-    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
-        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
+/// Mark memory at qzz.ptr as addressable but undefined for qzz.len bytes.
+pub fn makeMemUndefined(qzz: []u8) void {
+    _ = doMemCheckClientRequestExpr(0, // default return
+        .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
-/// Similarly, mark memory at qzz.ptr as addressable and defined
-/// for qzz.len bytes.
-pub fn makeMemDefined(qzz: []u8) i1 {
-    // This returns -1 when run on Valgrind and 0 otherwise.
-    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
+/// Mark memory at qzz.ptr as addressable and defined or qzz.len bytes.
+pub fn makeMemDefined(qzz: []u8) void {
+    _ = doMemCheckClientRequestExpr(0, // default return
+        .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Similar to makeMemDefined except that addressability is
 /// not altered: bytes which are addressable are marked as defined,
 /// but those which are not addressable are left unchanged.
-/// This returns -1 when run on Valgrind and 0 otherwise.
-pub fn makeMemDefinedIfAddressable(qzz: []u8) i1 {
-    return @as(i1, @intCast(doMemCheckClientRequestExpr(0, // default return
-        .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0)));
+pub fn makeMemDefinedIfAddressable(qzz: []u8) void {
+    _ = doMemCheckClientRequestExpr(0, // default return
+        .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Create a block-description handle.  The description is an ascii

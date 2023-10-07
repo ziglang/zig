@@ -1571,7 +1571,7 @@ fn genHtml(
                             const target_info = try std.zig.system.NativeTargetInfo.detect(
                                 cross_target,
                             );
-                            switch (host.getExternalExecutor(target_info, .{
+                            switch (host.getExternalExecutor(&target_info, .{
                                 .link_libc = code.link_libc,
                             })) {
                                 .native => {},

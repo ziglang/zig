@@ -87,9 +87,9 @@ fn cbrt64(x: f64) f64 {
         u = @as(u64, @bitCast(x * 0x1.0p54));
         hx = @as(u32, @intCast(u >> 32)) & 0x7FFFFFFF;
 
-        // cbrt(0) is itself
+        // cbrt(+-0) = itself
         if (hx == 0) {
-            return 0;
+            return x;
         }
         hx = hx / 3 + B2;
     } else {
@@ -148,7 +148,7 @@ test "math.cbrt64" {
 
 test "math.cbrt.special" {
     try expect(cbrt32(0.0) == 0.0);
-    try expect(cbrt32(-0.0) == -0.0);
+    try expect(@as(u32, @bitCast(cbrt32(-0.0))) == @as(u32, 0x80000000));
     try expect(math.isPositiveInf(cbrt32(math.inf(f32))));
     try expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
     try expect(math.isNan(cbrt32(math.nan(f32))));
@@ -156,7 +156,7 @@ test "math.cbrt.special" {
 
 test "math.cbrt64.special" {
     try expect(cbrt64(0.0) == 0.0);
-    try expect(cbrt64(-0.0) == -0.0);
+    try expect(@as(u64, @bitCast(cbrt64(-0.0))) == @as(u64, 0x8000000000000000));
     try expect(math.isPositiveInf(cbrt64(math.inf(f64))));
     try expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
     try expect(math.isNan(cbrt64(math.nan(f64))));

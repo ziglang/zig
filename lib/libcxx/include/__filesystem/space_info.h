@@ -22,19 +22,15 @@
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
-_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
-
-struct _LIBCPP_TYPE_VIS space_info {
+struct _LIBCPP_EXPORTED_FROM_ABI space_info {
   uintmax_t capacity;
   uintmax_t free;
   uintmax_t available;
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
   friend _LIBCPP_HIDE_FROM_ABI bool operator==(const space_info&, const space_info&) = default;
 #  endif
 };
-
-_LIBCPP_AVAILABILITY_FILESYSTEM_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 
