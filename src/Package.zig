@@ -89,7 +89,23 @@ pub const Path = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = options;
+        if (fmt_string.len == 1) {
+            // Quote-escape the string.
+            const stringEscape = std.zig.fmt.stringEscape;
+            const f = switch (fmt_string[0]) {
+                'q' => "",
+                '\'' => '\'',
+                else => @compileError("unsupported format string: " ++ fmt_string),
+            };
+            if (self.root_dir.path) |p| {
+                try stringEscape(p, f, options, writer);
+                if (self.sub_path.len > 0) try writer.writeAll(fs.path.sep_str);
+            }
+            if (self.sub_path.len > 0) {
+                try stringEscape(self.sub_path, f, options, writer);
+            }
+            return;
+        }
         if (fmt_string.len > 0)
             std.fmt.invalidFmtError(fmt_string, self);
         if (self.root_dir.path) |p| {
