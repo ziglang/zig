@@ -50,6 +50,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
 }
@@ -645,6 +646,44 @@ fn testExportDynamic(b: *Build, opts: Options) *Step {
     check.checkContains("bar");
     check.checkInDynamicSymtab();
     check.checkContains("_start");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testExportSymbolsFromExe(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "export-symbols-from-exe", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\void expfn1();
+        \\void expfn2() {}
+        \\
+        \\void foo() {
+        \\  expfn1();
+        \\}
+    , &.{"-fPIC"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\void expfn1() {}
+        \\void expfn2() {}
+        \\void foo();
+        \\
+        \\int main() {
+        \\  expfn1();
+        \\  expfn2();
+        \\  foo();
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+
+    const check = exe.checkObject();
+    check.checkInDynamicSymtab();
+    check.checkContains("expfn2");
+    check.checkInDynamicSymtab();
+    check.checkContains("expfn1");
     test_step.dependOn(&check.step);
 
     return test_step;
