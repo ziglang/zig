@@ -231,6 +231,7 @@ pub fn run(f: *Fetch) RunError!void {
             );
             f.package_root = try f.parent_package_root.join(arena, sub_path);
             try loadManifest(f, f.package_root);
+            try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
             // Package hashes are used as unique identifiers for packages, so
             // we still need one for relative paths.
@@ -279,17 +280,18 @@ pub fn run(f: *Fetch) RunError!void {
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
             f.package_root = .{
                 .root_dir = cache_root,
-                .sub_path = pkg_sub_path,
+                .sub_path = try arena.dupe(u8, pkg_sub_path),
             };
             try loadManifest(f, f.package_root);
+            try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
             return queueJobsForDeps(f, expected_hash);
         } else |err| switch (err) {
             error.FileNotFound => {},
             else => |e| {
                 try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to open global package cache directory '{s}': {s}", .{
-                        try cache_root.join(arena, &.{pkg_sub_path}), @errorName(e),
+                    .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                        cache_root, pkg_sub_path, @errorName(e),
                     }),
                 });
                 return error.FetchFailed;
@@ -381,10 +383,13 @@ fn runResource(
     // by the system. This is done even if the hash is invalid, in case the
     // package with the different hash is used in the future.
 
-    const dest_pkg_sub_path = "p" ++ s ++ Manifest.hexDigest(f.actual_hash);
-    renameTmpIntoCache(cache_root.handle, tmp_dir_sub_path, dest_pkg_sub_path) catch |err| {
+    f.package_root = .{
+        .root_dir = cache_root,
+        .sub_path = try arena.dupe(u8, "p" ++ s ++ Manifest.hexDigest(f.actual_hash)),
+    };
+    renameTmpIntoCache(cache_root.handle, tmp_dir_sub_path, f.package_root.sub_path) catch |err| {
         const src = try cache_root.join(arena, &.{tmp_dir_sub_path});
-        const dest = try cache_root.join(arena, &.{dest_pkg_sub_path});
+        const dest = try cache_root.join(arena, &.{f.package_root.sub_path});
         try eb.addRootErrorMessage(.{ .msg = try eb.printString(
             "unable to rename temporary directory '{s}' into package cache directory '{s}': {s}",
             .{ src, dest, @errorName(err) },
@@ -421,6 +426,25 @@ fn runResource(
     // a mutex and a hash map so that redundant jobs do not get queued up.
     if (!f.job_queue.recursive) return;
     return queueJobsForDeps(f, actual_hex);
+}
+
+/// `computeHash` gets a free check for the existence of `build.zig`, but when
+/// not computing a hash, we need to do a syscall to check for it.
+fn checkBuildFileExistence(f: *Fetch) RunError!void {
+    const eb = &f.error_bundle;
+    if (f.package_root.access(Package.build_zig_basename, .{})) |_| {
+        f.has_build_zig = true;
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| {
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.printString("unable to access '{}{s}': {s}", .{
+                    f.package_root, Package.build_zig_basename, @errorName(e),
+                }),
+            });
+            return error.FetchFailed;
+        },
+    }
 }
 
 /// This function populates `f.manifest` or leaves it `null`.
