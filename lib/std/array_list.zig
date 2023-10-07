@@ -146,8 +146,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, n: usize, item: T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(1);
-            self.insertAssumeCapacity(n, item);
+            const dst = try self.addManyAt(n, 1);
+            dst[0] = item;
         }
 
         /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
@@ -702,8 +702,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, allocator: Allocator, n: usize, item: T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(allocator, 1);
-            self.insertAssumeCapacity(n, item);
+            const dst = try self.addManyAt(allocator, n, 1);
+            dst[0] = item;
         }
 
         /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
@@ -1761,33 +1761,33 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
 }
 
 test "std.ArrayList/ArrayListUnmanaged growing memory preserves contents" {
+    // Shrink the list after every insertion to ensure that a memory growth
+    // will be triggered in the next operation.
     const a = std.testing.allocator;
     {
         var list = ArrayList(u8).init(a);
         defer list.deinit();
-        try list.ensureTotalCapacityPrecise(1);
 
         (try list.addManyAsArray(4)).* = "abcd".*;
-        try list.ensureTotalCapacityPrecise(4);
+        list.shrinkAndFree(4);
 
         try list.appendSlice("efgh");
         try testing.expectEqualSlices(u8, list.items, "abcdefgh");
-        try list.ensureTotalCapacityPrecise(8);
+        list.shrinkAndFree(8);
 
         try list.insertSlice(4, "ijkl");
         try testing.expectEqualSlices(u8, list.items, "abcdijklefgh");
     }
     {
         var list = ArrayListUnmanaged(u8){};
-        try list.ensureTotalCapacityPrecise(a, 1);
         defer list.deinit(a);
 
         (try list.addManyAsArray(a, 4)).* = "abcd".*;
-        try list.ensureTotalCapacityPrecise(a, 4);
+        list.shrinkAndFree(a, 4);
 
         try list.appendSlice(a, "efgh");
         try testing.expectEqualSlices(u8, list.items, "abcdefgh");
-        try list.ensureTotalCapacityPrecise(a, 8);
+        list.shrinkAndFree(a, 8);
 
         try list.insertSlice(a, 4, "ijkl");
         try testing.expectEqualSlices(u8, list.items, "abcdijklefgh");

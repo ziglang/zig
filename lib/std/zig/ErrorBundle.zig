@@ -202,7 +202,7 @@ fn renderErrorMessageToWriter(
         try counting_stderr.writeAll(": ");
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len = @as(usize, @intCast(counting_stderr.context.bytes_written));
+        const prefix_len: usize = @intCast(counting_stderr.context.bytes_written);
         try ttyconf.setColor(stderr, .reset);
         try ttyconf.setColor(stderr, .bold);
         if (err_msg.count == 1) {
@@ -356,7 +356,7 @@ pub const Wip = struct {
         }
 
         const compile_log_str_index = if (compile_log_text.len == 0) 0 else str: {
-            const str = @as(u32, @intCast(wip.string_bytes.items.len));
+            const str: u32 = @intCast(wip.string_bytes.items.len);
             try wip.string_bytes.ensureUnusedCapacity(gpa, compile_log_text.len + 1);
             wip.string_bytes.appendSliceAssumeCapacity(compile_log_text);
             wip.string_bytes.appendAssumeCapacity(0);
@@ -364,8 +364,8 @@ pub const Wip = struct {
         };
 
         wip.setExtra(0, ErrorMessageList{
-            .len = @as(u32, @intCast(wip.root_list.items.len)),
-            .start = @as(u32, @intCast(wip.extra.items.len)),
+            .len = @intCast(wip.root_list.items.len),
+            .start = @intCast(wip.extra.items.len),
             .compile_log_text = compile_log_str_index,
         });
         try wip.extra.appendSlice(gpa, @as([]const u32, @ptrCast(wip.root_list.items)));
@@ -385,7 +385,7 @@ pub const Wip = struct {
 
     pub fn addString(wip: *Wip, s: []const u8) !u32 {
         const gpa = wip.gpa;
-        const index = @as(u32, @intCast(wip.string_bytes.items.len));
+        const index: u32 = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
         wip.string_bytes.appendSliceAssumeCapacity(s);
         wip.string_bytes.appendAssumeCapacity(0);
@@ -394,7 +394,7 @@ pub const Wip = struct {
 
     pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) !u32 {
         const gpa = wip.gpa;
-        const index = @as(u32, @intCast(wip.string_bytes.items.len));
+        const index: u32 = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.writer(gpa).print(fmt, args);
         try wip.string_bytes.append(gpa, 0);
         return index;
@@ -406,15 +406,15 @@ pub const Wip = struct {
     }
 
     pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) !MessageIndex {
-        return @as(MessageIndex, @enumFromInt(try addExtra(wip, em)));
+        return @enumFromInt(try addExtra(wip, em));
     }
 
     pub fn addErrorMessageAssumeCapacity(wip: *Wip, em: ErrorMessage) MessageIndex {
-        return @as(MessageIndex, @enumFromInt(addExtraAssumeCapacity(wip, em)));
+        return @enumFromInt(addExtraAssumeCapacity(wip, em));
     }
 
     pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) !SourceLocationIndex {
-        return @as(SourceLocationIndex, @enumFromInt(try addExtra(wip, sl)));
+        return @enumFromInt(try addExtra(wip, sl));
     }
 
     pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) !void {
@@ -430,7 +430,7 @@ pub const Wip = struct {
         const other_list = other.getMessages();
 
         // The ensureUnusedCapacity call above guarantees this.
-        const notes_start = wip.reserveNotes(@as(u32, @intCast(other_list.len))) catch unreachable;
+        const notes_start = wip.reserveNotes(@intCast(other_list.len)) catch unreachable;
         for (notes_start.., other_list) |note, message| {
             wip.extra.items[note] = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
         }
@@ -455,7 +455,7 @@ pub const Wip = struct {
         try wip.extra.ensureUnusedCapacity(wip.gpa, notes_len +
             notes_len * @typeInfo(ErrorBundle.ErrorMessage).Struct.fields.len);
         wip.extra.items.len += notes_len;
-        return @as(u32, @intCast(wip.extra.items.len - notes_len));
+        return @intCast(wip.extra.items.len - notes_len);
     }
 
     fn addOtherMessage(wip: *Wip, other: ErrorBundle, msg_index: MessageIndex) !MessageIndex {
@@ -510,7 +510,7 @@ pub const Wip = struct {
 
     fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
         const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
-        const result = @as(u32, @intCast(wip.extra.items.len));
+        const result: u32 = @intCast(wip.extra.items.len);
         wip.extra.items.len += fields.len;
         setExtra(wip, result, extra);
         return result;

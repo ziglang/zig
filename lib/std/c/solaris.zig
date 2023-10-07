@@ -498,6 +498,7 @@ pub const NI = struct {
     pub const MAXSERV = 32;
 };
 
+pub const NAME_MAX = 255;
 pub const PATH_MAX = 1024;
 pub const IOV_MAX = 1024;
 
@@ -1069,7 +1070,21 @@ pub const mcontext_t = extern struct {
 };
 
 pub const REG = struct {
+    pub const R15 = 0;
+    pub const R14 = 1;
+    pub const R13 = 2;
+    pub const R12 = 3;
+    pub const R11 = 4;
+    pub const R10 = 5;
+    pub const R9 = 6;
+    pub const R8 = 7;
+    pub const RDI = 8;
+    pub const RSI = 9;
     pub const RBP = 10;
+    pub const RBX = 11;
+    pub const RDX = 12;
+    pub const RCX = 13;
+    pub const RAX = 14;
     pub const RIP = 17;
     pub const RSP = 20;
 };

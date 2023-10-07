@@ -254,7 +254,7 @@ pub fn zeroes(comptime T: type) T {
                 var structure: T = undefined;
                 inline for (struct_info.fields) |field| {
                     if (!field.is_comptime) {
-                        @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                        @field(structure, field.name) = zeroes(field.type);
                     }
                 }
                 return structure;
@@ -292,12 +292,11 @@ pub fn zeroes(comptime T: type) T {
             return @splat(zeroes(info.child));
         },
         .Union => |info| {
-            if (comptime meta.containerLayout(T) == .Extern) {
-                // The C language specification states that (global) unions
-                // should be zero initialized to the first named member.
-                return @unionInit(T, info.fields[0].name, zeroes(info.fields[0].type));
+            if (info.layout == .Extern) {
+                var item: T = undefined;
+                @memset(asBytes(&item), 0);
+                return item;
             }
-
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
         .ErrorUnion,
@@ -318,10 +317,14 @@ pub fn zeroes(comptime T: type) T {
 test "zeroes" {
     const C_struct = extern struct {
         x: u32,
-        y: u32,
+        y: u32 align(128),
     };
 
     var a = zeroes(C_struct);
+
+    // Extern structs should have padding zeroed out.
+    try testing.expectEqualSlices(u8, &[_]u8{0} ** @sizeOf(@TypeOf(a)), asBytes(&a));
+
     a.y += 10;
 
     try testing.expect(a.x == 0);
@@ -402,9 +405,11 @@ test "zeroes" {
 
     var c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
+    try testing.expectEqual(@as(u32, 0), c.b);
 
     comptime var comptime_union = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
+    try testing.expectEqual(@as(u32, 0), comptime_union.b);
 
     // Ensure zero sized struct with fields is initialized correctly.
     _ = zeroes(struct { handle: void });
@@ -953,12 +958,103 @@ test "len" {
     try testing.expect(len(c_ptr) == 2);
 }
 
-pub fn indexOfSentinel(comptime Elem: type, comptime sentinel: Elem, ptr: [*:sentinel]const Elem) usize {
+const backend_supports_vectors = switch (builtin.zig_backend) {
+    .stage2_llvm, .stage2_c => true,
+    else => false,
+};
+
+pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
-    while (ptr[i] != sentinel) {
+
+    if (backend_supports_vectors and
+        !@inComptime() and
+        (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        switch (@import("builtin").cpu.arch) {
+            // The below branch assumes that reading past the end of the buffer is valid, as long
+            // as we don't read into a new page. This should be the case for most architectures
+            // which use paged memory, however should be confirmed before adding a new arch below.
+            .aarch64, .x86, .x86_64 => if (comptime std.simd.suggestVectorSize(T)) |block_len| {
+                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+                const Block = @Vector(block_len, T);
+                const mask: Block = @splat(sentinel);
+
+                // First block may be unaligned
+                const start_addr = @intFromPtr(&p[i]);
+                const offset_in_page = start_addr & (std.mem.page_size - 1);
+                if (offset_in_page < std.mem.page_size - block_len) {
+                    // Will not read past the end of a page, full block.
+                    const block: Block = p[i..][0..block_len].*;
+                    const matches = block == mask;
+                    if (@reduce(.Or, matches)) {
+                        return i + std.simd.firstTrue(matches).?;
+                    }
+
+                    i += (std.mem.alignForward(usize, start_addr, @alignOf(Block)) - start_addr) / @sizeOf(T);
+                } else {
+                    // Would read over a page boundary. Per-byte at a time until aligned or found.
+                    // 0.39% chance this branch is taken for 4K pages at 16b block length.
+                    //
+                    // An alternate strategy is to do read a full block (the last in the page) and
+                    // mask the entries before the pointer.
+                    while ((@intFromPtr(&p[i]) & (@alignOf(Block) - 1)) != 0) : (i += 1) {
+                        if (p[i] == sentinel) return i;
+                    }
+                }
+
+                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), @alignOf(Block)));
+                while (true) {
+                    const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
+                    const matches = block.* == mask;
+                    if (@reduce(.Or, matches)) {
+                        return i + std.simd.firstTrue(matches).?;
+                    }
+                    i += block_len;
+                }
+            },
+            else => {},
+        }
+    }
+
+    while (p[i] != sentinel) {
         i += 1;
     }
     return i;
+}
+
+test "indexOfSentinel vector paths" {
+    const Types = [_]type{ u8, u16, u32, u64 };
+    const allocator = std.testing.allocator;
+
+    inline for (Types) |T| {
+        const block_len = comptime std.simd.suggestVectorSize(T) orelse continue;
+
+        // Allocate three pages so we guarantee a page-crossing address with a full page after
+        const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
+        defer allocator.free(memory);
+        @memset(memory, 0xaa);
+
+        // Find starting page-alignment = 0
+        var start: usize = 0;
+        const start_addr = @intFromPtr(&memory);
+        start += (std.mem.alignForward(usize, start_addr, std.mem.page_size) - start_addr) / @sizeOf(T);
+        try testing.expect(start < std.mem.page_size / @sizeOf(T));
+
+        // Validate all sub-block alignments
+        const search_len = std.mem.page_size / @sizeOf(T);
+        memory[start + search_len] = 0;
+        for (0..block_len) |offset| {
+            try testing.expectEqual(search_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start + offset])));
+        }
+        memory[start + search_len] = 0xaa;
+
+        // Validate page boundary crossing
+        const start_page_boundary = start + (std.mem.page_size / @sizeOf(T));
+        memory[start_page_boundary + block_len] = 0;
+        for (0..block_len) |offset| {
+            try testing.expectEqual(2 * block_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start_page_boundary - block_len + offset])));
+        }
+    }
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -1016,10 +1112,77 @@ pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
 
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     if (start_index >= slice.len) return null;
-    for (slice[start_index..], start_index..) |c, i| {
-        if (c == value) return i;
+
+    var i: usize = start_index;
+    if (backend_supports_vectors and
+        !@inComptime() and
+        (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (comptime std.simd.suggestVectorSize(T)) |block_len| {
+            // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
+            // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
+            //
+            // Use `comptime std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // however this usually isn't necessary unless your arch has a performance penalty due to this.
+            //
+            // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
+            // line so explicit alignment prologues may be worth exploration.
+
+            // Unrolling here is ~10% improvement. We can then do one bounds check every 2 blocks
+            // instead of one which adds up.
+            const Block = @Vector(block_len, T);
+            if (i + 2 * block_len < slice.len) {
+                const mask: Block = @splat(value);
+                while (true) {
+                    inline for (0..2) |_| {
+                        const block: Block = slice[i..][0..block_len].*;
+                        const matches = block == mask;
+                        if (@reduce(.Or, matches)) {
+                            return i + std.simd.firstTrue(matches).?;
+                        }
+                        i += block_len;
+                    }
+                    if (i + 2 * block_len >= slice.len) break;
+                }
+            }
+
+            // {block_len, block_len / 2} check
+            inline for (0..2) |j| {
+                const block_x_len = block_len / (1 << j);
+                comptime if (block_x_len < 4) break;
+
+                const BlockX = @Vector(block_x_len, T);
+                if (i + block_x_len < slice.len) {
+                    const mask: BlockX = @splat(value);
+                    const block: BlockX = slice[i..][0..block_x_len].*;
+                    const matches = block == mask;
+                    if (@reduce(.Or, matches)) {
+                        return i + std.simd.firstTrue(matches).?;
+                    }
+                    i += block_x_len;
+                }
+            }
+        }
+    }
+
+    for (slice[i..], i..) |c, j| {
+        if (c == value) return j;
     }
     return null;
+}
+
+test "indexOfScalarPos" {
+    const Types = [_]type{ u8, u16, u32, u64 };
+
+    inline for (Types) |T| {
+        var memory: [64 / @sizeOf(T)]T = undefined;
+        @memset(&memory, 0xaa);
+        memory[memory.len - 1] = 0;
+
+        for (0..memory.len) |i| {
+            try testing.expectEqual(memory.len - i - 1, indexOfScalarPos(T, memory[i..], 0, 0).?);
+        }
+    }
 }
 
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {

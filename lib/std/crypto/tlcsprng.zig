@@ -25,6 +25,7 @@ const os_has_fork = switch (builtin.os.tag) {
     .netbsd,
     .openbsd,
     .solaris,
+    .illumos,
     .tvos,
     .watchos,
     .haiku,

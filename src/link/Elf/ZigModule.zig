@@ -144,7 +144,14 @@ pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.keys()) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
-        try atom.scanRelocs(elf_file, undefs);
+        if (try atom.scanRelocsRequiresCode(elf_file)) {
+            // TODO ideally we don't have to fetch the code here.
+            // Perhaps it would make sense to save the code until flushModule where we
+            // would free all of generated code?
+            const code = try self.codeAlloc(elf_file, atom_index);
+            defer elf_file.base.allocator.free(code);
+            try atom.scanRelocs(elf_file, code, undefs);
+        } else try atom.scanRelocs(elf_file, null, undefs);
     }
 }
 
@@ -251,6 +258,22 @@ pub fn globals(self: *ZigModule) []const Symbol.Index {
 
 pub fn asFile(self: *ZigModule) File {
     return .{ .zig_module = self };
+}
+
+/// Returns atom's code.
+/// Caller owns the memory.
+pub fn codeAlloc(self: ZigModule, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
+    const gpa = elf_file.base.allocator;
+    const atom = elf_file.atom(atom_index).?;
+    assert(atom.file_index == self.index);
+    const shdr = &elf_file.shdrs.items[atom.outputShndx().?];
+    const file_offset = shdr.sh_offset + atom.value - shdr.sh_addr;
+    const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+    const code = try gpa.alloc(u8, size);
+    errdefer gpa.free(code);
+    const amt = try elf_file.base.file.?.preadAll(code, file_offset);
+    if (amt != code.len) return error.InputOutput;
+    return code;
 }
 
 pub fn fmtSymtab(self: *ZigModule, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {

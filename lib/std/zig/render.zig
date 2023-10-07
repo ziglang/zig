@@ -1444,7 +1444,7 @@ fn renderBuiltinCall(
     const slice = tree.tokenSlice(builtin_token);
     const rewrite_two_param_cast = params.len == 2 and for ([_][]const u8{
         "@bitCast",
-        "@errSetCast",
+        "@errorCast",
         "@floatCast",
         "@intCast",
         "@ptrCast",
@@ -1505,6 +1505,8 @@ fn renderBuiltinCall(
         try ais.writer().writeAll("@intFromPtr");
     } else if (mem.eql(u8, slice, "@fabs")) {
         try ais.writer().writeAll("@abs");
+    } else if (mem.eql(u8, slice, "@errSetCast")) {
+        try ais.writer().writeAll("@errorCast");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
     }

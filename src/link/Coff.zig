@@ -82,6 +82,7 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, Atom.Index) = .{},
 /// value assigned to label `foo` is an unnamed constant belonging/associated
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_const_atoms: UnnamedConstTable = .{},
+anon_decls: AnonDeclTable = .{},
 
 /// A table of relocations indexed by the owning them `Atom`.
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
@@ -107,6 +108,7 @@ const HotUpdateState = struct {
     loaded_base_address: ?std.os.windows.HMODULE = null,
 };
 
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index);
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
@@ -323,6 +325,7 @@ pub fn deinit(self: *Coff) void {
         atoms.deinit(gpa);
     }
     self.unnamed_const_atoms.deinit(gpa);
+    self.anon_decls.deinit(gpa);
 
     for (self.relocs.values()) |*relocs| {
         relocs.deinit(gpa);
@@ -1077,45 +1080,53 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
     const gpa = self.base.allocator;
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
-
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-
-    const atom_index = try self.createAtom();
-
-    const sym_name = blk: {
-        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-
-        const index = unnamed_consts.items.len;
-        break :blk try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
-    };
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const index = unnamed_consts.items.len;
+    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(sym_name);
-    {
-        const atom = self.getAtom(atom_index);
-        const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, sym_name);
-        sym.section_number = @as(coff.SectionNumber, @enumFromInt(self.rdata_section_index.? + 1));
-    }
-
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .none, .{
-        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
-    });
-    var code = switch (res) {
-        .ok => code_buffer.items,
+    const atom_index = switch (try self.lowerConst(sym_name, tv, self.rdata_section_index.?, decl.srcLoc(mod))) {
+        .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
+    };
+    try unnamed_consts.append(gpa, atom_index);
+    return self.getAtom(atom_index).getSymbolIndex().?;
+}
+
+const LowerConstResult = union(enum) {
+    ok: Atom.Index,
+    fail: *Module.ErrorMsg,
+};
+
+fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+    const gpa = self.base.allocator;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const mod = self.base.options.module.?;
+    const atom_index = try self.createAtom();
+    const sym = self.getAtom(atom_index).getSymbolPtr(self);
+    try self.setSymbolName(sym, name);
+    sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
+
+    const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
+        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
+    });
+    var code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| return .{ .fail = em },
     };
 
     const required_alignment: u32 = @intCast(tv.ty.abiAlignment(mod).toByteUnits(0));
@@ -1124,14 +1135,12 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
     errdefer self.freeAtom(atom_index);
 
-    try unnamed_consts.append(gpa, atom_index);
-
-    log.debug("allocated atom for {s} at 0x{x}", .{ sym_name, atom.getSymbol(self).value });
+    log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(self).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     try self.writeAtom(atom_index, code);
 
-    return atom.getSymbolIndex().?;
+    return .{ .ok = atom_index };
 }
 
 pub fn updateDecl(
@@ -1711,6 +1720,63 @@ pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
+    const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
+    const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    try Atom.addRelocation(self, atom_index, .{
+        .type = .direct,
+        .target = target,
+        .offset = @as(u32, @intCast(reloc_info.offset)),
+        .addend = reloc_info.addend,
+        .pcrel = false,
+        .length = 3,
+    });
+    try Atom.addBaseRelocation(self, atom_index, @as(u32, @intCast(reloc_info.offset)));
+
+    return 0;
+}
+
+pub fn lowerAnonDecl(self: *Coff, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    // This is basically the same as lowerUnnamedConst.
+    // example:
+    // const ty = mod.intern_pool.typeOf(decl_val).toType();
+    // const val = decl_val.toValue();
+    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
+    // It doesn't have an owner decl because it's just an unnamed constant that might
+    // be used by more than one function, however, its address is being used so we need
+    // to put it in some location.
+    // ...
+    const gpa = self.base.allocator;
+    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
+    if (!gop.found_existing) {
+        const mod = self.base.options.module.?;
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const val = decl_val.toValue();
+        const tv = TypedValue{ .ty = ty, .val = val };
+        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
+        defer gpa.free(name);
+        const res = self.lowerConst(name, tv, self.rdata_section_index.?, src_loc) catch |err| switch (err) {
+            else => {
+                // TODO improve error message
+                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
+                    @errorName(err),
+                });
+                return .{ .fail = em };
+            },
+        };
+        const atom_index = switch (res) {
+            .ok => |atom_index| atom_index,
+            .fail => |em| return .{ .fail = em },
+        };
+        gop.value_ptr.* = atom_index;
+    }
+    return .ok;
+}
+
+pub fn getAnonDeclVAddr(self: *Coff, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    assert(self.llvm_object == null);
+
+    const this_atom_index = self.anon_decls.get(decl_val).?;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };

@@ -539,7 +539,7 @@ const MachODumper = struct {
         strings: []const u8,
     };
 
-    fn parseAndDump(step: *Step, bytes: []align(@alignOf(u64)) const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -556,7 +556,7 @@ const MachODumper = struct {
         var sections = std.ArrayList(macho.section_64).init(gpa);
         var imports = std.ArrayList([]const u8).init(gpa);
 
-        var it = LoadCommandIterator{
+        var it: LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
             .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
         };

@@ -43,7 +43,7 @@ pub const max_name_len = switch (target.os.tag) {
     .freebsd => 15,
     .openbsd => 23,
     .dragonfly => 1023,
-    .solaris => 31,
+    .solaris, .illumos => 31,
     else => 0,
 };
 
@@ -123,7 +123,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris => if (use_pthreads) {
+        .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
             switch (err) {
                 .SUCCESS => return,
@@ -229,7 +229,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris => if (use_pthreads) {
+        .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (err) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -636,7 +636,7 @@ const PosixThreadImpl = struct {
                 };
                 return @as(usize, @intCast(count));
             },
-            .solaris => {
+            .solaris, .illumos => {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
                 // cpu.

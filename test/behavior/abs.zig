@@ -86,9 +86,10 @@ test "@abs floats" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try comptime testAbsFloats(f16);
-    if (builtin.zig_backend != .stage2_x86_64) try testAbsFloats(f16);
+    try testAbsFloats(f16);
     try comptime testAbsFloats(f32);
     try testAbsFloats(f32);
     try comptime testAbsFloats(f64);
@@ -96,7 +97,7 @@ test "@abs floats" {
     try comptime testAbsFloats(f80);
     if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_wasm) try testAbsFloats(f80);
     try comptime testAbsFloats(f128);
-    if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_wasm) try testAbsFloats(f128);
+    if (builtin.zig_backend != .stage2_wasm) try testAbsFloats(f128);
 }
 
 fn testAbsFloats(comptime T: type) !void {

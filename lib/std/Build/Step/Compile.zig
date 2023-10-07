@@ -123,6 +123,10 @@ link_emit_relocs: bool = false,
 /// safely garbage-collected during the linking phase.
 link_function_sections: bool = false,
 
+/// Place every data in its own section so that unused ones may be
+/// safely garbage-collected during the linking phase.
+link_data_sections: bool = false,
+
 /// Remove functions and data that are unreachable by the entry point or
 /// exported symbols.
 link_gc_sections: ?bool = null,
@@ -289,6 +293,7 @@ const FrameworkLinkInfo = struct {
 pub const IncludeDir = union(enum) {
     path: LazyPath,
     path_system: LazyPath,
+    path_after: LazyPath,
     framework_path: LazyPath,
     framework_path_system: LazyPath,
     other_step: *Compile,
@@ -1062,6 +1067,12 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     self.linkLibraryOrObject(obj);
 }
 
+pub fn addAfterIncludePath(self: *Compile, path: LazyPath) void {
+    const b = self.step.owner;
+    self.include_dirs.append(IncludeDir{ .path_after = path.dupe(b) }) catch @panic("OOM");
+    path.addStepDependencies(&self.step);
+}
+
 pub fn addSystemIncludePath(self: *Compile, path: LazyPath) void {
     const b = self.step.owner;
     self.include_dirs.append(IncludeDir{ .path_system = path.dupe(b) }) catch @panic("OOM");
@@ -1640,6 +1651,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.link_function_sections) {
         try zig_args.append("-ffunction-sections");
     }
+    if (self.link_data_sections) {
+        try zig_args.append("-fdata-sections");
+    }
     if (self.link_gc_sections) |x| {
         try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
     }
@@ -1840,6 +1854,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
             .path_system => |include_path| {
                 try zig_args.append("-isystem");
+                try zig_args.append(include_path.getPath(b));
+            },
+            .path_after => |include_path| {
+                try zig_args.append("-idirafter");
                 try zig_args.append(include_path.getPath(b));
             },
             .framework_path => |include_path| {

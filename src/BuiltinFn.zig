@@ -43,7 +43,7 @@ pub const Tag = enum {
     error_name,
     error_return_trace,
     int_from_error,
-    err_set_cast,
+    error_cast,
     @"export",
     @"extern",
     fence,
@@ -455,9 +455,9 @@ pub const list = list: {
             },
         },
         .{
-            "@errSetCast",
+            "@errorCast",
             .{
-                .tag = .err_set_cast,
+                .tag = .error_cast,
                 .eval_to_error = .always,
                 .param_count = 1,
             },

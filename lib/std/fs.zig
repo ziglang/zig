@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .plan9 => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9 => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -59,10 +59,9 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
 /// (depending on the platform) this assumption may not hold for every configuration.
 /// The byte count does not include a null sentinel byte.
 pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly => os.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => os.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => os.NAME_MAX - 1,
-    .solaris => os.system.MAXNAMLEN,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -326,7 +325,7 @@ pub const IterableDir = struct {
     const IteratorError = error{ AccessDenied, SystemResources } || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
             dir: Dir,
             seek: i64,
             buf: [1024]u8, // TODO align(@alignOf(os.system.dirent)),
@@ -344,7 +343,7 @@ pub const IterableDir = struct {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
-                    .solaris => return self.nextSolaris(),
+                    .solaris, .illumos => return self.nextSolaris(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -898,6 +897,7 @@ pub const IterableDir = struct {
             .dragonfly,
             .openbsd,
             .solaris,
+            .illumos,
             => return Iterator{
                 .dir = self.dir,
                 .seek = 0,
@@ -1841,7 +1841,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT.SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
@@ -2003,10 +2003,12 @@ pub const Dir = struct {
         return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
+    pub const ReadLinkError = os.ReadLinkError;
+
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
-    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
         if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.readLinkWasi(sub_path, buffer);
         }
@@ -3005,7 +3007,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
-        .solaris => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
+        .solaris, .illumos => return os.readlinkZ("/proc/self/path/a.out", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC, os.KERN.PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;

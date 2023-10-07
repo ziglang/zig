@@ -20,7 +20,6 @@ const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
-const translate_c = @import("translate_c.zig");
 const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
@@ -85,6 +84,7 @@ const normal_usage =
     \\Commands:
     \\
     \\  build            Build project from build.zig
+    \\  fetch            Copy a package into global cache and print its hash
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
     \\
@@ -304,6 +304,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
+    } else if (mem.eql(u8, cmd, "fetch")) {
+        return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "init-exe")) {
@@ -451,6 +453,8 @@ const usage_build_generic =
     \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
+    \\  -fdata-sections           Places each data in a separate section
+    \\  -fno-data-sections        All data go into same section
     \\  -fstrip                   Omit debug symbols
     \\  -fno-strip                Keep debug symbols
     \\  -fformatted-panics        Enable formatted safety panics
@@ -793,6 +797,7 @@ fn buildOutputType(
     var strip: ?bool = null;
     var formatted_panics: ?bool = null;
     var function_sections = false;
+    var data_sections = false;
     var no_builtin = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
@@ -1460,6 +1465,10 @@ fn buildOutputType(
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "-fno-function-sections")) {
                         function_sections = false;
+                    } else if (mem.eql(u8, arg, "-fdata-sections")) {
+                        data_sections = true;
+                    } else if (mem.eql(u8, arg, "-fno-data-sections")) {
+                        data_sections = false;
                     } else if (mem.eql(u8, arg, "-fbuiltin")) {
                         no_builtin = false;
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
@@ -1781,6 +1790,8 @@ fn buildOutputType(
                     .no_omit_frame_pointer => omit_frame_pointer = false,
                     .function_sections => function_sections = true,
                     .no_function_sections => function_sections = false,
+                    .data_sections => data_sections = true,
+                    .no_data_sections => data_sections = false,
                     .builtin => no_builtin = false,
                     .no_builtin => no_builtin = true,
                     .color_diagnostics => color = .on,
@@ -3481,6 +3492,7 @@ fn buildOutputType(
         .formatted_panics = formatted_panics,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
+        .data_sections = data_sections,
         .no_builtin = no_builtin,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
@@ -3663,7 +3675,7 @@ fn buildOutputType(
             test_exec_args.items,
             self_exe_path.?,
             arg_mode,
-            target_info,
+            &target_info,
             &comp_destroyed,
             all_args,
             runtime_args_start,
@@ -3991,7 +4003,7 @@ fn runOrTest(
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
-    target_info: std.zig.system.NativeTargetInfo,
+    target_info: *const std.zig.system.NativeTargetInfo,
     comp_destroyed: *bool,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
@@ -4212,9 +4224,7 @@ fn updateModule(comp: *Compilation) !void {
 }
 
 fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
-    if (!build_options.have_llvm)
-        fatal("cannot translate-c: compiler built without LLVM extensions", .{});
-
+    if (build_options.only_c) unreachable; // translate-c is not needed for bootstrapping
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4233,14 +4243,14 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     const digest = if (try man.hit()) man.final() else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        try argv.append(""); // argv[0] is program name, actual args start at [1]
+        try argv.append(@tagName(comp.c_frontend)); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (comp.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
                 break :blk null;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
@@ -4249,44 +4259,67 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             break :blk out_dep_path;
         };
 
-        try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
+        // TODO
+        if (comp.c_frontend != .aro) try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
         try argv.append(c_source_file.src_path);
 
         if (comp.verbose_cc) {
-            std.debug.print("clang ", .{});
             Compilation.dump_argv(argv.items);
         }
 
-        // Convert to null terminated args.
-        const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
-        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
-        new_argv_with_sentinel[clang_args_len] = null;
-        const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-        for (argv.items, 0..) |arg, i| {
-            new_argv[i] = try arena.dupeZ(u8, arg);
-        }
-        for (c_source_file.extra_flags, 0..) |arg, i| {
-            new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
-        }
+        var tree = switch (comp.c_frontend) {
+            .aro => tree: {
+                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
+                const translate_c = @import("aro_translate_c.zig");
+                var aro_comp = translate_c.Compilation.init(comp.gpa);
+                defer aro_comp.deinit();
 
-        const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
-        var errors = std.zig.ErrorBundle.empty;
-        var tree = translate_c.translate(
-            comp.gpa,
-            new_argv.ptr,
-            new_argv.ptr + new_argv.len,
-            &errors,
-            c_headers_dir_path_z,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.SemanticAnalyzeFail => {
-                if (fancy_output) |p| {
-                    p.errors = errors;
-                    return;
-                } else {
-                    errors.renderToStdErr(renderOptions(comp.color));
-                    process.exit(1);
+                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
+                    error.SemanticAnalyzeFail, error.FatalError => {
+                        // TODO convert these to zig errors
+                        aro_comp.renderErrors();
+                        process.exit(1);
+                    },
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.StreamTooLong => fatal("StreamTooLong?", .{}),
+                };
+            },
+            .clang => tree: {
+                if (!build_options.have_llvm) unreachable;
+                const translate_c = @import("translate_c.zig");
+
+                // Convert to null terminated args.
+                const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
+                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
+                new_argv_with_sentinel[clang_args_len] = null;
+                const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
+                for (argv.items, 0..) |arg, i| {
+                    new_argv[i] = try arena.dupeZ(u8, arg);
                 }
+                for (c_source_file.extra_flags, 0..) |arg, i| {
+                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
+                }
+
+                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+                var errors = std.zig.ErrorBundle.empty;
+                break :tree translate_c.translate(
+                    comp.gpa,
+                    new_argv.ptr,
+                    new_argv.ptr + new_argv.len,
+                    &errors,
+                    c_headers_dir_path_z,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.SemanticAnalyzeFail => {
+                        if (fancy_output) |p| {
+                            p.errors = errors;
+                            return;
+                        } else {
+                            errors.renderToStdErr(renderOptions(comp.color));
+                            process.exit(1);
+                        }
+                    },
+                };
             },
         };
         defer tree.deinit(comp.gpa);
@@ -5574,6 +5607,8 @@ pub const ClangArgIterator = struct {
         no_omit_frame_pointer,
         function_sections,
         no_function_sections,
+        data_sections,
+        no_data_sections,
         builtin,
         no_builtin,
         color_diagnostics,
@@ -6229,7 +6264,7 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 fn warnAboutForeignBinaries(
     arena: Allocator,
     arg_mode: ArgMode,
-    target_info: std.zig.system.NativeTargetInfo,
+    target_info: *const std.zig.system.NativeTargetInfo,
     link_libc: bool,
 ) !void {
     const host_cross_target: std.zig.CrossTarget = .{};
@@ -6576,4 +6611,144 @@ fn accessFrameworkPath(
 fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
     return std.meta.stringToEnum(Compilation.RcIncludes, arg) orelse
         fatal("unsupported rc includes type: '{s}'", .{arg});
+}
+
+pub const usage_fetch =
+    \\Usage: zig fetch [options] <url>
+    \\Usage: zig fetch [options] <path>
+    \\
+    \\    Copy a package into the global cache and print its hash.
+    \\
+    \\Options:
+    \\  -h, --help                    Print this help and exit
+    \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\
+;
+
+fn cmdFetch(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+) !void {
+    const color: Color = .auto;
+    var opt_url: ?[]const u8 = null;
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                    const stdout = io.getStdOut().writer();
+                    try stdout.writeAll(usage_fetch);
+                    return cleanExit();
+                } else if (mem.eql(u8, arg, "--global-cache-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_global_cache_dir = args[i];
+                    continue;
+                } else {
+                    fatal("unrecognized parameter: '{s}'", .{arg});
+                }
+            } else if (opt_url != null) {
+                fatal("unexpected extra parameter: '{s}'", .{arg});
+            } else {
+                opt_url = arg;
+            }
+        }
+    }
+
+    const url = opt_url orelse fatal("missing url or path parameter", .{});
+
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    var http_client: std.http.Client = .{ .allocator = gpa };
+    defer http_client.deinit();
+
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    const root_prog_node = progress.start("Fetch", 0);
+    defer root_prog_node.end();
+
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    var report: Package.Report = .{
+        .ast = null,
+        .directory = .{
+            .handle = fs.cwd(),
+            .path = null,
+        },
+        .error_bundle = &wip_errors,
+    };
+
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
+
+    var readable_resource: Package.ReadableResource = rr: {
+        if (fs.cwd().openIterableDir(url, .{})) |dir| {
+            break :rr .{
+                .path = try gpa.dupe(u8, url),
+                .resource = .{ .dir = dir },
+            };
+        } else |dir_err| {
+            const file_err = if (dir_err == error.NotDir) e: {
+                if (fs.cwd().openFile(url, .{})) |f| {
+                    break :rr .{
+                        .path = try gpa.dupe(u8, url),
+                        .resource = .{ .file = f },
+                    };
+                } else |err| break :e err;
+            } else dir_err;
+
+            const uri = std.Uri.parse(url) catch |uri_err| {
+                fatal("'{s}' could not be recognized as a file path ({s}) or an URL ({s})", .{
+                    url, @errorName(file_err), @errorName(uri_err),
+                });
+            };
+            const fetch_location = try Package.FetchLocation.initUri(uri, 0, report);
+            const cwd: Cache.Directory = .{
+                .handle = fs.cwd(),
+                .path = null,
+            };
+            break :rr try fetch_location.fetch(gpa, cwd, &http_client, 0, report);
+        }
+    };
+    defer readable_resource.deinit(gpa);
+
+    var package_location = readable_resource.unpack(
+        gpa,
+        &thread_pool,
+        global_cache_directory,
+        0,
+        report,
+        root_prog_node,
+    ) catch |err| {
+        if (wip_errors.root_list.items.len > 0) {
+            var errors = try wip_errors.toOwnedBundle("");
+            defer errors.deinit(gpa);
+            errors.renderToStdErr(renderOptions(color));
+            process.exit(1);
+        }
+        fatal("unable to unpack '{s}': {s}", .{ url, @errorName(err) });
+    };
+    defer package_location.deinit(gpa);
+
+    const hex_digest = Package.Manifest.hexDigest(package_location.hash);
+
+    progress.done = true;
+    progress.refresh();
+
+    try io.getStdOut().writeAll(hex_digest ++ "\n");
+
+    return cleanExit();
 }
