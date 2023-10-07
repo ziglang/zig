@@ -21,8 +21,6 @@ step: Step,
 argv: ArrayList(Arg),
 
 /// Use `setCwd` to set the initial current working directory
-/// TODO change this to a Build.Cache.Directory to better integrate with
-/// future child process cwd API.
 cwd: ?Build.LazyPath,
 
 /// Override this field to modify the environment, or use setEnvironmentVariable
