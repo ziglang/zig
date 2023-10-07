@@ -3594,11 +3594,13 @@ const DeclGen = struct {
             return result_id;
         }
 
-        const is_non_null_id = if (optional_ty.hasRuntimeBitsIgnoreComptime(mod))
+        const is_non_null_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(mod))
             try self.extractField(Type.bool, operand_id, 1)
         else
             // Optional representation is bool indicating whether the optional is set
-            operand_id;
+            // Optionals with no payload are represented as an (indirect) bool, so convert
+            // it back to the direct bool here.
+            try self.convertToDirect(Type.bool, operand_id);
 
         return switch (pred) {
             .is_null => blk: {
@@ -3677,17 +3679,19 @@ const DeclGen = struct {
         const payload_ty = self.typeOf(ty_op.operand);
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-            return try self.constBool(true, .direct);
+            return try self.constBool(true, .indirect);
         }
 
         const operand_id = try self.resolve(ty_op.operand);
+
         const optional_ty = self.typeOfIndex(inst);
         if (optional_ty.optionalReprIsPayload(mod)) {
             return operand_id;
         }
 
         const optional_ty_ref = try self.resolveType(optional_ty, .direct);
-        const members = [_]IdRef{ operand_id, try self.constBool(true, .indirect) };
+        const payload_id = try self.convertToIndirect(payload_ty, operand_id);
+        const members = [_]IdRef{ payload_id, try self.constBool(true, .indirect) };
         return try self.constructStruct(optional_ty_ref, &members);
     }
 
