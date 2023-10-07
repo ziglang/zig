@@ -43,6 +43,9 @@ pub fn build(b: *Build) void {
 
     elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testCopyrel(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testCopyrelAlias(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
@@ -315,6 +318,152 @@ fn testCommonSymbolsInArchive(b: *Build, opts: Options) *Step {
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("5 0 7 2\n");
         test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testCopyrel(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "copyrel", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\int foo = 3;
+        \\int bar = 5;
+    , &.{"-fPIC"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include<stdio.h>
+        \\extern int foo, bar;
+        \\int main() {
+        \\  printf("%d %d\n", foo, bar);
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3 5\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testCopyrelAlias(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "copyrel-alias", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\int bruh = 31;
+        \\int foo = 42;
+        \\extern int bar __attribute__((alias("foo")));
+        \\extern int baz __attribute__((alias("foo")));
+    , &.{"-fPIC"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include<stdio.h>
+        \\extern int foo;
+        \\extern int *get_bar();
+        \\int main() {
+        \\  printf("%d %d %d\n", foo, *get_bar(), &foo == get_bar());
+        \\  return 0;
+        \\}
+    , &.{"-fno-PIC"});
+    addCSourceBytes(exe,
+        \\extern int bar;
+        \\int *get_bar() { return &bar; }
+    , &.{"-fno-PIC"});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+    exe.pie = false;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("42 42 1\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testCopyrelAlignment(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "copyrel-alignment", opts);
+
+    const a_so = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(a_so, "__attribute__((aligned(32))) int foo = 5;", &.{"-fPIC"});
+
+    const b_so = addSharedLibrary(b, "b", opts);
+    addCSourceBytes(b_so, "__attribute__((aligned(8))) int foo = 5;", &.{"-fPIC"});
+
+    const c_so = addSharedLibrary(b, "c", opts);
+    addCSourceBytes(c_so, "__attribute__((aligned(256))) int foo = 5;", &.{"-fPIC"});
+
+    const obj = addObject(b, "main", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\extern int foo;
+        \\int main() { printf("%d\n", foo); }
+    , &.{"-fno-PIE"});
+    obj.linkLibC();
+
+    const exp_stdout = "5\n";
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(a_so);
+        exe.linkLibC();
+        exe.pie = false;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("section headers");
+        check.checkExact("name .copyrel");
+        check.checkExact("addralign 20");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(b_so);
+        exe.linkLibC();
+        exe.pie = false;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("section headers");
+        check.checkExact("name .copyrel");
+        check.checkExact("addralign 8");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(c_so);
+        exe.linkLibC();
+        exe.pie = false;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("section headers");
+        check.checkExact("name .copyrel");
+        check.checkExact("addralign 100");
+        test_step.dependOn(&check.step);
     }
 
     return test_step;
