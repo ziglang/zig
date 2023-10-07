@@ -5732,6 +5732,8 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
+    const gpa = sema.gpa;
     const pl_node = sema.code.instructions.items(.data)[inst].pl_node;
     const src = pl_node.src();
     const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
@@ -5741,7 +5743,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     if (!@import("build_options").have_llvm)
         return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
-    var c_import_buf = std.ArrayList(u8).init(sema.gpa);
+    var c_import_buf = std.ArrayList(u8).init(gpa);
     defer c_import_buf.deinit();
 
     var comptime_reason: Block.ComptimeReason = .{ .c_import = .{
@@ -5763,25 +5765,24 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
     };
-    defer child_block.instructions.deinit(sema.gpa);
+    defer child_block.instructions.deinit(gpa);
 
     // Ignore the result, all the relevant operations have written to c_import_buf already.
     _ = try sema.analyzeBodyBreak(&child_block, body);
 
-    const mod = sema.mod;
     var c_import_res = mod.comp.cImport(c_import_buf.items) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-    defer c_import_res.deinit(mod.comp.gpa);
+    defer c_import_res.deinit(gpa);
 
     if (c_import_res.errors.errorMessageCount() != 0) {
         const msg = msg: {
             const msg = try sema.errMsg(&child_block, src, "C import failed", .{});
-            errdefer msg.destroy(sema.gpa);
+            errdefer msg.destroy(gpa);
 
             if (!mod.comp.bin_file.options.link_libc)
                 try sema.errNote(&child_block, src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-            const gop = try mod.cimport_errors.getOrPut(sema.gpa, sema.owner_decl_index);
+            const gop = try mod.cimport_errors.getOrPut(gpa, sema.owner_decl_index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = c_import_res.errors;
                 c_import_res.errors = std.zig.ErrorBundle.empty;
@@ -5790,16 +5791,19 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         };
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
-    const c_import_pkg = Package.create(
-        sema.gpa,
-        null,
-        c_import_res.out_zig_path,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable, // we pass null for root_src_dir_path
-    };
+    // All modules are intended to go into an arena with a lifetime >= the ZigUnit.
+    // After the other uses of `tmp_hack_arena` are eliminated, it should be
+    // renamed to something more appropriate such as simply `arena`.
+    const zu_arena = mod.tmp_hack_arena.allocator();
+    const c_import_mod = try Package.Module.create(zu_arena, .{
+        .root = .{
+            .root_dir = Compilation.Directory.cwd(),
+            .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+        },
+        .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
+    });
 
-    const result = mod.importPkg(c_import_pkg) catch |err|
+    const result = mod.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     mod.astGenFile(result.file) catch |err|

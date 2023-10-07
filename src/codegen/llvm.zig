@@ -1836,14 +1836,11 @@ pub const Object = struct {
         }
         const dir_path_z = d: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const dir_path = file.pkg.root_src_directory.path orelse ".";
-            const resolved_dir_path = if (std.fs.path.isAbsolute(dir_path))
-                dir_path
-            else
-                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
-            break :d try std.fs.path.joinZ(gpa, &.{
-                resolved_dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
-            });
+            const sub_path = std.fs.path.dirname(file.sub_file_path) orelse "";
+            const dir_path = try file.mod.root.joinStringZ(gpa, sub_path);
+            if (std.fs.path.isAbsolute(dir_path)) break :d dir_path;
+            const abs = std.fs.realpath(dir_path, &buffer) catch break :d dir_path;
+            break :d try std.fs.path.joinZ(gpa, &.{ abs, sub_path });
         };
         defer gpa.free(dir_path_z);
         const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
