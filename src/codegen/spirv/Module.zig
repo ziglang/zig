@@ -11,9 +11,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const ZigModule = @import("../../Module.zig");
-const ZigDecl = ZigModule.Decl;
-
 const spec = @import("spec.zig");
 const Word = spec.Word;
 const IdRef = spec.IdRef;
@@ -147,7 +144,7 @@ next_result_id: Word,
 /// Cache for results of OpString instructions for module file names fed to OpSource.
 /// Since OpString is pretty much only used for those, we don't need to keep track of all strings,
 /// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
-source_file_names: std.StringHashMapUnmanaged(IdRef) = .{},
+source_file_names: std.AutoArrayHashMapUnmanaged(CacheString, IdRef) = .{},
 
 /// SPIR-V type- and constant cache. This structure is used to store information about these in a more
 /// efficient manner.
@@ -460,9 +457,9 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
 /// file of the decl. This function may also emit an OpSource with source-level information regarding
 /// the decl.
-pub fn resolveSourceFileName(self: *Module, zig_module: *ZigModule, zig_decl: *ZigDecl) !IdRef {
-    const path = zig_decl.getFileScope(zig_module).sub_file_path;
-    const result = try self.source_file_names.getOrPut(self.gpa, path);
+pub fn resolveSourceFileName(self: *Module, path: []const u8) !IdRef {
+    const path_ref = try self.resolveString(path);
+    const result = try self.source_file_names.getOrPut(self.gpa, path_ref);
     if (!result.found_existing) {
         const file_result_id = self.allocId();
         result.value_ptr.* = file_result_id;

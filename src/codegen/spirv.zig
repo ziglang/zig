@@ -3726,10 +3726,10 @@ pub const DeclGen = struct {
 
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        const src_fname_id = try self.spv.resolveSourceFileName(
-            self.module,
-            self.module.declPtr(self.decl_index),
-        );
+        const mod = self.module;
+        const decl = mod.declPtr(self.decl_index);
+        const path = decl.getFileScope(mod).sub_file_path;
+        const src_fname_id = try self.spv.resolveSourceFileName(path);
         const base_line = self.base_line_stack.getLast();
         try self.func.body.emit(self.spv.gpa, .OpLine, .{
             .file = src_fname_id,
