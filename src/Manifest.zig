@@ -59,9 +59,13 @@ paths: std.StringArrayHashMapUnmanaged(void),
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
 
+pub const ParseOptions = struct {
+    allow_missing_paths_field: bool = false,
+};
+
 pub const Error = Allocator.Error;
 
-pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
+pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Manifest {
     const node_tags = ast.nodes.items(.tag);
     const node_datas = ast.nodes.items(.data);
     assert(node_tags[0] == .root);
@@ -80,6 +84,7 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .version = undefined,
         .dependencies = .{},
         .paths = .{},
+        .allow_missing_paths_field = options.allow_missing_paths_field,
         .buf = .{},
     };
     defer p.buf.deinit(gpa);
@@ -152,6 +157,7 @@ const Parse = struct {
     version: std.SemanticVersion,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
     paths: std.StringArrayHashMapUnmanaged(void),
+    allow_missing_paths_field: bool,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -178,6 +184,7 @@ const Parse = struct {
             if (mem.eql(u8, field_name, "dependencies")) {
                 try parseDependencies(p, field_init);
             } else if (mem.eql(u8, field_name, "paths")) {
+                have_included_paths = true;
                 try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseString(p, field_init);
@@ -204,7 +211,11 @@ const Parse = struct {
         }
 
         if (!have_included_paths) {
-            try appendError(p, main_token, "missing top-level 'paths' field", .{});
+            if (p.allow_missing_paths_field) {
+                try p.paths.put(p.gpa, "", {});
+            } else {
+                try appendError(p, main_token, "missing top-level 'paths' field", .{});
+            }
         }
     }
 

@@ -38,6 +38,10 @@ job_queue: *JobQueue,
 /// If true, don't add an error for a missing hash. This flag is not passed
 /// down to recursive dependencies. It's intended to be used only be the CLI.
 omit_missing_hash_error: bool,
+/// If true, don't fail when a manifest file is missing the `paths` field,
+/// which specifies inclusion rules. This is intended to be true for the first
+/// fetch task and false for the recursive dependencies.
+allow_missing_paths_field: bool,
 
 // Above this are fields provided as inputs to `run`.
 // Below this are fields populated by `run`.
@@ -365,7 +369,9 @@ fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
         return error.FetchFailed;
     }
 
-    f.manifest = try Manifest.parse(arena, ast.*);
+    f.manifest = try Manifest.parse(arena, ast.*, .{
+        .allow_missing_paths_field = f.allow_missing_paths_field,
+    });
     const manifest = &f.manifest.?;
 
     if (manifest.errors.len > 0) {
@@ -452,6 +458,7 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
                 .prog_node = f.prog_node,
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
+                .allow_missing_paths_field = false,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
@@ -481,7 +488,7 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
     }
 }
 
-fn workerRun(f: *Fetch) void {
+pub fn workerRun(f: *Fetch) void {
     defer f.job_queue.wait_group.finish();
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,

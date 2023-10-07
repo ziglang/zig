@@ -6640,7 +6640,6 @@ fn cmdFetch(
         std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
-    var recursive = false;
 
     {
         var i: usize = 0;
@@ -6655,9 +6654,6 @@ fn cmdFetch(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
-                    continue;
-                } else if (mem.eql(u8, arg, "--recursive")) {
-                    recursive = true;
                     continue;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
@@ -6696,7 +6692,7 @@ fn cmdFetch(
         .http_client = &http_client,
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
-        .recursive = recursive,
+        .recursive = false,
         .work_around_btrfs_bug = work_around_btrfs_bug,
     };
     defer job_queue.deinit();
@@ -6711,6 +6707,7 @@ fn cmdFetch(
         .prog_node = root_prog_node,
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
+        .allow_missing_paths_field = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
