@@ -3950,7 +3950,7 @@ fn initSections(self: *Elf) !void {
                 .name = ".eh_frame_hdr",
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
-                .addralign = ptr_size,
+                .addralign = 4,
             });
         }
     }
