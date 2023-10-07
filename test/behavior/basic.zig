@@ -357,8 +357,6 @@ fn f2(x: bool) []const u8 {
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: i32 = 1234;
     _ = hereIsAnOpaqueType(@as(*OpaqueA, @ptrCast(&x)));
 }
@@ -397,7 +395,6 @@ test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][1]f32{
         [_]f32{1.0},
@@ -410,7 +407,6 @@ test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][2]f32{
         [_]f32{ 3.0, 4.239 },
@@ -423,7 +419,6 @@ test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const rect_3d_vertexes = [_][2][2]f32{
         [_][2]f32{

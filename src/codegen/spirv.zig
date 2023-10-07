@@ -2725,6 +2725,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
+        const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const result_ty_ref = try self.resolveType(result_ty, .direct);
@@ -2733,15 +2734,53 @@ const DeclGen = struct {
 
         switch (result_ty.zigTypeTag(mod)) {
             .Vector => unreachable, // TODO
-            .Struct => unreachable, // TODO
+            .Struct => {
+                if (mod.typeToPackedStruct(result_ty)) |struct_type| {
+                    _ = struct_type;
+                    unreachable; // TODO
+                }
+
+                const constituents = try self.gpa.alloc(IdRef, elements.len);
+                defer self.gpa.free(constituents);
+                var index: usize = 0;
+
+                switch (ip.indexToKey(result_ty.toIntern())) {
+                    .anon_struct_type => |tuple| {
+                        for (tuple.types.get(ip), elements, 0..) |field_ty, element, i| {
+                            if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
+                            assert(field_ty.toType().hasRuntimeBits(mod));
+
+                            const id = try self.resolve(element);
+                            constituents[index] = try self.convertToIndirect(field_ty.toType(), id);
+                            index += 1;
+                        }
+                    },
+                    .struct_type => |struct_type| {
+                        var it = struct_type.iterateRuntimeOrder(ip);
+                        for (elements, 0..) |element, i| {
+                            const field_index = it.next().?;
+                            if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
+                            const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                            assert(field_ty.hasRuntimeBitsIgnoreComptime(mod));
+
+                            const id = try self.resolve(element);
+                            constituents[index] = try self.convertToIndirect(field_ty, id);
+                            index += 1;
+                        }
+                    },
+                    else => unreachable,
+                }
+
+                return try self.constructStruct(result_ty_ref, constituents[0..index]);
+            },
             .Array => {
                 const array_info = result_ty.arrayInfo(mod);
                 const n_elems: usize = @intCast(result_ty.arrayLenIncludingSentinel(mod));
                 const elem_ids = try self.gpa.alloc(IdRef, n_elems);
                 defer self.gpa.free(elem_ids);
 
-                for (elements, 0..) |elem_inst, i| {
-                    const id = try self.resolve(elem_inst);
+                for (elements, 0..) |element, i| {
+                    const id = try self.resolve(element);
                     elem_ids[i] = try self.convertToIndirect(array_info.elem_type, id);
                 }
 
