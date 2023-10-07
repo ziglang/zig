@@ -448,14 +448,20 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
         try f.job_queue.all_fetches.ensureUnusedCapacity(gpa, new_fetches.len);
         try f.job_queue.table.ensureUnusedCapacity(gpa, @intCast(new_fetches.len + 1));
 
-        // It is impossible for there to be a collision here. Consider all three cases:
+        // There are four cases here:
         // * Correct hash is provided by manifest.
-        //   - Redundant jobs are skipped in the loop below.
+        //   - Hash map already has the entry, no need to add it again.
         // * Incorrect hash is provided by manifest.
         //   - Hash mismatch error emitted; `queueJobsForDeps` is not called.
         // * Hash is not provided by manifest.
         //   - Hash missing error emitted; `queueJobsForDeps` is not called.
-        f.job_queue.table.putAssumeCapacityNoClobber(hash, f);
+        // * path-based location is used without a hash.
+        //   - We need to add `hash` to the table now.
+        switch (f.location) {
+            .remote => assert(f.job_queue.table.get(hash) == f),
+            .relative_path => f.job_queue.table.putAssumeCapacityNoClobber(hash, f),
+            .path_or_url => unreachable,
+        }
 
         for (deps) |dep| {
             const new_fetch = &new_fetches[new_fetch_index];
