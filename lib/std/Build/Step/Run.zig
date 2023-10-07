@@ -970,7 +970,7 @@ fn spawnChildAndCollect(
 
     var child = std.process.Child.init(argv, arena);
     if (self.cwd) |lazy_cwd| {
-        child.cwd = b.pathFromRoot(lazy_cwd.getPath(b));
+        child.cwd = lazy_cwd.getPath(b);
     } else {
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
