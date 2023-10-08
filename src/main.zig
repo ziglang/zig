@@ -4870,8 +4870,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .manifest = null,
                 .manifest_ast = undefined,
                 .actual_hash = undefined,
-                .has_build_zig = false,
+                .has_build_zig = true,
                 .oom_flag = false,
+
+                .module = &build_mod,
             };
             job_queue.all_fetches.appendAssumeCapacity(&fetch);
 
@@ -4922,6 +4924,26 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     });
                     const hash_cloned = try arena.dupe(u8, &hash);
                     deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
+                    f.module = m;
+                }
+
+                // Each build.zig module needs access to each of its
+                // dependencies' build.zig modules by name.
+                for (fetches) |f| {
+                    const mod = f.module orelse continue;
+                    const man = f.manifest orelse continue;
+                    const dep_names = man.dependencies.keys();
+                    try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
+                    for (dep_names, man.dependencies.values()) |name, dep| {
+                        const dep_digest = Package.Fetch.depDigest(
+                            f.package_root,
+                            global_cache_directory,
+                            dep,
+                        ) orelse continue;
+                        const dep_mod = job_queue.table.get(dep_digest).?.module orelse continue;
+                        const name_cloned = try arena.dupe(u8, name);
+                        mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
+                    }
                 }
             }
         }
@@ -6751,6 +6773,8 @@ fn cmdFetch(
         .actual_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
+
+        .module = null,
     };
     defer fetch.deinit();
 

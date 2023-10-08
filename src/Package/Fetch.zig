@@ -58,6 +58,12 @@ has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
 
+// This field is used by the CLI only, untouched by this file.
+
+/// The module for this `Fetch` tasks's package, which exposes `build.zig` as
+/// the root source file.
+module: ?*Package.Module,
+
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
     mutex: std.Thread.Mutex = .{},
@@ -147,10 +153,10 @@ pub const JobQueue = struct {
                     \\
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
-                    const h = dep.hash orelse continue;
+                    const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.writer().print(
                         "            .{{ \"{}\", \"{}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h) },
+                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(&h) },
                     );
                 }
 
@@ -179,10 +185,10 @@ pub const JobQueue = struct {
         const root_manifest = &root_fetch.manifest.?;
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
-            const h = dep.hash orelse continue;
+            const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.writer().print(
                 "    .{{ \"{}\", \"{}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h) },
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(&h) },
             );
         }
         try buf.appendSlice("};\n");
@@ -258,7 +264,7 @@ pub fn run(f: *Fetch) RunError!void {
             }
             f.package_root = pkg_root;
             try loadManifest(f, pkg_root);
-            try checkBuildFileExistence(f);
+            if (!f.has_build_zig) try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
             return queueJobsForDeps(f);
         },
@@ -604,6 +610,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .actual_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
+
+                .module = null,
             };
         }
 
@@ -1399,6 +1407,25 @@ const Filter = struct {
         return false;
     }
 };
+
+pub fn depDigest(
+    pkg_root: Package.Path,
+    cache_root: Cache.Directory,
+    dep: Manifest.Dependency,
+) ?Manifest.MultiHashHexDigest {
+    if (dep.hash) |h| return h[0..Manifest.multihash_hex_digest_len].*;
+
+    switch (dep.location) {
+        .url => return null,
+        .path => |rel_path| {
+            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&buf);
+            const new_root = pkg_root.resolvePosix(fba.allocator(), rel_path) catch
+                return null;
+            return relativePathDigest(new_root, cache_root);
+        },
+    }
+}
 
 // These are random bytes.
 const package_hash_prefix_cached = [8]u8{ 0x53, 0x7e, 0xfa, 0x94, 0x65, 0xe9, 0xf8, 0x73 };
