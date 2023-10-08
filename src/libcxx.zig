@@ -187,7 +187,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
-        if (target.os.tag == .wasi) {
+        if (target.os.tag == .wasi or target.abi.isNoExceptions()) {
             // WASI doesn't support exceptions yet.
             try cflags.append("-fno-exceptions");
         }
@@ -323,7 +323,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     for (libcxxabi_files) |cxxabi_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if (target.os.tag == .wasi) {
+        if (target.os.tag == .wasi or target.abi.isNoExceptions()) {
             // WASI doesn't support exceptions yet.
             if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
                 std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))

@@ -187,6 +187,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
         .muslx32 => "muslx32",
+        .muslnoexceptions => "musl",
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",

@@ -69,6 +69,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
+    .{ .arch = .x86_64, .os = .linux, .abi = .muslnoexceptions },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
 };
@@ -95,6 +96,7 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .musleabi,
         .musleabihf,
         .muslx32,
+        .muslnoexceptions,
         .none,
         => return "musl",
         .code16,

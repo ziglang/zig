@@ -501,6 +501,7 @@ pub const Target = struct {
         musleabi,
         musleabihf,
         muslx32,
+        muslnoexceptions,
         msvc,
         itanium,
         cygnus,
@@ -590,7 +591,14 @@ pub const Target = struct {
 
         pub inline fn isMusl(abi: Abi) bool {
             return switch (abi) {
-                .musl, .musleabi, .musleabihf => true,
+                .musl, .musleabi, .musleabihf, .muslnoexceptions => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isNoExceptions(abi: Abi) bool {
+            return switch (abi) {
+                .muslnoexceptions => true,
                 else => false,
             };
         }
