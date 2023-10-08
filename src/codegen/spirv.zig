@@ -535,6 +535,7 @@ const DeclGen = struct {
                         .composite_integer,
                 };
             },
+            .Enum => return self.arithmeticTypeInfo(ty.intTagType(mod)),
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
@@ -2168,6 +2169,7 @@ const DeclGen = struct {
     /// non-zeros.
     /// For signed integers, the value is also sign extended.
     fn normalizeInt(self: *DeclGen, ty_ref: CacheRef, value_id: IdRef, info: ArithmeticTypeInfo) !IdRef {
+        assert(info.class != .composite_integer); // TODO
         if (info.bits == info.backing_bits) {
             return value_id;
         }
@@ -2731,25 +2733,33 @@ const DeclGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const dest_ty = self.typeOfIndex(inst);
-        const dest_ty_id = try self.resolveTypeId(dest_ty);
+        const src_ty = self.typeOf(ty_op.operand);
+        const dst_ty = self.typeOfIndex(inst);
+        const src_ty_ref = try self.resolveType(src_ty, .direct);
+        const dst_ty_ref = try self.resolveType(dst_ty, .direct);
 
-        const mod = self.module;
-        const dest_info = dest_ty.intInfo(mod);
+        const src_info = try self.arithmeticTypeInfo(src_ty);
+        const dst_info = try self.arithmeticTypeInfo(dst_ty);
 
-        // TODO: Masking?
+        // While intcast promises that the value already fits, the upper bits of a
+        // strange integer may contain garbage. Therefore, mask/sign extend it before.
+        const src_id = try self.normalizeInt(src_ty_ref, operand_id, src_info);
+
+        if (src_info.backing_bits == dst_info.backing_bits) {
+            return src_id;
+        }
 
         const result_id = self.spv.allocId();
-        switch (dest_info.signedness) {
+        switch (dst_info.signedness) {
             .signed => try self.func.body.emit(self.spv.gpa, .OpSConvert, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(dst_ty_ref),
                 .id_result = result_id,
-                .signed_value = operand_id,
+                .signed_value = src_id,
             }),
             .unsigned => try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(dst_ty_ref),
                 .id_result = result_id,
-                .unsigned_value = operand_id,
+                .unsigned_value = src_id,
             }),
         }
         return result_id;
