@@ -278,28 +278,28 @@ pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) anyerror!std.Boun
 
 /// Reads a native-endian integer
 pub fn readIntNative(self: Self, comptime T: type) anyerror!T {
-    const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
+    const bytes = try self.readBytesNoEof(math.divCeilAssert(comptime_int, @typeInfo(T).Int.bits, 8));
     return mem.readIntNative(T, &bytes);
 }
 
 /// Reads a foreign-endian integer
 pub fn readIntForeign(self: Self, comptime T: type) anyerror!T {
-    const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
+    const bytes = try self.readBytesNoEof(math.divCeilAssert(comptime_int, @typeInfo(T).Int.bits, 8));
     return mem.readIntForeign(T, &bytes);
 }
 
 pub fn readIntLittle(self: Self, comptime T: type) anyerror!T {
-    const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
+    const bytes = try self.readBytesNoEof(math.divCeilAssert(comptime_int, @typeInfo(T).Int.bits, 8));
     return mem.readIntLittle(T, &bytes);
 }
 
 pub fn readIntBig(self: Self, comptime T: type) anyerror!T {
-    const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
+    const bytes = try self.readBytesNoEof(math.divCeilAssert(comptime_int, @typeInfo(T).Int.bits, 8));
     return mem.readIntBig(T, &bytes);
 }
 
 pub fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
-    const bytes = try self.readBytesNoEof(@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8)));
+    const bytes = try self.readBytesNoEof(math.divCeilAssert(comptime_int, @typeInfo(T).Int.bits, 8));
     return mem.readInt(T, &bytes, endian);
 }
 

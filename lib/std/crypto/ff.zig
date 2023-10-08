@@ -64,12 +64,12 @@ pub fn Uint(comptime max_bits: comptime_int) type {
     return struct {
         const Self = @This();
 
-        const max_limbs_count = math.divCeil(usize, max_bits, t_bits) catch unreachable;
+        const max_limbs_count: usize = math.divCeilAssert(comptime_int, max_bits, t_bits);
         const Limbs = BoundedArray(Limb, max_limbs_count);
         limbs: Limbs,
 
         /// Number of bytes required to serialize an integer.
-        pub const encoded_bytes = math.divCeil(usize, max_bits, 8) catch unreachable;
+        pub const encoded_bytes: usize = math.divCeilAssert(comptime_int, max_bits, 8);
 
         // Returns the number of active limbs.
         fn limbs_count(self: Self) usize {
@@ -788,9 +788,12 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Returns x^e (mod m), assuming that the exponent is public.
         /// The function remains constant time with respect to `x`.
         pub fn powPublic(self: Self, x: Fe, e: Fe) NullExponentError!Fe {
-            var e_normalized = Fe{ .v = e.v.normalize() };
-            var buf_: [Fe.encoded_bytes]u8 = undefined;
-            var buf = buf_[0 .. math.divCeil(usize, e_normalized.v.limbs_count() * t_bits, 8) catch unreachable];
+            const e_normalized: Fe = .{ .v = e.v.normalize() };
+            var buf: []u8 = buf: {
+                var buf_: [Fe.encoded_bytes]u8 = undefined;
+                const buf_end: usize = math.divCeilAssert(usize, e_normalized.v.limbs_count() * t_bits, 8);
+                break :buf buf_[0..buf_end];
+            };
             e_normalized.toBytes(buf, .Little) catch unreachable;
             const leading = @clz(e_normalized.v.limbs.get(e_normalized.v.limbs_count() - carry_bits));
             buf = buf[0 .. buf.len - leading / 8];

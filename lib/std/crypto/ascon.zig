@@ -147,7 +147,8 @@ pub fn State(comptime endian: builtin.Endian) type {
 
         /// Set the words storing the bytes of a given range to zero.
         pub fn clear(self: *Self, from: usize, to: usize) void {
-            @memset(self.st[from / 8 .. (to + 7) / 8], 0);
+            const UsizePlusOne = std.meta.Int(.unsigned, @bitSizeOf(usize) + 1);
+            @memset(self.st[from / 8 .. @intCast(std.math.divCeilAssert(UsizePlusOne, to, 8))], 0);
         }
 
         /// Clear the entire state, disabling compiler optimizations.

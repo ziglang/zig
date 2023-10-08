@@ -36,7 +36,7 @@ fn AesGcm(comptime Aes: anytype) type {
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 
-            const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
+            const block_count = math.divCeilAssert(usize, ad.len, Ghash.block_length) + math.divCeilAssert(usize, c.len, Ghash.block_length) + 1;
             var mac = Ghash.initForBlockCount(&h, block_count);
             mac.update(ad);
             mac.pad();
@@ -78,7 +78,7 @@ fn AesGcm(comptime Aes: anytype) type {
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 
-            const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
+            const block_count = math.divCeilAssert(usize, ad.len, Ghash.block_length) + math.divCeilAssert(usize, c.len, Ghash.block_length) + 1;
             var mac = Ghash.initForBlockCount(&h, block_count);
             mac.update(ad);
             mac.pad();

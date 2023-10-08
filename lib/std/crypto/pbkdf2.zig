@@ -74,7 +74,7 @@ pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, com
     //      block
     //
 
-    const blocks_count = @as(u32, @intCast(std.math.divCeil(usize, dk_len, h_len) catch unreachable));
+    const blocks_count: u32 = @intCast(std.math.divCeilAssert(usize, dk_len, h_len));
     var r = dk_len % h_len;
     if (r == 0) {
         r = h_len;

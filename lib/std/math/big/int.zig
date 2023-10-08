@@ -75,7 +75,7 @@ pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
 
 // Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
-    return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
+    return math.divCeilAssert(usize, bit_count, limb_bits);
 }
 
 /// a + b * c + *carry, sets carry to the overflow bits
@@ -1910,14 +1910,16 @@ pub const Mutable = struct {
         // Check whether the input is negative
         var positive = true;
         if (signedness == .signed) {
-            const total_bits = bit_offset + bit_count;
-            var last_byte = switch (endian) {
-                .Little => ((total_bits + 7) / 8) - 1,
-                .Big => buffer.len - ((total_bits + 7) / 8),
-            };
+            const UsizePlusOne = std.meta.Int(.unsigned, @bitSizeOf(usize) + 1);
 
-            const sign_bit = @as(u8, 1) << @as(u3, @intCast((total_bits - 1) % 8));
-            positive = ((buffer[last_byte] & sign_bit) == 0);
+            const total_bits: usize = bit_offset + bit_count;
+            const last_byte_pos: usize = @intCast(switch (endian) {
+                .Little => math.divCeilAssert(UsizePlusOne, total_bits, 8) - 1,
+                .Big => @as(UsizePlusOne, buffer.len) - math.divCeilAssert(UsizePlusOne, total_bits, 8),
+            });
+
+            const sign_bit = @as(u8, 1) << @intCast((total_bits - 1) % 8);
+            positive = ((buffer[last_byte_pos] & sign_bit) == 0);
         }
 
         // Copy all complete limbs

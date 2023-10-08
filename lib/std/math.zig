@@ -1046,9 +1046,8 @@ test isPowerOfTwo {
 /// Aligns the given integer type bit width to a width divisible by 8.
 pub fn ByteAlignedInt(comptime T: type) type {
     const info = @typeInfo(T).Int;
-    const bits = (info.bits + 7) / 8 * 8;
-    const extended_type = std.meta.Int(info.signedness, bits);
-    return extended_type;
+    const bytes_aligned: u14 = divCeilAssert(comptime_int, info.bits, 8);
+    return std.meta.Int(info.signedness, bytes_aligned * 8);
 }
 
 test "ByteAlignedInt" {

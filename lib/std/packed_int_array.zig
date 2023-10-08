@@ -8,6 +8,7 @@ const debug = std.debug;
 const testing = std.testing;
 const native_endian = builtin.target.cpu.arch.endian();
 const Endian = std.builtin.Endian;
+const divCeilAssert = std.math.divCeilAssert;
 
 /// Provides a set of functions for reading and writing packed integers from a
 /// slice of bytes.
@@ -26,23 +27,22 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
     // of the memory.
     const int_bits = @bitSizeOf(Int);
 
+    // We bitcast the desired Int type to an unsigned version of itself
+    // to avoid issues with shifting signed ints.
+    const UnInt = std.meta.Int(.unsigned, int_bits);
+
     // In the best case, this is the number of bytes we need to touch
     // to read or write a value, as bits.
-    const min_io_bits = ((int_bits + 7) / 8) * 8;
+    const min_io_bits = @bitSizeOf(std.math.ByteAlignedInt(UnInt));
 
     // In the worst case, this is the number of bytes we need to touch
     // to read or write a value, as bits. To calculate for int_bits > 1,
     // set aside 2 bits to touch the first and last bytes, then divide
     // by 8 to see how many bytes can be filled up in between.
     const max_io_bits = switch (int_bits) {
-        0 => 0,
-        1 => 8,
+        0, 1 => min_io_bits,
         else => ((int_bits - 2) / 8 + 2) * 8,
     };
-
-    // We bitcast the desired Int type to an unsigned version of itself
-    // to avoid issues with shifting signed ints.
-    const UnInt = std.meta.Int(.unsigned, int_bits);
 
     // The maximum container int type
     const MinIo = std.meta.Int(.unsigned, min_io_bits);
@@ -147,10 +147,12 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
         pub fn slice(bytes: []u8, bit_offset: u3, start: usize, end: usize) PackedIntSliceEndian(Int, endian) {
             debug.assert(end >= start);
 
+            const UsizePlusOne = std.meta.Int(.unsigned, @bitSizeOf(usize) + 1);
+
             const length = end - start;
             const bit_index = (start * int_bits) + bit_offset;
             const start_byte = bit_index / 8;
-            const end_byte = (bit_index + (length * int_bits) + 7) / 8;
+            const end_byte: usize = @intCast(divCeilAssert(UsizePlusOne, bit_index + (length * int_bits), 8));
             const new_bytes = bytes[start_byte..end_byte];
 
             if (length == 0) return PackedIntSliceEndian(Int, endian).init(new_bytes[0..0], 0);
@@ -196,7 +198,7 @@ pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {
 pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptime int_count: usize) type {
     const int_bits = @bitSizeOf(Int);
     const total_bits = int_bits * int_count;
-    const total_bytes = (total_bits + 7) / 8;
+    const total_bytes: usize = divCeilAssert(comptime_int, total_bits, 8);
 
     const Io = PackedIntIo(Int, endian);
 
@@ -293,7 +295,8 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         /// of `Int`s.
         pub fn bytesRequired(int_count: usize) usize {
             const total_bits = int_bits * int_count;
-            const total_bytes = (total_bits + 7) / 8;
+            const UsizePlusOne = std.meta.Int(.unsigned, @bitSizeOf(usize) + 1);
+            const total_bytes: usize = @intCast(divCeilAssert(UsizePlusOne, total_bits, 8));
             return total_bytes;
         }
 
@@ -362,7 +365,7 @@ test "PackedIntArray" {
         const I = std.meta.Int(sign, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
-        const expected_bytes = ((bits * int_count) + 7) / 8;
+        const expected_bytes: usize = divCeilAssert(comptime_int, bits * int_count, 8);
         try testing.expect(@sizeOf(PackedArray) == expected_bytes);
 
         var data = @as(PackedArray, undefined);
@@ -419,7 +422,7 @@ test "PackedIntSlice" {
     const max_bits = 256;
     const int_count = 19;
     const total_bits = max_bits * int_count;
-    const total_bytes = (total_bits + 7) / 8;
+    const total_bytes: usize = divCeilAssert(comptime_int, total_bits, 8);
 
     var buffer: [total_bytes]u8 = undefined;
 
@@ -476,7 +479,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
         var packed_slice = packed_array.slice(2, 5);
         try testing.expect(packed_slice.len == 3);
         const ps_bit_count = (bits * packed_slice.len) + packed_slice.bit_offset;
-        const ps_expected_bytes = (ps_bit_count + 7) / 8;
+        const ps_expected_bytes: usize = divCeilAssert(comptime_int, ps_bit_count, 8);
         try testing.expect(packed_slice.bytes.len == ps_expected_bytes);
         try testing.expect(packed_slice.get(0) == 2 % limit);
         try testing.expect(packed_slice.get(1) == 3 % limit);
@@ -491,7 +494,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
         const packed_slice_two = packed_slice.slice(0, 3);
         try testing.expect(packed_slice_two.len == 3);
         const ps2_bit_count = (bits * packed_slice_two.len) + packed_slice_two.bit_offset;
-        const ps2_expected_bytes = (ps2_bit_count + 7) / 8;
+        const ps2_expected_bytes: usize = divCeilAssert(comptime_int, ps2_bit_count, 8);
         try testing.expect(packed_slice_two.bytes.len == ps2_expected_bytes);
         try testing.expect(packed_slice_two.get(1) == 7 % limit);
         try testing.expect(packed_slice_two.get(2) == 4 % limit);
@@ -500,7 +503,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
         const packed_slice_three = packed_slice_two.slice(1, 2);
         try testing.expect(packed_slice_three.len == 1);
         const ps3_bit_count = (bits * packed_slice_three.len) + packed_slice_three.bit_offset;
-        const ps3_expected_bytes = (ps3_bit_count + 7) / 8;
+        const ps3_expected_bytes: usize = divCeilAssert(comptime_int, ps3_bit_count, 8);
         try testing.expect(packed_slice_three.bytes.len == ps3_expected_bytes);
         try testing.expect(packed_slice_three.get(0) == 7 % limit);
 
@@ -513,7 +516,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
         const packed_slice_edge = packed_array.slice(8, 16);
         try testing.expect(packed_slice_edge.len == 8);
         const pse_bit_count = (bits * packed_slice_edge.len) + packed_slice_edge.bit_offset;
-        const pse_expected_bytes = (pse_bit_count + 7) / 8;
+        const pse_expected_bytes: usize = divCeilAssert(comptime_int, pse_bit_count, 8);
         try testing.expect(packed_slice_edge.bytes.len == pse_expected_bytes);
         try testing.expect(packed_slice_edge.bit_offset == 0);
     }

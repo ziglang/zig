@@ -2,6 +2,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const Version = std.SemanticVersion;
+const divCeilAssert = std.math.divCeilAssert;
 
 pub const Target = struct {
     cpu: Cpu,
@@ -704,9 +705,9 @@ pub const Target = struct {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 288;
-                pub const byte_count = (needed_bit_count + 7) / 8;
-                pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
+                pub const needed_bit_count = 36 * 8; // 288
+                pub const byte_count: usize = divCeilAssert(comptime_int, needed_bit_count, 8);
+                pub const usize_count: usize = divCeilAssert(comptime_int, byte_count, @sizeOf(usize));
                 pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
                 pub const ShiftInt = std.math.Log2Int(usize);
 
@@ -2390,8 +2391,9 @@ pub const Target = struct {
         }
 
         // Next-power-of-two-aligned, up to a maximum.
+        const c_type_byte_aligned_size: u16 = @intCast(divCeilAssert(u17, c_type_bit_size(target, c_type), 8));
         return @min(
-            std.math.ceilPowerOfTwoAssert(u16, (c_type_bit_size(target, c_type) + 7) / 8),
+            std.math.ceilPowerOfTwoAssert(u16, c_type_byte_aligned_size),
             switch (target.cpu.arch) {
                 .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
                     .netbsd => switch (target.abi) {
@@ -2530,8 +2532,9 @@ pub const Target = struct {
         }
 
         // Next-power-of-two-aligned, up to a maximum.
+        const c_type_byte_aligned_size: u16 = @intCast(divCeilAssert(u17, c_type_bit_size(target, c_type), 8));
         return @min(
-            std.math.ceilPowerOfTwoAssert(u16, (c_type_bit_size(target, c_type) + 7) / 8),
+            std.math.ceilPowerOfTwoAssert(u16, c_type_byte_aligned_size),
             switch (target.cpu.arch) {
                 .msp430 => @as(u16, 2),
 

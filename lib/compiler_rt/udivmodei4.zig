@@ -4,7 +4,7 @@ const common = @import("common.zig");
 const shr = std.math.shr;
 const shl = std.math.shl;
 
-const max_limbs = std.math.divCeil(usize, 65535, 32) catch unreachable; // max supported type is u65535
+const max_limbs: usize = std.math.divCeilAssert(comptime_int, 65535, 32); // max supported type is u65535
 
 comptime {
     @export(__udivei4, .{ .name = "__udivei4", .linkage = common.linkage, .visibility = common.visibility });
