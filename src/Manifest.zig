@@ -7,13 +7,15 @@ pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
 pub const Dependency = struct {
-    location: union(enum) {
-        url: []const u8,
-        path: []const u8,
-    },
+    location: Location,
     location_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+
+    pub const Location = union(enum) {
+        url: []const u8,
+        path: []const u8,
+    };
 };
 
 pub const ErrorMessage = struct {
@@ -249,9 +251,9 @@ const Parse = struct {
 
         var dep: Dependency = .{
             .location = undefined,
-            .location_tok = undefined,
+            .location_tok = 0,
             .hash = null,
-            .hash_tok = undefined,
+            .hash_tok = 0,
         };
         var has_location = false;
 
