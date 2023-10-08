@@ -163,12 +163,12 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const subdir_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(subdir_path);
 
             for ([_][]const u8{ "", ".", ".." }) |sub_path| {
-                const dir_path = try fs.path.join(testing.allocator, &[_][]const u8{ subdir_path, sub_path });
-                defer testing.allocator.free(dir_path);
+                const dir_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, sub_path });
                 var dir = try ctx.dir.openDir(dir_path, .{});
                 defer dir.close();
             }
@@ -217,7 +217,6 @@ test "openDirAbsolute" {
 
     for ([_][]const u8{ ".", ".." }) |sub_path| {
         const dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, sub_path });
-        defer allocator.free(dir_path);
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
     }
@@ -485,14 +484,15 @@ test "Dir.realpath smoke test" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_file_path = try ctx.transformPath("test_file");
             const test_dir_path = try ctx.transformPath("test_dir");
             var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
 
             // FileNotFound if the path doesn't exist
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_file_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_file_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_file_path, &buf));
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_dir_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_dir_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_dir_path, &buf));
 
             // Now create the file and dir
@@ -500,18 +500,15 @@ test "Dir.realpath smoke test" {
             try ctx.dir.makeDir(test_dir_path);
 
             const base_path = try ctx.transformPath(".");
-            const base_realpath = try ctx.dir.realpathAlloc(testing.allocator, base_path);
-            defer testing.allocator.free(base_realpath);
+            const base_realpath = try ctx.dir.realpathAlloc(allocator, base_path);
             const expected_file_path = try fs.path.join(
-                testing.allocator,
+                allocator,
                 &[_][]const u8{ base_realpath, "test_file" },
             );
-            defer testing.allocator.free(expected_file_path);
             const expected_dir_path = try fs.path.join(
-                testing.allocator,
+                allocator,
                 &[_][]const u8{ base_realpath, "test_dir" },
             );
-            defer testing.allocator.free(expected_dir_path);
 
             // First, test non-alloc version
             {
@@ -524,12 +521,10 @@ test "Dir.realpath smoke test" {
 
             // Next, test alloc version
             {
-                const file_path = try ctx.dir.realpathAlloc(testing.allocator, test_file_path);
-                defer testing.allocator.free(file_path);
+                const file_path = try ctx.dir.realpathAlloc(allocator, test_file_path);
                 try testing.expectEqualStrings(expected_file_path, file_path);
 
-                const dir_path = try ctx.dir.realpathAlloc(testing.allocator, test_dir_path);
-                defer testing.allocator.free(dir_path);
+                const dir_path = try ctx.dir.realpathAlloc(allocator, test_dir_path);
                 try testing.expectEqualStrings(expected_dir_path, dir_path);
             }
         }
@@ -1204,6 +1199,7 @@ fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
 test "AtomicFile" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_out_file = try ctx.transformPath("tmp_atomic_file_test_dest.txt");
             const test_content =
                 \\ hello!
@@ -1216,8 +1212,7 @@ test "AtomicFile" {
                 try af.file.writeAll(test_content);
                 try af.finish();
             }
-            const content = try ctx.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
-            defer testing.allocator.free(content);
+            const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
             try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
