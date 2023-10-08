@@ -31,7 +31,6 @@ test "coerce i8 to i32 and @intCast back" {
 }
 
 test "coerce non byte-sized integers accross 32bits boundary" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     {
         var v: u21 = 6417;
         const a: u32 = v;

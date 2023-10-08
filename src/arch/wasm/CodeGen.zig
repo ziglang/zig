@@ -4353,9 +4353,21 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
     if (op_bits > 32 and op_bits <= 64 and wanted_bits == 32) {
         try func.emitWValue(operand);
         try func.addTag(.i32_wrap_i64);
+        if (given.isSignedInt(mod) and wanted_bitsize < 32)
+            return func.wrapOperand(.{ .stack = {} }, wanted)
+        else
+            return WValue{ .stack = {} };
     } else if (op_bits == 32 and wanted_bits > 32 and wanted_bits <= 64) {
-        try func.emitWValue(operand);
+        const operand32 = if (given_bitsize < 32 and wanted.isSignedInt(mod))
+            try func.signExtendInt(operand, given)
+        else
+            operand;
+        try func.emitWValue(operand32);
         try func.addTag(if (wanted.isSignedInt(mod)) .i64_extend_i32_s else .i64_extend_i32_u);
+        if (given.isSignedInt(mod) and wanted_bitsize < 64)
+            return func.wrapOperand(.{ .stack = {} }, wanted)
+        else
+            return WValue{ .stack = {} };
     } else if (wanted_bits == 128) {
         // for 128bit integers we store the integer in the virtual stack, rather than a local
         const stack_ptr = try func.allocStack(wanted);
@@ -4381,8 +4393,6 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
         }
         return stack_ptr;
     } else return func.load(operand, wanted, 0);
-
-    return WValue{ .stack = {} };
 }
 
 fn airIsNull(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
