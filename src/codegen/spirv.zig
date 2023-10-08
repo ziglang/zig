@@ -1219,7 +1219,14 @@ const DeclGen = struct {
             },
             .Int => {
                 const int_info = ty.intInfo(mod);
-                // TODO: Integers in OpenCL kernels are always unsigned.
+                if (int_info.bits == 0) {
+                    // Some times, the backend will be asked to generate a pointer to i0. OpTypeInt
+                    // with 0 bits is invalid, so return an opaque type in this case.
+                    assert(repr == .indirect);
+                    return try self.spv.resolve(.{ .opaque_type = .{
+                        .name = try self.spv.resolveString("u0"),
+                    } });
+                }
                 return try self.intType(int_info.signedness, int_info.bits);
             },
             .Enum => {
