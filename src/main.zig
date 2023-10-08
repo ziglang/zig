@@ -4928,9 +4928,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         // The first one is a dummy package for the current project.
                         continue;
                     }
+                    if (!f.has_build_zig)
+                        continue;
                     const m = try Package.Module.create(arena, .{
                         .root = try f.package_root.clone(arena),
-                        .root_src_path = if (f.has_build_zig) Package.build_zig_basename else "",
+                        .root_src_path = Package.build_zig_basename,
                     });
                     const hash_cloned = try arena.dupe(u8, &hash);
                     deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
