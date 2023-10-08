@@ -29,11 +29,11 @@ fn handleRequest(res: *Server.Response) !void {
     if (res.request.headers.contains("expect")) {
         if (mem.eql(u8, res.request.headers.getFirstValue("expect").?, "100-continue")) {
             res.status = .@"continue";
-            try res.do();
+            try res.start();
             res.status = .ok;
         } else {
             res.status = .expectation_failed;
-            try res.do();
+            try res.start();
             return;
         }
     }
@@ -54,7 +54,7 @@ fn handleRequest(res: *Server.Response) !void {
 
         try res.headers.append("content-type", "text/plain");
 
-        try res.do();
+        try res.start();
         if (res.request.method != .HEAD) {
             try res.writeAll("Hello, ");
             try res.writeAll("World!\n");
@@ -65,7 +65,7 @@ fn handleRequest(res: *Server.Response) !void {
     } else if (mem.startsWith(u8, res.request.target, "/large")) {
         res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };
 
-        try res.do();
+        try res.start();
 
         var i: u32 = 0;
         while (i < 5) : (i += 1) {
@@ -92,14 +92,14 @@ fn handleRequest(res: *Server.Response) !void {
             try testing.expectEqualStrings("14", res.request.headers.getFirstValue("content-length").?);
         }
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("World!\n");
         try res.finish();
     } else if (mem.eql(u8, res.request.target, "/trailer")) {
         res.transfer_encoding = .chunked;
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("World!\n");
         // try res.finish();
@@ -110,7 +110,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "../../get");
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -120,7 +120,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "/redirect/1");
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -133,7 +133,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", location);
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -143,7 +143,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "/redirect/3");
 
-        try res.do();
+        try res.start();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -154,11 +154,11 @@ fn handleRequest(res: *Server.Response) !void {
 
         res.status = .found;
         try res.headers.append("location", location);
-        try res.do();
+        try res.start();
         try res.finish();
     } else {
         res.status = .not_found;
-        try res.do();
+        try res.start();
     }
 }
 

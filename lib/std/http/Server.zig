@@ -14,7 +14,7 @@ allocator: Allocator,
 
 socket: net.StreamServer,
 
-/// An interface to either a plain or TLS connection.
+/// An interface to a plain connection.
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain };
@@ -273,8 +273,13 @@ pub const Request = struct {
     target: []const u8,
     version: http.Version,
 
+    /// The length of the request body, if known.
     content_length: ?u64 = null,
+
+    /// The transfer encoding of the request body, or .none if not present.
     transfer_encoding: http.TransferEncoding = .none,
+
+    /// The compression of the request body, or .identity (no compression) if not present.
     transfer_compression: http.ContentEncoding = .identity,
 
     headers: http.Headers,
@@ -311,6 +316,7 @@ pub const Response = struct {
         finished,
     };
 
+    /// Free all resources associated with this response.
     pub fn deinit(res: *Response) void {
         res.connection.close();
 
@@ -386,10 +392,10 @@ pub const Response = struct {
         }
     }
 
-    pub const DoError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
+    pub const StartError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
-    /// Send the response headers.
-    pub fn do(res: *Response) DoError!void {
+    /// Send the HTTP response headers to the client.
+    pub fn start(res: *Response) StartError!void {
         switch (res.state) {
             .waited => res.state = .responded,
             .first, .start, .responded, .finished => unreachable,
@@ -548,6 +554,7 @@ pub const Response = struct {
         return .{ .context = res };
     }
 
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn read(res: *Response, buffer: []u8) ReadError!usize {
         switch (res.state) {
             .waited, .responded, .finished => {},
@@ -583,6 +590,7 @@ pub const Response = struct {
         return out_index;
     }
 
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn readAll(res: *Response, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
@@ -602,6 +610,7 @@ pub const Response = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
+    /// Must be called after `start` and before `finish`.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
         switch (res.state) {
             .responded => {},
@@ -627,6 +636,8 @@ pub const Response = struct {
         }
     }
 
+    /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
+    /// Must be called after `start` and before `finish`.
     pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -637,6 +648,7 @@ pub const Response = struct {
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
+    /// Must be called after `start`.
     pub fn finish(res: *Response) FinishError!void {
         switch (res.state) {
             .responded => res.state = .finished,
@@ -651,6 +663,7 @@ pub const Response = struct {
     }
 };
 
+/// Create a new HTTP server.
 pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
     return .{
         .allocator = allocator,
@@ -658,6 +671,7 @@ pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
     };
 }
 
+/// Free all resources associated with this server.
 pub fn deinit(server: *Server) void {
     server.socket.deinit();
 }

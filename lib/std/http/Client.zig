@@ -605,7 +605,7 @@ pub const Request = struct {
         raw_uri: bool = false,
     };
 
-    /// Send the HTTP request to the server.
+    /// Send the HTTP request headers to the server.
     pub fn start(req: *Request, options: StartOptions) StartError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
