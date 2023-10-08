@@ -991,7 +991,7 @@ test "bitcast back and forth" {
 
 test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
     // Originally reported at https://github.com/ziglang/zig/issues/14200
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .arm) return error.SkipZigTest;
+
     const S = struct {
         ps: packed struct { x: i2, y: i2 },
 

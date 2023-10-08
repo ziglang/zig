@@ -120,3 +120,106 @@ test "coerce non byte-sized integers accross 32bits boundary" {
     }
 }
 
+const Piece = packed struct {
+    color: Color,
+    type: Type,
+
+    const Type = enum { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
+    const Color = enum { WHITE, BLACK };
+
+    fn charToPiece(c: u8) !@This() {
+        return .{
+            .type = try charToPieceType(c),
+            .color = if (std.ascii.isUpper(c)) Color.WHITE else Color.BLACK,
+        };
+    }
+
+    fn charToPieceType(c: u8) !Type {
+        return switch (std.ascii.toLower(c)) {
+            'p' => .PAWN,
+            'k' => .KING,
+            'q' => .QUEEN,
+            'b' => .BISHOP,
+            'n' => .KNIGHT,
+            'r' => .ROOK,
+            else => error.UnexpectedCharError,
+        };
+    }
+};
+
+test "load non byte-sized optional value" {
+    // Originally reported at https://github.com/ziglang/zig/issues/14200
+    // note: this bug is triggered by the == operator, expectEqual will hide it
+    var opt: ?Piece = try Piece.charToPiece('p');
+    try expect(opt.?.type == .PAWN);
+    try expect(opt.?.color == .BLACK);
+
+    var p: Piece = undefined;
+    @as(*u8, @ptrCast(&p)).* = 0b11111011;
+    try expect(p.type == .PAWN);
+    try expect(p.color == .BLACK);
+}
+
+test "load non byte-sized value in struct" {
+    if (builtin.cpu.arch.endian() != .Little) return error.SkipZigTest; // packed struct TODO
+
+    // note: this bug is triggered by the == operator, expectEqual will hide it
+    // using ptrCast not to depend on unitialised memory state
+
+    var struct0: struct {
+        p: Piece,
+        int: u8,
+    } = undefined;
+    @as(*u8, @ptrCast(&struct0.p)).* = 0b11111011;
+    try expect(struct0.p.type == .PAWN);
+    try expect(struct0.p.color == .BLACK);
+
+    var struct1: packed struct {
+        p0: Piece,
+        p1: Piece,
+        pad: u1,
+        p2: Piece,
+    } = undefined;
+    @as(*u8, @ptrCast(&struct1.p0)).* = 0b11111011;
+    struct1.p1 = try Piece.charToPiece('p');
+    struct1.p2 = try Piece.charToPiece('p');
+    try expect(struct1.p0.type == .PAWN);
+    try expect(struct1.p0.color == .BLACK);
+    try expect(struct1.p1.type == .PAWN);
+    try expect(struct1.p1.color == .BLACK);
+    try expect(struct1.p2.type == .PAWN);
+    try expect(struct1.p2.color == .BLACK);
+}
+
+test "load non byte-sized value in union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    // note: this bug is triggered by the == operator, expectEqual will hide it
+    // using ptrCast not to depend on unitialised memory state
+
+    var union0: packed union {
+        p: Piece,
+        int: u8,
+    } = .{ .int = 0 };
+    union0.int = 0b11111011;
+    try expect(union0.p.type == .PAWN);
+    try expect(union0.p.color == .BLACK);
+
+    var union1: union {
+        p: Piece,
+        int: u8,
+    } = .{ .p = .{ .color = .WHITE, .type = .KING } };
+    @as(*u8, @ptrCast(&union1.p)).* = 0b11111011;
+    try expect(union1.p.type == .PAWN);
+    try expect(union1.p.color == .BLACK);
+
+    var pieces: [3]Piece = undefined;
+    @as(*u8, @ptrCast(&pieces[1])).* = 0b11111011;
+    try expect(pieces[1].type == .PAWN);
+    try expect(pieces[1].color == .BLACK);
+}
