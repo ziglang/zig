@@ -61,7 +61,7 @@ pub const Directory = struct {
         writer: anytype,
     ) !void {
         _ = options;
-        if (fmt_string.len != 0) fmt.invalidFmtError(fmt, self);
+        if (fmt_string.len != 0) fmt.invalidFmtError(fmt_string, self);
         if (self.path) |p| {
             try writer.writeAll(p);
             try writer.writeAll(fs.path.sep_str);

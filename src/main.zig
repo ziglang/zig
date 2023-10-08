@@ -4851,10 +4851,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             defer job_queue.deinit();
 
             try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
+            try job_queue.table.ensureUnusedCapacity(gpa, 1);
 
             var fetch: Package.Fetch = .{
                 .arena = std.heap.ArenaAllocator.init(gpa),
-                .location = .{ .relative_path = "" },
+                .location = .{ .relative_path = build_mod.root },
                 .location_tok = 0,
                 .hash_tok = 0,
                 .parent_package_root = build_mod.root,
@@ -4873,6 +4874,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .oom_flag = false,
             };
             job_queue.all_fetches.appendAssumeCapacity(&fetch);
+
+            job_queue.table.putAssumeCapacityNoClobber(
+                Package.Fetch.relativePathDigest(build_mod.root, global_cache_directory),
+                &fetch,
+            );
 
             job_queue.wait_group.start();
             try job_queue.thread_pool.spawn(Package.Fetch.workerRun, .{&fetch});

@@ -200,7 +200,7 @@ pub const JobQueue = struct {
 pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
-    relative_path: []const u8,
+    relative_path: Package.Path,
     /// Recursive Fetch tasks will never use this Location, but it may be
     /// passed in by the CLI. Indicates the file contents here should be copied
     /// into the global package cache. It may be a file relative to the cwd or
@@ -239,8 +239,8 @@ pub fn run(f: *Fetch) RunError!void {
     // relative path, treat this the same as a cache hit. Otherwise, proceed.
 
     const remote = switch (f.location) {
-        .relative_path => |sub_path| {
-            if (fs.path.isAbsolute(sub_path)) return f.fail(
+        .relative_path => |pkg_root| {
+            if (fs.path.isAbsolute(pkg_root.sub_path)) return f.fail(
                 f.location_tok,
                 try eb.addString("expected path relative to build root; found absolute path"),
             );
@@ -248,31 +248,19 @@ pub fn run(f: *Fetch) RunError!void {
                 f.hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
-            f.package_root = try f.parent_package_root.resolvePosix(arena, sub_path);
-            if (std.mem.startsWith(u8, f.package_root.sub_path, "../")) {
+            if (std.mem.startsWith(u8, pkg_root.sub_path, "../")) {
                 return f.fail(
                     f.location_tok,
-                    try eb.addString("dependency path outside package"),
+                    try eb.printString("dependency path outside project: '{}{s}'", .{
+                        pkg_root.root_dir, pkg_root.sub_path,
+                    }),
                 );
             }
-            try loadManifest(f, f.package_root);
+            f.package_root = pkg_root;
+            try loadManifest(f, pkg_root);
             try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
-            // Package hashes are used as unique identifiers for packages, so
-            // we still need one for relative paths.
-            const digest = h: {
-                var hasher = Manifest.Hash.init(.{});
-                // This hash is a tuple of:
-                // * whether it relative to the global cache directory or to the root package
-                // * the relative file path from there to the build root of the package
-                hasher.update(if (f.package_root.root_dir.eql(cache_root))
-                    &package_hash_prefix_cached
-                else
-                    &package_hash_prefix_project);
-                hasher.update(f.package_root.sub_path);
-                break :h hasher.finalResult();
-            };
-            return queueJobsForDeps(f, Manifest.hexDigest(digest));
+            return queueJobsForDeps(f);
         },
         .remote => |remote| remote,
         .path_or_url => |path_or_url| {
@@ -310,7 +298,7 @@ pub fn run(f: *Fetch) RunError!void {
             try loadManifest(f, f.package_root);
             try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
-            return queueJobsForDeps(f, expected_hash);
+            return queueJobsForDeps(f);
         } else |err| switch (err) {
             error.FileNotFound => {},
             else => |e| {
@@ -450,7 +438,7 @@ fn runResource(
     // Spawn a new fetch job for each dependency in the manifest file. Use
     // a mutex and a hash map so that redundant jobs do not get queued up.
     if (!f.job_queue.recursive) return;
-    return queueJobsForDeps(f, actual_hex);
+    return queueJobsForDeps(f);
 }
 
 /// `computeHash` gets a free check for the existence of `build.zig`, but when
@@ -534,27 +522,29 @@ fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
     }
 }
 
-fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void {
+fn queueJobsForDeps(f: *Fetch) RunError!void {
     assert(f.job_queue.recursive);
 
     // If the package does not have a build.zig.zon file then there are no dependencies.
     const manifest = f.manifest orelse return;
 
     const new_fetches = nf: {
-        const deps = manifest.dependencies.values();
+        const parent_arena = f.arena.allocator();
         const gpa = f.arena.child_allocator;
+        const cache_root = f.job_queue.global_cache;
+        const deps = manifest.dependencies.values();
         // Grab the new tasks into a temporary buffer so we can unlock that mutex
         // as fast as possible.
         // This overallocates any fetches that get skipped by the `continue` in the
         // loop below.
-        const new_fetches = try f.arena.allocator().alloc(Fetch, deps.len);
+        const new_fetches = try parent_arena.alloc(Fetch, deps.len);
         var new_fetch_index: usize = 0;
 
         f.job_queue.mutex.lock();
         defer f.job_queue.mutex.unlock();
 
         try f.job_queue.all_fetches.ensureUnusedCapacity(gpa, new_fetches.len);
-        try f.job_queue.table.ensureUnusedCapacity(gpa, @intCast(new_fetches.len + 1));
+        try f.job_queue.table.ensureUnusedCapacity(gpa, @intCast(new_fetches.len));
 
         // There are four cases here:
         // * Correct hash is provided by manifest.
@@ -564,12 +554,8 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
         // * Hash is not provided by manifest.
         //   - Hash missing error emitted; `queueJobsForDeps` is not called.
         // * path-based location is used without a hash.
-        //   - We need to add `hash` to the table now.
-        switch (f.location) {
-            .remote => assert(f.job_queue.table.get(hash) == f),
-            .relative_path => f.job_queue.table.putAssumeCapacityNoClobber(hash, f),
-            .path_or_url => unreachable,
-        }
+        //   - Hash is added to the table based on the path alone before
+        //     calling run(); no need to add it again.
 
         for (deps) |dep| {
             const new_fetch = &new_fetches[new_fetch_index];
@@ -586,7 +572,16 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
                         break :h multihash_digest;
                     },
                 } },
-                .path => |path| .{ .relative_path = path },
+                .path => |rel_path| l: {
+                    // This might produce an invalid path, which is checked for
+                    // at the beginning of run().
+                    const new_root = try f.package_root.resolvePosix(parent_arena, rel_path);
+                    const multihash_digest = relativePathDigest(new_root, cache_root);
+                    const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
+                    if (gop.found_existing) continue;
+                    gop.value_ptr.* = new_fetch;
+                    break :l .{ .relative_path = new_root };
+                },
             };
             new_fetch_index += 1;
             f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
@@ -628,6 +623,22 @@ fn queueJobsForDeps(f: *Fetch, hash: Manifest.MultiHashHexDigest) RunError!void 
             },
         };
     }
+}
+
+pub fn relativePathDigest(
+    pkg_root: Package.Path,
+    cache_root: Cache.Directory,
+) Manifest.MultiHashHexDigest {
+    var hasher = Manifest.Hash.init(.{});
+    // This hash is a tuple of:
+    // * whether it relative to the global cache directory or to the root package
+    // * the relative file path from there to the build root of the package
+    hasher.update(if (pkg_root.root_dir.eql(cache_root))
+        &package_hash_prefix_cached
+    else
+        &package_hash_prefix_project);
+    hasher.update(pkg_root.sub_path);
+    return Manifest.hexDigest(hasher.finalResult());
 }
 
 pub fn workerRun(f: *Fetch) void {
