@@ -11332,11 +11332,15 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
             break :dst dst_mcv;
         };
 
+        if (dst_ty.isRuntimeFloat()) break :result dst_mcv;
+
         const dst_signedness =
             if (dst_ty.isAbiInt(mod)) dst_ty.intInfo(mod).signedness else .unsigned;
-        const src_signedness =
-            if (src_ty.isAbiInt(mod)) src_ty.intInfo(mod).signedness else .unsigned;
-        if (dst_signedness == src_signedness) break :result dst_mcv;
+        if (!src_ty.isRuntimeFloat() or src_ty.floatBits(self.target.*) != 80) {
+            const src_signedness =
+                if (src_ty.isAbiInt(mod)) src_ty.intInfo(mod).signedness else .unsigned;
+            if (dst_signedness == src_signedness) break :result dst_mcv;
+        }
 
         const abi_size: u16 = @intCast(dst_ty.abiSize(mod));
         const bit_size: u16 = @intCast(dst_ty.bitSize(mod));
