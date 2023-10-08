@@ -3924,6 +3924,7 @@ const DeclGen = struct {
                 };
                 break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
             },
+            .ErrorSet => 1,
             else => return self.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag(mod))}), // TODO: Figure out which types apply here, and work around them as we can only do integers.
         };
 
@@ -3977,6 +3978,7 @@ const DeclGen = struct {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
                             break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
                         },
+                        .ErrorSet => value.getErrorInt(mod),
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {
