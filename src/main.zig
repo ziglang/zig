@@ -4621,6 +4621,7 @@ pub const usage_build =
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --zig-lib-dir [arg]           Override path to Zig lib directory
     \\  --build-runner [file]         Override path to build runner
+    \\  --fetch                       Exit after fetching dependency tree
     \\  -h, --help                    Print this help and exit
     \\
 ;
@@ -4643,6 +4644,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
+        var fetch_only = false;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -4692,6 +4694,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         try child_argv.append(arg);
                         reference_trace = 256;
+                    } else if (mem.eql(u8, arg, "--fetch")) {
+                        fetch_only = true;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                         try child_argv.append(arg);
                         const num = arg["-freference-trace=".len..];
@@ -4883,6 +4887,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 errors.renderToStdErr(renderOptions(color));
                 process.exit(1);
             }
+
+            if (fetch_only) return cleanExit();
 
             try job_queue.createDependenciesModule(&dependencies_zig_src);
 
