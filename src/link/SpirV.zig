@@ -230,7 +230,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     };
 
     // TODO: Put this in a proper section.
-    try spv.sections.capabilities.emit(spv.gpa, .OpMemoryModel, .{
+    try spv.sections.extensions.emit(spv.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

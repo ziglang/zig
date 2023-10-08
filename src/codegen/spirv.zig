@@ -1957,6 +1957,7 @@ const DeclGen = struct {
             .int_from_ptr    => try self.airIntFromPtr(inst),
             .float_from_int  => try self.airFloatFromInt(inst),
             .int_from_float  => try self.airIntFromFloat(inst),
+            .fpext, .fptrunc => try self.airFloatCast(inst),
             .not             => try self.airNot(inst),
 
             .array_to_slice => try self.airArrayToSlice(inst),
@@ -2682,6 +2683,23 @@ const DeclGen = struct {
                 .float_value = operand_id,
             }),
         }
+        return result_id;
+    }
+
+    fn airFloatCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const dest_ty = self.typeOfIndex(inst);
+        const dest_ty_id = try self.resolveTypeId(dest_ty);
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpFConvert, .{
+            .id_result_type = dest_ty_id,
+            .id_result = result_id,
+            .float_value = operand_id,
+        });
         return result_id;
     }
 
