@@ -385,7 +385,6 @@ test "cast from ?[*]T to ??[*]T" {
 test "peer type unsigned int to signed" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var w: u31 = 5;
     var x: u8 = 7;
@@ -1552,8 +1551,6 @@ test "single item pointer to pointer to array to slice" {
 }
 
 test "peer type resolution forms error union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var foo: i32 = 123;
     const result = if (foo < 0) switch (-foo) {
         0 => unreachable,
@@ -1641,7 +1638,6 @@ test "peer type resolution: same array type with sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var a: [2:0]u32 = .{ 0, 1 };
     var b: [2:0]u32 = .{ 2, 3 };
@@ -1662,7 +1658,6 @@ test "peer type resolution: array with sentinel and array without sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var a: [2:0]u32 = .{ 0, 1 };
     var b: [2]u32 = .{ 2, 3 };
@@ -1852,7 +1847,6 @@ test "peer type resolution: array and tuple" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var arr: [3]i32 = .{ 1, 2, 3 };
     const tup = .{ 4, 5, 6 };
@@ -1939,7 +1933,6 @@ test "peer type resolution: empty tuple pointer and slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var a: [:0]const u8 = "Hello";
     var b = &.{};
@@ -1959,7 +1952,6 @@ test "peer type resolution: tuple pointer and slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var a: [:0]const u8 = "Hello";
     var b = &.{ @as(u8, 'x'), @as(u8, 'y'), @as(u8, 'z') };
@@ -1979,7 +1971,6 @@ test "peer type resolution: tuple pointer and optional slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var a: ?[:0]const u8 = null;
     var b = &.{ @as(u8, 'x'), @as(u8, 'y'), @as(u8, 'z') };
@@ -2117,7 +2108,6 @@ test "peer type resolution: pointer attributes are combined correctly" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     var buf_a align(4) = "foo".*;
     var buf_b align(4) = "bar".*;
