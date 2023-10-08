@@ -895,11 +895,12 @@ test "openSelfExe" {
 test "makePath, put some files in it, deleteTree" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{"os_test_tmp", "b", "c"}));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{"os_test_tmp", "b", "c",  "file.txt"}), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{"os_test_tmp", "b", "file2.txt"}), "blah");
 
             try ctx.dir.deleteTree(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -910,11 +911,12 @@ test "makePath, put some files in it, deleteTree" {
 test "makePath, put some files in it, deleteTreeMinStackSize" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{"os_test_tmp", "b", "c"}));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{"os_test_tmp", "b", "c",  "file.txt"}), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{"os_test_tmp", "b", "file2.txt"}), "blah");
 
             try ctx.dir.deleteTreeMinStackSize(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
