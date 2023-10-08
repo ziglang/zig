@@ -64,7 +64,6 @@ test "comptime slice of undefined pointer of length 0" {
 
 test "implicitly cast array of size 0 to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var msg = [_]u8{};
     try assertLenIsZero(&msg);
@@ -172,7 +171,6 @@ test "comptime pointer cast array and then slice" {
 test "slicing zero length array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s1 = ""[0..];
     const s2 = ([_]u32{})[0..];
@@ -583,7 +581,6 @@ test "slice pointer-to-array null terminated" {
 
 test "slice pointer-to-array zero length" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         {
@@ -793,8 +790,6 @@ test "global slice field access" {
 }
 
 test "slice of void" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var n: usize = 10;
     var arr: [12]void = undefined;
     const slice = @as([]void, &arr)[0..n];
@@ -802,8 +797,6 @@ test "slice of void" {
 }
 
 test "slice with dereferenced value" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var a: usize = 0;
     var idx: *usize = &a;
     _ = blk: {
@@ -819,7 +812,6 @@ test "slice with dereferenced value" {
 
 test "empty slice ptr is non null" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const empty_slice: []u8 = &[_]u8{};

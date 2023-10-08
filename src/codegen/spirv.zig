@@ -1008,8 +1008,7 @@ const DeclGen = struct {
             .func => {
                 // TODO: Properly lower function pointers. For now we are going to hack around it and
                 // just generate an empty pointer. Function pointers are represented by a pointer to usize.
-                // TODO: Add dependency
-                return try self.spv.constNull(ty_ref);
+                return try self.spv.constUndef(ty_ref);
             },
             .extern_func => unreachable, // TODO
             else => {},
@@ -1253,6 +1252,18 @@ const DeclGen = struct {
                 const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel(mod)) orelse {
                     return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel(mod)});
                 };
+                if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                    // The size of the array would be 0, but that is not allowed in SPIR-V.
+                    // This path can be reached for example when there is a slicing of a pointer
+                    // that produces a zero-length array. In all cases where this type can be generated,
+                    // we should be in an indirect path (direct uses of this type should be filtered out in Sema).
+                    assert(repr == .indirect);
+
+                    return try self.spv.resolve(.{ .opaque_type = .{
+                        .name = try self.spv.resolveString("zero-sized array"),
+                    } });
+                }
+
                 const ty_ref = try self.spv.arrayType(total_len, elem_ty_ref);
                 try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
                 return ty_ref;
@@ -2742,22 +2753,23 @@ const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const array_ptr_ty = self.typeOf(ty_op.operand);
         const array_ty = array_ptr_ty.childType(mod);
-        const elem_ty = array_ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
-        const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
-        const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(array_ptr_ty.ptrAddressSpace(mod)));
         const slice_ty = self.typeOfIndex(inst);
+        const elem_ptr_ty = slice_ty.slicePtrFieldType(mod);
+
+        const elem_ptr_ty_ref = try self.resolveType(elem_ptr_ty, .direct);
         const slice_ty_ref = try self.resolveType(slice_ty, .direct);
         const size_ty_ref = try self.sizeType();
 
         const array_ptr_id = try self.resolve(ty_op.operand);
         const len_id = try self.constInt(size_ty_ref, array_ty.arrayLen(mod));
 
-        if (!array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-            unreachable; // TODO
-        }
+        const elem_ptr_id = if (!array_ty.hasRuntimeBitsIgnoreComptime(mod))
+            // Note: The pointer is something like *opaque{}, so we need to bitcast it to the element type.
+            try self.bitCast(elem_ptr_ty, array_ptr_ty, array_ptr_id)
+        else
+            // Convert the pointer-to-array to a pointer to the first element.
+            try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
 
-        // Convert the pointer-to-array to a pointer to the first element.
-        const elem_ptr_id = try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
         return try self.constructStruct(slice_ty_ref, &.{ elem_ptr_id, len_id });
     }
 
@@ -2916,8 +2928,10 @@ const DeclGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType(mod);
-        // TODO: Make this return a null ptr or something
-        if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return null;
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
+            return try self.spv.constUndef(ptr_ty_ref);
+        }
 
         const ptr_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
