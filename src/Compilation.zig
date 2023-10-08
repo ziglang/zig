@@ -41,8 +41,9 @@ const resinator = @import("resinator.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
-/// Arena-allocated memory used during initialization. Should be untouched until deinit.
-arena_state: std.heap.ArenaAllocator.State,
+/// Arena-allocated memory, mostly used during initialization. However, it can be used
+/// for other things requiring the same lifetime as the `Compilation`.
+arena: std.heap.ArenaAllocator,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
@@ -124,7 +125,7 @@ cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
 /// null means -fno-emit-bin.
-/// This is mutable memory allocated into the Compilation-lifetime arena (`arena_state`)
+/// This is mutable memory allocated into the Compilation-lifetime arena (`arena`)
 /// of exactly the correct size for "o/[digest]/[basename]".
 /// The basename is of the outputted binary file in case we don't know the directory yet.
 whole_bin_sub_path: ?[]u8,
@@ -1661,7 +1662,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         errdefer bin_file.destroy();
         comp.* = .{
             .gpa = gpa,
-            .arena_state = arena_allocator.state,
+            .arena = arena_allocator,
             .zig_lib_directory = options.zig_lib_directory,
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
@@ -1979,7 +1980,8 @@ pub fn destroy(self: *Compilation) void {
     if (self.owned_link_dir) |*dir| dir.close();
 
     // This destroys `self`.
-    self.arena_state.promote(gpa).deinit();
+    var arena_instance = self.arena;
+    arena_instance.deinit();
 }
 
 pub fn clearMiscFailures(comp: *Compilation) void {
@@ -3899,17 +3901,12 @@ pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest
     return man;
 }
 
-test "cImport" {
-    _ = cImport;
-}
-
 pub const CImportResult = struct {
     out_zig_path: []u8,
     cache_hit: bool,
     errors: std.zig.ErrorBundle,
 
     pub fn deinit(result: *CImportResult, gpa: std.mem.Allocator) void {
-        gpa.free(result.out_zig_path);
         result.errors.deinit(gpa);
     }
 };
@@ -4054,7 +4051,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         };
     }
 
-    const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
+    const out_zig_path = try comp.local_cache_directory.join(comp.arena.allocator(), &.{
         "o", &digest, cimport_zig_basename,
     });
     if (comp.verbose_cimport) {
