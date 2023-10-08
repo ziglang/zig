@@ -3659,7 +3659,7 @@ const DeclGen = struct {
                 payload_ty;
 
             const ptr_id = if (payload_ty.isSlice(mod))
-                try self.extractField(Type.bool, operand_id, 0)
+                try self.extractField(ptr_ty, operand_id, 0)
             else
                 operand_id;
 

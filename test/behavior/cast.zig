@@ -1208,7 +1208,6 @@ test "implicitly cast from [N]T to ?[]const T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
     try comptime expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
@@ -1293,7 +1292,6 @@ test "*const [N]null u8 to ?[]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1335,8 +1333,6 @@ test "assignment to optional pointer result loc" {
 }
 
 test "cast between *[N]void and []void" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var a: [4]void = undefined;
     var b: []void = &a;
     try expect(b.len == 4);
@@ -1398,7 +1394,6 @@ test "peer type resolution: unreachable, null, slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(num: usize, word: []const u8) !void {
@@ -1438,7 +1433,6 @@ test "cast compatible optional types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a: ?[:0]const u8 = null;
     var b: ?[]const u8 = a;
