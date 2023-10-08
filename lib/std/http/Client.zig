@@ -489,13 +489,21 @@ pub const Response = struct {
     status: http.Status,
     reason: []const u8,
 
+    /// If present, the number of bytes in the response body.
     content_length: ?u64 = null,
+
+    /// If present, the transfer encoding of the response body, otherwise none.
     transfer_encoding: http.TransferEncoding = .none,
+
+    /// If present, the compression of the response body, otherwise identity (no compression).
     transfer_compression: http.ContentEncoding = .identity,
 
+    /// The headers received from the server.
     headers: http.Headers,
     parser: proto.HeadersParser,
     compression: Compression = .none,
+
+    /// Whether the response body should be skipped. Any data read from the response body will be discarded.
     skip: bool = false,
 };
 
@@ -511,6 +519,8 @@ pub const Request = struct {
     method: http.Method,
     version: http.Version = .@"HTTP/1.1",
     headers: http.Headers,
+
+    /// The transfer encoding of the request body.
     transfer_encoding: RequestTransfer = .none,
 
     redirects_left: u32,
@@ -595,7 +605,7 @@ pub const Request = struct {
         raw_uri: bool = false,
     };
 
-    /// Send the request to the server.
+    /// Send the HTTP request to the server.
     pub fn start(req: *Request, options: StartOptions) StartError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
@@ -730,6 +740,8 @@ pub const Request = struct {
     ///
     /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
     /// redirects. If a request payload is present, then this function will error with error.RedirectRequiresResend.
+    /// 
+    /// Must be called after `start` and, if any data was written to the request body, then also after `finish`.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
@@ -865,7 +877,7 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    /// Reads data from the response body. Must be called after `do`.
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
         const out_index = switch (req.response.compression) {
             .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
@@ -896,7 +908,7 @@ pub const Request = struct {
         return out_index;
     }
 
-    /// Reads data from the response body. Must be called after `do`.
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn readAll(req: *Request, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
@@ -915,7 +927,8 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
+    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
+    /// Must be called after `start` and before `finish`.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
@@ -936,6 +949,8 @@ pub const Request = struct {
         }
     }
 
+    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
+    /// Must be called after `start` and before `finish`.
     pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -946,6 +961,7 @@ pub const Request = struct {
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
+    /// Must be called after `start`.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
             .chunked => try req.connection.?.writer().writeAll("0\r\n\r\n"),
@@ -1134,6 +1150,8 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
 
 pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{ NameTooLong, Unsupported } || std.os.ConnectError;
 
+/// Connect to `path` as a unix domain socket. This will reuse a connection if one is already open.
+/// This function is threadsafe.
 pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connection {
     if (!net.has_unix_sockets) return error.Unsupported;
 
@@ -1166,6 +1184,8 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     return &conn.data;
 }
 
+/// Connect to `tunnel_host:tunnel_port` using the specified proxy with HTTP CONNECT. This will reuse a connection if one is already open.
+/// This function is threadsafe.
 pub fn connectTunnel(
     client: *Client,
     proxy: *ProxyInformation,
@@ -1245,6 +1265,11 @@ pub fn connectTunnel(
 const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, ConnectionRefused };
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
+/// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+/// 
+/// If a proxy is configured for the client, then the proxy will be used to connect to the host.
+/// 
+/// This function is threadsafe.
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*Connection {
     // pointer required so that `supports_connect` can be updated if a CONNECT fails
     const potential_proxy: ?*ProxyInformation = switch (protocol) {
@@ -1318,7 +1343,7 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
     .{ "wss", .tls },
 });
 
-/// Form and send a http request to a server.
+/// Open a connection to the host specified by `uri` and prepare to send a HTTP request.
 ///
 /// `uri` must remain alive during the entire request.
 /// `headers` is cloned and may be freed after this function returns.
@@ -1420,6 +1445,9 @@ pub const FetchResult = struct {
     }
 };
 
+/// Perform a one-shot HTTP request with the provided options.
+/// 
+/// This function is threadsafe.
 pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !FetchResult {
     const has_transfer_encoding = options.headers.contains("transfer-encoding");
     const has_content_length = options.headers.contains("content-length");
