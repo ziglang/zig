@@ -1187,7 +1187,17 @@ const DeclGen = struct {
         log.debug("resolveType: ty = {}", .{ty.fmt(mod)});
         const target = self.getTarget();
         switch (ty.zigTypeTag(mod)) {
-            .Void, .NoReturn => return try self.spv.resolve(.void_type),
+            .NoReturn => {
+                assert(repr == .direct);
+                return try self.spv.resolve(.void_type);
+            },
+            .Void => switch (repr) {
+                .direct => return try self.spv.resolve(.void_type),
+                // Pointers to void
+                .indirect => return try self.spv.resolve(.{ .opaque_type = .{
+                    .name = try self.spv.resolveString("void"),
+                } }),
+            },
             .Bool => switch (repr) {
                 .direct => return try self.spv.resolve(.bool_type),
                 .indirect => return try self.intType(.unsigned, 1),
@@ -1439,11 +1449,9 @@ const DeclGen = struct {
                 return ty_ref;
             },
             .Opaque => {
-                return try self.spv.resolve(.{
-                    .opaque_type = .{
-                        .name = .none, // TODO
-                    },
-                });
+                return try self.spv.resolve(.{ .opaque_type = .{
+                    .name = .none, // TODO
+                } });
             },
 
             .Null,
