@@ -11470,9 +11470,13 @@ fn airFloatFromInt(self: *Self, inst: Air.Inst.Index) !void {
     const result = result: {
         if (switch (dst_bits) {
             16, 80, 128 => true,
-            32, 64 => src_size > 8 and src_size < 16,
+            32, 64 => src_size > 8,
             else => unreachable,
         }) {
+            if (src_bits > 128) return self.fail("TODO implement airFloatFromInt from {} to {}", .{
+                src_ty.fmt(mod), dst_ty.fmt(mod),
+            });
+
             var callee: ["__floatun?i?f".len]u8 = undefined;
             break :result try self.genCall(.{ .lib = .{
                 .return_type = dst_ty.toIntern(),
@@ -11487,10 +11491,6 @@ fn airFloatFromInt(self: *Self, inst: Air.Inst.Index) !void {
                 }) catch unreachable,
             } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
         }
-
-        if (src_size > 8) return self.fail("TODO implement airFloatFromInt from {} to {}", .{
-            src_ty.fmt(mod), dst_ty.fmt(mod),
-        });
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         const src_reg = if (src_mcv.isRegister())
@@ -11549,9 +11549,13 @@ fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
     const result = result: {
         if (switch (src_bits) {
             16, 80, 128 => true,
-            32, 64 => dst_size > 8 and dst_size < 16,
+            32, 64 => dst_size > 8,
             else => unreachable,
         }) {
+            if (dst_bits > 128) return self.fail("TODO implement airIntFromFloat from {} to {}", .{
+                src_ty.fmt(mod), dst_ty.fmt(mod),
+            });
+
             var callee: ["__fixuns?f?i".len]u8 = undefined;
             break :result try self.genCall(.{ .lib = .{
                 .return_type = dst_ty.toIntern(),
@@ -11566,10 +11570,6 @@ fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
                 }) catch unreachable,
             } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
         }
-
-        if (dst_size > 8) return self.fail("TODO implement airIntFromFloat from {} to {}", .{
-            src_ty.fmt(mod), dst_ty.fmt(mod),
-        });
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         const src_reg = if (src_mcv.isRegister())
