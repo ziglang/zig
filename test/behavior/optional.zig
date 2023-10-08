@@ -27,7 +27,6 @@ pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var e = EmptyStruct{};
     var o: ?*EmptyStruct = &e;
@@ -152,7 +151,6 @@ fn test_cmp_optional_non_optional() !void {
 test "unwrap function call with optional pointer return value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -400,7 +398,6 @@ const NoReturn = struct {
 
 test "optional of noreturn used with if" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     NoReturn.a = 64;
     if (NoReturn.loop()) |_| {
@@ -412,7 +409,6 @@ test "optional of noreturn used with if" {
 
 test "optional of noreturn used with orelse" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     NoReturn.a = 64;
     const val = NoReturn.testOrelse();

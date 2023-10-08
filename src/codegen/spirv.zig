@@ -1180,6 +1180,22 @@ const DeclGen = struct {
         return ty_ref;
     }
 
+    fn resolveFnReturnType(self: *DeclGen, ret_ty: Type) !CacheRef {
+        const mod = self.module;
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            // If the return type is an error set or an error union, then we make this
+            // anyerror return type instead, so that it can be coerced into a function
+            // pointer type which has anyerror as the return type.
+            if (ret_ty.isError(mod)) {
+                return self.resolveType(Type.anyerror, .direct);
+            } else {
+                return self.resolveType(Type.void, .direct);
+            }
+        }
+
+        return try self.resolveType(ret_ty, .direct);
+    }
+
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!CacheRef {
         const mod = self.module;
@@ -1260,7 +1276,7 @@ const DeclGen = struct {
                         param_ty_refs[param_index] = try self.resolveType(param_ty, .direct);
                         param_index += 1;
                     }
-                    const return_ty_ref = try self.resolveType(fn_info.return_type.toType(), .direct);
+                    const return_ty_ref = try self.resolveFnReturnType(fn_info.return_type.toType());
 
                     const ty_ref = try self.spv.resolve(.{ .function_type = .{
                         .return_type = return_ty_ref,
@@ -1449,9 +1465,11 @@ const DeclGen = struct {
                 return ty_ref;
             },
             .Opaque => {
-                return try self.spv.resolve(.{ .opaque_type = .{
-                    .name = .none, // TODO
-                } });
+                return try self.spv.resolve(.{
+                    .opaque_type = .{
+                        .name = .none, // TODO
+                    },
+                });
             },
 
             .Null,
@@ -1677,15 +1695,16 @@ const DeclGen = struct {
 
         if (decl.val.getFunction(mod)) |_| {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
+            const fn_info = mod.typeToFunc(decl.ty).?;
+            const return_ty_ref = try self.resolveFnReturnType(fn_info.return_type.toType());
+
             const prototype_id = try self.resolveTypeId(decl.ty);
             try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-                .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType(mod)),
+                .id_result_type = self.typeId(return_ty_ref),
                 .id_result = decl_id,
                 .function_control = .{}, // TODO: We can set inline here if the type requires it.
                 .function_type = prototype_id,
             });
-
-            const fn_info = mod.typeToFunc(decl.ty).?;
 
             try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
             for (fn_info.param_types.get(ip)) |param_ty_index| {
@@ -3385,15 +3404,25 @@ const DeclGen = struct {
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
         const operand = self.air.instructions.items(.data)[inst].un_op;
-        const operand_ty = self.typeOf(operand);
+        const ret_ty = self.typeOf(operand);
         const mod = self.module;
-        if (operand_ty.hasRuntimeBits(mod)) {
-            // TODO: If we return an empty struct, this branch is also hit incorrectly.
-            const operand_id = try self.resolve(operand);
-            try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
-        } else {
-            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            const decl = mod.declPtr(self.decl_index);
+            const fn_info = mod.typeToFunc(decl.ty).?;
+            if (fn_info.return_type.toType().isError(mod)) {
+                // Functions with an empty error set are emitted with an error code
+                // return type and return zero so they can be function pointers coerced
+                // to functions that return anyerror.
+                const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
+                const no_err_id = try self.constInt(err_ty_ref, 0);
+                return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
+            } else {
+                return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+            }
         }
+
+        const operand_id = try self.resolve(operand);
+        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
     }
 
     fn airRetLoad(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -3403,8 +3432,18 @@ const DeclGen = struct {
         const ret_ty = ptr_ty.childType(mod);
 
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
-            return;
+            const decl = mod.declPtr(self.decl_index);
+            const fn_info = mod.typeToFunc(decl.ty).?;
+            if (fn_info.return_type.toType().isError(mod)) {
+                // Functions with an empty error set are emitted with an error code
+                // return type and return zero so they can be function pointers coerced
+                // to functions that return anyerror.
+                const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
+                const no_err_id = try self.constInt(err_ty_ref, 0);
+                return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
+            } else {
+                return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+            }
         }
 
         const ptr = try self.resolve(un_op);
@@ -3991,7 +4030,7 @@ const DeclGen = struct {
         const fn_info = mod.typeToFunc(zig_fn_ty).?;
         const return_type = fn_info.return_type;
 
-        const result_type_id = try self.resolveTypeId(return_type.toType());
+        const result_type_ref = try self.resolveFnReturnType(return_type.toType());
         const result_id = self.spv.allocId();
         const callee_id = try self.resolve(pl_op.operand);
 
@@ -4012,7 +4051,7 @@ const DeclGen = struct {
         }
 
         try self.func.body.emit(self.spv.gpa, .OpFunctionCall, .{
-            .id_result_type = result_type_id,
+            .id_result_type = self.typeId(result_type_ref),
             .id_result = result_id,
             .function = callee_id,
             .id_ref_3 = params[0..n_params],
