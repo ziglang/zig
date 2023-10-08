@@ -22,10 +22,14 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub var log_level = std.log.Level.warn;
 
 fn print(comptime fmt: []const u8, args: anytype) void {
-    // Disable printing in tests for simple backends.
-    if (builtin.zig_backend == .stage2_spirv64) return;
+    if (@inComptime()) {
+        @compileError(std.fmt.comptimePrint(fmt, args));
+    } else {
+        // Disable printing in tests for simple backends.
+        if (builtin.zig_backend == .stage2_spirv64) return;
 
-    std.debug.print(fmt, args);
+        std.debug.print(fmt, args);
+    }
 }
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
