@@ -392,10 +392,10 @@ pub const Response = struct {
         }
     }
 
-    pub const StartError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
+    pub const SendError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
     /// Send the HTTP response headers to the client.
-    pub fn start(res: *Response) StartError!void {
+    pub fn send(res: *Response) SendError!void {
         switch (res.state) {
             .waited => res.state = .responded,
             .first, .start, .responded, .finished => unreachable,
@@ -771,7 +771,7 @@ test "HTTP server handles a chunked transfer coding request" {
             res.transfer_encoding = .{ .content_length = server_body.len };
             try res.headers.append("content-type", "text/plain");
             try res.headers.append("connection", "close");
-            try res.do();
+            try res.send();
 
             var buf: [128]u8 = undefined;
             const n = try res.readAll(&buf);

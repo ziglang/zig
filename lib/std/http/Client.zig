@@ -598,15 +598,15 @@ pub const Request = struct {
         };
     }
 
-    pub const StartError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+    pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
-    pub const StartOptions = struct {
-        /// Specifies that the uri should be used as is
+    pub const SendOptions = struct {
+        /// Specifies that the uri should be used as is. You guarantee that the uri is already escaped.
         raw_uri: bool = false,
     };
 
     /// Send the HTTP request headers to the server.
-    pub fn start(req: *Request, options: StartOptions) StartError!void {
+    pub fn send(req: *Request, options: SendOptions) SendError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none) return error.UnsupportedTransferEncoding;
 
         const w = req.connection.?.writer();
@@ -733,14 +733,14 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, RedirectRequiresResend, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = RequestError || SendError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, RedirectRequiresResend, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
     ///
     /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
     /// redirects. If a request payload is present, then this function will error with error.RedirectRequiresResend.
-    /// 
+    ///
     /// Must be called after `start` and, if any data was written to the request body, then also after `finish`.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
@@ -845,7 +845,7 @@ pub const Request = struct {
 
                 try req.redirect(resolved_url);
 
-                try req.start(.{});
+                try req.send(.{});
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
@@ -1223,7 +1223,7 @@ pub fn connectTunnel(
         // we can use a small buffer here because a CONNECT response should be very small
         var buffer: [8096]u8 = undefined;
 
-        var req = client.request(.CONNECT, uri, proxy.headers, .{
+        var req = client.open(.CONNECT, uri, proxy.headers, .{
             .handle_redirects = false,
             .connection = conn,
             .header_strategy = .{ .static = buffer[0..] },
@@ -1233,7 +1233,7 @@ pub fn connectTunnel(
         };
         defer req.deinit();
 
-        req.start(.{ .raw_uri = true }) catch |err| break :tunnel err;
+        req.send(.{ .raw_uri = true }) catch |err| break :tunnel err;
         req.wait() catch |err| break :tunnel err;
 
         if (req.response.status.class() == .server_error) {
@@ -1266,9 +1266,9 @@ const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, Conn
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
-/// 
+///
 /// If a proxy is configured for the client, then the proxy will be used to connect to the host.
-/// 
+///
 /// This function is threadsafe.
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*Connection {
     // pointer required so that `supports_connect` can be updated if a CONNECT fails
@@ -1304,7 +1304,7 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     return client.connectTcp(host, port, protocol);
 }
 
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || Connection.WriteError || error{
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError || std.fmt.ParseIntError || Connection.WriteError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 
@@ -1350,7 +1350,7 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
 ///
 /// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
-pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: RequestOptions) RequestError!Request {
+pub fn open(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: RequestOptions) RequestError!Request {
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
     const port: u16 = uri.port orelse switch (protocol) {
@@ -1446,7 +1446,7 @@ pub const FetchResult = struct {
 };
 
 /// Perform a one-shot HTTP request with the provided options.
-/// 
+///
 /// This function is threadsafe.
 pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !FetchResult {
     const has_transfer_encoding = options.headers.contains("transfer-encoding");
@@ -1459,7 +1459,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
         .uri => |u| u,
     };
 
-    var req = try request(client, options.method, uri, options.headers, .{
+    var req = try open(client, options.method, uri, options.headers, .{
         .header_strategy = options.header_strategy,
         .handle_redirects = options.payload == .none,
     });
@@ -1476,7 +1476,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
             .none => {},
         }
 
-        try req.start(.{ .raw_uri = options.raw_uri });
+        try req.send(.{ .raw_uri = options.raw_uri });
 
         switch (options.payload) {
             .string => |str| try req.writeAll(str),

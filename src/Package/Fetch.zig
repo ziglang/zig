@@ -826,7 +826,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         var h = std.http.Headers{ .allocator = gpa };
         defer h.deinit();
 
-        var req = http_client.request(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -834,7 +834,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         };
         errdefer req.deinit(); // releases more than memory
 
-        req.start(.{}) catch |err| {
+        req.send(.{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "HTTP request failed: {s}",
                 .{@errorName(err)},
