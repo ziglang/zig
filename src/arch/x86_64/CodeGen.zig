@@ -7177,6 +7177,23 @@ fn genBinOp(
                     dst_reg,
                     tmp_reg,
                 );
+                switch (air_tag) {
+                    .div_trunc, .div_floor => try self.asmRegisterRegisterRegisterImmediate(
+                        .{ .v_ss, .round },
+                        dst_reg,
+                        dst_reg,
+                        dst_reg,
+                        Immediate.u(@as(u5, @bitCast(RoundMode{
+                            .mode = switch (air_tag) {
+                                .div_trunc => .zero,
+                                .div_floor => .down,
+                                else => unreachable,
+                            },
+                            .precision = .inexact,
+                        }))),
+                    ),
+                    else => {},
+                }
                 try self.asmRegisterRegisterImmediate(
                     .{ .v_, .cvtps2ph },
                     dst_reg,
