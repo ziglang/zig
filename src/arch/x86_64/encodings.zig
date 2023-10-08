@@ -1108,6 +1108,14 @@ pub const table = [_]Entry{
 
     .{ .movsldup, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0xf3, 0x0f, 0x12 }, 0, .none, .sse3 },
 
+    // SSSE3
+    .{ .pabsb, .rm, &.{  .mm,  .mm_m64  }, &.{       0x0f, 0x38, 0x1c }, 0, .none, .ssse3 },
+    .{ .pabsb, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1c }, 0, .none, .ssse3 },
+    .{ .pabsd, .rm, &.{  .mm,  .mm_m64  }, &.{       0x0f, 0x38, 0x1e }, 0, .none, .ssse3 },
+    .{ .pabsd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1e }, 0, .none, .ssse3 },
+    .{ .pabsw, .rm, &.{  .mm,  .mm_m64  }, &.{       0x0f, 0x38, 0x1d }, 0, .none, .ssse3 },
+    .{ .pabsw, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1d }, 0, .none, .ssse3 },
+
     // SSE4.1
     .{ .blendpd, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0d }, 0, .none, .sse4_1 },
 
@@ -1368,6 +1376,10 @@ pub const table = [_]Entry{
     .{ .vorps, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x0f, 0x56 }, 0, .vex_128_wig, .avx },
     .{ .vorps, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x0f, 0x56 }, 0, .vex_256_wig, .avx },
 
+    .{ .vpabsb, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1c }, 0, .vex_128_wig, .avx },
+    .{ .vpabsd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1e }, 0, .vex_128_wig, .avx },
+    .{ .vpabsw, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x1d }, 0, .vex_128_wig, .avx },
+
     .{ .vpacksswb, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x63 }, 0, .vex_128_wig, .avx },
     .{ .vpackssdw, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x6b }, 0, .vex_128_wig, .avx },
 
@@ -1536,6 +1548,10 @@ pub const table = [_]Entry{
     .{ .vbroadcastss, .rm, &.{ .xmm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_128_w0, .avx2 },
     .{ .vbroadcastss, .rm, &.{ .ymm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x18 }, 0, .vex_256_w0, .avx2 },
     .{ .vbroadcastsd, .rm, &.{ .ymm, .xmm }, &.{ 0x66, 0x0f, 0x38, 0x19 }, 0, .vex_256_w0, .avx2 },
+
+    .{ .vpabsb, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x1c }, 0, .vex_256_wig, .avx2 },
+    .{ .vpabsd, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x1e }, 0, .vex_256_wig, .avx2 },
+    .{ .vpabsw, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x1d }, 0, .vex_256_wig, .avx2 },
 
     .{ .vpacksswb, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x63 }, 0, .vex_256_wig, .avx2 },
     .{ .vpackssdw, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x6b }, 0, .vex_256_wig, .avx2 },

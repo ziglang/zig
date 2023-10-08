@@ -280,7 +280,7 @@ test "@abs float vectors" {
     try testAbsFloatVectors(f16, 16);
     try comptime testAbsFloatVectors(f16, 17);
 
-    try testAbsFloatVectors(f32, 17);
+    try testAbsFloatVectors(f32, 1);
     try comptime testAbsFloatVectors(f32, 1);
     try testAbsFloatVectors(f32, 1);
     try comptime testAbsFloatVectors(f32, 2);

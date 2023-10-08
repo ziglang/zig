@@ -5385,46 +5385,104 @@ fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const ty = self.typeOf(ty_op.operand);
-    const scalar_ty = ty.scalarType(mod);
 
-    switch (scalar_ty.zigTypeTag(mod)) {
-        .Int => if (ty.zigTypeTag(mod) == .Vector) {
-            return self.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
-        } else {
-            if (ty.abiSize(mod) > 8) {
-                return self.fail("TODO implement abs for integer abi sizes larger than 8", .{});
-            }
-            const src_mcv = try self.resolveInst(ty_op.operand);
-            const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+    const result: MCValue = result: {
+        const mir_tag = @as(?Mir.Inst.FixedTag, switch (ty.zigTypeTag(mod)) {
+            else => null,
+            .Int => {
+                if (ty.abiSize(mod) > 8) {
+                    return self.fail("TODO implement abs for integer abi sizes larger than 8", .{});
+                }
+                const src_mcv = try self.resolveInst(ty_op.operand);
+                const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
 
-            try self.genUnOpMir(.{ ._, .neg }, ty, dst_mcv);
+                try self.genUnOpMir(.{ ._, .neg }, ty, dst_mcv);
 
-            const cmov_abi_size = @max(@as(u32, @intCast(ty.abiSize(mod))), 2);
-            switch (src_mcv) {
-                .register => |val_reg| try self.asmCmovccRegisterRegister(
-                    registerAlias(dst_mcv.register, cmov_abi_size),
-                    registerAlias(val_reg, cmov_abi_size),
-                    .l,
-                ),
-                .memory, .indirect, .load_frame => try self.asmCmovccRegisterMemory(
-                    registerAlias(dst_mcv.register, cmov_abi_size),
-                    src_mcv.mem(Memory.PtrSize.fromSize(cmov_abi_size)),
-                    .l,
-                ),
-                else => {
-                    const val_reg = try self.copyToTmpRegister(ty, src_mcv);
-                    try self.asmCmovccRegisterRegister(
+                const cmov_abi_size = @max(@as(u32, @intCast(ty.abiSize(mod))), 2);
+                switch (src_mcv) {
+                    .register => |val_reg| try self.asmCmovccRegisterRegister(
                         registerAlias(dst_mcv.register, cmov_abi_size),
                         registerAlias(val_reg, cmov_abi_size),
                         .l,
-                    );
+                    ),
+                    .memory, .indirect, .load_frame => try self.asmCmovccRegisterMemory(
+                        registerAlias(dst_mcv.register, cmov_abi_size),
+                        src_mcv.mem(Memory.PtrSize.fromSize(cmov_abi_size)),
+                        .l,
+                    ),
+                    else => {
+                        const val_reg = try self.copyToTmpRegister(ty, src_mcv);
+                        try self.asmCmovccRegisterRegister(
+                            registerAlias(dst_mcv.register, cmov_abi_size),
+                            registerAlias(val_reg, cmov_abi_size),
+                            .l,
+                        );
+                    },
+                }
+                break :result dst_mcv;
+            },
+            .Float => return self.floatSign(inst, ty_op.operand, ty),
+            .Vector => switch (ty.childType(mod).zigTypeTag(mod)) {
+                else => null,
+                .Int => switch (ty.childType(mod).intInfo(mod).bits) {
+                    else => null,
+                    8 => switch (ty.vectorLen(mod)) {
+                        else => null,
+                        1...16 => if (self.hasFeature(.avx))
+                            .{ .vp_b, .abs }
+                        else if (self.hasFeature(.ssse3))
+                            .{ .p_b, .abs }
+                        else
+                            null,
+                        17...32 => if (self.hasFeature(.avx2)) .{ .vp_b, .abs } else null,
+                    },
+                    16 => switch (ty.vectorLen(mod)) {
+                        else => null,
+                        1...8 => if (self.hasFeature(.avx))
+                            .{ .vp_w, .abs }
+                        else if (self.hasFeature(.ssse3))
+                            .{ .p_w, .abs }
+                        else
+                            null,
+                        9...16 => if (self.hasFeature(.avx2)) .{ .vp_w, .abs } else null,
+                    },
+                    32 => switch (ty.vectorLen(mod)) {
+                        else => null,
+                        1...4 => if (self.hasFeature(.avx))
+                            .{ .vp_d, .abs }
+                        else if (self.hasFeature(.ssse3))
+                            .{ .p_d, .abs }
+                        else
+                            null,
+                        5...8 => if (self.hasFeature(.avx2)) .{ .vp_d, .abs } else null,
+                    },
                 },
-            }
-            return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
-        },
-        .Float => return self.floatSign(inst, ty_op.operand, ty),
-        else => unreachable,
-    }
+                .Float => return self.floatSign(inst, ty_op.operand, ty),
+            },
+        }) orelse return self.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+
+        const abi_size: u32 = @intCast(ty.abiSize(mod));
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const dst_reg = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv.getReg().?
+        else
+            try self.register_manager.allocReg(inst, self.regClassForType(ty));
+        const dst_alias = registerAlias(dst_reg, abi_size);
+        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+            mir_tag,
+            dst_alias,
+            src_mcv.mem(self.memPtrSize(ty)),
+        ) else try self.asmRegisterRegister(
+            mir_tag,
+            dst_alias,
+            registerAlias(if (src_mcv.isRegister())
+                src_mcv.getReg().?
+            else
+                try self.copyToTmpRegister(ty, src_mcv), abi_size),
+        );
+        break :result .{ .register = dst_reg };
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
