@@ -1041,6 +1041,13 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
                         }),
                     }));
                 },
+                .unable_to_create_file => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("unable to create file '{s}': {s}", .{
+                            info.file_name, @errorName(info.code),
+                        }),
+                    }));
+                },
                 .unsupported_file_type => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
