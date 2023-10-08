@@ -105,13 +105,13 @@ pub const JobQueue = struct {
         }
     }
 
-    /// Creates the dependencies.zig file and corresponding `Module` for the
-    /// build runner to obtain via `@import("@dependencies")`.
-    pub fn createDependenciesModule(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
+    /// Creates the dependencies.zig source code for the build runner to obtain
+    /// via `@import("@dependencies")`.
+    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
         const keys = jq.table.keys();
 
         if (keys.len == 0)
-            return createEmptyDependenciesModule(buf);
+            return createEmptyDependenciesSource(buf);
 
         try buf.appendSlice("pub const packages = struct {\n");
 
@@ -188,7 +188,7 @@ pub const JobQueue = struct {
         try buf.appendSlice("};\n");
     }
 
-    pub fn createEmptyDependenciesModule(buf: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn createEmptyDependenciesSource(buf: *std.ArrayList(u8)) Allocator.Error!void {
         try buf.appendSlice(
             \\pub const packages = struct {};
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
