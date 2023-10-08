@@ -7733,7 +7733,10 @@ fn genBinOp(
             mir_tag,
             dst_reg,
             lhs_reg,
-            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+            src_mcv.mem(switch (lhs_ty.zigTypeTag(mod)) {
+                else => Memory.PtrSize.fromSize(abi_size),
+                .Vector => Memory.PtrSize.fromBitSize(dst_reg.bitSize()),
+            }),
         ) else try self.asmRegisterRegisterRegister(
             mir_tag,
             dst_reg,
@@ -7748,7 +7751,10 @@ fn genBinOp(
         if (src_mcv.isMemory()) try self.asmRegisterMemory(
             mir_tag,
             dst_reg,
-            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+            src_mcv.mem(switch (lhs_ty.zigTypeTag(mod)) {
+                else => Memory.PtrSize.fromSize(abi_size),
+                .Vector => Memory.PtrSize.fromBitSize(dst_reg.bitSize()),
+            }),
         ) else try self.asmRegisterRegister(
             mir_tag,
             dst_reg,
