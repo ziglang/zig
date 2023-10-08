@@ -6831,12 +6831,12 @@ fn genBinOp(
     const rhs_ty = self.typeOf(rhs_air);
     const abi_size: u32 = @intCast(lhs_ty.abiSize(mod));
 
-    if (lhs_ty.isRuntimeFloat() and switch (lhs_ty.floatBits(self.target.*)) {
+    if (lhs_ty.isRuntimeFloat() and (air_tag == .rem or switch (lhs_ty.floatBits(self.target.*)) {
         16 => !self.hasFeature(.f16c),
         32, 64 => false,
         80, 128 => true,
         else => unreachable,
-    }) {
+    })) {
         var callee: ["__add?f3".len]u8 = undefined;
         const result = try self.genCall(.{ .lib = .{
             .return_type = lhs_ty.toIntern(),
@@ -6852,9 +6852,14 @@ fn genBinOp(
                     @tagName(air_tag)[0..3],
                     floatCompilerRtAbiName(lhs_ty.floatBits(self.target.*)),
                 }),
-                .min, .max => std.fmt.bufPrint(&callee, "{s}f{s}{s}", .{
+                .rem, .min, .max => std.fmt.bufPrint(&callee, "{s}f{s}{s}", .{
                     floatLibcAbiPrefix(lhs_ty),
-                    @tagName(air_tag),
+                    switch (air_tag) {
+                        .rem => "mod",
+                        .min => "min",
+                        .max => "max",
+                        else => unreachable,
+                    },
                     floatLibcAbiSuffix(lhs_ty),
                 }),
                 else => return self.fail("TODO implement genBinOp for {s} {}", .{
