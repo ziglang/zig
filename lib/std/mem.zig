@@ -1346,6 +1346,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     if (needle.len > haystack.len) return null;
     if (needle.len < 2) {
         if (needle.len == 0) return start_index;
+        // indexOfScalarPos is significantly faster than indexOfPosLinear
         return indexOfScalarPos(T, haystack, start_index, needle[0]);
     }
 
