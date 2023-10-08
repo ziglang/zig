@@ -828,6 +828,12 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     }
 }
 
+/// Divide numerator by denominator, rounding toward positive
+/// infinity. Asserts that the value fits and denominator is not zero.
+pub fn divCeilAssert(comptime T: type, numerator: T, denominator: T) T {
+    return divCeil(T, numerator, denominator) catch unreachable;
+}
+
 test "divCeil" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
