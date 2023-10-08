@@ -435,6 +435,13 @@ pub const Key = union(enum) {
             else => unreachable,
         };
     }
+
+    pub fn isNumericalType(self: Key) bool {
+        return switch (self) {
+            .int_type, .float_type => true,
+            else => false,
+        };
+    }
 };
 
 pub fn deinit(self: *Self, spv: *const Module) void {
