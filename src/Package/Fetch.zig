@@ -147,9 +147,10 @@ pub const JobQueue = struct {
                     \\
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
+                    const h = dep.hash orelse continue;
                     try buf.writer().print(
                         "            .{{ \"{}\", \"{}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h) },
                     );
                 }
 
@@ -178,9 +179,10 @@ pub const JobQueue = struct {
         const root_manifest = &root_fetch.manifest.?;
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
+            const h = dep.hash orelse continue;
             try buf.writer().print(
                 "    .{{ \"{}\", \"{}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(dep.hash.?) },
+                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h) },
             );
         }
         try buf.appendSlice("};\n");
