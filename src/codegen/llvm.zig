@@ -10333,8 +10333,20 @@ pub const FuncGen = struct {
         const o = fg.dg.object;
         const mod = o.module;
         const payload_llvm_ty = try o.lowerType(payload_ty);
+        const abi_size = payload_ty.abiSize(mod);
+
+        // llvm bug workarounds:
+        const workaround_explicit_mask = o.target.cpu.arch == .powerpc and abi_size >= 4;
+        const workaround_disable_truncate = o.target.cpu.arch == .wasm32 and abi_size >= 4;
+
+        if (workaround_disable_truncate) {
+            // see https://github.com/llvm/llvm-project/issues/64222
+            // disable the truncation codepath for larger that 32bits value - with this heuristic, the backend passes the test suite.
+            return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
+        }
+
         const load_llvm_ty = if (payload_ty.isAbiInt(mod))
-            try o.builder.intType(@intCast(payload_ty.abiSize(mod) * 8))
+            try o.builder.intType(@intCast(abi_size * 8))
         else
             payload_llvm_ty;
         const loaded = try fg.wip.load(access_kind, load_llvm_ty, payload_ptr, payload_alignment, "");
@@ -10345,7 +10357,15 @@ pub const FuncGen = struct {
             ), "")
         else
             loaded;
-        return fg.wip.conv(.unneeded, shifted, payload_llvm_ty, "");
+
+        const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
+            // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
+            var mask_val = try o.builder.intConst(payload_llvm_ty, -1);
+            mask_val = try o.builder.castConst(.zext, mask_val, load_llvm_ty);
+            break :blk try fg.wip.bin(.@"and", shifted, mask_val.toValue(), "");
+        } else shifted;
+
+        return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
     }
 
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
