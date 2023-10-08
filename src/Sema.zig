@@ -13075,13 +13075,13 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand = inst_data.get(sema.code);
 
     const result = mod.importFile(block.getFileScope(mod), operand) catch |err| switch (err) {
-        error.ImportOutsidePkgPath => {
-            return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
+        error.ImportOutsideModulePath => {
+            return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
-        error.PackageNotFound => {
+        error.ModuleNotFound => {
             //const name = try block.getFileScope(mod).mod.getName(sema.gpa, mod.*);
             //defer sema.gpa.free(name);
-            return sema.fail(block, operand_src, "no package named '{s}' available within package '{}'", .{
+            return sema.fail(block, operand_src, "no module named '{s}' available within module '{}'", .{
                 operand, block.getFileScope(mod).mod.root,
             });
         },
@@ -13112,7 +13112,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     const embed_file = mod.embedFile(block.getFileScope(mod), name) catch |err| switch (err) {
-        error.ImportOutsidePkgPath => {
+        error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
         else => {

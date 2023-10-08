@@ -4074,7 +4074,7 @@ pub fn importFile(
         return mod.importPkg(pkg);
     }
     if (!mem.endsWith(u8, import_string, ".zig")) {
-        return error.PackageNotFound;
+        return error.ModuleNotFound;
     }
     const gpa = mod.gpa;
 
@@ -4120,7 +4120,7 @@ pub fn importFile(
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
-        return error.ImportOutsidePkgPath;
+        return error.ImportOutsideModulePath;
     };
     errdefer gpa.free(sub_file_path);
 
@@ -4206,7 +4206,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
-        return error.ImportOutsidePkgPath;
+        return error.ImportOutsideModulePath;
     };
     errdefer gpa.free(sub_file_path);
 

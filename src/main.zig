@@ -4885,39 +4885,60 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             }
 
             try job_queue.createDependenciesModule(&dependencies_zig_src);
-        }
-        {
-            // Atomically create the file in a directory named after the hash of its contents.
-            const basename = "dependencies.zig";
-            const rand_int = std.crypto.random.int(u64);
-            const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ Package.Manifest.hex64(rand_int);
+
+            const deps_mod = m: {
+                // Atomically create the file in a directory named after the hash of its contents.
+                const basename = "dependencies.zig";
+                const rand_int = std.crypto.random.int(u64);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++
+                    Package.Manifest.hex64(rand_int);
+                {
+                    var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+                    defer tmp_dir.close();
+                    try tmp_dir.writeFile(basename, dependencies_zig_src.items);
+                }
+
+                var hh: Cache.HashHelper = .{};
+                hh.addBytes(build_options.version);
+                hh.addBytes(dependencies_zig_src.items);
+                const hex_digest = hh.final();
+
+                const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
+                try Package.Fetch.renameTmpIntoCache(
+                    local_cache_directory.handle,
+                    tmp_dir_sub_path,
+                    o_dir_sub_path,
+                );
+
+                break :m try Package.Module.create(arena, .{
+                    .root = .{
+                        .root_dir = local_cache_directory,
+                        .sub_path = o_dir_sub_path,
+                    },
+                    .root_src_path = basename,
+                });
+            };
             {
-                var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
-                defer tmp_dir.close();
-                try tmp_dir.writeFile(basename, dependencies_zig_src.items);
+                // We need a Module for each package's build.zig.
+                const hashes = job_queue.table.keys();
+                const fetches = job_queue.table.values();
+                try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
+                for (hashes, fetches) |hash, f| {
+                    if (f == &fetch) {
+                        // The first one is a dummy package for the current project.
+                        continue;
+                    }
+                    const m = try Package.Module.create(arena, .{
+                        .root = try f.package_root.clone(arena),
+                        .root_src_path = if (f.has_build_zig) Package.build_zig_basename else "",
+                    });
+                    const hash_cloned = try arena.dupe(u8, &hash);
+                    deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
+                }
             }
-
-            var hh: Cache.HashHelper = .{};
-            hh.addBytes(build_options.version);
-            hh.addBytes(dependencies_zig_src.items);
-            const hex_digest = hh.final();
-
-            const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
-            try Package.Fetch.renameTmpIntoCache(
-                local_cache_directory.handle,
-                tmp_dir_sub_path,
-                o_dir_sub_path,
-            );
-
-            const deps_mod = try Package.Module.create(arena, .{
-                .root = .{
-                    .root_dir = local_cache_directory,
-                    .sub_path = o_dir_sub_path,
-                },
-                .root_src_path = basename,
-            });
             try main_mod.deps.put(arena, "@dependencies", deps_mod);
         }
+
         try main_mod.deps.put(arena, "@build", &build_mod);
 
         const comp = Compilation.create(gpa, .{

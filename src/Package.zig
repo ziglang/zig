@@ -9,6 +9,13 @@ pub const Path = struct {
     /// Empty string means the root_dir is the path.
     sub_path: []const u8 = "",
 
+    pub fn clone(p: Path, arena: Allocator) Allocator.Error!Path {
+        return .{
+            .root_dir = try p.root_dir.clone(arena),
+            .sub_path = try arena.dupe(u8, p.sub_path),
+        };
+    }
+
     pub fn cwd() Path {
         return .{ .root_dir = Cache.Directory.cwd() };
     }

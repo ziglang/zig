@@ -109,7 +109,6 @@ pub const JobQueue = struct {
     /// build runner to obtain via `@import("@dependencies")`.
     pub fn createDependenciesModule(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
         const keys = jq.table.keys();
-        const values = jq.table.values();
 
         if (keys.len == 0)
             return createEmptyDependenciesModule(buf);
@@ -124,7 +123,11 @@ pub const JobQueue = struct {
             }
         }, .{ .keys = keys }));
 
-        for (keys[1..], values[1..]) |hash, fetch| {
+        for (keys, jq.table.values()) |hash, fetch| {
+            if (fetch == jq.all_fetches.items[0]) {
+                // The first one is a dummy package for the current project.
+                continue;
+            }
             try buf.writer().print(
                 \\    pub const {} = struct {{
                 \\        pub const build_root = "{q}";

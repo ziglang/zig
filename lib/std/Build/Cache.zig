@@ -9,6 +9,13 @@ pub const Directory = struct {
     path: ?[]const u8,
     handle: fs.Dir,
 
+    pub fn clone(d: Directory, arena: Allocator) Allocator.Error!Directory {
+        return .{
+            .path = if (d.path) |p| try arena.dupe(u8, p) else null,
+            .handle = d.handle,
+        };
+    }
+
     pub fn cwd() Directory {
         return .{
             .path = null,
