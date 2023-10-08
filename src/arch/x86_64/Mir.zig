@@ -342,14 +342,10 @@ pub const Inst = struct {
         div,
         ///
         int3,
-        /// Store integer with truncation
-        istt,
         /// Conditional jump
         j,
         /// Jump
         jmp,
-        /// Load floating-point value
-        ld,
         /// Load effective address
         lea,
         /// Load string
@@ -445,6 +441,19 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed single-precision floating-point values
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
+
+        /// Absolute value
+        abs,
+        /// Change sign
+        chs,
+        /// Free floating-point register
+        free,
+        /// Store integer with truncation
+        istt,
+        /// Load floating-point value
+        ld,
+        /// Store floating-point value
+        st,
 
         /// Pack with signed saturation
         ackssw,

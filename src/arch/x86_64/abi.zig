@@ -64,7 +64,7 @@ pub fn classifyWindows(ty: Type, mod: *Module) Class {
     }
 }
 
-pub const Context = enum { ret, arg, other };
+pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
@@ -120,7 +120,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         },
         .Float => switch (ty.floatBits(target)) {
             16 => {
-                if (ctx == .other) {
+                if (ctx == .field) {
                     result[0] = .memory;
                 } else {
                     // TODO clang doesn't allow __fp16 as .ret or .arg
@@ -140,7 +140,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                 // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
-                if (ctx == .other) {
+                if (ctx == .field) {
                     result[0] = .memory;
                     return result;
                 }
@@ -229,7 +229,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                 if (field_align != .none and field_align.compare(.lt, field_ty.abiAlignment(mod)))
                     return memory_class;
                 const field_size = field_ty.abiSize(mod);
-                const field_class_array = classifySystemV(field_ty, mod, .other);
+                const field_class_array = classifySystemV(field_ty, mod, .field);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -347,7 +347,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                     return memory_class;
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field_ty.toType(), mod, .other);
+                const field_class = classifySystemV(field_ty.toType(), mod, .field);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
@@ -444,7 +444,7 @@ pub const SysV = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
     pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
@@ -459,7 +459,7 @@ pub const Win64 = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ sse_avx_regs;
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
     pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
@@ -531,30 +531,32 @@ pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register 
 const gp_regs = [_]Register{
     .rax, .rcx, .rdx, .rbx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
 };
+const x87_regs = [_]Register{
+    .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7,
+};
 const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
-const allocatable_regs = gp_regs ++ sse_avx_regs;
-pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_regs);
+const allocatable_regs = gp_regs ++ x87_regs[0 .. x87_regs.len - 1] ++ sse_avx_regs;
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, allocatable_regs);
 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
     pub const gp: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = 0,
-            .end = gp_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .general_purpose) set.set(index);
+        break :blk set;
+    };
+    pub const x87: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .x87) set.set(index);
         break :blk set;
     };
     pub const sse: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = gp_regs.len,
-            .end = allocatable_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .sse) set.set(index);
         break :blk set;
     };
 };
