@@ -30,6 +30,14 @@ pub const Path = struct {
         };
     }
 
+    pub fn resolvePosix(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
+        if (sub_path.len == 0) return p;
+        return .{
+            .root_dir = p.root_dir,
+            .sub_path = try fs.path.resolvePosix(arena, &.{ p.sub_path, sub_path }),
+        };
+    }
+
     pub fn joinString(p: Path, allocator: Allocator, sub_path: []const u8) Allocator.Error![]u8 {
         const parts: []const []const u8 =
             if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };

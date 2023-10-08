@@ -248,7 +248,13 @@ pub fn run(f: *Fetch) RunError!void {
                 f.hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
-            f.package_root = try f.parent_package_root.join(arena, sub_path);
+            f.package_root = try f.parent_package_root.resolvePosix(arena, sub_path);
+            if (std.mem.startsWith(u8, f.package_root.sub_path, "../")) {
+                return f.fail(
+                    f.location_tok,
+                    try eb.addString("dependency path outside package"),
+                );
+            }
             try loadManifest(f, f.package_root);
             try checkBuildFileExistence(f);
             if (!f.job_queue.recursive) return;
