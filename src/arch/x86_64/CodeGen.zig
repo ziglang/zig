@@ -6063,6 +6063,127 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         switch (src_mcv) {
+            .register => |src_reg| {
+                const src_reg_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+                defer self.register_manager.unlockReg(src_reg_lock);
+
+                const dst_reg = if (field_rc.supersetOf(container_rc) and
+                    self.reuseOperand(inst, operand, 0, src_mcv))
+                    src_reg
+                else
+                    try self.copyToTmpRegister(Type.usize, .{ .register = src_reg });
+                const dst_mcv = MCValue{ .register = dst_reg };
+                const dst_lock = self.register_manager.lockReg(dst_reg);
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                if (field_off > 0) try self.genShiftBinOpMir(
+                    .{ ._r, .sh },
+                    Type.usize,
+                    dst_mcv,
+                    .{ .immediate = field_off },
+                );
+                if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(field_ty, dst_reg);
+
+                break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
+                    dst_mcv
+                else
+                    try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
+            },
+            .register_pair => |src_regs| {
+                const src_regs_lock = self.register_manager.lockRegsAssumeUnused(2, src_regs);
+                defer for (src_regs_lock) |lock| self.register_manager.unlockReg(lock);
+
+                const field_bit_size: u32 = @intCast(field_ty.bitSize(mod));
+                const src_reg = if (field_off + field_bit_size <= 64)
+                    src_regs[0]
+                else if (field_off >= 64)
+                    src_regs[1]
+                else {
+                    const dst_regs: [2]Register = if (field_rc.supersetOf(container_rc) and
+                        self.reuseOperand(inst, operand, 0, src_mcv)) src_regs else dst: {
+                        const dst_regs =
+                            try self.register_manager.allocRegs(2, .{ null, null }, field_rc);
+                        const dst_locks = self.register_manager.lockRegsAssumeUnused(2, dst_regs);
+                        defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
+
+                        try self.genSetReg(dst_regs[0], Type.usize, .{ .register = src_regs[0] });
+                        try self.genSetReg(dst_regs[1], Type.usize, .{ .register = src_regs[1] });
+                        break :dst dst_regs;
+                    };
+                    const dst_mcv = MCValue{ .register_pair = dst_regs };
+                    const dst_locks = self.register_manager.lockRegs(2, dst_regs);
+                    defer for (dst_locks) |dst_lock| if (dst_lock) |lock|
+                        self.register_manager.unlockReg(lock);
+
+                    if (field_off > 0) try self.genShiftBinOpMir(
+                        .{ ._r, .sh },
+                        Type.u128,
+                        dst_mcv,
+                        .{ .immediate = field_off },
+                    );
+
+                    if (field_bit_size <= 64) {
+                        if (self.regExtraBits(field_ty) > 0)
+                            try self.truncateRegister(field_ty, dst_regs[0]);
+                        break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
+                            .{ .register = dst_regs[0] }
+                        else
+                            try self.copyToRegisterWithInstTracking(inst, field_ty, .{
+                                .register = dst_regs[0],
+                            });
+                    }
+
+                    if (field_bit_size < 128) try self.truncateRegister(
+                        try mod.intType(.unsigned, @intCast(field_bit_size - 64)),
+                        dst_regs[1],
+                    );
+                    break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
+                        dst_mcv
+                    else
+                        try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
+                };
+
+                const dst_reg = try self.copyToTmpRegister(Type.usize, .{ .register = src_reg });
+                const dst_mcv = MCValue{ .register = dst_reg };
+                const dst_lock = self.register_manager.lockReg(dst_reg);
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                if (field_off % 64 > 0) try self.genShiftBinOpMir(
+                    .{ ._r, .sh },
+                    Type.usize,
+                    dst_mcv,
+                    .{ .immediate = field_off % 64 },
+                );
+                if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(field_ty, dst_reg);
+
+                break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
+                    dst_mcv
+                else
+                    try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
+            },
+            .register_overflow => |ro| {
+                switch (index) {
+                    // Get wrapped value for overflow operation.
+                    0 => break :result if (self.liveness.operandDies(inst, 0))
+                        .{ .register = ro.reg }
+                    else
+                        try self.copyToRegisterWithInstTracking(
+                            inst,
+                            Type.usize,
+                            .{ .register = ro.reg },
+                        ),
+                    // Get overflow bit.
+                    1 => if (self.liveness.operandDies(inst, 0)) {
+                        self.eflags_inst = inst;
+                        break :result .{ .eflags = ro.eflags };
+                    } else {
+                        const dst_reg = try self.register_manager.allocReg(inst, abi.RegisterClass.gp);
+                        try self.asmSetccRegister(dst_reg.to8(), ro.eflags);
+                        break :result .{ .register = dst_reg.to8() };
+                    },
+                    else => unreachable,
+                }
+            },
             .load_frame => |frame_addr| {
                 const field_abi_size: u32 = @intCast(field_ty.abiSize(mod));
                 if (field_off % 8 == 0) {
@@ -6166,56 +6287,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 else
                     try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
             },
-            .register => |reg| {
-                const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-                defer self.register_manager.unlockReg(reg_lock);
-
-                const dst_reg = if (src_mcv.isRegister() and field_rc.supersetOf(container_rc) and
-                    self.reuseOperand(inst, operand, 0, src_mcv))
-                    src_mcv.getReg().?
-                else
-                    try self.copyToTmpRegister(Type.usize, .{ .register = reg.to64() });
-                const dst_mcv = MCValue{ .register = dst_reg };
-                const dst_lock = self.register_manager.lockReg(dst_reg);
-                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
-
-                try self.genShiftBinOpMir(
-                    .{ ._r, .sh },
-                    Type.usize,
-                    dst_mcv,
-                    .{ .immediate = field_off },
-                );
-                if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(field_ty, dst_reg);
-
-                break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
-                    dst_mcv
-                else
-                    try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
-            },
-            .register_overflow => |ro| {
-                switch (index) {
-                    // Get wrapped value for overflow operation.
-                    0 => break :result if (self.liveness.operandDies(inst, 0))
-                        .{ .register = ro.reg }
-                    else
-                        try self.copyToRegisterWithInstTracking(
-                            inst,
-                            Type.usize,
-                            .{ .register = ro.reg },
-                        ),
-                    // Get overflow bit.
-                    1 => if (self.liveness.operandDies(inst, 0)) {
-                        self.eflags_inst = inst;
-                        break :result .{ .eflags = ro.eflags };
-                    } else {
-                        const dst_reg = try self.register_manager.allocReg(inst, abi.RegisterClass.gp);
-                        try self.asmSetccRegister(dst_reg.to8(), ro.eflags);
-                        break :result .{ .register = dst_reg.to8() };
-                    },
-                    else => unreachable,
-                }
-            },
-            else => return self.fail("TODO implement codegen struct_field_val for {}", .{src_mcv}),
+            else => return self.fail("TODO implement airStructFieldVal for {}", .{src_mcv}),
         }
     };
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
