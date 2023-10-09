@@ -80,8 +80,6 @@ pub const comptime_string_map = @import("comptime_string_map.zig");
 /// Cryptography.
 pub const crypto = @import("crypto.zig");
 
-pub const cstr = @import("cstr.zig");
-
 /// Debug printing, allocation and other debug helpers.
 pub const debug = @import("debug.zig");
 
