@@ -6427,139 +6427,233 @@ fn genShiftBinOpMir(
             }),
         }
     } else if (abi_size <= 16) {
-        const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
-        defer self.register_manager.unlockReg(tmp_lock);
-
-        const info: struct { offsets: [2]i32, double_tag: Mir.Inst.FixedTag } = switch (tag[0]) {
-            ._l => .{ .offsets = .{ 0, 8 }, .double_tag = .{ ._ld, .sh } },
-            ._r => .{ .offsets = .{ 8, 0 }, .double_tag = .{ ._rd, .sh } },
+        const info: struct { indices: [2]u31, double_tag: Mir.Inst.FixedTag } = switch (tag[0]) {
+            ._l => .{ .indices = .{ 0, 1 }, .double_tag = .{ ._ld, .sh } },
+            ._r => .{ .indices = .{ 1, 0 }, .double_tag = .{ ._rd, .sh } },
             else => unreachable,
         };
         switch (lhs_mcv) {
-            .load_frame => |dst_frame_addr| switch (rhs_mcv) {
-                .immediate => |rhs_imm| if (rhs_imm == 0) {} else if (rhs_imm < 64) {
-                    try self.asmRegisterMemory(
-                        .{ ._, .mov },
-                        tmp_reg,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
-                    );
-                    try self.asmMemoryRegisterImmediate(
+            .register_pair => |lhs_regs| switch (rhs_mcv) {
+                .immediate => |rhs_imm| if (rhs_imm > 0 and rhs_imm < 64) {
+                    try self.asmRegisterRegisterImmediate(
                         info.double_tag,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[1],
-                        }),
-                        tmp_reg,
+                        lhs_regs[info.indices[1]],
+                        lhs_regs[info.indices[0]],
                         Immediate.u(rhs_imm),
                     );
-                    try self.asmMemoryImmediate(
+                    try self.asmRegisterImmediate(
                         tag,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
+                        lhs_regs[info.indices[0]],
                         Immediate.u(rhs_imm),
                     );
                 } else {
                     assert(rhs_imm < 128);
-                    try self.asmRegisterMemory(
+                    try self.asmRegisterRegister(
                         .{ ._, .mov },
-                        tmp_reg,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
+                        lhs_regs[info.indices[1]],
+                        lhs_regs[info.indices[0]],
                     );
-                    if (rhs_imm > 64) {
-                        try self.asmRegisterImmediate(tag, tmp_reg, Immediate.u(rhs_imm - 64));
-                    }
-                    try self.asmMemoryRegister(
-                        .{ ._, .mov },
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[1],
-                        }),
-                        tmp_reg,
-                    );
-                    if (tag[0] == ._r and tag[1] == .sa) try self.asmMemoryImmediate(
+                    if (tag[0] == ._r and tag[1] == .sa) try self.asmRegisterImmediate(
                         tag,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
+                        lhs_regs[info.indices[0]],
                         Immediate.u(63),
-                    ) else {
-                        try self.asmRegisterRegister(.{ ._, .xor }, tmp_reg.to32(), tmp_reg.to32());
-                        try self.asmMemoryRegister(
-                            .{ ._, .mov },
-                            Memory.sib(.qword, .{
-                                .base = .{ .frame = dst_frame_addr.index },
-                                .disp = dst_frame_addr.off + info.offsets[0],
-                            }),
-                            tmp_reg,
-                        );
-                    }
+                    ) else try self.asmRegisterRegister(
+                        .{ ._, .xor },
+                        lhs_regs[info.indices[0]],
+                        lhs_regs[info.indices[0]],
+                    );
+                    if (rhs_imm > 64) try self.asmRegisterImmediate(
+                        tag,
+                        lhs_regs[info.indices[1]],
+                        Immediate.u(rhs_imm - 64),
+                    );
                 },
-                else => {
-                    const first_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-                    const first_lock = self.register_manager.lockRegAssumeUnused(first_reg);
-                    defer self.register_manager.unlockReg(first_lock);
+                .register => |rhs_reg| {
+                    const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
 
-                    const second_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-                    const second_lock = self.register_manager.lockRegAssumeUnused(second_reg);
-                    defer self.register_manager.unlockReg(second_lock);
-
-                    try self.genSetReg(.cl, Type.u8, rhs_mcv);
-                    try self.asmRegisterMemory(
-                        .{ ._, .mov },
-                        first_reg,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
-                    );
-                    try self.asmRegisterMemory(
-                        .{ ._, .mov },
-                        second_reg,
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[1],
-                        }),
-                    );
                     if (tag[0] == ._r and tag[1] == .sa) {
-                        try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, first_reg);
+                        try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, lhs_regs[info.indices[0]]);
                         try self.asmRegisterImmediate(tag, tmp_reg, Immediate.u(63));
                     } else try self.asmRegisterRegister(
                         .{ ._, .xor },
                         tmp_reg.to32(),
                         tmp_reg.to32(),
                     );
-                    try self.asmRegisterRegisterRegister(info.double_tag, second_reg, first_reg, .cl);
-                    try self.asmRegisterRegister(tag, first_reg, .cl);
-                    try self.asmRegisterImmediate(.{ ._, .cmp }, .cl, Immediate.u(64));
-                    try self.asmCmovccRegisterRegister(second_reg, first_reg, .ae);
-                    try self.asmCmovccRegisterRegister(first_reg, tmp_reg, .ae);
-                    try self.asmMemoryRegister(
-                        .{ ._, .mov },
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[1],
-                        }),
-                        second_reg,
+                    try self.asmRegisterRegisterRegister(
+                        info.double_tag,
+                        lhs_regs[info.indices[1]],
+                        lhs_regs[info.indices[0]],
+                        registerAlias(rhs_reg, 1),
                     );
-                    try self.asmMemoryRegister(
-                        .{ ._, .mov },
-                        Memory.sib(.qword, .{
-                            .base = .{ .frame = dst_frame_addr.index },
-                            .disp = dst_frame_addr.off + info.offsets[0],
-                        }),
-                        first_reg,
+                    try self.asmRegisterRegister(
+                        tag,
+                        lhs_regs[info.indices[0]],
+                        registerAlias(rhs_reg, 1),
                     );
+                    try self.asmRegisterImmediate(
+                        .{ ._, .cmp },
+                        registerAlias(rhs_reg, 1),
+                        Immediate.u(64),
+                    );
+                    try self.asmCmovccRegisterRegister(
+                        lhs_regs[info.indices[1]],
+                        lhs_regs[info.indices[0]],
+                        .ae,
+                    );
+                    try self.asmCmovccRegisterRegister(lhs_regs[info.indices[0]], tmp_reg, .ae);
                 },
+                else => return self.fail("TODO genShiftBinOpMir between {s} and {s}", .{
+                    @tagName(lhs_mcv),
+                    @tagName(rhs_mcv),
+                }),
+            },
+            .load_frame => |dst_frame_addr| {
+                const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                defer self.register_manager.unlockReg(tmp_lock);
+
+                switch (rhs_mcv) {
+                    .immediate => |rhs_imm| if (rhs_imm > 0 and rhs_imm < 64) {
+                        try self.asmRegisterMemory(
+                            .{ ._, .mov },
+                            tmp_reg,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                        );
+                        try self.asmMemoryRegisterImmediate(
+                            info.double_tag,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[1] * 8,
+                            }),
+                            tmp_reg,
+                            Immediate.u(rhs_imm),
+                        );
+                        try self.asmMemoryImmediate(
+                            tag,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                            Immediate.u(rhs_imm),
+                        );
+                    } else {
+                        assert(rhs_imm < 128);
+                        try self.asmRegisterMemory(
+                            .{ ._, .mov },
+                            tmp_reg,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                        );
+                        if (rhs_imm > 64) try self.asmRegisterImmediate(
+                            tag,
+                            tmp_reg,
+                            Immediate.u(rhs_imm - 64),
+                        );
+                        try self.asmMemoryRegister(
+                            .{ ._, .mov },
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[1] * 8,
+                            }),
+                            tmp_reg,
+                        );
+                        if (tag[0] == ._r and tag[1] == .sa) try self.asmMemoryImmediate(
+                            tag,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                            Immediate.u(63),
+                        ) else {
+                            try self.asmRegisterRegister(.{ ._, .xor }, tmp_reg.to32(), tmp_reg.to32());
+                            try self.asmMemoryRegister(
+                                .{ ._, .mov },
+                                Memory.sib(.qword, .{
+                                    .base = .{ .frame = dst_frame_addr.index },
+                                    .disp = dst_frame_addr.off + info.indices[0] * 8,
+                                }),
+                                tmp_reg,
+                            );
+                        }
+                    },
+                    .register => |rhs_reg| {
+                        const first_reg =
+                            try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                        const first_lock = self.register_manager.lockRegAssumeUnused(first_reg);
+                        defer self.register_manager.unlockReg(first_lock);
+
+                        const second_reg =
+                            try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                        const second_lock = self.register_manager.lockRegAssumeUnused(second_reg);
+                        defer self.register_manager.unlockReg(second_lock);
+
+                        try self.asmRegisterMemory(
+                            .{ ._, .mov },
+                            first_reg,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                        );
+                        try self.asmRegisterMemory(
+                            .{ ._, .mov },
+                            second_reg,
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[1] * 8,
+                            }),
+                        );
+                        if (tag[0] == ._r and tag[1] == .sa) {
+                            try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, first_reg);
+                            try self.asmRegisterImmediate(tag, tmp_reg, Immediate.u(63));
+                        } else try self.asmRegisterRegister(
+                            .{ ._, .xor },
+                            tmp_reg.to32(),
+                            tmp_reg.to32(),
+                        );
+                        try self.asmRegisterRegisterRegister(
+                            info.double_tag,
+                            second_reg,
+                            first_reg,
+                            registerAlias(rhs_reg, 1),
+                        );
+                        try self.asmRegisterRegister(tag, first_reg, registerAlias(rhs_reg, 1));
+                        try self.asmRegisterImmediate(
+                            .{ ._, .cmp },
+                            registerAlias(rhs_reg, 1),
+                            Immediate.u(64),
+                        );
+                        try self.asmCmovccRegisterRegister(second_reg, first_reg, .ae);
+                        try self.asmCmovccRegisterRegister(first_reg, tmp_reg, .ae);
+                        try self.asmMemoryRegister(
+                            .{ ._, .mov },
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[1] * 8,
+                            }),
+                            second_reg,
+                        );
+                        try self.asmMemoryRegister(
+                            .{ ._, .mov },
+                            Memory.sib(.qword, .{
+                                .base = .{ .frame = dst_frame_addr.index },
+                                .disp = dst_frame_addr.off + info.indices[0] * 8,
+                            }),
+                            first_reg,
+                        );
+                    },
+                    else => return self.fail("TODO genShiftBinOpMir between {s} and {s}", .{
+                        @tagName(lhs_mcv),
+                        @tagName(rhs_mcv),
+                    }),
+                }
             },
             else => return self.fail("TODO genShiftBinOpMir between {s} and {s}", .{
                 @tagName(lhs_mcv),
