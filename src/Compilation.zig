@@ -1290,6 +1290,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const builtin_mod = try Package.Module.create(arena, .{
                 .root = .{ .root_dir = zig_cache_artifact_directory },
                 .root_src_path = "builtin.zig",
+                .fully_qualified_name = "builtin",
             });
 
             // When you're testing std, the main module is std. In that case,
@@ -1319,6 +1320,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                         .sub_path = "std",
                     },
                     .root_src_path = "std.zig",
+                    .fully_qualified_name = "std",
                 });
 
             const root_mod = if (options.is_test) root_mod: {
@@ -1329,6 +1331,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                             .sub_path = std.fs.path.dirname(test_runner) orelse "",
                         },
                         .root_src_path = std.fs.path.basename(test_runner),
+                        .fully_qualified_name = "root",
                     });
 
                     pkg.deps = try main_mod.deps.clone(arena);
@@ -1338,6 +1341,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                         .root_dir = options.zig_lib_directory,
                     },
                     .root_src_path = "test_runner.zig",
+                    .fully_qualified_name = "root",
                 });
 
                 break :root_mod test_mod;
@@ -1349,6 +1353,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                         .root_dir = options.zig_lib_directory,
                     },
                     .root_src_path = "compiler_rt.zig",
+                    .fully_qualified_name = "compiler_rt",
                 });
             } else null;
 
@@ -2616,23 +2621,19 @@ fn reportMultiModuleErrors(mod: *Module) !void {
                 errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
                 note.* = switch (ref) {
                     .import => |loc| blk: {
-                        //const name = try loc.file_scope.mod.getName(mod.gpa, mod.*);
-                        //defer mod.gpa.free(name);
                         break :blk try Module.ErrorMsg.init(
                             mod.gpa,
                             loc,
-                            "imported from module {}",
-                            .{loc.file_scope.mod.root},
+                            "imported from module {s}",
+                            .{loc.file_scope.mod.fully_qualified_name},
                         );
                     },
                     .root => |pkg| blk: {
-                        //const name = try pkg.getName(mod.gpa, mod.*);
-                        //defer mod.gpa.free(name);
                         break :blk try Module.ErrorMsg.init(
                             mod.gpa,
                             .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                            "root of module {}",
-                            .{pkg.root},
+                            "root of module {s}",
+                            .{pkg.fully_qualified_name},
                         );
                     },
                 };
@@ -6362,6 +6363,7 @@ fn buildOutputFromZig(
     var main_mod: Package.Module = .{
         .root = .{ .root_dir = comp.zig_lib_directory },
         .root_src_path = src_basename,
+        .fully_qualified_name = "root",
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();

@@ -1022,13 +1022,10 @@ fn buildOutputType(
                             }
                         }
 
-                        var mod_it = modules.iterator();
-                        while (mod_it.next()) |kv| {
-                            if (std.mem.eql(u8, mod_name, kv.key_ptr.*)) {
-                                fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{
-                                    mod_name, root_src, kv.value_ptr.mod.root_src_path,
-                                });
-                            }
+                        if (modules.get(mod_name)) |value| {
+                            fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{
+                                mod_name, root_src, value.mod.root_src_path,
+                            });
                         }
 
                         try modules.put(mod_name, .{
@@ -1038,6 +1035,7 @@ fn buildOutputType(
                                     .sub_path = fs.path.dirname(root_src) orelse "",
                                 },
                                 .root_src_path = fs.path.basename(root_src),
+                                .fully_qualified_name = mod_name,
                             }),
                             .deps_str = deps_str,
                         });
@@ -3247,6 +3245,7 @@ fn buildOutputType(
                     src_path
                 else
                     try fs.path.relative(arena, p, src_path),
+                .fully_qualified_name = "root",
             });
         } else {
             break :blk try Package.Module.create(arena, .{
@@ -3255,6 +3254,7 @@ fn buildOutputType(
                     .sub_path = fs.path.dirname(src_path) orelse "",
                 },
                 .root_src_path = fs.path.basename(src_path),
+                .fully_qualified_name = "root",
             });
         }
     } else null;
@@ -4820,16 +4820,19 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     .sub_path = fs.path.dirname(build_runner_path) orelse "",
                 },
                 .root_src_path = fs.path.basename(build_runner_path),
+                .fully_qualified_name = "root",
             }
         else
             .{
                 .root = .{ .root_dir = zig_lib_directory },
                 .root_src_path = "build_runner.zig",
+                .fully_qualified_name = "root",
             };
 
         var build_mod: Package.Module = .{
             .root = .{ .root_dir = build_root },
             .root_src_path = build_zig_basename,
+            .fully_qualified_name = "root.@build",
         };
         if (build_options.only_core_functionality) {
             try createEmptyDependenciesModule(arena, &main_mod, local_cache_directory);
@@ -4921,6 +4924,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     const m = try Package.Module.create(arena, .{
                         .root = try f.package_root.clone(arena),
                         .root_src_path = Package.build_zig_basename,
+                        .fully_qualified_name = try std.fmt.allocPrint(
+                            arena,
+                            "root.@dependencies.{s}",
+                            .{&hash},
+                        ),
                     });
                     const hash_cloned = try arena.dupe(u8, &hash);
                     deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
@@ -5181,6 +5189,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
             file.mod = try Package.Module.create(arena, .{
                 .root = Package.Path.cwd(),
                 .root_src_path = file.sub_file_path,
+                .fully_qualified_name = "root",
             });
 
             file.zir = try AstGen.generate(gpa, file.tree);
@@ -5389,6 +5398,7 @@ fn fmtPathFile(
         file.mod = try Package.Module.create(fmt.arena, .{
             .root = Package.Path.cwd(),
             .root_src_path = file.sub_file_path,
+            .fully_qualified_name = "root",
         });
 
         if (stat.size > max_src_size)
@@ -5472,6 +5482,7 @@ pub fn putAstErrorsIntoBundle(
     file.mod = try Package.Module.create(gpa, .{
         .root = Package.Path.cwd(),
         .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
     });
     defer gpa.destroy(file.mod);
 
@@ -6040,6 +6051,7 @@ pub fn cmdAstCheck(
     file.mod = try Package.Module.create(arena, .{
         .root = Package.Path.cwd(),
         .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
     });
 
     file.tree = try Ast.parse(gpa, file.source, .zig);
@@ -6211,6 +6223,7 @@ pub fn cmdChangelist(
     file.mod = try Package.Module.create(arena, .{
         .root = Package.Path.cwd(),
         .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
     });
 
     const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
@@ -6846,6 +6859,7 @@ fn createDependenciesModule(
             .sub_path = o_dir_sub_path,
         },
         .root_src_path = basename,
+        .fully_qualified_name = "root.@dependencies",
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;

@@ -5798,6 +5798,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
         },
         .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
+        .fully_qualified_name = c_import_res.out_zig_path,
     });
 
     const result = mod.importPkg(c_import_mod) catch |err|
@@ -13076,10 +13077,8 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
         error.ModuleNotFound => {
-            //const name = try block.getFileScope(mod).mod.getName(sema.gpa, mod.*);
-            //defer sema.gpa.free(name);
-            return sema.fail(block, operand_src, "no module named '{s}' available within module '{}'", .{
-                operand, block.getFileScope(mod).mod.root,
+            return sema.fail(block, operand_src, "no module named '{s}' available within module {s}", .{
+                operand, block.getFileScope(mod).mod.fully_qualified_name,
             });
         },
         else => {

@@ -129,7 +129,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\}
         , &[_][]const u8{
             ":1:1: error: file exists in multiple modules",
-            ":1:1: note: root of module root.foo",
+            ":1:1: note: root of module foo",
             ":3:17: note: imported from module root",
         });
         case.addSourceFile("foo.zig",
