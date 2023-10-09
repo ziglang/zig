@@ -637,10 +637,7 @@ fn ReadConsoleWithUtf16ToUtf8Conversion(hConsoleInput: HANDLE, buffer: []u8) Rea
                     else => |err| return unexpectedError(err),
                 }
             }
-            if (utf16_code_unit == 0x000D) {
-                // CR should always be followed by an LF, so just discard it
-                continue;
-            } else if (utf16_code_unit >= 0xD800 and utf16_code_unit <= 0xDBFF) {
+            if (utf16_code_unit >= 0xD800 and utf16_code_unit <= 0xDBFF) {
                 // When a high surrogate is encountered, store it into the UTF-16 buffer
                 assert(handle_data.utf16_buffer.code_units_used == 0);
                 handle_data.utf16_buffer.data[0] = utf16_code_unit;
@@ -855,23 +852,6 @@ fn WriteConsoleWithUtf8ToUtf16Conversion(handle: HANDLE, bytes: []const u8) Writ
                 utf16_code_units = std.unicode.utf8ToUtf16Le(&utf16_buffer, handle_data.utf8_buffer.data[0..utf8_byte_sequence_length]) catch return error.InvalidUtf8;
                 byte_index += bytes_needed;
             }
-        }
-        // Handle LF to CRLF conversion
-        switch (utf16_buffer[0]) {
-            0x000D => {
-                handle_data.last_character_written_is_CR = true;
-            },
-            0x000A => {
-                if (handle_data.last_character_written_is_CR) {
-                    handle_data.last_character_written_is_CR = false;
-                } else {
-                    utf16_buffer = .{ 0x000D, 0x000A };
-                    utf16_code_units = 2;
-                }
-            },
-            else => {
-                handle_data.last_character_written_is_CR = false;
-            },
         }
         var utf16_code_units_written: DWORD = undefined;
         if (kernel32.WriteConsoleW(handle, &utf16_buffer, @truncate(utf16_code_units), &utf16_code_units_written, null) == FALSE) {
@@ -5534,7 +5514,6 @@ const ConsoleHandleData = struct {
     handle: ?HANDLE = null,
     utf8_buffer: Utf8Buffer = .{},
     utf16_buffer: Utf16Buffer = .{},
-    last_character_written_is_CR: bool = false,
 
     const Utf8Buffer = struct {
         data: [4]u8 = .{ 0x00, 0x00, 0x00, 0x00 },
@@ -5581,7 +5560,6 @@ fn getConsoleHandleData(handle: HANDLE) ConsoleHandleDataError!*ConsoleHandleDat
             console_handle_data_array[first_unassigned_index].is_assigned = true;
             console_handle_data_array[first_unassigned_index].handle = handle;
             console_handle_data_array[first_unassigned_index].utf8_buffer.bytes_used = 0;
-            console_handle_data_array[first_unassigned_index].last_character_written_is_CR = false;
             return &console_handle_data_array[first_unassigned_index];
         } else {
             return error.ConsoleHandleLimitReached;
