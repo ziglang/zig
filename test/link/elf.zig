@@ -39,6 +39,7 @@ pub fn build(b: *Build) void {
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
+    elf_step.dependOn(testStrip(b, .{ .target = musl_target }));
 
     // glibc tests
     elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target }));
@@ -78,6 +79,9 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testPltGot(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPreinitArray(b, .{ .target = glibc_target }));
     elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -1417,7 +1421,6 @@ fn testLinkOrder(b: *Build, opts: Options) *Step {
     //     exe.addLibraryPath(lib.getEmittedBinDirectory());
     //     exe.addRPath(lib.getEmittedBinDirectory());
     //     exe.linkLibC();
-    //     exe.verbose_link = true;
 
     //     const check = exe.checkObject();
     //     check.checkInDynamicSection();
@@ -1435,7 +1438,6 @@ fn testLinkOrder(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(dso.getEmittedBinDirectory());
         exe.addRPath(dso.getEmittedBinDirectory());
         exe.linkLibC();
-        exe.verbose_link = true;
 
         const check = exe.checkObject();
         check.checkInDynamicSection();
@@ -1700,6 +1702,223 @@ fn testSharedAbsSymbol(b: *Build, opts: Options) *Step {
     //     // check.checkInSymtab();
     //     // check.checkNotPresent("foo");
     //     test_step.dependOn(&check.step);
+    // }
+
+    return test_step;
+}
+
+fn testStrip(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "strip", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\int main() {
+        \\  printf("Hello!\n");
+        \\  return 0;
+        \\}
+    , &.{});
+    obj.linkLibC();
+
+    {
+        const exe = addExecutable(b, "main1", opts);
+        exe.addObject(obj);
+        exe.strip = false;
+        exe.linkLibC();
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("section headers");
+        check.checkExact("name .debug_info");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        exe.addObject(obj);
+        exe.strip = true;
+        exe.linkLibC();
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("section headers");
+        check.checkNotPresent("name .debug_info");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsDfStaticTls(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-df-static-tls", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\static _Thread_local int foo = 5;
+        \\void mutate() { ++foo; }
+        \\int bar() { return foo; }
+    , &.{"-ftls-model=initial-exec"});
+    obj.force_pic = true;
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(obj);
+        // dso.link_relax = true;
+
+        const check = dso.checkObject();
+        check.checkInDynamicSection();
+        check.checkContains("STATIC_TLS");
+        test_step.dependOn(&check.step);
+    }
+
+    // TODO add -Wl,--no-relax
+    // {
+    //     const dso = addSharedLibrary(b, "a", opts);
+    //     dso.addObject(obj);
+    //     dso.link_relax = false;
+
+    //     const check = dso.checkObject();
+    //     check.checkInDynamicSection();
+    //     check.checkContains("STATIC_TLS");
+    //     test_step.dependOn(&check.step);
+    // }
+
+    return test_step;
+}
+
+fn testTlsDso(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-dso", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\extern _Thread_local int foo;
+        \\_Thread_local int bar;
+        \\int get_foo1() { return foo; }
+        \\int get_bar1() { return bar; }
+    , &.{});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\_Thread_local int foo;
+        \\extern _Thread_local int bar;
+        \\int get_foo1();
+        \\int get_bar1();
+        \\int get_foo2() { return foo; }
+        \\int get_bar2() { return bar; }
+        \\int main() {
+        \\  foo = 5;
+        \\  bar = 3;
+        \\  printf("%d %d %d %d %d %d\n",
+        \\         foo, bar,
+        \\         get_foo1(), get_bar1(),
+        \\         get_foo2(), get_bar2());
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("5 3 5 3 5 3\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsGd(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-gd", opts);
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x1 = 1;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x2;
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int x3;
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int x4;
+        \\int get_x5();
+        \\int get_x6();
+        \\int main() {
+        \\  x2 = 2;
+        \\  printf("%d %d %d %d %d %d\n", x1, x2, x3, x4, get_x5(), get_x6());
+        \\  return 0;
+        \\}
+    , &.{});
+    main_o.linkLibC();
+    main_o.force_pic = true;
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x3 = 3;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x5 = 5;
+        \\int get_x5() { return x5; }
+    , &.{});
+    a_o.force_pic = true;
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x4 = 4;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x6 = 6;
+        \\int get_x6() { return x6; }
+    , &.{});
+    b_o.force_pic = true;
+
+    const exp_stdout = "1 2 3 4 5 6\n";
+
+    const dso1 = addSharedLibrary(b, "a", opts);
+    dso1.addObject(a_o);
+
+    const dso2 = addSharedLibrary(b, "b", opts);
+    dso2.addObject(b_o);
+    // dso2.link_relax = false; // TODO
+
+    {
+        const exe = addExecutable(b, "main1", opts);
+        exe.addObject(main_o);
+        exe.linkLibrary(dso1);
+        exe.linkLibrary(dso2);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        exe.addObject(main_o);
+        // exe.link_relax = false; // TODO
+        exe.linkLibrary(dso1);
+        exe.linkLibrary(dso2);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    // https://github.com/ziglang/zig/issues/17430 ??
+    // {
+    //     const exe = addExecutable(b, "main3", opts);
+    //     exe.addObject(main_o);
+    //     exe.linkLibrary(dso1);
+    //     exe.linkLibrary(dso2);
+    //     exe.linkage = .static;
+
+    //     const run = addRunArtifact(exe);
+    //     run.expectStdOutEqual(exp_stdout);
+    //     test_step.dependOn(&run.step);
+    // }
+
+    // {
+    //     const exe = addExecutable(b, "main4", opts);
+    //     exe.addObject(main_o);
+    //     // exe.link_relax = false; // TODO
+    //     exe.linkLibrary(dso1);
+    //     exe.linkLibrary(dso2);
+    //     exe.linkage = .static;
+
+    //     const run = addRunArtifact(exe);
+    //     run.expectStdOutEqual(exp_stdout);
+    //     test_step.dependOn(&run.step);
     // }
 
     return test_step;
