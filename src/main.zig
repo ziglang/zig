@@ -6764,7 +6764,7 @@ fn cmdFetch(
         .prog_node = root_prog_node,
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
-        .allow_missing_paths_field = true,
+        .allow_missing_paths_field = false,
 
         .package_root = undefined,
         .error_bundle = undefined,
