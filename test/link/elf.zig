@@ -21,6 +21,7 @@ pub fn build(b: *Build) void {
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
     // Exercise linker with LLVM backend
+    // musl tests
     elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
     elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
@@ -29,11 +30,17 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
     elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
     elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
+    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));
+    // https://github.com/ziglang/zig/issues/17449
+    // elf_step.dependOn(testLargeBss(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+    // https://github.com/ziglang/zig/issues/17451
+    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 
+    // glibc tests
     elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17430
     // elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target }));
@@ -63,7 +70,13 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testInitArrayOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17451
+    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testPltGot(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testPreinitArray(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -1353,6 +1366,85 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLargeBss(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "large-bss", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\char arr[0x100000000];
+        \\int main() {
+        \\  return arr[2000];
+        \\}
+    , &.{});
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLinkOrder(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "link-order", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj, "void foo() {}", &.{});
+    obj.force_pic = true;
+
+    const dso = addSharedLibrary(b, "a", opts);
+    dso.addObject(obj);
+
+    const lib = addStaticLibrary(b, "b", opts);
+    lib.addObject(obj);
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\void foo();
+        \\int main() {
+        \\  foo();
+        \\}
+    , &.{});
+
+    // https://github.com/ziglang/zig/issues/17450
+    // {
+    //     const exe = addExecutable(b, "main1", opts);
+    //     exe.addObject(main_o);
+    //     exe.linkSystemLibrary2("a", .{});
+    //     exe.addLibraryPath(dso.getEmittedBinDirectory());
+    //     exe.addRPath(dso.getEmittedBinDirectory());
+    //     exe.linkSystemLibrary2("b", .{});
+    //     exe.addLibraryPath(lib.getEmittedBinDirectory());
+    //     exe.addRPath(lib.getEmittedBinDirectory());
+    //     exe.linkLibC();
+    //     exe.verbose_link = true;
+
+    //     const check = exe.checkObject();
+    //     check.checkInDynamicSection();
+    //     check.checkContains("libb.so");
+    //     test_step.dependOn(&check.step);
+    // }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        exe.addObject(main_o);
+        exe.linkSystemLibrary2("b", .{});
+        exe.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.addRPath(lib.getEmittedBinDirectory());
+        exe.linkSystemLibrary2("a", .{});
+        exe.addLibraryPath(dso.getEmittedBinDirectory());
+        exe.addRPath(dso.getEmittedBinDirectory());
+        exe.linkLibC();
+        exe.verbose_link = true;
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkNotPresent("libb.so");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
 fn testLinkingC(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-c", opts);
 
@@ -1438,6 +1530,23 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testNoEhFrameHdr(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "no-eh-frame-hdr", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.link_eh_frame_hdr = false;
+    exe.linkLibC();
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkNotPresent("name .eh_frame_hdr");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn testPie(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "hello-pie", opts);
 
@@ -1465,6 +1574,70 @@ fn testPie(b: *Build, opts: Options) *Step {
     check.checkExact("section headers");
     check.checkExact("name .dynamic");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testPltGot(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "plt-got", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\#include <stdio.h>
+        \\void ignore(void *foo) {}
+        \\void hello() {
+        \\  printf("Hello world\n");
+        \\}
+    , &.{});
+    dso.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\void ignore(void *);
+        \\int hello();
+        \\void foo() { ignore(hello); }
+        \\int main() { hello(); }
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.force_pic = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testPreinitArray(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "preinit-array", opts);
+
+    {
+        const obj = addObject(b, "obj", opts);
+        addCSourceBytes(obj, "void _start() {}", &.{});
+
+        const exe = addExecutable(b, "main1", opts);
+        exe.addObject(obj);
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkNotPresent("PREINIT_ARRAY");
+    }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        addCSourceBytes(exe,
+            \\void preinit_fn() {}
+            \\int main() {}
+            \\__attribute__((section(".preinit_array")))
+            \\void *preinit[] = { preinit_fn };
+        , &.{});
+        exe.linkLibC();
+
+        const check = exe.checkObject();
+        check.checkInDynamicSection();
+        check.checkContains("PREINIT_ARRAY");
+    }
 
     return test_step;
 }
