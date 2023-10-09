@@ -17,16 +17,6 @@ pub fn build(b: *Build) void {
         .abi = .gnu,
     };
 
-    var dynamic_linker: ?[]const u8 = null;
-    if (std.zig.system.NativeTargetInfo.detect(.{})) |host| blk: {
-        if (host.target.cpu.arch != glibc_target.cpu_arch.? or
-            host.target.os.tag != glibc_target.os_tag.? or
-            host.target.abi != glibc_target.abi.?) break :blk;
-        if (host.dynamic_linker.get()) |path| {
-            dynamic_linker = b.dupe(path);
-        }
-    } else |_| {}
-
     // Exercise linker with self-hosted backend (no LLVM)
     // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
 
@@ -42,17 +32,20 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
     elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
 
-    elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testCopyrel(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testCopyrelAlias(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
-    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target, .dynamic_linker = dynamic_linker }));
+    elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testCopyrel(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testCopyrelAlias(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -110,16 +103,16 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
     main_o.linkLibC();
 
     const libfoo = addSharedLibrary(b, "foo", opts);
-    addCSourceBytes(libfoo, "int foo() { return 42; }", &.{"-fPIC"});
+    addCSourceBytes(libfoo, "int foo() { return 42; }", &.{});
 
     const libbar = addSharedLibrary(b, "bar", opts);
-    addCSourceBytes(libbar, "int bar() { return 42; }", &.{"-fPIC"});
+    addCSourceBytes(libbar, "int bar() { return 42; }", &.{});
 
     const libbaz = addSharedLibrary(b, "baz", opts);
     addCSourceBytes(libbaz,
         \\int foo();
         \\int baz() { return foo(); }
-    , &.{"-fPIC"});
+    , &.{});
 
     {
         const exe = addExecutable(b, "test", opts);
@@ -188,7 +181,7 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
         \\void *bar() {
         \\  return bar;
         \\}
-    , &.{"-fPIC"});
+    , &.{});
 
     const b_o = addObject(b, "obj", opts);
     addCSourceBytes(b_o,
@@ -196,7 +189,8 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
         \\void *baz() {
         \\  return bar;
         \\}
-    , &.{"-fPIC"});
+    , &.{});
+    b_o.force_pic = true;
 
     const main_o = addObject(b, "main", opts);
     addCSourceBytes(main_o,
@@ -210,8 +204,9 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
         \\  assert(bar == baz());
         \\  return 0;
         \\}
-    , &.{"-fno-PIC"});
+    , &.{});
     main_o.linkLibC();
+    main_o.force_pic = false;
 
     const exe = addExecutable(b, "main", opts);
     exe.addObject(main_o);
@@ -330,7 +325,7 @@ fn testCopyrel(b: *Build, opts: Options) *Step {
     addCSourceBytes(dso,
         \\int foo = 3;
         \\int bar = 5;
-    , &.{"-fPIC"});
+    , &.{});
 
     const exe = addExecutable(b, "main", opts);
     addCSourceBytes(exe,
@@ -360,7 +355,7 @@ fn testCopyrelAlias(b: *Build, opts: Options) *Step {
         \\int foo = 42;
         \\extern int bar __attribute__((alias("foo")));
         \\extern int baz __attribute__((alias("foo")));
-    , &.{"-fPIC"});
+    , &.{});
 
     const exe = addExecutable(b, "main", opts);
     addCSourceBytes(exe,
@@ -371,13 +366,14 @@ fn testCopyrelAlias(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %d\n", foo, *get_bar(), &foo == get_bar());
         \\  return 0;
         \\}
-    , &.{"-fno-PIC"});
+    , &.{});
     addCSourceBytes(exe,
         \\extern int bar;
         \\int *get_bar() { return &bar; }
-    , &.{"-fno-PIC"});
+    , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    exe.force_pic = false;
     exe.pie = false;
 
     const run = addRunArtifact(exe);
@@ -391,21 +387,22 @@ fn testCopyrelAlignment(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "copyrel-alignment", opts);
 
     const a_so = addSharedLibrary(b, "a", opts);
-    addCSourceBytes(a_so, "__attribute__((aligned(32))) int foo = 5;", &.{"-fPIC"});
+    addCSourceBytes(a_so, "__attribute__((aligned(32))) int foo = 5;", &.{});
 
     const b_so = addSharedLibrary(b, "b", opts);
-    addCSourceBytes(b_so, "__attribute__((aligned(8))) int foo = 5;", &.{"-fPIC"});
+    addCSourceBytes(b_so, "__attribute__((aligned(8))) int foo = 5;", &.{});
 
     const c_so = addSharedLibrary(b, "c", opts);
-    addCSourceBytes(c_so, "__attribute__((aligned(256))) int foo = 5;", &.{"-fPIC"});
+    addCSourceBytes(c_so, "__attribute__((aligned(256))) int foo = 5;", &.{});
 
     const obj = addObject(b, "main", opts);
     addCSourceBytes(obj,
         \\#include <stdio.h>
         \\extern int foo;
         \\int main() { printf("%d\n", foo); }
-    , &.{"-fno-PIE"});
+    , &.{});
     obj.linkLibC();
+    obj.force_pic = false;
 
     const exp_stdout = "5\n";
 
@@ -485,7 +482,7 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
         \\void hello() {
         \\  real_hello();
         \\}
-    , &.{"-fPIC"});
+    , &.{});
     dso.linkLibC();
 
     const exe = addExecutable(b, "test", opts);
@@ -517,7 +514,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\extern int foo;
         \\int bar = 5;
         \\int baz() { return foo; }
-    , &.{"-fPIC"});
+    , &.{});
     dso.linkLibC();
 
     const obj = addObject(b, "obj", opts);
@@ -628,7 +625,7 @@ fn testExportDynamic(b: *Build, opts: Options) *Step {
     );
 
     const dso = addSharedLibrary(b, "a", opts);
-    addCSourceBytes(dso, "int baz = 10;", &.{"-fPIC"});
+    addCSourceBytes(dso, "int baz = 10;", &.{});
 
     const exe = addExecutable(b, "main", opts);
     addCSourceBytes(exe,
@@ -662,7 +659,7 @@ fn testExportSymbolsFromExe(b: *Build, opts: Options) *Step {
         \\void foo() {
         \\  expfn1();
         \\}
-    , &.{"-fPIC"});
+    , &.{});
 
     const exe = addExecutable(b, "main", opts);
     addCSourceBytes(exe,
@@ -798,7 +795,7 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
         \\  hello();
         \\  world();
         \\}
-    , &.{"-fPIC"});
+    , &.{});
     dso.link_function_sections = true;
     dso.linkLibC();
 
@@ -989,7 +986,6 @@ const Options = struct {
     target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
-    dynamic_linker: ?[]const u8 = null,
 };
 
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
@@ -1005,15 +1001,13 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
 }
 
 fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
-    const exe = b.addExecutable(.{
+    return b.addExecutable(.{
         .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
-    exe.link_dynamic_linker = opts.dynamic_linker;
-    return exe;
 }
 
 fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
@@ -1037,15 +1031,13 @@ fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
 }
 
 fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    const dso = b.addSharedLibrary(.{
+    return b.addSharedLibrary(.{
         .name = name,
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
         .use_lld = false,
     });
-    dso.link_dynamic_linker = opts.dynamic_linker;
-    return dso;
 }
 
 fn addRunArtifact(comp: *Compile) *Run {
