@@ -634,6 +634,9 @@ pub const ExecutableOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -652,7 +655,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -667,6 +670,9 @@ pub const ObjectOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -683,7 +689,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -699,6 +705,9 @@ pub const SharedLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -717,7 +726,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -733,6 +742,9 @@ pub const StaticLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -751,7 +763,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -769,6 +781,9 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -787,7 +802,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 

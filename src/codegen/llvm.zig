@@ -892,21 +892,24 @@ pub const Object = struct {
                     build_options.semver.patch,
                 });
 
-                // We fully resolve all paths at this point to avoid lack of source line info in stack
-                // traces or lack of debugging information which, if relative paths were used, would
-                // be very location dependent.
+                // We fully resolve all paths at this point to avoid lack of
+                // source line info in stack traces or lack of debugging
+                // information which, if relative paths were used, would be
+                // very location dependent.
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
                 var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const compile_unit_dir = blk: {
-                    const path = d: {
-                        const mod = options.module orelse break :d ".";
-                        break :d mod.root_pkg.root_src_directory.path orelse ".";
-                    };
-                    if (std.fs.path.isAbsolute(path)) break :blk path;
-                    break :blk std.os.realpath(path, &buf) catch path; // If realpath fails, fallback to whatever path was
+                const compile_unit_dir_z = blk: {
+                    if (options.module) |mod| {
+                        const d = try mod.root_mod.root.joinStringZ(builder.gpa, "");
+                        if (std.fs.path.isAbsolute(d)) break :blk d;
+                        const abs = std.fs.realpath(d, &buf) catch break :blk d;
+                        builder.gpa.free(d);
+                        break :blk try builder.gpa.dupeZ(u8, abs);
+                    }
+                    const cwd = try std.process.getCwd(&buf);
+                    break :blk try builder.gpa.dupeZ(u8, cwd);
                 };
-                const compile_unit_dir_z = try builder.gpa.dupeZ(u8, compile_unit_dir);
                 defer builder.gpa.free(compile_unit_dir_z);
 
                 builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
@@ -1833,14 +1836,11 @@ pub const Object = struct {
         }
         const dir_path_z = d: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const dir_path = file.pkg.root_src_directory.path orelse ".";
-            const resolved_dir_path = if (std.fs.path.isAbsolute(dir_path))
-                dir_path
-            else
-                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
-            break :d try std.fs.path.joinZ(gpa, &.{
-                resolved_dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
-            });
+            const sub_path = std.fs.path.dirname(file.sub_file_path) orelse "";
+            const dir_path = try file.mod.root.joinStringZ(gpa, sub_path);
+            if (std.fs.path.isAbsolute(dir_path)) break :d dir_path;
+            const abs = std.fs.realpath(dir_path, &buffer) catch break :d dir_path;
+            break :d try std.fs.path.joinZ(gpa, &.{ abs, sub_path });
         };
         defer gpa.free(dir_path_z);
         const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
@@ -2828,8 +2828,8 @@ pub const Object = struct {
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
         const mod = o.module;
 
-        const std_pkg = mod.main_pkg.table.get("std").?;
-        const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
+        const std_mod = mod.main_mod.deps.get("std").?;
+        const std_file = (mod.importPkg(std_mod) catch unreachable).file;
 
         const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin");
         const std_namespace = mod.namespacePtr(mod.declPtr(std_file.root_decl.unwrap().?).src_namespace);

@@ -1,6 +1,6 @@
 const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
-const fmt = @import("zig/fmt.zig");
+pub const fmt = @import("zig/fmt.zig");
 const assert = std.debug.assert;
 
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");

@@ -5732,6 +5732,9 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
+    const comp = mod.comp;
+    const gpa = sema.gpa;
     const pl_node = sema.code.instructions.items(.data)[inst].pl_node;
     const src = pl_node.src();
     const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
@@ -5741,7 +5744,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     if (!@import("build_options").have_llvm)
         return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
-    var c_import_buf = std.ArrayList(u8).init(sema.gpa);
+    var c_import_buf = std.ArrayList(u8).init(gpa);
     defer c_import_buf.deinit();
 
     var comptime_reason: Block.ComptimeReason = .{ .c_import = .{
@@ -5763,25 +5766,24 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
     };
-    defer child_block.instructions.deinit(sema.gpa);
+    defer child_block.instructions.deinit(gpa);
 
     // Ignore the result, all the relevant operations have written to c_import_buf already.
     _ = try sema.analyzeBodyBreak(&child_block, body);
 
-    const mod = sema.mod;
-    var c_import_res = mod.comp.cImport(c_import_buf.items) catch |err|
+    var c_import_res = comp.cImport(c_import_buf.items) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-    defer c_import_res.deinit(mod.comp.gpa);
+    defer c_import_res.deinit(gpa);
 
     if (c_import_res.errors.errorMessageCount() != 0) {
         const msg = msg: {
             const msg = try sema.errMsg(&child_block, src, "C import failed", .{});
-            errdefer msg.destroy(sema.gpa);
+            errdefer msg.destroy(gpa);
 
-            if (!mod.comp.bin_file.options.link_libc)
+            if (!comp.bin_file.options.link_libc)
                 try sema.errNote(&child_block, src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-            const gop = try mod.cimport_errors.getOrPut(sema.gpa, sema.owner_decl_index);
+            const gop = try mod.cimport_errors.getOrPut(gpa, sema.owner_decl_index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = c_import_res.errors;
                 c_import_res.errors = std.zig.ErrorBundle.empty;
@@ -5790,16 +5792,16 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         };
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
-    const c_import_pkg = Package.create(
-        sema.gpa,
-        null,
-        c_import_res.out_zig_path,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable, // we pass null for root_src_dir_path
-    };
+    const c_import_mod = try Package.Module.create(comp.arena.allocator(), .{
+        .root = .{
+            .root_dir = Compilation.Directory.cwd(),
+            .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+        },
+        .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
+        .fully_qualified_name = c_import_res.out_zig_path,
+    });
 
-    const result = mod.importPkg(c_import_pkg) catch |err|
+    const result = mod.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     mod.astGenFile(result.file) catch |err|
@@ -13071,13 +13073,13 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand = inst_data.get(sema.code);
 
     const result = mod.importFile(block.getFileScope(mod), operand) catch |err| switch (err) {
-        error.ImportOutsidePkgPath => {
-            return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
+        error.ImportOutsideModulePath => {
+            return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
-        error.PackageNotFound => {
-            const name = try block.getFileScope(mod).pkg.getName(sema.gpa, mod.*);
-            defer sema.gpa.free(name);
-            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, name });
+        error.ModuleNotFound => {
+            return sema.fail(block, operand_src, "no module named '{s}' available within module {s}", .{
+                operand, block.getFileScope(mod).mod.fully_qualified_name,
+            });
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
@@ -13106,7 +13108,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     const embed_file = mod.embedFile(block.getFileScope(mod), name) catch |err| switch (err) {
-        error.ImportOutsidePkgPath => {
+        error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
         else => {
@@ -36415,8 +36417,8 @@ fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Mod
 
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    const std_pkg = mod.main_pkg.table.get("std").?;
-    const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
+    const std_mod = mod.main_mod.deps.get("std").?;
+    const std_file = (mod.importPkg(std_mod) catch unreachable).file;
     const opt_builtin_inst = (try sema.namespaceLookupRef(
         block,
         src,

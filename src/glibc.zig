@@ -1074,7 +1074,7 @@ fn buildSharedLib(
         .cache_mode = .whole,
         .target = comp.getTarget(),
         .root_name = lib.name,
-        .main_pkg = null,
+        .main_mod = null,
         .output_mode = .Lib,
         .link_mode = .Dynamic,
         .thread_pool = comp.thread_pool,

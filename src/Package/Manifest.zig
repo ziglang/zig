@@ -1,14 +1,21 @@
+pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
+pub const Digest = [Hash.digest_length]u8;
+pub const multihash_len = 1 + 1 + Hash.digest_length;
+pub const multihash_hex_digest_len = 2 * multihash_len;
+pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
 pub const Dependency = struct {
-    location: union(enum) {
-        url: []const u8,
-        path: []const u8,
-    },
+    location: Location,
     location_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+
+    pub const Location = union(enum) {
+        url: []const u8,
+        path: []const u8,
+    };
 };
 
 pub const ErrorMessage = struct {
@@ -45,18 +52,22 @@ comptime {
     assert(@intFromEnum(multihash_function) < 127);
     assert(Hash.digest_length < 127);
 }
-pub const multihash_len = 1 + 1 + Hash.digest_length;
 
 name: []const u8,
 version: std.SemanticVersion,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+paths: std.StringArrayHashMapUnmanaged(void),
 
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
 
+pub const ParseOptions = struct {
+    allow_missing_paths_field: bool = false,
+};
+
 pub const Error = Allocator.Error;
 
-pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
+pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Manifest {
     const node_tags = ast.nodes.items(.tag);
     const node_datas = ast.nodes.items(.data);
     assert(node_tags[0] == .root);
@@ -74,11 +85,14 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .name = undefined,
         .version = undefined,
         .dependencies = .{},
+        .paths = .{},
+        .allow_missing_paths_field = options.allow_missing_paths_field,
         .buf = .{},
     };
     defer p.buf.deinit(gpa);
     defer p.errors.deinit(gpa);
     defer p.dependencies.deinit(gpa);
+    defer p.paths.deinit(gpa);
 
     p.parseRoot(main_node_index) catch |err| switch (err) {
         error.ParseFailure => assert(p.errors.items.len > 0),
@@ -89,6 +103,7 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .name = p.name,
         .version = p.version,
         .dependencies = try p.dependencies.clone(p.arena),
+        .paths = try p.paths.clone(p.arena),
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
         .arena_state = arena_instance.state,
     };
@@ -117,8 +132,8 @@ test hex64 {
     try std.testing.expectEqualStrings("[00efcdab78563412]", s);
 }
 
-pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
-    var result: [multihash_len * 2]u8 = undefined;
+pub fn hexDigest(digest: Digest) MultiHashHexDigest {
+    var result: MultiHashHexDigest = undefined;
 
     result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
     result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
@@ -143,6 +158,8 @@ const Parse = struct {
     name: []const u8,
     version: std.SemanticVersion,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+    paths: std.StringArrayHashMapUnmanaged(void),
+    allow_missing_paths_field: bool,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -158,6 +175,7 @@ const Parse = struct {
 
         var have_name = false;
         var have_version = false;
+        var have_included_paths = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -167,6 +185,9 @@ const Parse = struct {
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "dependencies")) {
                 try parseDependencies(p, field_init);
+            } else if (mem.eql(u8, field_name, "paths")) {
+                have_included_paths = true;
+                try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseString(p, field_init);
                 have_name = true;
@@ -189,6 +210,14 @@ const Parse = struct {
 
         if (!have_version) {
             try appendError(p, main_token, "missing top-level 'version' field", .{});
+        }
+
+        if (!have_included_paths) {
+            if (p.allow_missing_paths_field) {
+                try p.paths.put(p.gpa, "", {});
+            } else {
+                try appendError(p, main_token, "missing top-level 'paths' field", .{});
+            }
         }
     }
 
@@ -222,9 +251,9 @@ const Parse = struct {
 
         var dep: Dependency = .{
             .location = undefined,
-            .location_tok = undefined,
+            .location_tok = 0,
             .hash = null,
-            .hash_tok = undefined,
+            .hash_tok = 0,
         };
         var has_location = false;
 
@@ -277,6 +306,25 @@ const Parse = struct {
         return dep;
     }
 
+    fn parseIncludedPaths(p: *Parse, node: Ast.Node.Index) !void {
+        const ast = p.ast;
+        const main_tokens = ast.nodes.items(.main_token);
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const array_init = ast.fullArrayInit(&buf, node) orelse {
+            const tok = main_tokens[node];
+            return fail(p, tok, "expected paths expression to be a struct", .{});
+        };
+
+        for (array_init.ast.elements) |elem_node| {
+            const path_string = try parseString(p, elem_node);
+            // This is normalized so that it can be used in string comparisons
+            // against file system paths.
+            const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
+            try p.paths.put(p.gpa, normalized, {});
+        }
+    }
+
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
@@ -309,10 +357,9 @@ const Parse = struct {
             }
         }
 
-        const hex_multihash_len = 2 * Manifest.multihash_len;
-        if (h.len != hex_multihash_len) {
+        if (h.len != multihash_hex_digest_len) {
             return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                hex_multihash_len, h.len,
+                multihash_hex_digest_len, h.len,
             });
         }
 

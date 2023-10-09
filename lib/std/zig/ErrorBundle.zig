@@ -383,7 +383,7 @@ pub const Wip = struct {
         };
     }
 
-    pub fn addString(wip: *Wip, s: []const u8) !u32 {
+    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!u32 {
         const gpa = wip.gpa;
         const index: u32 = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
@@ -392,7 +392,7 @@ pub const Wip = struct {
         return index;
     }
 
-    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) !u32 {
+    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!u32 {
         const gpa = wip.gpa;
         const index: u32 = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.writer(gpa).print(fmt, args);
@@ -400,12 +400,12 @@ pub const Wip = struct {
         return index;
     }
 
-    pub fn addRootErrorMessage(wip: *Wip, em: ErrorMessage) !void {
+    pub fn addRootErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!void {
         try wip.root_list.ensureUnusedCapacity(wip.gpa, 1);
         wip.root_list.appendAssumeCapacity(try addErrorMessage(wip, em));
     }
 
-    pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) !MessageIndex {
+    pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!MessageIndex {
         return @enumFromInt(try addExtra(wip, em));
     }
 
@@ -413,15 +413,15 @@ pub const Wip = struct {
         return @enumFromInt(addExtraAssumeCapacity(wip, em));
     }
 
-    pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) !SourceLocationIndex {
+    pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) Allocator.Error!SourceLocationIndex {
         return @enumFromInt(try addExtra(wip, sl));
     }
 
-    pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) !void {
+    pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) Allocator.Error!void {
         _ = try addExtra(wip, rt);
     }
 
-    pub fn addBundleAsNotes(wip: *Wip, other: ErrorBundle) !void {
+    pub fn addBundleAsNotes(wip: *Wip, other: ErrorBundle) Allocator.Error!void {
         const gpa = wip.gpa;
 
         try wip.string_bytes.ensureUnusedCapacity(gpa, other.string_bytes.len);

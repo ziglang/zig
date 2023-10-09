@@ -416,7 +416,7 @@ const usage_build_generic =
     \\      dep:  [[import=]name]
     \\  --deps [dep],[dep],...    Set dependency names for the root package
     \\      dep:  [[import=]name]
-    \\  --main-pkg-path           Set the directory of the root package
+    \\  --main-mod-path           Set the directory of the root module
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fPIE                     Force-enable Position Independent Executable
@@ -765,16 +765,10 @@ const Framework = struct {
 };
 
 const CliModule = struct {
-    mod: *Package,
+    mod: *Package.Module,
     /// still in CLI arg format
     deps_str: []const u8,
 };
-
-fn cleanupModules(modules: *std.StringArrayHashMap(CliModule)) void {
-    var it = modules.iterator();
-    while (it.next()) |kv| kv.value_ptr.mod.destroy(modules.allocator);
-    modules.deinit();
-}
 
 fn buildOutputType(
     gpa: Allocator,
@@ -903,7 +897,7 @@ fn buildOutputType(
     var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
     var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
-    var main_pkg_path: ?[]const u8 = null;
+    var main_mod_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u32 = null;
@@ -950,8 +944,7 @@ fn buildOutputType(
     // Contains every module specified via --mod. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
     // error output consistent.
-    var modules = std.StringArrayHashMap(CliModule).init(gpa);
-    defer cleanupModules(&modules);
+    var modules = std.StringArrayHashMap(CliModule).init(arena);
 
     // The dependency string for the root package
     var root_deps_str: ?[]const u8 = null;
@@ -1023,33 +1016,36 @@ fn buildOutputType(
 
                         for ([_][]const u8{ "std", "root", "builtin" }) |name| {
                             if (mem.eql(u8, mod_name, name)) {
-                                fatal("unable to add module '{s}' -> '{s}': conflicts with builtin module", .{ mod_name, root_src });
+                                fatal("unable to add module '{s}' -> '{s}': conflicts with builtin module", .{
+                                    mod_name, root_src,
+                                });
                             }
                         }
 
-                        var mod_it = modules.iterator();
-                        while (mod_it.next()) |kv| {
-                            if (std.mem.eql(u8, mod_name, kv.key_ptr.*)) {
-                                fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{ mod_name, root_src, kv.value_ptr.mod.root_src_path });
-                            }
+                        if (modules.get(mod_name)) |value| {
+                            fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{
+                                mod_name, root_src, value.mod.root_src_path,
+                            });
                         }
 
-                        try modules.ensureUnusedCapacity(1);
-                        modules.put(mod_name, .{
-                            .mod = try Package.create(
-                                gpa,
-                                fs.path.dirname(root_src),
-                                fs.path.basename(root_src),
-                            ),
+                        try modules.put(mod_name, .{
+                            .mod = try Package.Module.create(arena, .{
+                                .root = .{
+                                    .root_dir = Cache.Directory.cwd(),
+                                    .sub_path = fs.path.dirname(root_src) orelse "",
+                                },
+                                .root_src_path = fs.path.basename(root_src),
+                                .fully_qualified_name = mod_name,
+                            }),
                             .deps_str = deps_str,
-                        }) catch unreachable;
+                        });
                     } else if (mem.eql(u8, arg, "--deps")) {
                         if (root_deps_str != null) {
                             fatal("only one --deps argument is allowed", .{});
                         }
                         root_deps_str = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--main-pkg-path")) {
-                        main_pkg_path = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--main-mod-path")) {
+                        main_mod_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -2461,19 +2457,26 @@ fn buildOutputType(
             var deps_it = ModuleDepIterator.init(deps_str);
             while (deps_it.next()) |dep| {
                 if (dep.expose.len == 0) {
-                    fatal("module '{s}' depends on '{s}' with a blank name", .{ kv.key_ptr.*, dep.name });
+                    fatal("module '{s}' depends on '{s}' with a blank name", .{
+                        kv.key_ptr.*, dep.name,
+                    });
                 }
 
                 for ([_][]const u8{ "std", "root", "builtin" }) |name| {
                     if (mem.eql(u8, dep.expose, name)) {
-                        fatal("unable to add module '{s}' under name '{s}': conflicts with builtin module", .{ dep.name, dep.expose });
+                        fatal("unable to add module '{s}' under name '{s}': conflicts with builtin module", .{
+                            dep.name, dep.expose,
+                        });
                     }
                 }
 
-                const dep_mod = modules.get(dep.name) orelse
-                    fatal("module '{s}' depends on module '{s}' which does not exist", .{ kv.key_ptr.*, dep.name });
+                const dep_mod = modules.get(dep.name) orelse {
+                    fatal("module '{s}' depends on module '{s}' which does not exist", .{
+                        kv.key_ptr.*, dep.name,
+                    });
+                };
 
-                try kv.value_ptr.mod.add(gpa, dep.expose, dep_mod.mod);
+                try kv.value_ptr.mod.deps.put(arena, dep.expose, dep_mod.mod);
             }
         }
     }
@@ -3229,31 +3232,35 @@ fn buildOutputType(
     };
     defer emit_implib_resolved.deinit();
 
-    const main_pkg: ?*Package = if (root_src_file) |unresolved_src_path| blk: {
+    const main_mod: ?*Package.Module = if (root_src_file) |unresolved_src_path| blk: {
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
-        if (main_pkg_path) |unresolved_main_pkg_path| {
-            const p = try introspect.resolvePath(arena, unresolved_main_pkg_path);
-            if (p.len == 0) {
-                break :blk try Package.create(gpa, null, src_path);
-            } else {
-                const rel_src_path = try fs.path.relative(arena, p, src_path);
-                break :blk try Package.create(gpa, p, rel_src_path);
-            }
+        if (main_mod_path) |unresolved_main_mod_path| {
+            const p = try introspect.resolvePath(arena, unresolved_main_mod_path);
+            break :blk try Package.Module.create(arena, .{
+                .root = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = p,
+                },
+                .root_src_path = if (p.len == 0)
+                    src_path
+                else
+                    try fs.path.relative(arena, p, src_path),
+                .fully_qualified_name = "root",
+            });
         } else {
-            const root_src_dir_path = fs.path.dirname(src_path);
-            break :blk Package.create(gpa, root_src_dir_path, fs.path.basename(src_path)) catch |err| {
-                if (root_src_dir_path) |p| {
-                    fatal("unable to open '{s}': {s}", .{ p, @errorName(err) });
-                } else {
-                    return err;
-                }
-            };
+            break :blk try Package.Module.create(arena, .{
+                .root = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = fs.path.dirname(src_path) orelse "",
+                },
+                .root_src_path = fs.path.basename(src_path),
+                .fully_qualified_name = "root",
+            });
         }
     } else null;
-    defer if (main_pkg) |p| p.destroy(gpa);
 
     // Transfer packages added with --deps to the root package
-    if (main_pkg) |mod| {
+    if (main_mod) |mod| {
         var it = ModuleDepIterator.init(root_deps_str orelse "");
         while (it.next()) |dep| {
             if (dep.expose.len == 0) {
@@ -3269,7 +3276,7 @@ fn buildOutputType(
             const dep_mod = modules.get(dep.name) orelse
                 fatal("root module depends on module '{s}' which does not exist", .{dep.name});
 
-            try mod.add(gpa, dep.expose, dep_mod.mod);
+            try mod.deps.put(arena, dep.expose, dep_mod.mod);
         }
     }
 
@@ -3310,17 +3317,18 @@ fn buildOutputType(
         if (arg_mode == .run) {
             break :l global_cache_directory;
         }
-        if (main_pkg) |pkg| {
+        if (main_mod != null) {
             // search upwards from cwd until we find directory with build.zig
             const cwd_path = try process.getCwdAlloc(arena);
-            const build_zig = "build.zig";
             const zig_cache = "zig-cache";
             var dirname: []const u8 = cwd_path;
             while (true) {
-                const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig });
+                const joined_path = try fs.path.join(arena, &.{
+                    dirname, Package.build_zig_basename,
+                });
                 if (fs.cwd().access(joined_path, .{})) |_| {
-                    const cache_dir_path = try fs.path.join(arena, &[_][]const u8{ dirname, zig_cache });
-                    const dir = try pkg.root_src_directory.handle.makeOpenPath(cache_dir_path, .{});
+                    const cache_dir_path = try fs.path.join(arena, &.{ dirname, zig_cache });
+                    const dir = try fs.cwd().makeOpenPath(cache_dir_path, .{});
                     cleanup_local_cache_dir = dir;
                     break :l .{ .handle = dir, .path = cache_dir_path };
                 } else |err| switch (err) {
@@ -3389,7 +3397,7 @@ fn buildOutputType(
         .dynamic_linker = target_info.dynamic_linker.get(),
         .sysroot = sysroot,
         .output_mode = output_mode,
-        .main_pkg = main_pkg,
+        .main_mod = main_mod,
         .emit_bin = emit_bin_loc,
         .emit_h = emit_h_resolved.data,
         .emit_asm = emit_asm_resolved.data,
@@ -4613,11 +4621,14 @@ pub const usage_build =
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --zig-lib-dir [arg]           Override path to Zig lib directory
     \\  --build-runner [file]         Override path to build runner
+    \\  --fetch                       Exit after fetching dependency tree
     \\  -h, --help                    Print this help and exit
     \\
 ;
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    const work_around_btrfs_bug = builtin.os.tag == .linux and
+        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
     var color: Color = .auto;
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -4633,6 +4644,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
+        var fetch_only = false;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -4682,6 +4694,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         try child_argv.append(arg);
                         reference_trace = 256;
+                    } else if (mem.eql(u8, arg, "--fetch")) {
+                        fetch_only = true;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                         try child_argv.append(arg);
                         const num = arg["-freference-trace=".len..];
@@ -4714,8 +4728,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         defer if (cleanup_build_dir) |*dir| dir.close();
 
         const cwd_path = try process.getCwdAlloc(arena);
-        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else "build.zig";
-        const build_directory: Compilation.Directory = blk: {
+        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else Package.build_zig_basename;
+        const build_root: Compilation.Directory = blk: {
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
                     const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
@@ -4751,7 +4765,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 }
             }
         };
-        child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
+        child_argv.items[argv_index_build_file] = build_root.path orelse cwd_path;
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -4771,9 +4785,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     .path = local_cache_dir_path,
                 };
             }
-            const cache_dir_path = try build_directory.join(arena, &[_][]const u8{"zig-cache"});
+            const cache_dir_path = try build_root.join(arena, &[_][]const u8{"zig-cache"});
             break :l .{
-                .handle = try build_directory.handle.makeOpenPath("zig-cache", .{}),
+                .handle = try build_root.handle.makeOpenPath("zig-cache", .{}),
                 .path = cache_dir_path,
             };
         };
@@ -4799,97 +4813,150 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         try thread_pool.init(.{ .allocator = gpa });
         defer thread_pool.deinit();
 
-        var cleanup_build_runner_dir: ?fs.Dir = null;
-        defer if (cleanup_build_runner_dir) |*dir| dir.close();
-
-        var main_pkg: Package = if (override_build_runner) |build_runner_path|
+        var main_mod: Package.Module = if (override_build_runner) |build_runner_path|
             .{
-                .root_src_directory = blk: {
-                    if (std.fs.path.dirname(build_runner_path)) |dirname| {
-                        const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
-                            fatal("unable to open directory to build runner from argument 'build-runner', '{s}': {s}", .{ dirname, @errorName(err) });
-                        };
-                        cleanup_build_runner_dir = dir;
-                        break :blk .{ .path = dirname, .handle = dir };
-                    }
-
-                    break :blk .{ .path = null, .handle = fs.cwd() };
+                .root = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = fs.path.dirname(build_runner_path) orelse "",
                 },
-                .root_src_path = std.fs.path.basename(build_runner_path),
+                .root_src_path = fs.path.basename(build_runner_path),
+                .fully_qualified_name = "root",
             }
         else
             .{
-                .root_src_directory = zig_lib_directory,
+                .root = .{ .root_dir = zig_lib_directory },
                 .root_src_path = "build_runner.zig",
+                .fully_qualified_name = "root",
             };
 
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
+        var build_mod: Package.Module = .{
+            .root = .{ .root_dir = build_root },
             .root_src_path = build_zig_basename,
+            .fully_qualified_name = "root.@build",
         };
         if (build_options.only_core_functionality) {
-            const deps_pkg = try Package.createFilePkg(gpa, local_cache_directory, "dependencies.zig",
-                \\pub const packages = struct {};
-                \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
-                \\
-            );
-            try main_pkg.add(gpa, "@dependencies", deps_pkg);
+            try createEmptyDependenciesModule(arena, &main_mod, local_cache_directory);
         } else {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
-
-            // Here we provide an import to the build runner that allows using reflection to find
-            // all of the dependencies. Without this, there would be no way to use `@import` to
-            // access dependencies by name, since `@import` requires string literals.
-            var dependencies_source = std.ArrayList(u8).init(gpa);
-            defer dependencies_source.deinit();
-
-            var all_modules: Package.AllModules = .{};
-            defer all_modules.deinit(gpa);
-
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
 
             var progress: std.Progress = .{ .dont_print_on_dumb = true };
             const root_prog_node = progress.start("Fetch Packages", 0);
             defer root_prog_node.end();
 
-            // Here we borrow main package's table and will replace it with a fresh
-            // one after this process completes.
-            const fetch_result = build_pkg.fetchAndAddDependencies(
-                &main_pkg,
-                arena,
-                &thread_pool,
-                &http_client,
-                build_directory,
-                global_cache_directory,
-                local_cache_directory,
-                &dependencies_source,
-                &wip_errors,
-                &all_modules,
-                root_prog_node,
-                null,
+            var job_queue: Package.Fetch.JobQueue = .{
+                .http_client = &http_client,
+                .thread_pool = &thread_pool,
+                .global_cache = global_cache_directory,
+                .recursive = true,
+                .work_around_btrfs_bug = work_around_btrfs_bug,
+            };
+            defer job_queue.deinit();
+
+            try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
+            try job_queue.table.ensureUnusedCapacity(gpa, 1);
+
+            var fetch: Package.Fetch = .{
+                .arena = std.heap.ArenaAllocator.init(gpa),
+                .location = .{ .relative_path = build_mod.root },
+                .location_tok = 0,
+                .hash_tok = 0,
+                .parent_package_root = build_mod.root,
+                .parent_manifest_ast = null,
+                .prog_node = root_prog_node,
+                .job_queue = &job_queue,
+                .omit_missing_hash_error = true,
+                .allow_missing_paths_field = false,
+
+                .package_root = undefined,
+                .error_bundle = undefined,
+                .manifest = null,
+                .manifest_ast = undefined,
+                .actual_hash = undefined,
+                .has_build_zig = true,
+                .oom_flag = false,
+
+                .module = &build_mod,
+            };
+            job_queue.all_fetches.appendAssumeCapacity(&fetch);
+
+            job_queue.table.putAssumeCapacityNoClobber(
+                Package.Fetch.relativePathDigest(build_mod.root, global_cache_directory),
+                &fetch,
             );
-            if (wip_errors.root_list.items.len > 0) {
-                var errors = try wip_errors.toOwnedBundle("");
-                defer errors.deinit(gpa);
+
+            job_queue.wait_group.start();
+            try job_queue.thread_pool.spawn(Package.Fetch.workerRun, .{ &fetch, "root" });
+            job_queue.wait_group.wait();
+
+            try job_queue.consolidateErrors();
+
+            if (fetch.error_bundle.root_list.items.len > 0) {
+                var errors = try fetch.error_bundle.toOwnedBundle("");
                 errors.renderToStdErr(renderOptions(color));
                 process.exit(1);
             }
-            try fetch_result;
 
-            const deps_pkg = try Package.createFilePkg(
-                gpa,
+            if (fetch_only) return cleanExit();
+
+            var source_buf = std.ArrayList(u8).init(gpa);
+            defer source_buf.deinit();
+            try job_queue.createDependenciesSource(&source_buf);
+            const deps_mod = try createDependenciesModule(
+                arena,
+                source_buf.items,
+                &main_mod,
                 local_cache_directory,
-                "dependencies.zig",
-                dependencies_source.items,
             );
 
-            mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
-            try main_pkg.add(gpa, "@dependencies", deps_pkg);
+            {
+                // We need a Module for each package's build.zig.
+                const hashes = job_queue.table.keys();
+                const fetches = job_queue.table.values();
+                try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
+                for (hashes, fetches) |hash, f| {
+                    if (f == &fetch) {
+                        // The first one is a dummy package for the current project.
+                        continue;
+                    }
+                    if (!f.has_build_zig)
+                        continue;
+                    const m = try Package.Module.create(arena, .{
+                        .root = try f.package_root.clone(arena),
+                        .root_src_path = Package.build_zig_basename,
+                        .fully_qualified_name = try std.fmt.allocPrint(
+                            arena,
+                            "root.@dependencies.{s}",
+                            .{&hash},
+                        ),
+                    });
+                    const hash_cloned = try arena.dupe(u8, &hash);
+                    deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
+                    f.module = m;
+                }
+
+                // Each build.zig module needs access to each of its
+                // dependencies' build.zig modules by name.
+                for (fetches) |f| {
+                    const mod = f.module orelse continue;
+                    const man = f.manifest orelse continue;
+                    const dep_names = man.dependencies.keys();
+                    try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
+                    for (dep_names, man.dependencies.values()) |name, dep| {
+                        const dep_digest = Package.Fetch.depDigest(
+                            f.package_root,
+                            global_cache_directory,
+                            dep,
+                        ) orelse continue;
+                        const dep_mod = job_queue.table.get(dep_digest).?.module orelse continue;
+                        const name_cloned = try arena.dupe(u8, name);
+                        mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
+                    }
+                }
+            }
         }
-        try main_pkg.add(gpa, "@build", &build_pkg);
+
+        try main_mod.deps.put(arena, "@build", &build_mod);
 
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
@@ -4901,7 +4968,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .is_native_abi = cross_target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
-            .main_pkg = &main_pkg,
+            .main_mod = &main_mod,
             .emit_bin = emit_bin,
             .emit_h = null,
             .optimize_mode = .Debug,
@@ -5115,12 +5182,15 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .tree = tree,
                 .tree_loaded = true,
                 .zir = undefined,
-                .pkg = undefined,
+                .mod = undefined,
                 .root_decl = .none,
             };
 
-            file.pkg = try Package.create(gpa, null, file.sub_file_path);
-            defer file.pkg.destroy(gpa);
+            file.mod = try Package.Module.create(arena, .{
+                .root = Package.Path.cwd(),
+                .root_src_path = file.sub_file_path,
+                .fully_qualified_name = "root",
+            });
 
             file.zir = try AstGen.generate(gpa, file.tree);
             file.zir_loaded = true;
@@ -5321,12 +5391,15 @@ fn fmtPathFile(
             .tree = tree,
             .tree_loaded = true,
             .zir = undefined,
-            .pkg = undefined,
+            .mod = undefined,
             .root_decl = .none,
         };
 
-        file.pkg = try Package.create(gpa, null, file.sub_file_path);
-        defer file.pkg.destroy(gpa);
+        file.mod = try Package.Module.create(fmt.arena, .{
+            .root = Package.Path.cwd(),
+            .root_src_path = file.sub_file_path,
+            .fully_qualified_name = "root",
+        });
 
         if (stat.size > max_src_size)
             return error.FileTooBig;
@@ -5387,7 +5460,7 @@ pub fn putAstErrorsIntoBundle(
     tree: Ast,
     path: []const u8,
     wip_errors: *std.zig.ErrorBundle.Wip,
-) !void {
+) Allocator.Error!void {
     var file: Module.File = .{
         .status = .never_loaded,
         .source_loaded = true,
@@ -5402,12 +5475,16 @@ pub fn putAstErrorsIntoBundle(
         .tree = tree,
         .tree_loaded = true,
         .zir = undefined,
-        .pkg = undefined,
+        .mod = undefined,
         .root_decl = .none,
     };
 
-    file.pkg = try Package.create(gpa, null, path);
-    defer file.pkg.destroy(gpa);
+    file.mod = try Package.Module.create(gpa, .{
+        .root = Package.Path.cwd(),
+        .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
+    });
+    defer gpa.destroy(file.mod);
 
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
@@ -5933,7 +6010,7 @@ pub fn cmdAstCheck(
         .stat = undefined,
         .tree = undefined,
         .zir = undefined,
-        .pkg = undefined,
+        .mod = undefined,
         .root_decl = .none,
     };
     if (zig_source_file) |file_name| {
@@ -5971,8 +6048,11 @@ pub fn cmdAstCheck(
         file.stat.size = source.len;
     }
 
-    file.pkg = try Package.create(gpa, null, file.sub_file_path);
-    defer file.pkg.destroy(gpa);
+    file.mod = try Package.Module.create(arena, .{
+        .root = Package.Path.cwd(),
+        .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
+    });
 
     file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
@@ -6067,7 +6147,7 @@ pub fn cmdDumpZir(
         .stat = undefined,
         .tree = undefined,
         .zir = try Module.loadZirCache(gpa, f),
-        .pkg = undefined,
+        .mod = undefined,
         .root_decl = .none,
     };
 
@@ -6136,12 +6216,15 @@ pub fn cmdChangelist(
         },
         .tree = undefined,
         .zir = undefined,
-        .pkg = undefined,
+        .mod = undefined,
         .root_decl = .none,
     };
 
-    file.pkg = try Package.create(gpa, null, file.sub_file_path);
-    defer file.pkg.destroy(gpa);
+    file.mod = try Package.Module.create(arena, .{
+        .root = Package.Path.cwd(),
+        .root_src_path = file.sub_file_path,
+        .fully_qualified_name = "root",
+    });
 
     const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
     const amt = try f.readAll(source);
@@ -6623,7 +6706,9 @@ fn cmdFetch(
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    var opt_url: ?[]const u8 = null;
+    const work_around_btrfs_bug = builtin.os.tag == .linux and
+        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
+    var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
 
     {
@@ -6643,15 +6728,15 @@ fn cmdFetch(
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
-            } else if (opt_url != null) {
+            } else if (opt_path_or_url != null) {
                 fatal("unexpected extra parameter: '{s}'", .{arg});
             } else {
-                opt_url = arg;
+                opt_path_or_url = arg;
             }
         }
     }
 
-    const url = opt_url orelse fatal("missing url or path parameter", .{});
+    const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });
@@ -6664,19 +6749,6 @@ fn cmdFetch(
     const root_prog_node = progress.start("Fetch", 0);
     defer root_prog_node.end();
 
-    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-    try wip_errors.init(gpa);
-    defer wip_errors.deinit();
-
-    var report: Package.Report = .{
-        .ast = null,
-        .directory = .{
-            .handle = fs.cwd(),
-            .path = null,
-        },
-        .error_bundle = &wip_errors,
-    };
-
     var global_cache_directory: Compilation.Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
@@ -6686,56 +6758,51 @@ fn cmdFetch(
     };
     defer global_cache_directory.handle.close();
 
-    var readable_resource: Package.ReadableResource = rr: {
-        if (fs.cwd().openIterableDir(url, .{})) |dir| {
-            break :rr .{
-                .path = try gpa.dupe(u8, url),
-                .resource = .{ .dir = dir },
-            };
-        } else |dir_err| {
-            const file_err = if (dir_err == error.NotDir) e: {
-                if (fs.cwd().openFile(url, .{})) |f| {
-                    break :rr .{
-                        .path = try gpa.dupe(u8, url),
-                        .resource = .{ .file = f },
-                    };
-                } else |err| break :e err;
-            } else dir_err;
-
-            const uri = std.Uri.parse(url) catch |uri_err| {
-                fatal("'{s}' could not be recognized as a file path ({s}) or an URL ({s})", .{
-                    url, @errorName(file_err), @errorName(uri_err),
-                });
-            };
-            const fetch_location = try Package.FetchLocation.initUri(uri, 0, report);
-            const cwd: Cache.Directory = .{
-                .handle = fs.cwd(),
-                .path = null,
-            };
-            break :rr try fetch_location.fetch(gpa, cwd, &http_client, 0, report);
-        }
+    var job_queue: Package.Fetch.JobQueue = .{
+        .http_client = &http_client,
+        .thread_pool = &thread_pool,
+        .global_cache = global_cache_directory,
+        .recursive = false,
+        .work_around_btrfs_bug = work_around_btrfs_bug,
     };
-    defer readable_resource.deinit(gpa);
+    defer job_queue.deinit();
 
-    var package_location = readable_resource.unpack(
-        gpa,
-        &thread_pool,
-        global_cache_directory,
-        0,
-        report,
-        root_prog_node,
-    ) catch |err| {
-        if (wip_errors.root_list.items.len > 0) {
-            var errors = try wip_errors.toOwnedBundle("");
-            defer errors.deinit(gpa);
-            errors.renderToStdErr(renderOptions(color));
-            process.exit(1);
-        }
-        fatal("unable to unpack '{s}': {s}", .{ url, @errorName(err) });
+    var fetch: Package.Fetch = .{
+        .arena = std.heap.ArenaAllocator.init(gpa),
+        .location = .{ .path_or_url = path_or_url },
+        .location_tok = 0,
+        .hash_tok = 0,
+        .parent_package_root = undefined,
+        .parent_manifest_ast = null,
+        .prog_node = root_prog_node,
+        .job_queue = &job_queue,
+        .omit_missing_hash_error = true,
+        .allow_missing_paths_field = false,
+
+        .package_root = undefined,
+        .error_bundle = undefined,
+        .manifest = null,
+        .manifest_ast = undefined,
+        .actual_hash = undefined,
+        .has_build_zig = false,
+        .oom_flag = false,
+
+        .module = null,
     };
-    defer package_location.deinit(gpa);
+    defer fetch.deinit();
 
-    const hex_digest = Package.Manifest.hexDigest(package_location.hash);
+    fetch.run() catch |err| switch (err) {
+        error.OutOfMemory => fatal("out of memory", .{}),
+        error.FetchFailed => {}, // error bundle checked below
+    };
+
+    if (fetch.error_bundle.root_list.items.len > 0) {
+        var errors = try fetch.error_bundle.toOwnedBundle("");
+        errors.renderToStdErr(renderOptions(color));
+        process.exit(1);
+    }
+
+    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
 
     progress.done = true;
     progress.refresh();
@@ -6743,4 +6810,57 @@ fn cmdFetch(
     try io.getStdOut().writeAll(hex_digest ++ "\n");
 
     return cleanExit();
+}
+
+fn createEmptyDependenciesModule(
+    arena: Allocator,
+    main_mod: *Package.Module,
+    local_cache_directory: Cache.Directory,
+) !void {
+    var source = std.ArrayList(u8).init(arena);
+    try Package.Fetch.JobQueue.createEmptyDependenciesSource(&source);
+    _ = try createDependenciesModule(arena, source.items, main_mod, local_cache_directory);
+}
+
+/// Creates the dependencies.zig file and corresponding `Package.Module` for the
+/// build runner to obtain via `@import("@dependencies")`.
+fn createDependenciesModule(
+    arena: Allocator,
+    source: []const u8,
+    main_mod: *Package.Module,
+    local_cache_directory: Cache.Directory,
+) !*Package.Module {
+    // Atomically create the file in a directory named after the hash of its contents.
+    const basename = "dependencies.zig";
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++
+        Package.Manifest.hex64(rand_int);
+    {
+        var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+        defer tmp_dir.close();
+        try tmp_dir.writeFile(basename, source);
+    }
+
+    var hh: Cache.HashHelper = .{};
+    hh.addBytes(build_options.version);
+    hh.addBytes(source);
+    const hex_digest = hh.final();
+
+    const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
+    try Package.Fetch.renameTmpIntoCache(
+        local_cache_directory.handle,
+        tmp_dir_sub_path,
+        o_dir_sub_path,
+    );
+
+    const deps_mod = try Package.Module.create(arena, .{
+        .root = .{
+            .root_dir = local_cache_directory,
+            .sub_path = o_dir_sub_path,
+        },
+        .root_src_path = basename,
+        .fully_qualified_name = "root.@dependencies",
+    });
+    try main_mod.deps.put(arena, "@dependencies", deps_mod);
+    return deps_mod;
 }
