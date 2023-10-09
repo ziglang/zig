@@ -4123,6 +4123,21 @@ fn initSections(self: *Elf) !void {
     }
 }
 
+/// We need to sort constructors/destuctors in the following sections:
+/// * .init_array
+/// * .fini_array
+/// * .preinit_array
+/// * .ctors
+/// * .dtors
+/// The prority of inclusion is defined as part of the input section's name. For example, .init_array.10000.
+/// If no priority value has been specified,
+/// * for .init_array, .fini_array and .preinit_array, we automatically assign that section max value of maxInt(i32)
+///   and push it to the back of the queue,
+/// * for .ctors and .dtors, we automatically assign that section min value of -1
+///   and push it to the front of the queue,
+/// crtbegin and ctrend are assigned minInt(i32) and maxInt(i32) respectively.
+/// Ties are broken by the file prority which corresponds to the inclusion of input sections in this output section
+/// we are about to sort.
 fn sortInitFini(self: *Elf) !void {
     const gpa = self.base.allocator;
 
@@ -4130,8 +4145,10 @@ fn sortInitFini(self: *Elf) !void {
         priority: i32,
         atom_index: Atom.Index,
 
-        pub fn lessThan(ctx: void, lhs: @This(), rhs: @This()) bool {
-            _ = ctx;
+        pub fn lessThan(ctx: *Elf, lhs: @This(), rhs: @This()) bool {
+            if (lhs.priority == rhs.priority) {
+                return ctx.atom(lhs.atom_index).?.priority(ctx) < ctx.atom(rhs.atom_index).?.priority(ctx);
+            }
             return lhs.priority < rhs.priority;
         }
     };
@@ -4177,7 +4194,7 @@ fn sortInitFini(self: *Elf) !void {
             entries.appendAssumeCapacity(.{ .priority = priority, .atom_index = atom_index });
         }
 
-        mem.sort(Entry, entries.items, {}, Entry.lessThan);
+        mem.sort(Entry, entries.items, self, Entry.lessThan);
 
         atom_list.clearRetainingCapacity();
         for (entries.items) |entry| {
@@ -4387,8 +4404,18 @@ fn sortSections(self: *Elf) !void {
 }
 
 fn updateSectionSizes(self: *Elf) !void {
-    for (self.objects.items) |index| {
-        self.file(index).?.object.updateSectionSizes(self);
+    for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
+        if (atom_list.items.len == 0) continue;
+        const shdr = &self.shdrs.items[shndx];
+        for (atom_list.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const offset = atom_ptr.alignment.forward(shdr.sh_size);
+            const padding = offset - shdr.sh_size;
+            atom_ptr.value = offset;
+            shdr.sh_size += padding + atom_ptr.size;
+            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+        }
     }
 
     if (self.eh_frame_section_index) |index| {
@@ -4668,12 +4695,12 @@ fn allocateSectionsInMemory(self: *Elf, base_offset: u64) !void {
         tls_start_align: u64 = 1,
         first_tls_index: ?usize = null,
 
-        inline fn isFirstTlsShdr(this: @This(), other: usize) bool {
+        fn isFirstTlsShdr(this: @This(), other: usize) bool {
             if (this.first_tls_index) |index| return index == other;
             return false;
         }
 
-        inline fn @"align"(this: @This(), index: usize, sh_addralign: u64, addr: u64) u64 {
+        fn @"align"(this: @This(), index: usize, sh_addralign: u64, addr: u64) u64 {
             const alignment = if (this.isFirstTlsShdr(index)) this.tls_start_align else sh_addralign;
             return mem.alignForward(u64, addr, alignment);
         }

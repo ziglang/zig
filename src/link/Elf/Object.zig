@@ -630,24 +630,10 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
         const shdr = atom.inputShdr(elf_file);
         atom.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
 
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const gpa = elf_file.base.allocator;
         const gop = try elf_file.output_sections.getOrPut(gpa, atom.output_section_index);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, atom_index);
-    }
-}
-
-pub fn updateSectionSizes(self: Object, elf_file: *Elf) void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shdr = &elf_file.shdrs.items[atom.output_section_index];
-        const offset = atom.alignment.forward(shdr.sh_size);
-        const padding = offset - shdr.sh_size;
-        atom.value = offset;
-        shdr.sh_size += padding + atom.size;
-        shdr.sh_addralign = @max(shdr.sh_addralign, atom.alignment.toByteUnits(1));
     }
 }
 
