@@ -116,8 +116,11 @@ pub const JobQueue = struct {
     pub fn createDependenciesSource(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
         const keys = jq.table.keys();
 
-        if (keys.len == 0)
+        assert(keys.len != 0); // caller should have added the first one
+        if (keys.len == 1) {
+            // This is the first one. It must have no dependencies.
             return createEmptyDependenciesSource(buf);
+        }
 
         try buf.appendSlice("pub const packages = struct {\n");
 
