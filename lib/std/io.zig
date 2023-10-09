@@ -333,13 +333,73 @@ pub fn GenericReader(
     };
 }
 
+pub fn GenericWriter(
+    comptime Context: type,
+    comptime WriteError: type,
+    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+) type {
+    return struct {
+        context: Context,
+
+        const Self = @This();
+        pub const Error = WriteError;
+
+        pub inline fn write(self: Self, bytes: []const u8) Error!usize {
+            return writeFn(self.context, bytes);
+        }
+
+        pub inline fn writeAll(self: Self, bytes: []const u8) Error!void {
+            return @errorCast(self.any().writeAll(bytes));
+        }
+
+        pub inline fn print(self: Self, comptime format: []const u8, args: anytype) Error!void {
+            return @errorCast(self.any().print(format, args));
+        }
+
+        pub inline fn writeByte(self: Self, byte: u8) Error!void {
+            return @errorCast(self.any().writeByte(byte));
+        }
+
+        pub inline fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
+            return @errorCast(self.any().writeByteNTimes(byte, n));
+        }
+
+        pub inline fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) Error!void {
+            return @errorCast(self.any().writeBytesNTimes(bytes, n));
+        }
+
+        pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
+            return @errorCast(self.any().writeInt(T, value, endian));
+        }
+
+        pub inline fn writeStruct(self: Self, value: anytype) Error!void {
+            return @errorCast(self.any().writeStruct(value));
+        }
+
+        pub inline fn any(self: *const Self) AnyWriter {
+            return .{
+                .context = @ptrCast(&self.context),
+                .writeFn = typeErasedWriteFn,
+            };
+        }
+
+        fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+            const ptr: *const Context = @alignCast(@ptrCast(context));
+            return writeFn(ptr.*, bytes);
+        }
+    };
+}
+
 /// Deprecated; consider switching to `AnyReader` or use `GenericReader`
 /// to use previous API.
 pub const Reader = GenericReader;
+/// Deprecated; consider switching to `AnyWriter` or use `GenericWriter`
+/// to use previous API.
+pub const Writer = GenericWriter;
 
 pub const AnyReader = @import("io/Reader.zig");
+pub const AnyWriter = @import("io/Writer.zig");
 
-pub const Writer = @import("io/writer.zig").Writer;
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
 pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
@@ -652,6 +712,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = AnyReader;
+    _ = AnyWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
@@ -661,7 +722,6 @@ test {
     _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
     _ = @import("io/fixed_buffer_stream.zig");
-    _ = @import("io/writer.zig");
     _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
