@@ -279,7 +279,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
         self.files.set(index, .{ .zig_module = .{
             .index = index,
-            .path = options.module.?.main_pkg.root_src_path,
+            .path = options.module.?.main_mod.root_src_path,
         } });
         self.zig_module_index = index;
         const zig_module = self.file(index).?.zig_module;
