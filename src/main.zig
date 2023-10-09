@@ -501,8 +501,8 @@ const usage_build_generic =
     \\  -search_static_only            Only search for static libs.
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
-    \\  --undefined-version            Allow the linker to link with symbols with undefined version
-    \\  --no-undefined-version         Cause a fatal error if the linker attempts to link to a symbol with an undefined version
+    \\  --undefined-version            Allow unused version in version script (disabled by default)
+    \\  --no-undefined-version         Makes unused version in version script a fatal error
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
