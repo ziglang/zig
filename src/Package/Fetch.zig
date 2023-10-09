@@ -1249,6 +1249,9 @@ fn computeHash(
     var all_files = std.ArrayList(*HashedFile).init(gpa);
     defer all_files.deinit();
 
+    var all_deletions = std.ArrayList(*DeletedFile).init(gpa);
+    defer all_deletions.deinit();
+
     var walker = try @as(fs.IterableDir, .{ .dir = tmp_directory.handle }).walk(gpa);
     defer walker.deinit();
 
@@ -1267,10 +1270,25 @@ fn computeHash(
             ) });
             return error.FetchFailed;
         }) |entry| {
-            _ = filter; // TODO: apply filter rules here
+            if (entry.kind == .directory) continue;
+
+            if (!filter.includePath(entry.path)) {
+                // Delete instead of including in hash calculation.
+                const deleted_file = try arena.create(DeletedFile);
+                deleted_file.* = .{
+                    .fs_path = try arena.dupe(u8, entry.path),
+                    .failure = undefined, // to be populated by the worker
+                };
+                wait_group.start();
+                try thread_pool.spawn(workerDeleteFile, .{
+                    tmp_directory.handle, deleted_file, &wait_group,
+                });
+                try all_deletions.append(deleted_file);
+                continue;
+            }
 
             const kind: HashedFile.Kind = switch (entry.kind) {
-                .directory => continue,
+                .directory => unreachable,
                 .file => .file,
                 .sym_link => .sym_link,
                 else => return f.fail(f.location_tok, try eb.printString(
@@ -1295,7 +1313,6 @@ fn computeHash(
             try thread_pool.spawn(workerHashFile, .{
                 tmp_directory.handle, hashed_file, &wait_group,
             });
-
             try all_files.append(hashed_file);
         }
     }
@@ -1315,6 +1332,17 @@ fn computeHash(
         };
         hasher.update(&hashed_file.hash);
     }
+    for (all_deletions.items) |deleted_file| {
+        deleted_file.failure catch |err| {
+            any_failures = true;
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.printString("failed to delete excluded path '{s}' from package: {s}", .{
+                    deleted_file.fs_path, @errorName(err),
+                }),
+            });
+        };
+    }
+
     if (any_failures) return error.FetchFailed;
     return hasher.finalResult();
 }
@@ -1322,6 +1350,11 @@ fn computeHash(
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
     defer wg.finish();
     hashed_file.failure = hashFileFallible(dir, hashed_file);
+}
+
+fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile, wg: *WaitGroup) void {
+    defer wg.finish();
+    deleted_file.failure = deleteFileFallible(dir, deleted_file);
 }
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
@@ -1347,6 +1380,20 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     hasher.final(&hashed_file.hash);
 }
 
+fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
+    try dir.deleteFile(deleted_file.fs_path);
+    // In case the file was the last remaining file in the parent directory, attempt to
+    // remove the parent directory.
+    var opt_parent = fs.path.dirname(deleted_file.fs_path);
+    while (opt_parent) |parent| : (opt_parent = fs.path.dirname(parent)) {
+        dir.deleteDir(parent) catch |err| switch (err) {
+            error.DirNotEmpty => return,
+            error.FileNotFound => return,
+            else => |e| return e,
+        };
+    }
+}
+
 fn isExecutable(file: fs.File) !bool {
     if (builtin.os.tag == .windows) {
         // TODO check the ACL on Windows.
@@ -1359,6 +1406,15 @@ fn isExecutable(file: fs.File) !bool {
         return (stat.mode & std.os.S.IXUSR) != 0;
     }
 }
+
+const DeletedFile = struct {
+    fs_path: []const u8,
+    failure: Error!void,
+
+    const Error =
+        fs.Dir.DeleteFileError ||
+        fs.Dir.DeleteDirError;
+};
 
 const HashedFile = struct {
     fs_path: []const u8,
@@ -1402,7 +1458,7 @@ fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
 const Filter = struct {
     include_paths: std.StringArrayHashMapUnmanaged(void) = .{},
 
-    /// sub_path is relative to the tarball root.
+    /// sub_path is relative to the package root.
     pub fn includePath(self: Filter, sub_path: []const u8) bool {
         if (self.include_paths.count() == 0) return true;
         if (self.include_paths.contains("")) return true;
@@ -1410,7 +1466,7 @@ const Filter = struct {
 
         // Check if any included paths are parent directories of sub_path.
         var dirname = sub_path;
-        while (std.fs.path.dirname(sub_path)) |next_dirname| {
+        while (std.fs.path.dirname(dirname)) |next_dirname| {
             if (self.include_paths.contains(sub_path)) return true;
             dirname = next_dirname;
         }

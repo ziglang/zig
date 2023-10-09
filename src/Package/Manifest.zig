@@ -318,7 +318,10 @@ const Parse = struct {
 
         for (array_init.ast.elements) |elem_node| {
             const path_string = try parseString(p, elem_node);
-            try p.paths.put(p.gpa, path_string, {});
+            // This is normalized so that it can be used in string comparisons
+            // against file system paths.
+            const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
+            try p.paths.put(p.gpa, normalized, {});
         }
     }
 
