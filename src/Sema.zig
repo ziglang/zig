@@ -7281,6 +7281,7 @@ fn analyzeCall(
             .needed_comptime_reason = "function being called at comptime must be comptime-known",
             .block_comptime_reason = comptime_reason,
         });
+        const prev_fn_index = sema.func_index;
         const module_fn_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
             .extern_func => return sema.fail(block, call_src, "{s} call of extern function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
@@ -7478,7 +7479,7 @@ fn analyzeCall(
             new_fn_info.return_type = sema.fn_ret_ty.toIntern();
             const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
-                try sema.emitDbgInline(block, sema.func_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
+                try sema.emitDbgInline(block, prev_fn_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
 
                 const zir_tags = sema.code.instructions.items(.tag);
                 for (fn_info.param_body) |param| switch (zir_tags[param]) {
@@ -7519,7 +7520,7 @@ fn analyzeCall(
                 try sema.emitDbgInline(
                     block,
                     module_fn_index,
-                    sema.func_index,
+                    prev_fn_index,
                     mod.funcOwnerDeclPtr(sema.func_index).ty,
                     .dbg_inline_end,
                 );
