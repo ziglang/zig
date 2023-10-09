@@ -358,7 +358,10 @@ pub const CObject = struct {
 
 pub const Win32Resource = struct {
     /// Relative to cwd. Owned by arena.
-    src: RcSourceFile,
+    src: union(enum) {
+        rc: RcSourceFile,
+        manifest: []const u8,
+    },
     status: union(enum) {
         new,
         success: struct {
@@ -582,6 +585,7 @@ pub const InitOptions = struct {
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     rc_source_files: []const RcSourceFile = &[0]RcSourceFile{},
+    manifest_file: ?[]const u8 = null,
     rc_includes: RcIncludes = .any,
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
@@ -1749,16 +1753,26 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    // Add a `Win32Resource` for each `rc_source_files`.
+    // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     if (!build_options.only_core_functionality) {
-        try comp.win32_resource_table.ensureTotalCapacity(gpa, options.rc_source_files.len);
+        try comp.win32_resource_table.ensureTotalCapacity(gpa, options.rc_source_files.len + @intFromBool(options.manifest_file != null));
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
 
             win32_resource.* = .{
                 .status = .{ .new = {} },
-                .src = rc_source_file,
+                .src = .{ .rc = rc_source_file },
+            };
+            comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
+        }
+        if (options.manifest_file) |manifest_path| {
+            const win32_resource = try gpa.create(Win32Resource);
+            errdefer gpa.destroy(win32_resource);
+
+            win32_resource.* = .{
+                .status = .{ .new = {} },
+                .src = .{ .manifest = manifest_path },
             };
             comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
         }
@@ -2477,8 +2491,15 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     if (!build_options.only_core_functionality) {
         for (comp.win32_resource_table.keys()) |key| {
-            _ = try man.addFile(key.src.src_path, null);
-            man.hash.addListOfBytes(key.src.extra_flags);
+            switch (key.src) {
+                .rc => |rc_src| {
+                    _ = try man.addFile(rc_src.src_path, null);
+                    man.hash.addListOfBytes(rc_src.extra_flags);
+                },
+                .manifest => |manifest_path| {
+                    _ = try man.addFile(manifest_path, null);
+                },
+            }
         }
     }
 
@@ -4172,7 +4193,10 @@ fn reportRetryableWin32ResourceError(
     try bundle.addRootErrorMessage(.{
         .msg = try bundle.printString("{s}", .{@errorName(err)}),
         .src_loc = try bundle.addSourceLocation(.{
-            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .src_path = try bundle.addString(switch (win32_resource.src) {
+                .rc => |rc_src| rc_src.src_path,
+                .manifest => |manifest_src| manifest_src,
+            }),
             .line = 0,
             .column = 0,
             .span_start = 0,
@@ -4542,7 +4566,17 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    log.debug("updating win32 resource: {s}", .{win32_resource.src.src_path});
+    const src_path = switch (win32_resource.src) {
+        .rc => |rc_src| rc_src.src_path,
+        .manifest => |src_path| src_path,
+    };
+    const src_basename = std.fs.path.basename(src_path);
+
+    log.debug("updating win32 resource: {s}", .{src_path});
+
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
     if (win32_resource.clearStatus(comp.gpa)) {
         // There was previous failure.
@@ -4553,24 +4587,113 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         _ = comp.failed_win32_resources.swapRemove(win32_resource);
     }
 
-    var man = comp.obtainWin32ResourceCacheManifest();
-    defer man.deinit();
-
-    _ = try man.addFile(win32_resource.src.src_path, null);
-    man.hash.addListOfBytes(win32_resource.src.extra_flags);
-
-    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    const rc_basename = std.fs.path.basename(win32_resource.src.src_path);
-
     win32_resource_prog_node.activate();
-    var child_progress_node = win32_resource_prog_node.start(rc_basename, 0);
+    var child_progress_node = win32_resource_prog_node.start(src_basename, 0);
     child_progress_node.activate();
     defer child_progress_node.end();
 
-    const rc_basename_noext = rc_basename[0 .. rc_basename.len - std.fs.path.extension(rc_basename).len];
+    var man = comp.obtainWin32ResourceCacheManifest();
+    defer man.deinit();
+
+    // For .manifest files, we ultimately just want to generate a .res with
+    // the XML data as a RT_MANIFEST resource. This means we can skip preprocessing,
+    // include paths, CLI options, etc.
+    if (win32_resource.src == .manifest) {
+        _ = try man.addFile(src_path, null);
+
+        const res_basename = try std.fmt.allocPrint(arena, "{s}.res", .{src_basename});
+
+        const digest = if (try man.hit()) man.final() else blk: {
+            // The digest only depends on the .manifest file, so we can
+            // get the digest now and write the .res directly to the cache
+            const digest = man.final();
+
+            const o_sub_path = try std.fs.path.join(arena, &.{ "o", &digest });
+            var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+            defer o_dir.close();
+
+            var output_file = o_dir.createFile(res_basename, .{}) catch |err| {
+                const output_file_path = try comp.local_cache_directory.join(arena, &.{ o_sub_path, res_basename });
+                return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ output_file_path, @errorName(err) });
+            };
+            var output_file_closed = false;
+            defer if (!output_file_closed) output_file.close();
+
+            var diagnostics = resinator.errors.Diagnostics.init(arena);
+            defer diagnostics.deinit();
+
+            var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
+
+            // In .rc files, a " within a quoted string is escaped as ""
+            const fmtRcEscape = struct {
+                fn formatRcEscape(bytes: []const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+                    _ = fmt;
+                    _ = options;
+                    for (bytes) |byte| switch (byte) {
+                        '"' => try writer.writeAll("\"\""),
+                        '\\' => try writer.writeAll("\\\\"),
+                        else => try writer.writeByte(byte),
+                    };
+                }
+
+                pub fn fmtRcEscape(bytes: []const u8) std.fmt.Formatter(formatRcEscape) {
+                    return .{ .data = bytes };
+                }
+            }.fmtRcEscape;
+
+            // 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID which is the default ID used for RT_MANIFEST resources
+            // 24 is RT_MANIFEST
+            const input = try std.fmt.allocPrint(arena, "1 24 \"{s}\"", .{fmtRcEscape(src_path)});
+
+            resinator.compile.compile(arena, input, output_buffered_stream.writer(), .{
+                .cwd = std.fs.cwd(),
+                .diagnostics = &diagnostics,
+                .ignore_include_env_var = true,
+                .default_code_page = .utf8,
+            }) catch |err| switch (err) {
+                error.ParseError, error.CompileError => {
+                    // Delete the output file on error
+                    output_file.close();
+                    output_file_closed = true;
+                    // Failing to delete is not really a big deal, so swallow any errors
+                    o_dir.deleteFile(res_basename) catch {
+                        const output_file_path = try comp.local_cache_directory.join(arena, &.{ o_sub_path, res_basename });
+                        log.warn("failed to delete '{s}': {s}", .{ output_file_path, @errorName(err) });
+                    };
+                    return comp.failWin32ResourceCompile(win32_resource, input, &diagnostics, null);
+                },
+                else => |e| return e,
+            };
+
+            try output_buffered_stream.flush();
+
+            break :blk digest;
+        };
+
+        if (man.have_exclusive_lock) {
+            man.writeManifest() catch |err| {
+                log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ src_path, @errorName(err) });
+            };
+        }
+
+        win32_resource.status = .{
+            .success = .{
+                .res_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
+                    "o", &digest, res_basename,
+                }),
+                .lock = man.toOwnedLock(),
+            },
+        };
+        return;
+    }
+
+    // We now know that we're compiling an .rc file
+    const rc_src = win32_resource.src.rc;
+
+    _ = try man.addFile(rc_src.src_path, null);
+    man.hash.addListOfBytes(rc_src.extra_flags);
+
+    const rc_basename_noext = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
 
     const digest = if (try man.hit()) man.final() else blk: {
         const rcpp_filename = try std.fmt.allocPrint(arena, "{s}.rcpp", .{rc_basename_noext});
@@ -4586,11 +4709,11 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         const out_res_path = try comp.tmpFilePath(arena, res_filename);
 
         var options = options: {
-            var resinator_args = try std.ArrayListUnmanaged([]const u8).initCapacity(comp.gpa, win32_resource.src.extra_flags.len + 4);
+            var resinator_args = try std.ArrayListUnmanaged([]const u8).initCapacity(comp.gpa, rc_src.extra_flags.len + 4);
             defer resinator_args.deinit(comp.gpa);
 
             resinator_args.appendAssumeCapacity(""); // dummy 'process name' arg
-            resinator_args.appendSliceAssumeCapacity(win32_resource.src.extra_flags);
+            resinator_args.appendSliceAssumeCapacity(rc_src.extra_flags);
             resinator_args.appendSliceAssumeCapacity(&.{ "--", out_rcpp_path, out_res_path });
 
             var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
@@ -4619,7 +4742,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             .nostdinc = false, // handled by addCCArgs
         });
 
-        try argv.append(win32_resource.src.src_path);
+        try argv.append(rc_src.src_path);
         try argv.appendSlice(&[_][]const u8{
             "-o",
             out_rcpp_path,
@@ -4693,7 +4816,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             },
         };
 
-        var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = win32_resource.src.src_path });
+        var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = rc_src.src_path });
         defer mapping_results.mappings.deinit(arena);
 
         var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
@@ -4776,7 +4899,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // the contents were the same, we hit the cache but the manifest is dirty and we need to update
         // it to prevent doing a full file content comparison the next time around.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ win32_resource.src.src_path, @errorName(err) });
+            log.warn("failed to write cache manifest when compiling '{s}': {s}", .{ rc_src.src_path, @errorName(err) });
         };
     }
 
@@ -5114,7 +5237,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest => {},
         .assembly, .assembly_with_cpp => {
             if (ext == .assembly_with_cpp) {
                 const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
@@ -5340,7 +5463,10 @@ fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptim
     try bundle.addRootErrorMessage(.{
         .msg = try bundle.printString(format, args),
         .src_loc = try bundle.addSourceLocation(.{
-            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .src_path = try bundle.addString(switch (win32_resource.src) {
+                .rc => |rc_src| rc_src.src_path,
+                .manifest => |manifest_src| manifest_src,
+            }),
             .line = 0,
             .column = 0,
             .span_start = 0,
@@ -5381,7 +5507,10 @@ fn failWin32ResourceCli(
     try bundle.addRootErrorMessage(.{
         .msg = try bundle.addString("invalid command line option(s)"),
         .src_loc = try bundle.addSourceLocation(.{
-            .src_path = try bundle.addString(win32_resource.src.src_path),
+            .src_path = try bundle.addString(switch (win32_resource.src) {
+                .rc => |rc_src| rc_src.src_path,
+                .manifest => |manifest_src| manifest_src,
+            }),
             .line = 0,
             .column = 0,
             .span_start = 0,
@@ -5427,7 +5556,7 @@ fn failWin32ResourceCompile(
     win32_resource: *Win32Resource,
     source: []const u8,
     diagnostics: *resinator.errors.Diagnostics,
-    mappings: resinator.source_mapping.SourceMappings,
+    opt_mappings: ?resinator.source_mapping.SourceMappings,
 ) SemaError {
     @setCold(true);
 
@@ -5451,19 +5580,26 @@ fn failWin32ResourceCompile(
             .note => if (cur_err == null) continue,
             .err => {},
         }
-        const corresponding_span = mappings.get(err_details.token.line_number);
-        const corresponding_file = mappings.files.get(corresponding_span.filename_offset);
+        const err_line, const err_filename = blk: {
+            if (opt_mappings) |mappings| {
+                const corresponding_span = mappings.get(err_details.token.line_number);
+                const corresponding_file = mappings.files.get(corresponding_span.filename_offset);
+                const err_line = corresponding_span.start_line;
+                break :blk .{ err_line, corresponding_file };
+            } else {
+                break :blk .{ err_details.token.line_number, "<generated rc>" };
+            }
+        };
 
         const source_line_start = err_details.token.getLineStart(source);
         const column = err_details.token.calculateColumn(source, 1, source_line_start);
-        const err_line = corresponding_span.start_line;
 
         msg_buf.clearRetainingCapacity();
         try err_details.render(msg_buf.writer(comp.gpa), source, diagnostics.strings.items);
 
         const src_loc = src_loc: {
             var src_loc: ErrorBundle.SourceLocation = .{
-                .src_path = try bundle.addString(corresponding_file),
+                .src_path = try bundle.addString(err_filename),
                 .line = @intCast(err_line - 1), // 1-based -> 0-based
                 .column = @intCast(column),
                 .span_start = 0,
@@ -5536,6 +5672,7 @@ pub const FileExt = enum {
     def,
     rc,
     res,
+    manifest,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -5553,6 +5690,7 @@ pub const FileExt = enum {
             .def,
             .rc,
             .res,
+            .manifest,
             .unknown,
             => false,
         };
@@ -5577,6 +5715,7 @@ pub const FileExt = enum {
             .def => ".def",
             .rc => ".rc",
             .res => ".res",
+            .manifest => ".manifest",
             .unknown => "",
         };
     }
@@ -5672,6 +5811,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .rc;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".res")) {
         return .res;
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".manifest")) {
+        return .manifest;
     } else {
         return .unknown;
     }
