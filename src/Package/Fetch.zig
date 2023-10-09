@@ -1181,7 +1181,13 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.IterableDir, tmp_dir: fs.Dir) anyer
                 const link_name = try dir.dir.readLink(entry.path, &buf);
                 // TODO: if this would create a symlink to outside
                 // the destination directory, fail with an error instead.
-                try tmp_dir.symLink(link_name, entry.path, .{});
+                tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                        try tmp_dir.symLink(link_name, entry.path, .{});
+                    },
+                    else => |e| return e,
+                };
             },
             else => return error.IllegalFileTypeInPackage,
         }
