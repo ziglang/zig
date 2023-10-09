@@ -11,8 +11,6 @@ const Allocator = mem.Allocator;
 const Sha1 = std.crypto.hash.Sha1;
 const assert = std.debug.assert;
 
-const ProgressReader = @import("Package.zig").ProgressReader;
-
 pub const oid_length = Sha1.digest_length;
 pub const fmt_oid_length = 2 * oid_length;
 /// The ID of a Git object (an SHA-1 hash).
