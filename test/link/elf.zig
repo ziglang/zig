@@ -93,8 +93,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17430
     // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
-    // TODO
-    // elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
@@ -2464,7 +2463,7 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
         \\void *(*verify)(void *);
         \\
         \\int main() {
-        \\  void *handle = dlopen("a.so", RTLD_NOW);
+        \\  void *handle = dlopen("liba.so", RTLD_NOW);
         \\  assert(handle);
         \\  *(void**)(&verify) = dlsym(handle, "verify");
         \\  assert(verify);
@@ -2477,10 +2476,8 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
         \\  pthread_join(thread, NULL);
         \\}
     , &.{});
-    exe.linkLibrary(dso);
+    exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
-    exe.linkSystemLibrary2("dl", .{});
-    exe.linkSystemLibrary2("pthread", .{});
     exe.force_pic = true;
 
     const run = addRunArtifact(exe);
