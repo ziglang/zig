@@ -592,7 +592,8 @@ pub const DeclGen = struct {
 
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
-        _ = try dg.anon_decl_deps.getOrPut(dg.gpa, decl_val);
+        const gop = try dg.anon_decl_deps.getOrPut(dg.gpa, decl_val);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
     }
 
     fn renderDeclValue(

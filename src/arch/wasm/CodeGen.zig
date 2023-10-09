@@ -7215,12 +7215,12 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         switch (tag_value) {
             .imm32 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i32_const));
-                try leb.writeULEB128(writer, value);
+                try leb.writeILEB128(writer, @as(i32, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i32_ne));
             },
             .imm64 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i64_const));
-                try leb.writeULEB128(writer, value);
+                try leb.writeILEB128(writer, @as(i64, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i64_ne));
             },
             else => unreachable,
