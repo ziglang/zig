@@ -1352,11 +1352,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 });
             } else null;
 
-            try main_mod.deps.put(gpa, "builtin", builtin_mod);
-            try main_mod.deps.put(gpa, "root", root_mod);
-            try main_mod.deps.put(gpa, "std", std_mod);
-            if (compiler_rt_mod) |m|
-                try main_mod.deps.put(gpa, "compiler_rt", m);
+            {
+                try main_mod.deps.ensureUnusedCapacity(arena, 4);
+                main_mod.deps.putAssumeCapacity("builtin", builtin_mod);
+                main_mod.deps.putAssumeCapacity("root", root_mod);
+                main_mod.deps.putAssumeCapacity("std", std_mod);
+                if (compiler_rt_mod) |m|
+                    main_mod.deps.putAssumeCapacity("compiler_rt", m);
+            }
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
