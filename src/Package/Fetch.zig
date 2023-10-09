@@ -1249,8 +1249,13 @@ fn computeHash(
     var all_files = std.ArrayList(*HashedFile).init(gpa);
     defer all_files.deinit();
 
-    var all_deletions = std.ArrayList(*DeletedFile).init(gpa);
-    defer all_deletions.deinit();
+    var deleted_files = std.ArrayList(*DeletedFile).init(gpa);
+    defer deleted_files.deinit();
+
+    // Track directories which had any files deleted from them so that empty directories
+    // can be deleted.
+    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
+    defer sus_dirs.deinit(gpa);
 
     var walker = try @as(fs.IterableDir, .{ .dir = tmp_directory.handle }).walk(gpa);
     defer walker.deinit();
@@ -1274,16 +1279,22 @@ fn computeHash(
 
             if (!filter.includePath(entry.path)) {
                 // Delete instead of including in hash calculation.
+                const fs_path = try arena.dupe(u8, entry.path);
+
+                // Also track the parent directory in case it becomes empty.
+                if (fs.path.dirname(fs_path)) |parent|
+                    try sus_dirs.put(gpa, parent, {});
+
                 const deleted_file = try arena.create(DeletedFile);
                 deleted_file.* = .{
-                    .fs_path = try arena.dupe(u8, entry.path),
+                    .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
                 wait_group.start();
                 try thread_pool.spawn(workerDeleteFile, .{
                     tmp_directory.handle, deleted_file, &wait_group,
                 });
-                try all_deletions.append(deleted_file);
+                try deleted_files.append(deleted_file);
                 continue;
             }
 
@@ -1300,8 +1311,8 @@ fn computeHash(
             if (std.mem.eql(u8, entry.path, Package.build_zig_basename))
                 f.has_build_zig = true;
 
-            const hashed_file = try arena.create(HashedFile);
             const fs_path = try arena.dupe(u8, entry.path);
+            const hashed_file = try arena.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
                 .normalized_path = try normalizePath(arena, fs_path),
@@ -1314,6 +1325,36 @@ fn computeHash(
                 tmp_directory.handle, hashed_file, &wait_group,
             });
             try all_files.append(hashed_file);
+        }
+    }
+
+    {
+        // Sort by length, descending, so that child directories get removed first.
+        sus_dirs.sortUnstable(@as(struct {
+            keys: []const []const u8,
+            pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+                return ctx.keys[b_index].len < ctx.keys[a_index].len;
+            }
+        }, .{ .keys = sus_dirs.keys() }));
+
+        // During this loop, more entries will be added, so we must loop by index.
+        var i: usize = 0;
+        while (i < sus_dirs.count()) : (i += 1) {
+            const sus_dir = sus_dirs.keys()[i];
+            tmp_directory.handle.deleteDir(sus_dir) catch |err| switch (err) {
+                error.DirNotEmpty => continue,
+                error.FileNotFound => continue,
+                else => |e| {
+                    try eb.addRootErrorMessage(.{ .msg = try eb.printString(
+                        "unable to delete empty directory '{s}': {s}",
+                        .{ sus_dir, @errorName(e) },
+                    ) });
+                    return error.FetchFailed;
+                },
+            };
+            if (fs.path.dirname(sus_dir)) |parent| {
+                try sus_dirs.put(gpa, parent, {});
+            }
         }
     }
 
@@ -1332,7 +1373,7 @@ fn computeHash(
         };
         hasher.update(&hashed_file.hash);
     }
-    for (all_deletions.items) |deleted_file| {
+    for (deleted_files.items) |deleted_file| {
         deleted_file.failure catch |err| {
             any_failures = true;
             try eb.addRootErrorMessage(.{
@@ -1382,16 +1423,6 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
 
 fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
     try dir.deleteFile(deleted_file.fs_path);
-    // In case the file was the last remaining file in the parent directory, attempt to
-    // remove the parent directory.
-    var opt_parent = fs.path.dirname(deleted_file.fs_path);
-    while (opt_parent) |parent| : (opt_parent = fs.path.dirname(parent)) {
-        dir.deleteDir(parent) catch |err| switch (err) {
-            error.DirNotEmpty => return,
-            error.FileNotFound => return,
-            else => |e| return e,
-        };
-    }
 }
 
 fn isExecutable(file: fs.File) !bool {
