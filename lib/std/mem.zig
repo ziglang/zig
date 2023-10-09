@@ -1344,7 +1344,11 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 /// Uses Boyer-Moore-Horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
-    if (needle.len == 0) return start_index;
+    if (needle.len < 2) {
+        if (needle.len == 0) return start_index;
+        // indexOfScalarPos is significantly faster than indexOfPosLinear
+        return indexOfScalarPos(T, haystack, start_index, needle[0]);
+    }
 
     if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
