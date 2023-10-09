@@ -539,16 +539,18 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     // If the package does not have a build.zig.zon file then there are no dependencies.
     const manifest = f.manifest orelse return;
 
-    const new_fetches = nf: {
+    const new_fetches, const prog_names = nf: {
         const parent_arena = f.arena.allocator();
         const gpa = f.arena.child_allocator;
         const cache_root = f.job_queue.global_cache;
+        const dep_names = manifest.dependencies.keys();
         const deps = manifest.dependencies.values();
         // Grab the new tasks into a temporary buffer so we can unlock that mutex
         // as fast as possible.
         // This overallocates any fetches that get skipped by the `continue` in the
         // loop below.
         const new_fetches = try parent_arena.alloc(Fetch, deps.len);
+        const prog_names = try parent_arena.alloc([]const u8, deps.len);
         var new_fetch_index: usize = 0;
 
         f.job_queue.mutex.lock();
@@ -568,7 +570,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         //   - Hash is added to the table based on the path alone before
         //     calling run(); no need to add it again.
 
-        for (deps) |dep| {
+        for (dep_names, deps) |dep_name, dep| {
             const new_fetch = &new_fetches[new_fetch_index];
             const location: Location = switch (dep.location) {
                 .url => |url| .{ .remote = .{
@@ -594,6 +596,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     break :l .{ .relative_path = new_root };
                 },
             };
+            prog_names[new_fetch_index] = dep_name;
             new_fetch_index += 1;
             f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
             new_fetch.* = .{
@@ -620,15 +623,18 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
         }
 
-        break :nf new_fetches[0..new_fetch_index];
+        // job_queue mutex is locked so this is OK.
+        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+
+        break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
 
     // Now it's time to give tasks to the thread pool.
     const thread_pool = f.job_queue.thread_pool;
 
-    for (new_fetches) |*new_fetch| {
+    for (new_fetches, prog_names) |*new_fetch, prog_name| {
         f.job_queue.wait_group.start();
-        thread_pool.spawn(workerRun, .{new_fetch}) catch |err| switch (err) {
+        thread_pool.spawn(workerRun, .{ new_fetch, prog_name }) catch |err| switch (err) {
             error.OutOfMemory => {
                 new_fetch.oom_flag = true;
                 f.job_queue.wait_group.finish();
@@ -654,8 +660,13 @@ pub fn relativePathDigest(
     return Manifest.hexDigest(hasher.finalResult());
 }
 
-pub fn workerRun(f: *Fetch) void {
+pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
     defer f.job_queue.wait_group.finish();
+
+    var prog_node = f.prog_node.start(prog_name, 0);
+    defer prog_node.end();
+    prog_node.activate();
+
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
         error.FetchFailed => {
