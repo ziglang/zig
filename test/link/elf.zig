@@ -77,6 +77,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPltGot(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPreinitArray(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -1638,6 +1639,68 @@ fn testPreinitArray(b: *Build, opts: Options) *Step {
         check.checkInDynamicSection();
         check.checkContains("PREINIT_ARRAY");
     }
+
+    return test_step;
+}
+
+fn testSharedAbsSymbol(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "shared-abs-symbol", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addAsmSourceBytes(dso,
+        \\.globl foo
+        \\foo = 3;
+    );
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\extern char foo;
+        \\int main() { printf("foo=%p\n", &foo); }
+    , &.{});
+    obj.force_pic = true;
+    obj.linkLibC();
+
+    {
+        const exe = addExecutable(b, "main1", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(dso);
+        exe.pie = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("foo=0x3\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("header");
+        check.checkExact("type DYN");
+        // TODO fix/improve in CheckObject
+        // check.checkInSymtab();
+        // check.checkNotPresent("foo");
+        test_step.dependOn(&check.step);
+    }
+
+    // https://github.com/ziglang/zig/issues/17430
+    // {
+    //     const exe = addExecutable(b, "main2", opts);
+    //     exe.addObject(obj);
+    //     exe.linkLibrary(dso);
+    //     exe.pie = false;
+
+    //     const run = addRunArtifact(exe);
+    //     run.expectStdOutEqual("foo=0x3\n");
+    //     test_step.dependOn(&run.step);
+
+    //     const check = exe.checkObject();
+    //     check.checkStart();
+    //     check.checkExact("header");
+    //     check.checkExact("type EXEC");
+    //     // TODO fix/improve in CheckObject
+    //     // check.checkInSymtab();
+    //     // check.checkNotPresent("foo");
+    //     test_step.dependOn(&check.step);
+    // }
 
     return test_step;
 }
