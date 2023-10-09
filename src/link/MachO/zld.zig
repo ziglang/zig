@@ -186,8 +186,8 @@ pub fn linkWithZld(
             try positionals.append(.{ .path = p });
         }
 
-        if (comp.compiler_rt_lib) |lib| {
-            try positionals.append(.{ .path = lib.full_object_path });
+        if (comp.compiler_rt_obj) |obj| {
+            try positionals.append(.{ .path = obj.full_object_path });
         }
 
         // libc++ dep
@@ -301,8 +301,8 @@ pub fn linkWithZld(
                 try argv.append(p);
             }
 
-            if (comp.compiler_rt_lib) |lib| {
-                try argv.append(lib.full_object_path);
+            if (comp.compiler_rt_obj) |obj| {
+                try argv.append(obj.full_object_path);
             }
 
             if (options.link_libcpp) {

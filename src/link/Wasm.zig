@@ -3257,11 +3257,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const is_obj = options.output_mode == .Obj;
-    const compiler_rt_path: ?[]const u8 = if (options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_lib.?.full_object_path
-    else
-        null;
+    const compiler_rt_path: ?[]const u8 = if (comp.compiler_rt_obj) |o| o.full_object_path else null;
     const id_symlink_basename = "zld.id";
 
     var man: Cache.Manifest = undefined;
@@ -3376,8 +3372,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try positionals.append(c_object.status.success.object_path);
     }
 
-    if (comp.compiler_rt_lib) |lib| {
-        try positionals.append(lib.full_object_path);
+    if (comp.compiler_rt_obj) |obj| {
+        try positionals.append(obj.full_object_path);
     }
 
     try wasm.parseInputFiles(positionals.items);
@@ -3463,8 +3459,8 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try positionals.append(c_object.status.success.object_path);
     }
 
-    if (comp.compiler_rt_lib) |lib| {
-        try positionals.append(lib.full_object_path);
+    if (comp.compiler_rt_obj) |obj| {
+        try positionals.append(obj.full_object_path);
     }
 
     try wasm.parseInputFiles(positionals.items);
@@ -4325,11 +4321,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     defer sub_prog_node.end();
 
     const is_obj = wasm.base.options.output_mode == .Obj;
-
-    const compiler_rt_path: ?[]const u8 = if (wasm.base.options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_lib.?.full_object_path
-    else
-        null;
+    const compiler_rt_path: ?[]const u8 = if (comp.compiler_rt_obj) |o| o.full_object_path else null;
 
     const target = wasm.base.options.target;
 
