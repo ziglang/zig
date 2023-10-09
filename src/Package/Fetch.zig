@@ -257,7 +257,9 @@ pub fn run(f: *Fetch) RunError!void {
                 f.hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
-            if (std.mem.startsWith(u8, pkg_root.sub_path, "../")) {
+            if (std.mem.startsWith(u8, pkg_root.sub_path, "../") or
+                std.mem.eql(u8, pkg_root.sub_path, ".."))
+            {
                 return f.fail(
                     f.location_tok,
                     try eb.printString("dependency path outside project: '{}{s}'", .{
