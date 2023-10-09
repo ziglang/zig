@@ -27,6 +27,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
     elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
     elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
+    elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
+    elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
@@ -44,8 +46,24 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target }));
     elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testFuncAddress(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testHiddenWeakUndef(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncAlias(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testIFuncDlopen(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncDso(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncDynamic(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncExport(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncFuncPtr(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testIFuncNoPlt(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430 ??
+    // elf_step.dependOn(testIFuncStatic(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testIFuncStaticPie(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testInitArrayOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -686,6 +704,32 @@ fn testExportSymbolsFromExe(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testFuncAddress(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "func-address", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso, "void fn() {}", &.{});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <assert.h>
+        \\typedef void Func();
+        \\void fn();
+        \\Func *const ptr = fn;
+        \\int main() {
+        \\  assert(fn == ptr);
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.force_pic = false;
+    exe.pie = false;
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testGcSections(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "gc-sections", opts);
 
@@ -772,6 +816,449 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         check.checkNotPresent("dead_fn2");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testHiddenWeakUndef(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "hidden-weak-undef", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\__attribute__((weak, visibility("hidden"))) void foo();
+        \\void bar() { foo(); }
+    , &.{});
+
+    const check = dso.checkObject();
+    check.checkInDynamicSymtab();
+    check.checkNotPresent("foo");
+    check.checkInDynamicSymtab();
+    check.checkContains("bar");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testIFuncAlias(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-alias", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <assert.h>
+        \\void foo() {}
+        \\int bar() __attribute__((ifunc("resolve_bar")));
+        \\void *resolve_bar() { return foo; }
+        \\void *bar2 = bar;
+        \\int main() {
+        \\  assert(bar == bar2);
+        \\}
+    , &.{});
+    exe.force_pic = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncDlopen(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-dlopen", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\__attribute__((ifunc("resolve_foo")))
+        \\void foo(void);
+        \\static void real_foo(void) {
+        \\}
+        \\typedef void Func();
+        \\static Func *resolve_foo(void) {
+        \\  return real_foo;
+        \\}
+    , &.{});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <dlfcn.h>
+        \\#include <assert.h>
+        \\#include <stdlib.h>
+        \\typedef void Func();
+        \\void foo(void);
+        \\int main() {
+        \\  void *handle = dlopen(NULL, RTLD_NOW);
+        \\  Func *p = dlsym(handle, "foo");
+        \\
+        \\  foo();
+        \\  p();
+        \\  assert(foo == p);
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+    exe.linkSystemLibrary2("dl", .{});
+    exe.force_pic = false;
+    exe.pie = false;
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncDso(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-dso", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\#include<stdio.h>
+        \\__attribute__((ifunc("resolve_foobar")))
+        \\void foobar(void);
+        \\static void real_foobar(void) {
+        \\  printf("Hello world\n");
+        \\}
+        \\typedef void Func();
+        \\static Func *resolve_foobar(void) {
+        \\  return real_foobar;
+        \\}
+    , &.{});
+    dso.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\void foobar(void);
+        \\int main() {
+        \\  foobar();
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncDynamic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-dynamic", opts);
+
+    const main_c =
+        \\#include <stdio.h>
+        \\__attribute__((ifunc("resolve_foobar")))
+        \\static void foobar(void);
+        \\static void real_foobar(void) {
+        \\  printf("Hello world\n");
+        \\}
+        \\typedef void Func();
+        \\static Func *resolve_foobar(void) {
+        \\  return real_foobar;
+        \\}
+        \\int main() {
+        \\  foobar();
+        \\}
+    ;
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        addCSourceBytes(exe, main_c, &.{});
+        exe.linkLibC();
+        exe.link_z_lazy = true;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("Hello world\n");
+        test_step.dependOn(&run.step);
+    }
+    {
+        const exe = addExecutable(b, "other", opts);
+        addCSourceBytes(exe, main_c, &.{});
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("Hello world\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testIFuncExport(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-export", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\#include <stdio.h>
+        \\__attribute__((ifunc("resolve_foobar")))
+        \\void foobar(void);
+        \\void real_foobar(void) {
+        \\  printf("Hello world\n");
+        \\}
+        \\typedef void Func();
+        \\Func *resolve_foobar(void) {
+        \\  return real_foobar;
+        \\}
+    , &.{});
+    dso.linkLibC();
+
+    const check = dso.checkObject();
+    check.checkInDynamicSymtab();
+    check.checkContains("IFUNC GLOBAL DEFAULT foobar");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testIFuncFuncPtr(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-func-ptr", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\typedef int Fn();
+        \\int foo() __attribute__((ifunc("resolve_foo")));
+        \\int real_foo() { return 3; }
+        \\Fn *resolve_foo(void) {
+        \\  return real_foo;
+        \\}
+    , &.{});
+    addCSourceBytes(exe,
+        \\typedef int Fn();
+        \\int foo();
+        \\Fn *get_foo() { return foo; }
+    , &.{});
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\typedef int Fn();
+        \\Fn *get_foo();
+        \\int main() {
+        \\  Fn *f = get_foo();
+        \\  printf("%d\n", f());
+        \\}
+    , &.{});
+    exe.force_pic = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncNoPlt(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-noplt", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\__attribute__((ifunc("resolve_foo")))
+        \\void foo(void);
+        \\void hello(void) {
+        \\  printf("Hello world\n");
+        \\}
+        \\typedef void Fn();
+        \\Fn *resolve_foo(void) {
+        \\  return hello;
+        \\}
+        \\int main() {
+        \\  foo();
+        \\}
+    , &.{"-fno-plt"});
+    exe.force_pic = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncStatic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-static", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\void foo() __attribute__((ifunc("resolve_foo")));
+        \\void hello() {
+        \\  printf("Hello world\n");
+        \\}
+        \\void *resolve_foo() {
+        \\  return hello;
+        \\}
+        \\int main() {
+        \\  foo();
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkLibC();
+    exe.linkage = .static;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testIFuncStaticPie(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ifunc-static-pie", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\void foo() __attribute__((ifunc("resolve_foo")));
+        \\void hello() {
+        \\  printf("Hello world\n");
+        \\}
+        \\void *resolve_foo() {
+        \\  return hello;
+        \\}
+        \\int main() {
+        \\  foo();
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkage = .static;
+    exe.force_pic = true;
+    exe.pie = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("header");
+    check.checkExact("type DYN");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkExact("name .dynamic");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkNotPresent("name .interp");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testImageBase(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "image-base", opts);
+
+    {
+        const exe = addExecutable(b, "main1", opts);
+        addCSourceBytes(exe,
+            \\#include <stdio.h>
+            \\int main() {
+            \\  printf("Hello World!\n");
+            \\  return 0;
+            \\}
+        , &.{});
+        exe.linkLibC();
+        exe.image_base = 0x8000000;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("Hello World!\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("header");
+        check.checkExtract("entry {addr}");
+        check.checkComputeCompare("addr", .{ .op = .gte, .value = .{ .literal = 0x8000000 } });
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        addCSourceBytes(exe, "void _start() {}", &.{});
+        exe.image_base = 0xffffffff8000000;
+
+        const check = exe.checkObject();
+        check.checkStart();
+        check.checkExact("header");
+        check.checkExtract("entry {addr}");
+        check.checkComputeCompare("addr", .{ .op = .gte, .value = .{ .literal = 0xffffffff8000000 } });
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testInitArrayOrder(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "init-array-order", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o,
+        \\#include <stdio.h>
+        \\__attribute__((constructor(10000))) void init4() { printf("1"); }
+    , &.{});
+    a_o.linkLibC();
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o,
+        \\#include <stdio.h>
+        \\__attribute__((constructor(1000))) void init3() { printf("2"); }
+    , &.{});
+    b_o.linkLibC();
+
+    const c_o = addObject(b, "c", opts);
+    addCSourceBytes(c_o,
+        \\#include <stdio.h>
+        \\__attribute__((constructor)) void init1() { printf("3"); }
+    , &.{});
+    c_o.linkLibC();
+
+    const d_o = addObject(b, "d", opts);
+    addCSourceBytes(d_o,
+        \\#include <stdio.h>
+        \\__attribute__((constructor)) void init2() { printf("4"); }
+    , &.{});
+    d_o.linkLibC();
+
+    const e_o = addObject(b, "e", opts);
+    addCSourceBytes(e_o,
+        \\#include <stdio.h>
+        \\__attribute__((destructor(10000))) void fini4() { printf("5"); }
+    , &.{});
+    e_o.linkLibC();
+
+    const f_o = addObject(b, "f", opts);
+    addCSourceBytes(f_o,
+        \\#include <stdio.h>
+        \\__attribute__((destructor(1000))) void fini3() { printf("6"); }
+    , &.{});
+    f_o.linkLibC();
+
+    const g_o = addObject(b, "g", opts);
+    addCSourceBytes(g_o,
+        \\#include <stdio.h>
+        \\__attribute__((destructor)) void fini1() { printf("7"); }
+    , &.{});
+    g_o.linkLibC();
+
+    const h_o = addObject(b, "h", opts);
+    addCSourceBytes(h_o,
+        \\#include <stdio.h>
+        \\__attribute__((destructor)) void fini2() { printf("8"); }
+    , &.{});
+    h_o.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.addObject(a_o);
+    exe.addObject(b_o);
+    exe.addObject(c_o);
+    exe.addObject(d_o);
+    exe.addObject(e_o);
+    exe.addObject(f_o);
+    exe.addObject(g_o);
+    exe.addObject(h_o);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("21348756");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -946,6 +1433,37 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     check.checkStart();
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testPie(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "hello-pie", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\int main() {
+        \\  printf("Hello!\n");
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkLibC();
+    exe.force_pic = true;
+    exe.pie = true;
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello!\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("header");
+    check.checkExact("type DYN");
+    check.checkStart();
+    check.checkExact("section headers");
+    check.checkExact("name .dynamic");
     test_step.dependOn(&check.step);
 
     return test_step;
