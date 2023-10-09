@@ -366,15 +366,18 @@ pub const GotSection = struct {
         const apply_relocs = true; // TODO add user option for this
 
         for (got.entries.items) |entry| {
-            const symbol = elf_file.symbol(entry.symbol_index);
+            const symbol = switch (entry.tag) {
+                .tlsld => null,
+                inline else => elf_file.symbol(entry.symbol_index),
+            };
             switch (entry.tag) {
                 .got => {
                     const value = blk: {
-                        const value = symbol.address(.{ .plt = false }, elf_file);
-                        if (symbol.flags.import) break :blk 0;
-                        if (symbol.isIFunc(elf_file))
+                        const value = symbol.?.address(.{ .plt = false }, elf_file);
+                        if (symbol.?.flags.import) break :blk 0;
+                        if (symbol.?.isIFunc(elf_file))
                             break :blk if (apply_relocs) value else 0;
-                        if (elf_file.base.options.pic and !symbol.isAbs(elf_file))
+                        if (elf_file.base.options.pic and !symbol.?.isAbs(elf_file))
                             break :blk if (apply_relocs) value else 0;
                         break :blk value;
                     };
@@ -385,26 +388,26 @@ pub const GotSection = struct {
                     try writeInt(0, elf_file, writer);
                 },
                 .tlsgd => {
-                    if (symbol.flags.import) {
+                    if (symbol.?.flags.import) {
                         try writeInt(0, elf_file, writer);
                         try writeInt(0, elf_file, writer);
                     } else {
                         try writeInt(if (is_dyn_lib) @as(u64, 0) else 1, elf_file, writer);
-                        const offset = symbol.address(.{}, elf_file) - elf_file.dtpAddress();
+                        const offset = symbol.?.address(.{}, elf_file) - elf_file.dtpAddress();
                         try writeInt(offset, elf_file, writer);
                     }
                 },
                 .gottp => {
-                    if (symbol.flags.import) {
+                    if (symbol.?.flags.import) {
                         try writeInt(0, elf_file, writer);
                     } else if (is_dyn_lib) {
                         const offset = if (apply_relocs)
-                            symbol.address(.{}, elf_file) - elf_file.tlsAddress()
+                            symbol.?.address(.{}, elf_file) - elf_file.tlsAddress()
                         else
                             0;
                         try writeInt(offset, elf_file, writer);
                     } else {
-                        const offset = @as(i64, @intCast(symbol.address(.{}, elf_file))) -
+                        const offset = @as(i64, @intCast(symbol.?.address(.{}, elf_file))) -
                             @as(i64, @intCast(elf_file.tpAddress()));
                         try writeInt(offset, elf_file, writer);
                     }
