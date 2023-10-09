@@ -82,6 +82,26 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsIe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLargeTbss(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17430
+    // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
+    // TODO
+    // elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -1924,6 +1944,641 @@ fn testTlsGd(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-gd-no-plt", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x1 = 1;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x2;
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int x3;
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int x4;
+        \\int get_x5();
+        \\int get_x6();
+        \\int main() {
+        \\  x2 = 2;
+        \\
+        \\  printf("%d %d %d %d %d %d\n", x1, x2, x3, x4, get_x5(), get_x6());
+        \\  return 0;
+        \\}
+    , &.{"-fno-plt"});
+    obj.force_pic = true;
+    obj.linkLibC();
+
+    const a_so = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(a_so,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x3 = 3;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x5 = 5;
+        \\int get_x5() { return x5; }
+    , &.{"-fno-plt"});
+
+    const b_so = addSharedLibrary(b, "b", opts);
+    addCSourceBytes(b_so,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x4 = 4;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x6 = 6;
+        \\int get_x6() { return x6; }
+    , &.{"-fno-plt"});
+    // b_so.link_relax = false; // TODO
+
+    {
+        const exe = addExecutable(b, "main1", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(a_so);
+        exe.linkLibrary(b_so);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2 3 4 5 6\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main2", opts);
+        exe.addObject(obj);
+        exe.linkLibrary(a_so);
+        exe.linkLibrary(b_so);
+        exe.linkLibC();
+        // exe.link_relax = false; // TODO
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2 3 4 5 6\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsGdToIe(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-gd-to-ie", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int x1 = 1;
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x2 = 2;
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int x3;
+        \\int foo() {
+        \\  x3 = 3;
+        \\
+        \\  printf("%d %d %d\n", x1, x2, x3);
+        \\  return 0;
+        \\}
+    , &.{});
+    a_o.linkLibC();
+    a_o.force_pic = true;
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o,
+        \\int foo();
+        \\int main() { foo(); }
+    , &.{});
+    b_o.force_pic = true;
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(a_o);
+
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(b_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2 3\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(a_o);
+        // dso.link_relax = false; // TODO
+
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(b_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2 3\n");
+        test_step.dependOn(&run.step);
+    }
+
+    // {
+    //     const dso = addSharedLibrary(b, "a", opts);
+    //     dso.addObject(a_o);
+    //     dso.link_z_nodlopen = true;
+
+    //     const exe = addExecutable(b, "main", opts);
+    //     exe.addObject(b_o);
+    //     exe.linkLibrary(dso);
+
+    //     const run = addRunArtifact(exe);
+    //     run.expectStdOutEqual("1 2 3\n");
+    //     test_step.dependOn(&run.step);
+    // }
+
+    // {
+    //     const dso = addSharedLibrary(b, "a", opts);
+    //     dso.addObject(a_o);
+    //     dso.link_relax = false;
+    //     dso.link_z_nodlopen = true;
+
+    //     const exe = addExecutable(b, "main", opts);
+    //     exe.addObject(b_o);
+    //     exe.linkLibrary(dso);
+
+    //     const run = addRunArtifact(exe);
+    //     run.expectStdOutEqual("1 2 3\n");
+    //     test_step.dependOn(&run.step);
+    // }
+
+    return test_step;
+}
+
+fn testTlsIe(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-ie", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("initial-exec"))) static _Thread_local int foo;
+        \\__attribute__((tls_model("initial-exec"))) static _Thread_local int bar;
+        \\void set() {
+        \\  foo = 3;
+        \\  bar = 5;
+        \\}
+        \\void print() {
+        \\  printf("%d %d ", foo, bar);
+        \\}
+    , &.{});
+    dso.linkLibC();
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\#include <stdio.h>
+        \\_Thread_local int baz;
+        \\void set();
+        \\void print();
+        \\int main() {
+        \\  baz = 7;
+        \\  print();
+        \\  set();
+        \\  print();
+        \\  printf("%d\n", baz);
+        \\}
+    , &.{});
+    main_o.linkLibC();
+
+    const exp_stdout = "0 0 3 5 7\n";
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(main_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(main_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+        // exe.link_relax = false; // TODO
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-large-alignment", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o,
+        \\__attribute__((section(".tdata1")))
+        \\_Thread_local int x = 42;
+    , &.{"-std=c11"});
+    a_o.force_pic = true;
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o,
+        \\__attribute__((section(".tdata2")))
+        \\_Alignas(256) _Thread_local int y[] = { 1, 2, 3 };
+    , &.{"-std=c11"});
+    b_o.force_pic = true;
+
+    const c_o = addObject(b, "c", opts);
+    addCSourceBytes(c_o,
+        \\#include <stdio.h>
+        \\extern _Thread_local int x;
+        \\extern _Thread_local int y[];
+        \\int main() {
+        \\  printf("%d %d %d %d\n", x, y[0], y[1], y[2]);
+        \\}
+    , &.{});
+    c_o.force_pic = true;
+    c_o.linkLibC();
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(a_o);
+        dso.addObject(b_o);
+
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(c_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42 1 2 3\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.addObject(c_o);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42 1 2 3\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-large-tbss", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addAsmSourceBytes(exe,
+        \\.globl x, y
+        \\.section .tbss,"awT",@nobits
+        \\x:
+        \\.zero 1024
+        \\.section .tcommon,"awT",@nobits
+        \\y:
+        \\.zero 1024
+    );
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\extern _Thread_local char x[1024000];
+        \\extern _Thread_local char y[1024000];
+        \\int main() {
+        \\  x[0] = 3;
+        \\  x[1023] = 5;
+        \\  printf("%d %d %d %d %d %d\n", x[0], x[1], x[1023], y[0], y[1], y[1023]);
+        \\}
+    , &.{});
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3 0 5 0 0 0\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsLargeStaticImage(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-large-static-image", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "_Thread_local int x[] = { 1, 2, 3, [10000] = 5 };", &.{});
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\extern _Thread_local int x[];
+        \\int main() {
+        \\  printf("%d %d %d %d %d\n", x[0], x[1], x[2], x[3], x[10000]);
+        \\}
+    , &.{});
+    exe.force_pic = true;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("1 2 3 0 5\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsLd(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-ld", opts);
+
+    const main_o = addObject(b, "main", opts);
+    addCSourceBytes(main_o,
+        \\#include <stdio.h>
+        \\extern _Thread_local int foo;
+        \\static _Thread_local int bar;
+        \\int *get_foo_addr() { return &foo; }
+        \\int *get_bar_addr() { return &bar; }
+        \\int main() {
+        \\  bar = 5;
+        \\  printf("%d %d %d %d\n", *get_foo_addr(), *get_bar_addr(), foo, bar);
+        \\  return 0;
+        \\}
+    , &.{"-ftls-model=local-dynamic"});
+    main_o.force_pic = true;
+    main_o.linkLibC();
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o, "_Thread_local int foo = 3;", &.{"-ftls-model=local-dynamic"});
+    a_o.force_pic = true;
+
+    const exp_stdout = "3 5 3 5\n";
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.linkLibC();
+        // exe.link_relax = false; // TODO
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsLdDso(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-ld-dso", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\static _Thread_local int def, def1;
+        \\int f0() { return ++def; }
+        \\int f1() { return ++def1 + def; }
+    , &.{"-ftls-model=local-dynamic"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\extern int f0();
+        \\extern int f1();
+        \\int main() {
+        \\  int x = f0();
+        \\  int y = f1();
+        \\  printf("%d %d\n", x, y);
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("1 2\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-ld-no-plt", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addCSourceBytes(a_o,
+        \\#include <stdio.h>
+        \\extern _Thread_local int foo;
+        \\static _Thread_local int bar;
+        \\int *get_foo_addr() { return &foo; }
+        \\int *get_bar_addr() { return &bar; }
+        \\int main() {
+        \\  bar = 5;
+        \\
+        \\  printf("%d %d %d %d\n", *get_foo_addr(), *get_bar_addr(), foo, bar);
+        \\  return 0;
+        \\}
+    , &.{ "-ftls-model=local-dynamic", "-fno-plt" });
+    a_o.linkLibC();
+    a_o.force_pic = true;
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o, "_Thread_local int foo = 3;", &.{ "-ftls-model=local-dynamic", "-fno-plt" });
+    b_o.force_pic = true;
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("3 5 3 5\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.linkLibC();
+        // exe.link_relax = false; // TODO
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("3 5 3 5\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testTlsNoPic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-no-pic", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int foo;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int bar;
+        \\int *get_foo_addr() { return &foo; }
+        \\int *get_bar_addr() { return &bar; }
+        \\int main() {
+        \\  foo = 3;
+        \\  bar = 5;
+        \\
+        \\  printf("%d %d %d %d\n", *get_foo_addr(), *get_bar_addr(), foo, bar);
+        \\  return 0;
+        \\}
+    , .{});
+    addCSourceBytes(exe,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int foo;
+    , &.{});
+    exe.force_pic = false;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3 5 3 5\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-offset-alignment", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\#include <assert.h>
+        \\#include <stdlib.h>
+        \\
+        \\// .tdata
+        \\_Thread_local int x = 42;
+        \\// .tbss
+        \\__attribute__ ((aligned(64)))
+        \\_Thread_local int y = 0;
+        \\
+        \\void *verify(void *unused) {
+        \\  assert((unsigned long)(&y) % 64 == 0);
+        \\  return NULL;
+        \\}
+    , &.{});
+    dso.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <pthread.h>
+        \\#include <dlfcn.h>
+        \\#include <assert.h>
+        \\void *(*verify)(void *);
+        \\
+        \\int main() {
+        \\  void *handle = dlopen("a.so", RTLD_NOW);
+        \\  assert(handle);
+        \\  *(void**)(&verify) = dlsym(handle, "verify");
+        \\  assert(verify);
+        \\
+        \\  pthread_t thread;
+        \\
+        \\  verify(NULL);
+        \\
+        \\  pthread_create(&thread, NULL, verify, NULL);
+        \\  pthread_join(thread, NULL);
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+    exe.linkSystemLibrary2("dl", .{});
+    exe.linkSystemLibrary2("pthread", .{});
+    exe.force_pic = true;
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsPic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-pic", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int foo;
+        \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int bar;
+        \\int *get_foo_addr() { return &foo; }
+        \\int *get_bar_addr() { return &bar; }
+        \\int main() {
+        \\  bar = 5;
+        \\
+        \\  printf("%d %d %d %d\n", *get_foo_addr(), *get_bar_addr(), foo, bar);
+        \\  return 0;
+        \\}
+    , &.{});
+    obj.linkLibC();
+    obj.force_pic = true;
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int foo = 3;
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3 5 3 5\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-small-alignment", opts);
+
+    const a_o = addObject(b, "a", opts);
+    addAsmSourceBytes(a_o,
+        \\.text
+        \\.byte 0
+    );
+    a_o.force_pic = true;
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o, "_Thread_local char x = 42;", &.{"-std=c11"});
+    b_o.force_pic = true;
+
+    const c_o = addObject(b, "c", opts);
+    addCSourceBytes(c_o,
+        \\#include <stdio.h>
+        \\extern _Thread_local char x;
+        \\int main() {
+        \\  printf("%d\n", x);
+        \\}
+    , &.{});
+    c_o.linkLibC();
+    c_o.force_pic = true;
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.addObject(c_o);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(a_o);
+        dso.addObject(b_o);
+
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(c_o);
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("42\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
 fn testTlsStatic(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "tls-static", opts);
 
@@ -1951,6 +2606,205 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
         \\
     );
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testWeakExports(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "weak-exports", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj,
+        \\#include <stdio.h>
+        \\__attribute__((weak)) int foo();
+        \\int main() {
+        \\  printf("%d\n", foo ? foo() : 3);
+        \\}
+    , &.{});
+    obj.linkLibC();
+    obj.force_pic = true;
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(obj);
+        dso.linkLibC();
+
+        const check = dso.checkObject();
+        check.checkInDynamicSymtab();
+        check.checkContains("UND NOTYPE WEAK DEFAULT foo");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        exe.addObject(obj);
+        exe.linkLibC();
+
+        const check = exe.checkObject();
+        check.checkInDynamicSymtab();
+        check.checkNotPresent("UND NOTYPE WEAK DEFAULT foo");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("3\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "weak-undef-dso", opts);
+
+    const dso = addSharedLibrary(b, "a", opts);
+    addCSourceBytes(dso,
+        \\__attribute__((weak)) int foo();
+        \\int bar() { return foo ? foo() : -1; }
+    , &.{});
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        addCSourceBytes(exe,
+            \\#include <stdio.h>
+            \\int bar();
+            \\int main() { printf("bar=%d\n", bar()); }
+        , &.{});
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=-1\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, "main", opts);
+        addCSourceBytes(exe,
+            \\#include <stdio.h>
+            \\int foo() { return 5; }
+            \\int bar();
+            \\int main() { printf("bar=%d\n", bar()); }
+        , &.{});
+        exe.linkLibrary(dso);
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=5\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testZNow(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "z-now", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCSourceBytes(obj, "int main() { return 0; }", &.{});
+    obj.force_pic = true;
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(obj);
+
+        const check = dso.checkObject();
+        check.checkInDynamicSection();
+        check.checkContains("NOW");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const dso = addSharedLibrary(b, "a", opts);
+        dso.addObject(obj);
+        dso.link_z_lazy = true;
+
+        const check = dso.checkObject();
+        check.checkInDynamicSection();
+        check.checkNotPresent("NOW");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testZStackSize(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "z-stack-size", opts);
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.stack_size = 0x800000;
+    exe.linkLibC();
+
+    const check = exe.checkObject();
+    check.checkStart();
+    check.checkExact("program headers");
+    check.checkExact("type GNU_STACK");
+    check.checkExact("memsz 800000");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testZText(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "z-text", opts);
+
+    // Previously, following mold, this test tested text relocs present in a PIE executable.
+    // However, as we want to cover musl AND glibc, it is now modified to test presence of
+    // text relocs in a DSO which is then linked with an executable.
+    // According to Rich and this thread https://www.openwall.com/lists/musl/2020/09/25/4
+    // musl supports only a very limited number of text relocations and only in DSOs (and
+    // rightly so!).
+
+    const a_o = addObject(b, "a", opts);
+    addAsmSourceBytes(a_o,
+        \\.globl fn1
+        \\fn1:
+        \\  sub $8, %rsp
+        \\  movabs ptr, %rax
+        \\  call *%rax
+        \\  add $8, %rsp
+        \\  ret
+    );
+
+    const b_o = addObject(b, "b", opts);
+    addCSourceBytes(b_o,
+        \\int fn1();
+        \\int fn2() {
+        \\  return 3;
+        \\}
+        \\void *ptr = fn2;
+        \\int fnn() {
+        \\  return fn1();
+        \\}
+    , &.{});
+    b_o.force_pic = true;
+
+    const dso = addSharedLibrary(b, "a", opts);
+    dso.addObject(a_o);
+    dso.addObject(b_o);
+    dso.link_z_notext = true;
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\#include <stdio.h>
+        \\int fnn();
+        \\int main() {
+        \\  printf("%d\n", fnn());
+        \\}
+    , &.{});
+    exe.linkLibrary(dso);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3\n");
+    test_step.dependOn(&run.step);
+
+    // Check for DT_TEXTREL in a DSO
+    const check = dso.checkObject();
+    check.checkInDynamicSection();
+    // check.checkExact("TEXTREL 0"); // TODO fix in CheckObject parser
+    check.checkContains("FLAGS TEXTREL");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
