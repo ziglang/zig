@@ -5389,37 +5389,73 @@ fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = result: {
         const mir_tag = @as(?Mir.Inst.FixedTag, switch (ty.zigTypeTag(mod)) {
             else => null,
-            .Int => {
-                if (ty.abiSize(mod) > 8) {
-                    return self.fail("TODO implement abs for integer abi sizes larger than 8", .{});
-                }
-                const src_mcv = try self.resolveInst(ty_op.operand);
-                const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+            .Int => switch (ty.abiSize(mod)) {
+                1...8 => {
+                    try self.spillEflagsIfOccupied();
+                    const src_mcv = try self.resolveInst(ty_op.operand);
+                    const dst_mcv = try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
 
-                try self.genUnOpMir(.{ ._, .neg }, ty, dst_mcv);
+                    try self.genUnOpMir(.{ ._, .neg }, ty, dst_mcv);
 
-                const cmov_abi_size = @max(@as(u32, @intCast(ty.abiSize(mod))), 2);
-                switch (src_mcv) {
-                    .register => |val_reg| try self.asmCmovccRegisterRegister(
-                        registerAlias(dst_mcv.register, cmov_abi_size),
-                        registerAlias(val_reg, cmov_abi_size),
-                        .l,
-                    ),
-                    .memory, .indirect, .load_frame => try self.asmCmovccRegisterMemory(
-                        registerAlias(dst_mcv.register, cmov_abi_size),
-                        src_mcv.mem(Memory.PtrSize.fromSize(cmov_abi_size)),
-                        .l,
-                    ),
-                    else => {
-                        const val_reg = try self.copyToTmpRegister(ty, src_mcv);
-                        try self.asmCmovccRegisterRegister(
+                    const cmov_abi_size = @max(@as(u32, @intCast(ty.abiSize(mod))), 2);
+                    switch (src_mcv) {
+                        .register => |val_reg| try self.asmCmovccRegisterRegister(
                             registerAlias(dst_mcv.register, cmov_abi_size),
                             registerAlias(val_reg, cmov_abi_size),
                             .l,
+                        ),
+                        .memory, .indirect, .load_frame => try self.asmCmovccRegisterMemory(
+                            registerAlias(dst_mcv.register, cmov_abi_size),
+                            src_mcv.mem(Memory.PtrSize.fromSize(cmov_abi_size)),
+                            .l,
+                        ),
+                        else => {
+                            const val_reg = try self.copyToTmpRegister(ty, src_mcv);
+                            try self.asmCmovccRegisterRegister(
+                                registerAlias(dst_mcv.register, cmov_abi_size),
+                                registerAlias(val_reg, cmov_abi_size),
+                                .l,
+                            );
+                        },
+                    }
+                    break :result dst_mcv;
+                },
+                9...16 => {
+                    try self.spillEflagsIfOccupied();
+                    const src_mcv = try self.resolveInst(ty_op.operand);
+                    const dst_mcv = if (src_mcv == .register_pair and
+                        self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
+                        const dst_regs = try self.register_manager.allocRegs(
+                            2,
+                            .{ inst, inst },
+                            abi.RegisterClass.gp,
                         );
-                    },
-                }
-                break :result dst_mcv;
+                        const dst_mcv: MCValue = .{ .register_pair = dst_regs };
+                        const dst_locks = self.register_manager.lockRegsAssumeUnused(2, dst_regs);
+                        defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
+
+                        try self.genCopy(ty, dst_mcv, src_mcv);
+                        break :dst dst_mcv;
+                    };
+                    const dst_regs = dst_mcv.register_pair;
+                    const dst_locks = self.register_manager.lockRegs(2, dst_regs);
+                    defer for (dst_locks) |dst_lock| if (dst_lock) |lock|
+                        self.register_manager.unlockReg(lock);
+
+                    const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
+                    try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, dst_regs[1]);
+                    try self.asmRegisterImmediate(.{ ._r, .sa }, tmp_reg, Immediate.u(63));
+                    try self.asmRegisterRegister(.{ ._, .xor }, dst_regs[0], tmp_reg);
+                    try self.asmRegisterRegister(.{ ._, .xor }, dst_regs[1], tmp_reg);
+                    try self.asmRegisterRegister(.{ ._, .sub }, dst_regs[0], tmp_reg);
+                    try self.asmRegisterRegister(.{ ._, .sbb }, dst_regs[1], tmp_reg);
+
+                    break :result dst_mcv;
+                },
+                else => return self.fail("TODO implement abs for {}", .{ty.fmt(mod)}),
             },
             .Float => return self.floatSign(inst, ty_op.operand, ty),
             .Vector => switch (ty.childType(mod).zigTypeTag(mod)) {
@@ -6106,8 +6142,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         const dst_locks = self.register_manager.lockRegsAssumeUnused(2, dst_regs);
                         defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
 
-                        try self.genSetReg(dst_regs[0], Type.usize, .{ .register = src_regs[0] });
-                        try self.genSetReg(dst_regs[1], Type.usize, .{ .register = src_regs[1] });
+                        try self.genCopy(container_ty, .{ .register_pair = dst_regs }, src_mcv);
                         break :dst dst_regs;
                     };
                     const dst_mcv = MCValue{ .register_pair = dst_regs };
