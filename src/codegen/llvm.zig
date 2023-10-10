@@ -6179,7 +6179,6 @@ pub const FuncGen = struct {
                 const elem_alignment = elem_ty.abiAlignment(mod).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
-                const elem_llvm_ty = try o.lowerType(elem_ty);
                 if (Air.refToIndex(bin_op.lhs)) |lhs_index| {
                     if (self.air.instructions.items(.tag)[lhs_index] == .load) {
                         const load_data = self.air.instructions.items(.data)[lhs_index];
@@ -6201,7 +6200,7 @@ pub const FuncGen = struct {
                                         &indices,
                                         "",
                                     );
-                                    return self.wip.load(.normal, elem_llvm_ty, gep, .default, "");
+                                    return self.loadTruncate(.normal, elem_ty, gep, .default);
                                 },
                                 else => {},
                             }
@@ -6210,7 +6209,7 @@ pub const FuncGen = struct {
                 }
                 const elem_ptr =
                     try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
-                return self.wip.load(.normal, elem_llvm_ty, elem_ptr, .default, "");
+                return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
             }
         }
 
@@ -6378,13 +6377,12 @@ pub const FuncGen = struct {
                 const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
                 const field_ptr =
                     try self.wip.gepStruct(union_llvm_ty, struct_llvm_val, payload_index, "");
-                const llvm_field_ty = try o.lowerType(field_ty);
                 const payload_alignment = layout.payload_align.toLlvm();
                 if (isByRef(field_ty, mod)) {
                     if (canElideLoad(self, body_tail)) return field_ptr;
                     return self.loadByRef(field_ptr, field_ty, payload_alignment, .normal);
                 } else {
-                    return self.wip.load(.normal, llvm_field_ty, field_ptr, payload_alignment, "");
+                    return self.loadTruncate(.normal, field_ty, field_ptr, payload_alignment);
                 }
             },
             else => unreachable,
@@ -10219,8 +10217,7 @@ pub const FuncGen = struct {
 
                 return fg.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
-            const payload_llvm_ty = try o.lowerType(payload_ty);
-            return fg.wip.load(.normal, payload_llvm_ty, payload_ptr, payload_alignment, "");
+            return fg.loadTruncate(.normal, payload_ty, payload_ptr, payload_alignment);
         }
 
         assert(!isByRef(payload_ty, mod));
@@ -10321,6 +10318,56 @@ pub const FuncGen = struct {
         }
     }
 
+    /// Load a value and, if needed, mask out padding bits for non byte-sized integer values.
+    fn loadTruncate(
+        fg: *FuncGen,
+        access_kind: Builder.MemoryAccessKind,
+        payload_ty: Type,
+        payload_ptr: Builder.Value,
+        payload_alignment: Builder.Alignment,
+    ) !Builder.Value {
+        // from https://llvm.org/docs/LangRef.html#load-instruction :
+        // "When loading a value of a type like i20 with a size that is not an integral number of bytes, the result is undefined if the value was not originally written using a store of the same type. "
+        // => so load the byte aligned value and trunc the unwanted bits.
+
+        const o = fg.dg.object;
+        const mod = o.module;
+        const payload_llvm_ty = try o.lowerType(payload_ty);
+        const abi_size = payload_ty.abiSize(mod);
+
+        // llvm bug workarounds:
+        const workaround_explicit_mask = o.target.cpu.arch == .powerpc and abi_size >= 4;
+        const workaround_disable_truncate = o.target.cpu.arch == .wasm32 and abi_size >= 4;
+
+        if (workaround_disable_truncate) {
+            // see https://github.com/llvm/llvm-project/issues/64222
+            // disable the truncation codepath for larger that 32bits value - with this heuristic, the backend passes the test suite.
+            return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
+        }
+
+        const load_llvm_ty = if (payload_ty.isAbiInt(mod))
+            try o.builder.intType(@intCast(abi_size * 8))
+        else
+            payload_llvm_ty;
+        const loaded = try fg.wip.load(access_kind, load_llvm_ty, payload_ptr, payload_alignment, "");
+        const shifted = if (payload_llvm_ty != load_llvm_ty and o.target.cpu.arch.endian() == .Big)
+            try fg.wip.bin(.lshr, loaded, try o.builder.intValue(
+                load_llvm_ty,
+                (payload_ty.abiSize(mod) - (std.math.divCeil(u64, payload_ty.bitSize(mod), 8) catch unreachable)) * 8,
+            ), "")
+        else
+            loaded;
+
+        const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
+            // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
+            var mask_val = try o.builder.intConst(payload_llvm_ty, -1);
+            mask_val = try o.builder.castConst(.zext, mask_val, load_llvm_ty);
+            break :blk try fg.wip.bin(.@"and", shifted, mask_val.toValue(), "");
+        } else shifted;
+
+        return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
+    }
+
     /// Load a by-ref type by constructing a new alloca and performing a memcpy.
     fn loadByRef(
         fg: *FuncGen,
@@ -10378,7 +10425,7 @@ pub const FuncGen = struct {
             if (isByRef(elem_ty, mod)) {
                 return self.loadByRef(ptr, elem_ty, ptr_alignment, access_kind);
             }
-            return self.wip.load(access_kind, try o.lowerType(elem_ty), ptr, ptr_alignment, "");
+            return self.loadTruncate(access_kind, elem_ty, ptr, ptr_alignment);
         }
 
         const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
