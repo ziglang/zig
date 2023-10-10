@@ -1509,11 +1509,21 @@ const Filter = struct {
         // Check if any included paths are parent directories of sub_path.
         var dirname = sub_path;
         while (std.fs.path.dirname(dirname)) |next_dirname| {
-            if (self.include_paths.contains(sub_path)) return true;
+            if (self.include_paths.contains(next_dirname)) return true;
             dirname = next_dirname;
         }
 
         return false;
+    }
+
+    test includePath {
+        const gpa = std.testing.allocator;
+        var filter: Filter = .{};
+        defer filter.include_paths.deinit(gpa);
+
+        try filter.include_paths.put(gpa, "src", {});
+        try std.testing.expect(filter.includePath("src/core/unix/SDL_poll.c"));
+        try std.testing.expect(!filter.includePath(".gitignore"));
     }
 };
 
@@ -1555,3 +1565,7 @@ const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
+
+test {
+    _ = Filter;
+}
