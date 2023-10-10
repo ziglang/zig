@@ -1561,7 +1561,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 }
                 if (c_source_files.dependency) |dep| {
                     for (c_source_files.files) |file| {
-                        try zig_args.append(b.pathFromRoot(dep.path(file).getPath(b)));
+                        try zig_args.append(dep.builder.pathFromRoot(file));
                     }
                 } else {
                     for (c_source_files.files) |file| {
