@@ -112,6 +112,7 @@ unwind_tables: bool,
 test_evented_io: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
+job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
 alloc_failure_occurred: bool = false,
 formatted_panics: bool = false,
@@ -157,6 +158,9 @@ libssp_static_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
+/// Populated when we build the libcompiler_rt static library. A Job to build this is indicated
+/// by setting `job_queued_compiler_rt_lib` and resolved before calling linker.flush().
+compiler_rt_lib: ?CRTFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
 /// by setting `job_queued_compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CRTFile = null,
@@ -1879,8 +1883,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
-            if (is_exe_or_dyn_lib or options.output_mode != .Obj) {
+            if (is_exe_or_dyn_lib) {
+                log.debug("queuing a job to build compiler_rt_lib", .{});
+                comp.job_queued_compiler_rt_lib = true;
+            } else if (options.output_mode != .Obj) {
                 log.debug("queuing a job to build compiler_rt_obj", .{});
+                // In this case we are making a static library, so we ask
+                // for a compiler-rt object to put in it.
                 comp.job_queued_compiler_rt_obj = true;
             }
         }
@@ -1933,6 +1942,9 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.libcxxabi_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.compiler_rt_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_obj) |*crt_file| {
@@ -3399,6 +3411,11 @@ pub fn performAllTheWork(
             continue;
         }
         break;
+    }
+
+    if (comp.job_queued_compiler_rt_lib) {
+        comp.job_queued_compiler_rt_lib = false;
+        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib, main_progress_node);
     }
 
     if (comp.job_queued_compiler_rt_obj) {
