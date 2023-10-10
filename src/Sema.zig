@@ -35301,7 +35301,7 @@ fn resolveSimpleType(sema: *Sema, simple_type: InternPool.SimpleType) CompileErr
     _ = try sema.getBuiltinType(builtin_type_name);
 }
 
-fn resolveTypeFieldsStruct(
+pub fn resolveTypeFieldsStruct(
     sema: *Sema,
     ty: InternPool.Index,
     struct_type: InternPool.Key.StructType,
@@ -35340,7 +35340,7 @@ fn resolveTypeFieldsStruct(
     try semaStructFields(mod, sema.arena, struct_type);
 }
 
-fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.Key.UnionType) CompileError!void {
+pub fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.Key.UnionType) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const owner_decl = mod.declPtr(union_type.decl);
@@ -37083,185 +37083,9 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
 }
 
 /// `generic_poison` will return false.
-/// This function returns false negatives when structs and unions are having their
-/// field types resolved.
-/// TODO assert the return value matches `ty.comptimeOnly`
-/// TODO merge these implementations together with the "advanced"/opt_sema pattern seen
-/// elsewhere in value.zig
+/// May return false negatives when structs and unions are having their field types resolved.
 pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
-    return switch (ty.toIntern()) {
-        .empty_struct_type => false,
-
-        else => switch (ip.indexToKey(ty.toIntern())) {
-            .int_type => return false,
-            .ptr_type => |ptr_type| {
-                const child_ty = ptr_type.child.toType();
-                switch (child_ty.zigTypeTag(mod)) {
-                    .Fn => return !try sema.fnHasRuntimeBits(child_ty),
-                    .Opaque => return false,
-                    else => return sema.typeRequiresComptime(child_ty),
-                }
-            },
-            .anyframe_type => |child| {
-                if (child == .none) return false;
-                return sema.typeRequiresComptime(child.toType());
-            },
-            .array_type => |array_type| return sema.typeRequiresComptime(array_type.child.toType()),
-            .vector_type => |vector_type| return sema.typeRequiresComptime(vector_type.child.toType()),
-            .opt_type => |child| return sema.typeRequiresComptime(child.toType()),
-
-            .error_union_type => |error_union_type| {
-                return sema.typeRequiresComptime(error_union_type.payload_type.toType());
-            },
-
-            .error_set_type, .inferred_error_set_type => false,
-
-            .func_type => true,
-
-            .simple_type => |t| switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .anyopaque,
-                .bool,
-                .void,
-                .anyerror,
-                .adhoc_inferred_error_set,
-                .noreturn,
-                .generic_poison,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                => false,
-
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .null,
-                .undefined,
-                .enum_literal,
-                .type_info,
-                => true,
-            },
-            .struct_type => |struct_type| {
-                if (struct_type.layout == .Packed) {
-                    // packed structs cannot be comptime-only because they have a well-defined
-                    // memory layout and every field has a well-defined bit pattern.
-                    return false;
-                }
-                switch (struct_type.flagsPtr(ip).requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        if (struct_type.flagsPtr(ip).field_types_wip)
-                            return false;
-
-                        try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
-
-                        struct_type.flagsPtr(ip).requires_comptime = .wip;
-
-                        for (0..struct_type.field_types.len) |i_usize| {
-                            const i: u32 = @intCast(i_usize);
-                            if (struct_type.fieldIsComptime(ip, i)) continue;
-                            const field_ty = struct_type.field_types.get(ip)[i];
-                            if (try sema.typeRequiresComptime(field_ty.toType())) {
-                                // Note that this does not cause the layout to
-                                // be considered resolved. Comptime-only types
-                                // still maintain a layout of their
-                                // runtime-known fields.
-                                struct_type.flagsPtr(ip).requires_comptime = .yes;
-                                return true;
-                            }
-                        }
-                        struct_type.flagsPtr(ip).requires_comptime = .no;
-                        return false;
-                    },
-                }
-            },
-            .anon_struct_type => |tuple| {
-                for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
-                    const have_comptime_val = val != .none;
-                    if (!have_comptime_val and try sema.typeRequiresComptime(field_ty.toType())) {
-                        return true;
-                    }
-                }
-                return false;
-            },
-
-            .union_type => |union_type| {
-                switch (union_type.flagsPtr(ip).requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        if (union_type.flagsPtr(ip).status == .field_types_wip)
-                            return false;
-
-                        try sema.resolveTypeFieldsUnion(ty, union_type);
-                        const union_obj = ip.loadUnionType(union_type);
-
-                        union_obj.flagsPtr(ip).requires_comptime = .wip;
-                        for (0..union_obj.field_types.len) |field_index| {
-                            const field_ty = union_obj.field_types.get(ip)[field_index];
-                            if (try sema.typeRequiresComptime(field_ty.toType())) {
-                                union_obj.flagsPtr(ip).requires_comptime = .yes;
-                                return true;
-                            }
-                        }
-                        union_obj.flagsPtr(ip).requires_comptime = .no;
-                        return false;
-                    },
-                }
-            },
-
-            .opaque_type => false,
-            .enum_type => |enum_type| try sema.typeRequiresComptime(enum_type.tag_ty.toType()),
-
-            // values, not types
-            .undef,
-            .runtime_value,
-            .simple_value,
-            .variable,
-            .extern_func,
-            .func,
-            .int,
-            .err,
-            .error_union,
-            .enum_literal,
-            .enum_tag,
-            .empty_enum_value,
-            .float,
-            .ptr,
-            .opt,
-            .aggregate,
-            .un,
-            // memoization, not types
-            .memoized_call,
-            => unreachable,
-        },
-    };
+    return ty.comptimeOnlyAdvanced(sema.mod, sema);
 }
 
 pub fn typeHasRuntimeBits(sema: *Sema, ty: Type) CompileError!bool {
@@ -37316,21 +37140,8 @@ fn structFieldAlignment(
     return ty_abi_align;
 }
 
-/// Synchronize logic with `Type.isFnOrHasRuntimeBits`.
 pub fn fnHasRuntimeBits(sema: *Sema, ty: Type) CompileError!bool {
-    const mod = sema.mod;
-    const fn_info = mod.typeToFunc(ty).?;
-    if (fn_info.is_generic) return false;
-    if (fn_info.is_var_args) return true;
-    switch (fn_info.cc) {
-        // If there was a comptime calling convention, it should also return false here.
-        .Inline => return false,
-        else => {},
-    }
-    if (try sema.typeRequiresComptime(fn_info.return_type.toType())) {
-        return false;
-    }
-    return true;
+    return ty.fnHasRuntimeBitsAdvanced(sema.mod, sema);
 }
 
 fn unionFieldIndex(
