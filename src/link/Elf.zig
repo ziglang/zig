@@ -30,15 +30,13 @@ output_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
-/// The index into the program headers of the PT_PHDR program header
-phdr_table_index: ?u16 = null,
+
+/// Tracked loadable segments during incremental linking.
 /// The index into the program headers of the PT_LOAD program header containing the phdr
 /// Most linkers would merge this with phdr_load_ro_index,
 /// but incremental linking means we can't ensure they are consecutive.
 /// If this segment is not needed, it won't get emitted.
 phdr_table_load_index: ?u16 = null,
-/// The index into the program headers of the PT_TLS program header.
-phdr_tls_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_zig_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
@@ -50,6 +48,20 @@ phdr_load_ro_zig_index: ?u16 = null,
 phdr_load_rw_zig_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with zerofill data.
 phdr_load_zerofill_zig_index: ?u16 = null,
+
+/// Special program headers
+/// PT_PHDR
+phdr_table_index: ?u16 = null,
+/// PT_INTERP
+phdr_interp_index: ?u16 = null,
+/// PT_DYNAMIC
+phdr_dynamic_index: ?u16 = null,
+/// PT_GNU_EH_FRAME
+phdr_gnu_eh_frame_index: ?u16 = null,
+/// PT_GNU_STACK
+phdr_gnu_stack_index: ?u16 = null,
+/// PT_TLS
+phdr_tls_index: ?u16 = null,
 
 entry_index: ?Symbol.Index = null,
 page_size: u32,
@@ -1607,6 +1619,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Generate and emit non-incremental sections.
     try self.initSections();
+    try self.initSpecialPhdrs();
     try self.sortSections();
     for (self.objects.items) |index| {
         try self.file(index).?.object.addAtomsToOutputSections(self);
@@ -1619,6 +1632,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.updateSectionSizes();
 
     try self.allocateSections();
+    self.allocateSpecialPhdrs();
     self.allocateAtoms();
     self.allocateLinkerDefinedSymbols();
 
@@ -4025,6 +4039,35 @@ fn initSections(self: *Elf) !void {
     }
 }
 
+fn initSpecialPhdrs(self: *Elf) !void {
+    if (self.interp_section_index != null) {
+        self.phdr_interp_index = try self.addPhdr(.{
+            .type = elf.PT_INTERP,
+            .flags = elf.PF_R,
+            .@"align" = 1,
+        });
+    }
+    if (self.dynamic_section_index != null) {
+        self.phdr_dynamic_index = try self.addPhdr(.{
+            .type = elf.PT_DYNAMIC,
+            .flags = elf.PF_R | elf.PF_W,
+        });
+    }
+    if (self.eh_frame_hdr_section_index != null) {
+        self.phdr_gnu_eh_frame_index = try self.addPhdr(.{
+            .type = elf.PT_GNU_EH_FRAME,
+            .flags = elf.PF_R,
+        });
+    }
+    self.phdr_gnu_stack_index = try self.addPhdr(.{
+        .type = elf.PT_GNU_STACK,
+        .flags = elf.PF_W | elf.PF_R,
+        .memsz = self.base.options.stack_size_override orelse 0,
+        .@"align" = 1,
+    });
+    // self.phdr_table_dirty = true;
+}
+
 /// We need to sort constructors/destuctors in the following sections:
 /// * .init_array
 /// * .fini_array
@@ -4416,31 +4459,33 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 }
 
+/// The assumed layout of PHDRs in file is as follows:
+/// PT_PHDR
+/// PT_INTERP
+/// PT_DYNAMIC
+/// PT_GNU_EH_FRAME
+/// PT_GNU_STACK
+/// PT_LOAD...
+/// PT_TLS
 fn resetPhdrs(self: *Elf) !void {
     const gpa = self.base.allocator;
     const phdrs = try self.phdrs.toOwnedSlice(gpa);
     try self.phdrs.ensureUnusedCapacity(gpa, phdrs.len);
 
-    if (self.phdr_table_index) |phndx| {
-        self.phdrs.appendAssumeCapacity(phdrs[phndx]);
+    for (&[_]?u16{
+        self.phdr_table_index.?,
+        self.phdr_interp_index,
+        self.phdr_dynamic_index,
+        self.phdr_gnu_eh_frame_index,
+        self.phdr_gnu_stack_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            self.phdrs.appendAssumeCapacity(phdrs[index]);
+        }
     }
 }
 
-fn initPhdrs(self: *Elf) !void {
-    // Add INTERP phdr if required
-    if (self.interp_section_index) |index| {
-        const shdr = self.shdrs.items[index];
-        _ = try self.addPhdr(.{
-            .type = elf.PT_INTERP,
-            .flags = elf.PF_R,
-            .@"align" = 1,
-            .offset = shdr.sh_offset,
-            .addr = shdr.sh_addr,
-            .filesz = shdr.sh_size,
-            .memsz = shdr.sh_size,
-        });
-    }
-
+fn initSegments(self: *Elf) !void {
     // Add LOAD phdrs
     const slice = self.shdrs.items;
     {
@@ -4502,51 +4547,6 @@ fn initPhdrs(self: *Elf) !void {
                 try self.addShdrToPhdr(self.phdr_tls_index.?, next);
             }
         }
-    }
-
-    // Add DYNAMIC phdr
-    if (self.dynamic_section_index) |index| {
-        const shdr = self.shdrs.items[index];
-        _ = try self.addPhdr(.{
-            .type = elf.PT_DYNAMIC,
-            .flags = elf.PF_R | elf.PF_W,
-            .@"align" = shdr.sh_addralign,
-            .offset = shdr.sh_offset,
-            .addr = shdr.sh_addr,
-            .memsz = shdr.sh_size,
-            .filesz = shdr.sh_size,
-        });
-    }
-
-    // Add PT_GNU_EH_FRAME phdr if required.
-    if (self.eh_frame_hdr_section_index) |index| {
-        const shdr = self.shdrs.items[index];
-        _ = try self.addPhdr(.{
-            .type = elf.PT_GNU_EH_FRAME,
-            .flags = elf.PF_R,
-            .@"align" = shdr.sh_addralign,
-            .offset = shdr.sh_offset,
-            .addr = shdr.sh_addr,
-            .memsz = shdr.sh_size,
-            .filesz = shdr.sh_size,
-        });
-    }
-
-    // Add PT_GNU_STACK phdr that controls some stack attributes that apparently may or may not
-    // be respected by the OS.
-    _ = try self.addPhdr(.{
-        .type = elf.PT_GNU_STACK,
-        .flags = elf.PF_W | elf.PF_R,
-        .memsz = self.base.options.stack_size_override orelse 0,
-        .@"align" = 1,
-    });
-
-    // Backpatch size of the PHDR phdr
-    {
-        const phdr = &self.phdrs.items[self.phdr_table_index.?];
-        const size = @sizeOf(elf.Elf64_Phdr) * self.phdrs.items.len;
-        phdr.p_filesz = size;
-        phdr.p_memsz = size;
     }
 }
 
@@ -4716,8 +4716,34 @@ fn allocateSections(self: *Elf) !void {
         self.allocateSectionsInMemory(base_offset);
         self.allocateSectionsInFile(base_offset);
         try self.resetPhdrs();
-        try self.initPhdrs();
+        try self.initSegments();
         if (nphdrs == self.phdrs.items.len) break;
+    }
+}
+
+fn allocateSpecialPhdrs(self: *Elf) void {
+    for (&[_]struct { ?u16, ?u16 }{
+        .{ self.phdr_interp_index, self.interp_section_index },
+        .{ self.phdr_dynamic_index, self.dynamic_section_index },
+        .{ self.phdr_gnu_eh_frame_index, self.eh_frame_hdr_section_index },
+    }) |pair| {
+        if (pair[0]) |index| {
+            const shdr = self.shdrs.items[pair[1].?];
+            const phdr = &self.phdrs.items[index];
+            phdr.p_align = shdr.sh_addralign;
+            phdr.p_offset = shdr.sh_offset;
+            phdr.p_vaddr = shdr.sh_addr;
+            phdr.p_filesz = shdr.sh_size;
+            phdr.p_memsz = shdr.sh_size;
+        }
+    }
+
+    {
+        // Backpatch size of the PHDR phdr
+        const phdr = &self.phdrs.items[self.phdr_table_index.?];
+        const size = @sizeOf(elf.Elf64_Phdr) * self.phdrs.items.len;
+        phdr.p_filesz = size;
+        phdr.p_memsz = size;
     }
 }
 
