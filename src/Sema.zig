@@ -3257,6 +3257,8 @@ fn zirUnionDecl(
                 .any_aligned_fields = small.any_aligned_fields,
                 .requires_comptime = .unknown,
                 .assumed_runtime_bits = false,
+                .field_runtime_bits_wip = false,
+                .alignment = .none,
             },
             .decl = new_decl_index,
             .namespace = new_namespace_index,
@@ -6557,16 +6559,31 @@ pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref
         return .none;
 
     const stack_trace_ty = sema.getBuiltinType("StackTrace") catch |err| switch (err) {
-        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        error.NeededSourceLocation,
+        error.GenericPoison,
+        error.ComptimeReturn,
+        error.ComptimeBreak,
+        error.CircularComptimeRequirementCheck,
+        => unreachable,
         else => |e| return e,
     };
     sema.resolveTypeFields(stack_trace_ty) catch |err| switch (err) {
-        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        error.NeededSourceLocation,
+        error.GenericPoison,
+        error.ComptimeReturn,
+        error.ComptimeBreak,
+        error.CircularComptimeRequirementCheck,
+        => unreachable,
         else => |e| return e,
     };
     const field_name = try mod.intern_pool.getOrPutString(gpa, "index");
     const field_index = sema.structFieldIndex(block, stack_trace_ty, field_name, src) catch |err| switch (err) {
-        error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
+        error.NeededSourceLocation,
+        error.GenericPoison,
+        error.ComptimeReturn,
+        error.ComptimeBreak,
+        error.CircularComptimeRequirementCheck,
+        => unreachable,
         else => |e| return e,
     };
 
@@ -21051,6 +21068,8 @@ fn zirReify(
                     .any_aligned_fields = any_aligned_fields,
                     .requires_comptime = .unknown,
                     .assumed_runtime_bits = false,
+                    .field_runtime_bits_wip = false,
+                    .alignment = .none,
                 },
                 .field_types = union_fields.items(.type),
                 .field_aligns = if (any_aligned_fields) union_fields.items(.alignment) else &.{},
@@ -34706,6 +34725,27 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
     }
 }
 
+fn structFieldRequiresComptime(
+    sema: *Sema,
+    struct_type: InternPool.Key.StructType,
+    field_ty: Type,
+) CompileError!bool {
+    const ip = &sema.mod.intern_pool;
+
+    if (struct_type.flagsPtr(ip).field_runtime_bits_wip) return error.CircularComptimeRequirementCheck;
+
+    struct_type.flagsPtr(ip).field_runtime_bits_wip = true;
+    defer struct_type.flagsPtr(ip).field_runtime_bits_wip = false;
+
+    return sema.typeRequiresComptime(field_ty) catch |err| switch (err) {
+        error.CircularComptimeRequirementCheck => b: {
+            struct_type.flagsPtr(ip).assumed_runtime_bits = true;
+            break :b false;
+        },
+        else => return err,
+    };
+}
+
 /// Resolve a struct's alignment only without triggering resolution of its layout.
 /// Asserts that the alignment is not yet resolved and the layout is non-packed.
 pub fn resolveStructAlignment(
@@ -34749,7 +34789,7 @@ pub fn resolveStructAlignment(
 
     for (0..struct_type.field_types.len) |i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
-        if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty))
+        if (struct_type.fieldIsComptime(ip, i) or try structFieldRequiresComptime(sema, struct_type, field_ty))
             continue;
         const field_align = try sema.structFieldAlignment(
             struct_type.fieldAlign(ip, i),
@@ -34778,6 +34818,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         return;
     }
 
+    if (struct_type.flagsPtr(ip).field_runtime_bits_wip) return error.CircularComptimeRequirementCheck;
     if (struct_type.setLayoutWip(ip)) {
         const msg = try Module.ErrorMsg.create(
             sema.gpa,
@@ -34793,10 +34834,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
     const sizes = try sema.arena.alloc(u64, struct_type.field_types.len);
 
     var big_align: Alignment = .@"1";
-
     for (aligns, sizes, 0..) |*field_align, *field_size, i| {
         const field_ty = struct_type.field_types.get(ip)[i].toType();
-        if (struct_type.fieldIsComptime(ip, i) or try sema.typeRequiresComptime(field_ty)) {
+        if (struct_type.fieldIsComptime(ip, i) or try structFieldRequiresComptime(sema, struct_type, field_ty)) {
             struct_type.offsets.get(ip)[i] = 0;
             field_size.* = 0;
             field_align.* = .none;
@@ -35037,11 +35077,78 @@ fn checkMemOperand(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void 
     return sema.failWithOwnedErrorMsg(block, msg);
 }
 
+fn unionFieldHasRuntimeBits(
+    sema: *Sema,
+    union_type: InternPool.Key.UnionType,
+    field_ty: Type,
+) CompileError!bool {
+    const ip = &sema.mod.intern_pool;
+
+    if (union_type.flagsPtr(ip).field_runtime_bits_wip) return error.CircularComptimeRequirementCheck;
+
+    union_type.flagsPtr(ip).field_runtime_bits_wip = true;
+    defer union_type.flagsPtr(ip).field_runtime_bits_wip = false;
+
+    return (sema.typeHasRuntimeBits(field_ty) catch |err| switch (err) {
+        error.CircularComptimeRequirementCheck => b: {
+            union_type.flagsPtr(ip).assumed_runtime_bits = true;
+            break :b true;
+        },
+        else => return err,
+    });
+}
+
+/// Resolve a unions's alignment only without triggering resolution of its layout.
+/// Asserts that the alignment is not yet resolved.
+pub fn resolveUnionAlignment(
+    sema: *Sema,
+    ty: Type,
+    union_type: InternPool.Key.UnionType,
+) CompileError!Alignment {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const target = mod.getTarget();
+
+    assert(!union_type.haveLayout(ip));
+
+    if (union_type.flagsPtr(ip).status == .field_types_wip) {
+        // We'll guess "pointer-aligned", if the union has an
+        // underaligned pointer field then some allocations
+        // might require explicit alignment.
+        return Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+    }
+
+    try sema.resolveTypeFieldsUnion(ty, union_type);
+
+    const union_obj = ip.loadUnionType(union_type);
+    var max_align: Alignment = .@"1";
+    for (0..union_obj.field_names.len) |field_index| {
+        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+        if (!(try unionFieldHasRuntimeBits(sema, union_type, field_ty))) continue;
+
+        const explicit_align = union_obj.fieldAlign(ip, @intCast(field_index));
+        const field_align = if (explicit_align != .none)
+            explicit_align
+        else
+            try sema.typeAbiAlignment(field_ty);
+
+        max_align = max_align.max(field_align);
+    }
+
+    union_type.flagsPtr(ip).alignment = max_align;
+    return max_align;
+}
+
+/// This logic must be kept in sync with `Module.getUnionLayout`.
 fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    try sema.resolveTypeFields(ty);
-    const union_obj = mod.typeToUnion(ty).?;
+
+    const union_type = ip.indexToKey(ty.ip_index).union_type;
+    try sema.resolveTypeFieldsUnion(ty, union_type);
+
+    const union_obj = ip.loadUnionType(union_type);
+    if (union_obj.flagsPtr(ip).field_runtime_bits_wip) return error.CircularComptimeRequirementCheck;
     switch (union_obj.flagsPtr(ip).status) {
         .none, .have_field_types => {},
         .field_types_wip, .layout_wip => {
@@ -35055,25 +35162,74 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         },
         .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
+
     const prev_status = union_obj.flagsPtr(ip).status;
     errdefer if (union_obj.flagsPtr(ip).status == .layout_wip) {
         union_obj.flagsPtr(ip).status = prev_status;
     };
 
     union_obj.flagsPtr(ip).status = .layout_wip;
-    for (0..union_obj.field_types.len) |field_index| {
+
+    var max_size: u64 = 0;
+    var max_align: Alignment = .@"1";
+    for (0..union_obj.field_names.len) |field_index| {
         const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-        sema.resolveTypeLayout(field_ty) catch |err| switch (err) {
+        if (!(try unionFieldHasRuntimeBits(sema, union_type, field_ty))) continue;
+
+        max_size = @max(max_size, sema.typeAbiSize(field_ty) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
                 try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
                 return err;
             },
             else => return err,
-        };
+        });
+
+        const explicit_align = union_obj.fieldAlign(ip, @intCast(field_index));
+        const field_align = if (explicit_align != .none)
+            explicit_align
+        else
+            try sema.typeAbiAlignment(field_ty);
+
+        max_align = max_align.max(field_align);
     }
-    union_obj.flagsPtr(ip).status = .have_layout;
-    _ = try sema.typeRequiresComptime(ty);
+
+    const flags = union_obj.flagsPtr(ip);
+    const has_runtime_tag = flags.runtime_tag.hasTag() and try sema.typeHasRuntimeBits(union_obj.enum_tag_ty.toType());
+    const size, const alignment, const padding = if (has_runtime_tag) layout: {
+        const enum_tag_type = union_obj.enum_tag_ty.toType();
+        const tag_align = try sema.typeAbiAlignment(enum_tag_type);
+        const tag_size = try sema.typeAbiSize(enum_tag_type);
+
+        // Put the tag before or after the payload depending on which one's
+        // alignment is greater.
+        var size: u64 = 0;
+        var padding: u32 = 0;
+        if (tag_align.compare(.gte, max_align)) {
+            // {Tag, Payload}
+            size += tag_size;
+            size = max_align.forward(size);
+            size += max_size;
+            const prev_size = size;
+            size = tag_align.forward(size);
+            padding = @intCast(size - prev_size);
+        } else {
+            // {Payload, Tag}
+            size += max_size;
+            size = tag_align.forward(size);
+            size += tag_size;
+            const prev_size = size;
+            size = max_align.forward(size);
+            padding = @intCast(size - prev_size);
+        }
+
+        break :layout .{ size, max_align.max(tag_align), padding };
+    } else .{ max_align.forward(max_size), max_align, 0 };
+
+    union_type.size(ip).* = @intCast(size);
+    union_type.padding(ip).* = padding;
+    flags.alignment = alignment;
+    flags.status = .have_layout;
 
     if (union_obj.flagsPtr(ip).assumed_runtime_bits and !(try sema.typeHasRuntimeBits(ty))) {
         const msg = try Module.ErrorMsg.create(
@@ -35150,7 +35306,6 @@ fn resolveStructFully(sema: *Sema, ty: Type) CompileError!void {
 
 fn resolveUnionFully(sema: *Sema, ty: Type) CompileError!void {
     try sema.resolveUnionLayout(ty);
-    try sema.resolveTypeFields(ty);
 
     const mod = sema.mod;
     const ip = &mod.intern_pool;
