@@ -659,8 +659,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
         }
 
-        // job_queue mutex is locked so this is OK.
-        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+        _ = @atomicRmw(usize, &f.prog_node.unprotected_estimated_total_items, .Add, new_fetch_index, .Monotonic);
 
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
