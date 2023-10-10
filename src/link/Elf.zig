@@ -35,7 +35,10 @@ phdr_table_index: ?u16 = null,
 /// The index into the program headers of the PT_LOAD program header containing the phdr
 /// Most linkers would merge this with phdr_load_ro_index,
 /// but incremental linking means we can't ensure they are consecutive.
+/// If this segment is not needed, it won't get emitted.
 phdr_table_load_index: ?u16 = null,
+/// The index into the program headers of the PT_TLS program header.
+phdr_tls_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_zig_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
@@ -47,8 +50,6 @@ phdr_load_ro_zig_index: ?u16 = null,
 phdr_load_rw_zig_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with zerofill data.
 phdr_load_zerofill_zig_index: ?u16 = null,
-/// The index into the program headers of the PT_TLS program header.
-phdr_tls_index: ?u16 = null,
 
 entry_index: ?Symbol.Index = null,
 page_size: u32,
@@ -264,7 +265,29 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     // Append null byte to string tables
     try self.shstrtab.buffer.append(allocator, 0);
     try self.strtab.buffer.append(allocator, 0);
-    try self.dynstrtab.buffer.append(allocator, 0);
+
+    const is_obj_or_ar = switch (options.output_mode) {
+        .Obj => true,
+        .Lib => options.link_mode == .Static,
+        else => false,
+    };
+    if (!is_obj_or_ar) {
+        try self.dynstrtab.buffer.append(allocator, 0);
+
+        // Initialize PT_PHDR program header
+        const p_align: u16 = switch (self.ptr_width) {
+            .p32 => @alignOf(elf.Elf32_Phdr),
+            .p64 => @alignOf(elf.Elf64_Phdr),
+        };
+        self.phdr_table_index = try self.addPhdr(.{
+            .type = elf.PT_PHDR,
+            .flags = elf.PF_R,
+            .@"align" = p_align,
+            .addr = self.calcImageBase() + @sizeOf(elf.Elf64_Ehdr),
+            .offset = @sizeOf(elf.Elf64_Ehdr),
+        });
+        // self.phdr_table_dirty = true;
+    }
 
     if (options.module != null and !options.use_llvm) {
         if (!options.strip) {
@@ -675,30 +698,10 @@ pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
-    const image_base = self.calcImageBase();
-
-    if (self.phdr_table_index == null) {
-        self.phdr_table_index = @intCast(self.phdrs.items.len);
-        const p_align: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Phdr),
-            .p64 => @alignOf(elf.Elf64_Phdr),
-        };
-        try self.phdrs.append(gpa, .{
-            .p_type = elf.PT_PHDR,
-            .p_offset = 0,
-            .p_filesz = 0,
-            .p_vaddr = image_base,
-            .p_paddr = image_base,
-            .p_memsz = 0,
-            .p_align = p_align,
-            .p_flags = elf.PF_R,
-        });
-        self.phdr_table_dirty = true;
-    }
 
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = try self.allocateSegment(.{
-            .addr = image_base,
+            .addr = self.calcImageBase(),
             .size = 0,
             .alignment = self.page_size,
         });
@@ -1705,67 +1708,67 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    if (self.phdr_table_dirty) {
-        const phsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Phdr),
-            .p64 => @sizeOf(elf.Elf64_Phdr),
-        };
+    // if (self.phdr_table_dirty) {
+    //     const phsize: u64 = switch (self.ptr_width) {
+    //         .p32 => @sizeOf(elf.Elf32_Phdr),
+    //         .p64 => @sizeOf(elf.Elf64_Phdr),
+    //     };
 
-        const phdr_table_index = self.phdr_table_index.?;
-        const phdr_table = &self.phdrs.items[phdr_table_index];
-        const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
+    //     const phdr_table_index = self.phdr_table_index.?;
+    //     const phdr_table = &self.phdrs.items[phdr_table_index];
+    //     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
-        const allocated_size = self.allocatedSize(phdr_table.p_offset);
-        const needed_size = self.phdrs.items.len * phsize;
+    //     const allocated_size = self.allocatedSize(phdr_table.p_offset);
+    //     const needed_size = self.phdrs.items.len * phsize;
 
-        if (needed_size > allocated_size) {
-            phdr_table.p_offset = 0; // free the space
-            phdr_table.p_offset = self.findFreeSpace(needed_size, @as(u32, @intCast(phdr_table.p_align)));
-        }
+    //     if (needed_size > allocated_size) {
+    //         phdr_table.p_offset = 0; // free the space
+    //         phdr_table.p_offset = self.findFreeSpace(needed_size, @as(u32, @intCast(phdr_table.p_align)));
+    //     }
 
-        phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-        const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-        phdr_table_load.p_filesz = load_align_offset + needed_size;
-        phdr_table_load.p_memsz = load_align_offset + needed_size;
+    //     phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
+    //     const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
+    //     phdr_table_load.p_filesz = load_align_offset + needed_size;
+    //     phdr_table_load.p_memsz = load_align_offset + needed_size;
 
-        phdr_table.p_filesz = needed_size;
-        phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-        phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
-        phdr_table.p_memsz = needed_size;
+    //     phdr_table.p_filesz = needed_size;
+    //     phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
+    //     phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
+    //     phdr_table.p_memsz = needed_size;
 
-        switch (self.ptr_width) {
-            .p32 => {
-                const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
-                defer gpa.free(buf);
+    //     switch (self.ptr_width) {
+    //         .p32 => {
+    //             const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
+    //             defer gpa.free(buf);
 
-                for (buf, 0..) |*phdr, i| {
-                    phdr.* = phdrTo32(self.phdrs.items[i]);
-                    if (foreign_endian) {
-                        mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
-                    }
-                }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-            },
-            .p64 => {
-                const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
-                defer gpa.free(buf);
+    //             for (buf, 0..) |*phdr, i| {
+    //                 phdr.* = phdrTo32(self.phdrs.items[i]);
+    //                 if (foreign_endian) {
+    //                     mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
+    //                 }
+    //             }
+    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+    //         },
+    //         .p64 => {
+    //             const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
+    //             defer gpa.free(buf);
 
-                for (buf, 0..) |*phdr, i| {
-                    phdr.* = self.phdrs.items[i];
-                    if (foreign_endian) {
-                        mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
-                    }
-                }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-            },
-        }
+    //             for (buf, 0..) |*phdr, i| {
+    //                 phdr.* = self.phdrs.items[i];
+    //                 if (foreign_endian) {
+    //                     mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
+    //                 }
+    //             }
+    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+    //         },
+    //     }
 
-        // We don't actually care if the phdr load section overlaps, only the phdr section matters.
-        phdr_table_load.p_offset = 0;
-        phdr_table_load.p_filesz = 0;
+    //     // We don't actually care if the phdr load section overlaps, only the phdr section matters.
+    //     phdr_table_load.p_offset = 0;
+    //     phdr_table_load.p_filesz = 0;
 
-        self.phdr_table_dirty = false;
-    } else try self.writePhdrs();
+    //     self.phdr_table_dirty = false;
+    // }
 
     if (self.shdr_table_dirty) {
         const shsize: u64 = switch (self.ptr_width) {
@@ -1817,6 +1820,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.shdr_table_dirty = false;
     }
 
+    try self.writePhdrs();
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
@@ -2963,12 +2967,7 @@ fn writeHeader(self: *Elf) !void {
     index += 4;
 
     const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).value else 0;
-
-    // TODO
-    const phdr_table_offset = if (self.phdr_table_index) |ind|
-        self.phdrs.items[ind].p_offset
-    else
-        @sizeOf(elf.Elf64_Ehdr);
+    const phdr_table_offset = self.phdrs.items[self.phdr_table_index.?].p_offset;
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @as(u32, @intCast(e_entry)), endian);
@@ -4417,16 +4416,17 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 }
 
-fn initPhdrs(self: *Elf) !void {
-    // Add PHDR phdr
-    const phdr_index = try self.addPhdr(.{
-        .type = elf.PT_PHDR,
-        .flags = elf.PF_R,
-        .@"align" = @alignOf(elf.Elf64_Phdr),
-        .addr = self.calcImageBase() + @sizeOf(elf.Elf64_Ehdr),
-        .offset = @sizeOf(elf.Elf64_Ehdr),
-    });
+fn resetPhdrs(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    const phdrs = try self.phdrs.toOwnedSlice(gpa);
+    try self.phdrs.ensureUnusedCapacity(gpa, phdrs.len);
 
+    if (self.phdr_table_index) |phndx| {
+        self.phdrs.appendAssumeCapacity(phdrs[phndx]);
+    }
+}
+
+fn initPhdrs(self: *Elf) !void {
     // Add INTERP phdr if required
     if (self.interp_section_index) |index| {
         const shdr = self.shdrs.items[index];
@@ -4543,7 +4543,7 @@ fn initPhdrs(self: *Elf) !void {
 
     // Backpatch size of the PHDR phdr
     {
-        const phdr = &self.phdrs.items[phdr_index];
+        const phdr = &self.phdrs.items[self.phdr_table_index.?];
         const size = @sizeOf(elf.Elf64_Phdr) * self.phdrs.items.len;
         phdr.p_filesz = size;
         phdr.p_memsz = size;
@@ -4588,7 +4588,7 @@ pub inline fn shdrIsTls(shdr: *const elf.Elf64_Shdr) bool {
     return shdr.sh_flags & elf.SHF_TLS != 0;
 }
 
-fn allocateSectionsInMemory(self: *Elf, base_offset: u64) !void {
+fn allocateSectionsInMemory(self: *Elf, base_offset: u64) void {
     // We use this struct to track maximum alignment of all TLS sections.
     // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
     // in-file offsets have to be aligned against the start of TLS program header.
@@ -4713,9 +4713,9 @@ fn allocateSections(self: *Elf) !void {
     while (true) {
         const nphdrs = self.phdrs.items.len;
         const base_offset: u64 = @sizeOf(elf.Elf64_Ehdr) + nphdrs * @sizeOf(elf.Elf64_Phdr);
-        try self.allocateSectionsInMemory(base_offset);
+        self.allocateSectionsInMemory(base_offset);
         self.allocateSectionsInFile(base_offset);
-        self.phdrs.clearRetainingCapacity();
+        try self.resetPhdrs();
         try self.initPhdrs();
         if (nphdrs == self.phdrs.items.len) break;
     }
