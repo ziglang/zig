@@ -37,22 +37,18 @@ phdr_table_index: ?u16 = null,
 /// but incremental linking means we can't ensure they are consecutive.
 phdr_table_load_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
-phdr_load_re_index: ?u16 = null,
+phdr_load_re_zig_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
 /// It needs PT_LOAD and Read flags.
-phdr_got_index: ?u16 = null,
+phdr_got_zig_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read flag
-phdr_load_ro_index: ?u16 = null,
+phdr_load_ro_zig_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Write flag
-phdr_load_rw_index: ?u16 = null,
+phdr_load_rw_zig_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with zerofill data.
-phdr_load_zerofill_index: ?u16 = null,
+phdr_load_zerofill_zig_index: ?u16 = null,
 /// The index into the program headers of the PT_TLS program header.
 phdr_tls_index: ?u16 = null,
-/// The index into the program headers of a PT_LOAD program header with TLS data.
-phdr_load_tls_data_index: ?u16 = null,
-/// The index into the program headers of a PT_LOAD program header with TLS zerofill data.
-phdr_load_tls_zerofill_index: ?u16 = null,
 
 entry_index: ?Symbol.Index = null,
 page_size: u32,
@@ -91,13 +87,12 @@ copy_rel: CopyRelSection = .{},
 /// .rela.plt section
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 
-/// Tracked section headers
-text_section_index: ?u16 = null,
-rodata_section_index: ?u16 = null,
-data_section_index: ?u16 = null,
-bss_section_index: ?u16 = null,
-tdata_section_index: ?u16 = null,
-tbss_section_index: ?u16 = null,
+/// Tracked section headers with incremental updates to Zig module
+text_zig_section_index: ?u16 = null,
+rodata_zig_section_index: ?u16 = null,
+data_zig_section_index: ?u16 = null,
+bss_zig_section_index: ?u16 = null,
+got_zig_section_index: ?u16 = null,
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
@@ -300,8 +295,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         esym.st_shndx = elf.SHN_ABS;
         symbol_ptr.esym_index = esym_index;
 
-        // TODO move populateMissingMetadata here renamed to zig_module.initMetadata();
-        try self.populateMissingMetadata();
+        try self.initMetadata();
     }
 
     return self;
@@ -456,7 +450,7 @@ pub fn lowerAnonDecl(self: *Elf, decl_val: InternPool.Index, src_loc: Module.Src
         const tv = TypedValue{ .ty = ty, .val = val };
         const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
         defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.rodata_section_index.?, src_loc) catch |err| switch (err) {
+        const res = self.lowerConst(name, tv, self.rodata_zig_section_index.?, src_loc) catch |err| switch (err) {
             else => {
                 // TODO improve error message
                 const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
@@ -676,7 +670,8 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
     return index;
 }
 
-pub fn populateMissingMetadata(self: *Elf) !void {
+/// TODO move to ZigModule
+pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
@@ -710,171 +705,99 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.phdr_table_dirty = true;
     }
 
-    if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = try self.allocateSegment(.{
+    if (self.phdr_load_re_zig_index == null) {
+        self.phdr_load_re_zig_index = try self.allocateSegment(.{
             .size = self.base.options.program_code_size_hint,
             .alignment = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
     }
 
-    if (self.phdr_got_index == null) {
+    if (self.phdr_got_zig_index == null) {
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_got_index = try self.allocateSegment(.{
+        self.phdr_got_zig_index = try self.allocateSegment(.{
             .size = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
 
-    if (self.phdr_load_ro_index == null) {
+    if (self.phdr_load_ro_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_load_ro_index = try self.allocateSegment(.{
+        self.phdr_load_ro_zig_index = try self.allocateSegment(.{
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
 
-    if (self.phdr_load_rw_index == null) {
+    if (self.phdr_load_rw_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_load_rw_index = try self.allocateSegment(.{
+        self.phdr_load_rw_zig_index = try self.allocateSegment(.{
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
 
-    if (self.phdr_load_zerofill_index == null) {
+    if (self.phdr_load_zerofill_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_load_zerofill_index = try self.allocateSegment(.{
+        self.phdr_load_zerofill_zig_index = try self.allocateSegment(.{
             .size = 0,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
-        const phdr = &self.phdrs.items[self.phdr_load_zerofill_index.?];
-        phdr.p_offset = self.phdrs.items[self.phdr_load_rw_index.?].p_offset; // .bss overlaps .data
+        const phdr = &self.phdrs.items[self.phdr_load_zerofill_zig_index.?];
+        phdr.p_offset = self.phdrs.items[self.phdr_load_rw_zig_index.?].p_offset; // .bss overlaps .data
         phdr.p_memsz = 1024;
     }
 
-    if (!self.base.options.single_threaded) {
-        if (self.phdr_load_tls_data_index == null) {
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-            self.phdr_load_tls_data_index = try self.allocateSegment(.{
-                .size = 1024,
-                .alignment = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-        }
-
-        if (self.phdr_load_tls_zerofill_index == null) {
-            // TODO .tbss doesn't need any physical or memory representation (aka a loadable segment)
-            // since the loader only cares about the PT_TLS to work out TLS size. However, when
-            // relocating we need to have .tdata and .tbss contiguously laid out so that we can
-            // work out correct offsets to the start/end of the TLS segment. I am thinking that
-            // perhaps it's possible to completely spoof it by having an abstracted mechanism
-            // for this that wouldn't require us to explicitly track .tbss. Anyhow, for now,
-            // we go the savage route of treating .tbss like .bss.
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-            self.phdr_load_tls_zerofill_index = try self.allocateSegment(.{
-                .size = 0,
-                .alignment = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-            const phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
-            phdr.p_offset = self.phdrs.items[self.phdr_load_tls_data_index.?].p_offset; // .tbss overlaps .tdata
-            phdr.p_memsz = 1024;
-        }
-
-        if (self.phdr_tls_index == null) {
-            self.phdr_tls_index = @intCast(self.phdrs.items.len);
-            const phdr_tdata = &self.phdrs.items[self.phdr_load_tls_data_index.?];
-            const phdr_tbss = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
-            try self.phdrs.append(gpa, .{
-                .p_type = elf.PT_TLS,
-                .p_offset = phdr_tdata.p_offset,
-                .p_vaddr = phdr_tdata.p_vaddr,
-                .p_paddr = phdr_tdata.p_paddr,
-                .p_filesz = phdr_tdata.p_filesz,
-                .p_memsz = phdr_tbss.p_vaddr + phdr_tbss.p_memsz - phdr_tdata.p_vaddr,
-                .p_align = ptr_size,
-                .p_flags = elf.PF_R,
-            });
-            self.phdr_table_dirty = true;
-        }
-    }
-
-    if (self.text_section_index == null) {
-        self.text_section_index = try self.allocateAllocSection(.{
-            .name = ".text",
-            .phdr_index = self.phdr_load_re_index.?,
+    if (self.text_zig_section_index == null) {
+        self.text_zig_section_index = try self.allocateAllocSection(.{
+            .name = ".text.zig",
+            .phdr_index = self.phdr_load_re_zig_index.?,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
         });
-        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.text_section_index.?, .{});
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.text_zig_section_index.?, .{});
     }
 
-    if (self.got_section_index == null) {
-        self.got_section_index = try self.allocateAllocSection(.{
-            .name = ".got",
-            .phdr_index = self.phdr_got_index.?,
+    if (self.got_zig_section_index == null) {
+        self.got_zig_section_index = try self.allocateAllocSection(.{
+            .name = ".got.zig",
+            .phdr_index = self.phdr_got_zig_index.?,
             .alignment = ptr_size,
         });
     }
 
-    if (self.rodata_section_index == null) {
-        self.rodata_section_index = try self.allocateAllocSection(.{
-            .name = ".rodata",
-            .phdr_index = self.phdr_load_ro_index.?,
+    if (self.rodata_zig_section_index == null) {
+        self.rodata_zig_section_index = try self.allocateAllocSection(.{
+            .name = ".rodata.zig",
+            .phdr_index = self.phdr_load_ro_zig_index.?,
         });
-        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.rodata_section_index.?, .{});
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.rodata_zig_section_index.?, .{});
     }
 
-    if (self.data_section_index == null) {
-        self.data_section_index = try self.allocateAllocSection(.{
-            .name = ".data",
-            .phdr_index = self.phdr_load_rw_index.?,
+    if (self.data_zig_section_index == null) {
+        self.data_zig_section_index = try self.allocateAllocSection(.{
+            .name = ".data.zig",
+            .phdr_index = self.phdr_load_rw_zig_index.?,
             .alignment = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         });
-        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_section_index.?, .{});
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.data_zig_section_index.?, .{});
     }
 
-    if (self.bss_section_index == null) {
-        self.bss_section_index = try self.allocateAllocSection(.{
-            .name = ".bss",
-            .phdr_index = self.phdr_load_zerofill_index.?,
+    if (self.bss_zig_section_index == null) {
+        self.bss_zig_section_index = try self.allocateAllocSection(.{
+            .name = ".bss.zig",
+            .phdr_index = self.phdr_load_zerofill_zig_index.?,
             .alignment = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .type = elf.SHT_NOBITS,
         });
-        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_section_index.?, .{});
-    }
-
-    if (self.phdr_load_tls_data_index) |phdr_index| {
-        if (self.tdata_section_index == null) {
-            self.tdata_section_index = try self.allocateAllocSection(.{
-                .name = ".tdata",
-                .phdr_index = phdr_index,
-                .alignment = ptr_size,
-                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-            });
-            try self.last_atom_and_free_list_table.putNoClobber(gpa, self.tdata_section_index.?, .{});
-        }
-    }
-
-    if (self.phdr_load_tls_zerofill_index) |phdr_index| {
-        if (self.tbss_section_index == null) {
-            self.tbss_section_index = try self.allocateAllocSection(.{
-                .name = ".tbss",
-                .phdr_index = phdr_index,
-                .alignment = ptr_size,
-                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-                .type = elf.SHT_NOBITS,
-            });
-            try self.last_atom_and_free_list_table.putNoClobber(gpa, self.tbss_section_index.?, .{});
-        }
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.bss_zig_section_index.?, .{});
     }
 
     if (self.dwarf) |*dw| {
@@ -1705,34 +1628,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zig_module_index) |index| {
-        // .bss always overlaps .data in file offset, but is zero-sized in file so it doesn't
+        // .bss.zig always overlaps .data.zig in file offset, but is zero-sized in file so it doesn't
         // get mapped by the loader
-        if (self.data_section_index) |data_shndx| blk: {
-            const bss_shndx = self.bss_section_index orelse break :blk;
+        if (self.data_zig_section_index) |data_shndx| blk: {
+            const bss_shndx = self.bss_zig_section_index orelse break :blk;
             const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
             const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
             self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
             self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
-        }
-
-        // Same treatment for .tbss section.
-        if (self.tdata_section_index) |tdata_shndx| blk: {
-            const tbss_shndx = self.tbss_section_index orelse break :blk;
-            const tdata_phndx = self.phdr_to_shdr_table.get(tdata_shndx).?;
-            const tbss_phndx = self.phdr_to_shdr_table.get(tbss_shndx).?;
-            self.shdrs.items[tbss_shndx].sh_offset = self.shdrs.items[tdata_shndx].sh_offset;
-            self.phdrs.items[tbss_phndx].p_offset = self.phdrs.items[tdata_phndx].p_offset;
-        }
-
-        if (self.phdr_tls_index) |tls_index| {
-            const tdata_phdr = &self.phdrs.items[self.phdr_load_tls_data_index.?];
-            const tbss_phdr = &self.phdrs.items[self.phdr_load_tls_zerofill_index.?];
-            const phdr = &self.phdrs.items[tls_index];
-            phdr.p_offset = tdata_phdr.p_offset;
-            phdr.p_filesz = tdata_phdr.p_filesz;
-            phdr.p_vaddr = tdata_phdr.p_vaddr;
-            phdr.p_paddr = tdata_phdr.p_vaddr;
-            phdr.p_memsz = tbss_phdr.p_vaddr + tbss_phdr.p_memsz - tdata_phdr.p_vaddr;
         }
 
         const zig_module = self.file(index).?.zig_module;
@@ -1767,7 +1670,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             if (self.debug_info_header_dirty) {
                 // Currently only one compilation unit is supported, so the address range is simply
                 // identical to the main program header virtual address and memory size.
-                const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
+                const text_phdr = &self.phdrs.items[self.phdr_load_re_zig_index.?];
                 const low_pc = text_phdr.p_vaddr;
                 const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
                 try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
@@ -1777,7 +1680,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             if (self.debug_aranges_section_dirty) {
                 // Currently only one compilation unit is supported, so the address range is simply
                 // identical to the main program header virtual address and memory size.
-                const text_phdr = &self.phdrs.items[self.phdr_load_re_index.?];
+                const text_phdr = &self.phdrs.items[self.phdr_load_re_zig_index.?];
                 try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
                 if (!self.shdr_table_dirty) {
                     // Then it won't get written with the others and we need to do it.
@@ -3221,24 +3124,24 @@ fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index, code: []const u8)
     const decl = mod.declPtr(decl_index);
     const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
         // TODO: what if this is a function pointer?
-        .Fn => self.text_section_index.?,
+        .Fn => self.text_zig_section_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
-                if (variable.is_const) break :blk self.rodata_section_index.?;
+                if (variable.is_const) break :blk self.rodata_zig_section_index.?;
                 if (variable.init.toValue().isUndefDeep(mod)) {
                     const mode = self.base.options.optimize_mode;
-                    if (mode == .Debug or mode == .ReleaseSafe) break :blk self.data_section_index.?;
-                    break :blk self.bss_section_index.?;
+                    if (mode == .Debug or mode == .ReleaseSafe) break :blk self.data_zig_section_index.?;
+                    break :blk self.bss_zig_section_index.?;
                 }
                 // TODO I blatantly copied the logic from the Wasm linker, but is there a less
                 // intrusive check for all zeroes than this?
                 const is_all_zeroes = for (code) |byte| {
                     if (byte != 0) break false;
                 } else true;
-                if (is_all_zeroes) break :blk self.bss_section_index.?;
-                break :blk self.data_section_index.?;
+                if (is_all_zeroes) break :blk self.bss_zig_section_index.?;
+                break :blk self.data_zig_section_index.?;
             }
-            break :blk self.rodata_section_index.?;
+            break :blk self.rodata_zig_section_index.?;
         },
     };
     return shdr_index;
@@ -3518,8 +3421,8 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     };
 
     const output_section_index = switch (sym.kind) {
-        .code => self.text_section_index.?,
-        .const_data => self.rodata_section_index.?,
+        .code => self.text_zig_section_index.?,
+        .const_data => self.rodata_zig_section_index.?,
     };
     const local_sym = self.symbol(symbol_index);
     const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
@@ -3565,7 +3468,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const sym_index = switch (try self.lowerConst(name, typed_value, self.rodata_section_index.?, decl.srcLoc(mod))) {
+    const sym_index = switch (try self.lowerConst(name, typed_value, self.rodata_zig_section_index.?, decl.srcLoc(mod))) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
