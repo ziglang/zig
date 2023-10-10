@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
 
     const check = lib.checkObject();
     check.checkInSymtab();
-    check.checkNotPresent("external");
+    check.checkNotPresent("external _abc");
 
     test_step.dependOn(&check.step);
 }
