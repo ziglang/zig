@@ -4841,7 +4841,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             defer http_client.deinit();
 
             var progress: std.Progress = .{ .dont_print_on_dumb = true };
-            const root_prog_node = progress.start("Fetch Packages", 0);
+            const root_prog_node = progress.start("Fetch Packages", 1);
             defer root_prog_node.end();
 
             var job_queue: Package.Fetch.JobQueue = .{
@@ -6746,7 +6746,7 @@ fn cmdFetch(
     defer http_client.deinit();
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const root_prog_node = progress.start("Fetch", 0);
+    const root_prog_node = progress.start("Fetch", 1);
     defer root_prog_node.end();
 
     var global_cache_directory: Compilation.Directory = l: {
