@@ -4433,8 +4433,9 @@ fn resetPhdrs(self: *Elf) !void {
 
 fn initSegments(self: *Elf) !void {
     // Add LOAD phdrs
+    const gpa = self.base.allocator;
     const slice = self.shdrs.items;
-    var last_phdr: ?u16 = null;
+    var is_first = true;
     var shndx: u16 = 0;
     while (shndx < slice.len) {
         const shdr = &slice[shndx];
@@ -4442,16 +4443,17 @@ fn initSegments(self: *Elf) !void {
             shndx += 1;
             continue;
         }
-        last_phdr = try self.addPhdr(.{
+        const phndx = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .flags = shdrToPhdrFlags(shdr.sh_flags),
             .@"align" = @max(self.page_size, shdr.sh_addralign),
-            .offset = if (last_phdr == null) 0 else shdr.sh_offset,
-            .addr = if (last_phdr == null) self.calcImageBase() else shdr.sh_addr,
+            .offset = if (is_first) 0 else shdr.sh_offset,
+            .addr = if (is_first) self.calcImageBase() else shdr.sh_addr,
         });
-        const p_flags = self.phdrs.items[last_phdr.?].p_flags;
-        self.addShdrToPhdr(shndx, last_phdr.?);
-        try self.phdr_to_shdr_table.putNoClobber(self.base.allocator, shndx, last_phdr.?);
+        is_first = false;
+        const p_flags = self.phdrs.items[phndx].p_flags;
+        self.addShdrToPhdr(shndx, phndx);
+        try self.phdr_to_shdr_table.putNoClobber(gpa, shndx, phndx);
         shndx += 1;
 
         while (shndx < slice.len) : (shndx += 1) {
@@ -4459,8 +4461,8 @@ fn initSegments(self: *Elf) !void {
             if (shdrIsTbss(next)) continue;
             if (p_flags == shdrToPhdrFlags(next.sh_flags)) {
                 if (shdrIsBss(next) or next.sh_offset - shdr.sh_offset == next.sh_addr - shdr.sh_addr) {
-                    self.addShdrToPhdr(shndx, last_phdr.?);
-                    try self.phdr_to_shdr_table.putNoClobber(self.base.allocator, shndx, last_phdr.?);
+                    self.addShdrToPhdr(shndx, phndx);
+                    try self.phdr_to_shdr_table.putNoClobber(self.base.allocator, shndx, phndx);
                     continue;
                 }
             }
@@ -4623,6 +4625,11 @@ fn allocateAllocSectionsInFile(self: *Elf, base_offset: u64) void {
     }
 }
 
+/// This function is really only responsible for allocating alloc sections,
+/// and creating load segments as-if incremental linking mode didn't exist.
+/// As a base address we take space immediately after the PHDR table, and
+/// aim for fitting between it and where the first incremental segment is
+/// allocated (see `initMetadata`).
 fn initAndAllocateSegments(self: *Elf) !void {
     const ehsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Ehdr),
