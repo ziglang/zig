@@ -354,53 +354,55 @@ fn runResource(
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
 
-    const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
-    var tmp_directory: Cache.Directory = .{
-        .path = tmp_directory_path,
-        .handle = handle: {
-            const dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch |err| {
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to create temporary directory '{s}': {s}", .{
-                        tmp_directory_path, @errorName(err),
-                    }),
-                });
-                return error.FetchFailed;
-            };
-            break :handle dir.dir;
-        },
-    };
-    defer tmp_directory.handle.close();
+    {
+        const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
+        var tmp_directory: Cache.Directory = .{
+            .path = tmp_directory_path,
+            .handle = handle: {
+                const dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch |err| {
+                    try eb.addRootErrorMessage(.{
+                        .msg = try eb.printString("unable to create temporary directory '{s}': {s}", .{
+                            tmp_directory_path, @errorName(err),
+                        }),
+                    });
+                    return error.FetchFailed;
+                };
+                break :handle dir.dir;
+            },
+        };
+        defer tmp_directory.handle.close();
 
-    try unpackResource(f, resource, uri_path, tmp_directory);
+        try unpackResource(f, resource, uri_path, tmp_directory);
 
-    // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
-    // for the file to be missing, in which case this fetched package is
-    // considered to be a "naked" package.
-    try loadManifest(f, .{ .root_dir = tmp_directory });
+        // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
+        // for the file to be missing, in which case this fetched package is
+        // considered to be a "naked" package.
+        try loadManifest(f, .{ .root_dir = tmp_directory });
 
-    // Apply the manifest's inclusion rules to the temporary directory by
-    // deleting excluded files. If any error occurred for files that were
-    // ultimately excluded, those errors should be ignored, such as failure to
-    // create symlinks that weren't supposed to be included anyway.
+        // Apply the manifest's inclusion rules to the temporary directory by
+        // deleting excluded files. If any error occurred for files that were
+        // ultimately excluded, those errors should be ignored, such as failure to
+        // create symlinks that weren't supposed to be included anyway.
 
-    // Empty directories have already been omitted by `unpackResource`.
+        // Empty directories have already been omitted by `unpackResource`.
 
-    const filter: Filter = .{
-        .include_paths = if (f.manifest) |m| m.paths else .{},
-    };
+        const filter: Filter = .{
+            .include_paths = if (f.manifest) |m| m.paths else .{},
+        };
 
-    // Compute the package hash based on the remaining files in the temporary
-    // directory.
+        // Compute the package hash based on the remaining files in the temporary
+        // directory.
 
-    if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
-        // https://github.com/ziglang/zig/issues/17095
-        tmp_directory.handle.close();
-        const iterable_dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch
-            @panic("btrfs workaround failed");
-        tmp_directory.handle = iterable_dir.dir;
+        if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
+            // https://github.com/ziglang/zig/issues/17095
+            tmp_directory.handle.close();
+            const iterable_dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch
+                @panic("btrfs workaround failed");
+            tmp_directory.handle = iterable_dir.dir;
+        }
+
+        f.actual_hash = try computeHash(f, tmp_directory, filter);
     }
-
-    f.actual_hash = try computeHash(f, tmp_directory, filter);
 
     // Rename the temporary directory into the global zig package cache
     // directory. If the hash already exists, delete the temporary directory
