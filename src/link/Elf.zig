@@ -4685,11 +4685,13 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     }
 
     // Allocate TLS phdr
+    // We assume TLS sections are laid out contiguously and that there is
+    // a single TLS segment.
     if (self.phdr_tls_index) |index| {
         const slice = self.shdrs.items;
         const phdr = &self.phdrs.items[index];
         var shndx: u16 = 0;
-        outer: while (shndx < slice.len) {
+        while (shndx < slice.len) {
             const shdr = slice[shndx];
             if (shdr.sh_flags & elf.SHF_TLS == 0) {
                 shndx += 1;
@@ -4704,7 +4706,8 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 
             while (shndx < slice.len) : (shndx += 1) {
                 const next = slice[shndx];
-                if (next.sh_flags & elf.SHF_TLS == 0) continue :outer;
+                // if (next.sh_flags & elf.SHF_TLS == 0) continue :outer; // TODO uncomment if we permit more TLS segments
+                if (next.sh_flags & elf.SHF_TLS == 0) break;
                 self.addShdrToPhdr(shndx, index);
             }
         }
