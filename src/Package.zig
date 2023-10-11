@@ -124,7 +124,7 @@ pub const Path = struct {
             };
             if (self.root_dir.path) |p| {
                 try stringEscape(p, f, options, writer);
-                if (self.sub_path.len > 0) try writer.writeAll(fs.path.sep_str);
+                if (self.sub_path.len > 0) try stringEscape(fs.path.sep_str, f, options, writer);
             }
             if (self.sub_path.len > 0) {
                 try stringEscape(self.sub_path, f, options, writer);
