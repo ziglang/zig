@@ -47,6 +47,10 @@ phdr_load_zerofill_zig_index: ?u16 = null,
 /// Special program headers
 /// PT_PHDR
 phdr_table_index: ?u16 = null,
+/// PT_LOAD for PHDR table
+/// We add this special load segment to ensure the PHDR table is always
+/// loaded into memory.
+phdr_table_load_index: ?u16 = null,
 /// PT_INTERP
 phdr_interp_index: ?u16 = null,
 /// PT_DYNAMIC
@@ -281,6 +285,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
+        const image_base = self.calcImageBase();
         const offset: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
@@ -289,8 +294,14 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = self.calcImageBase() + offset,
+            .addr = image_base + offset,
             .offset = offset,
+        });
+        self.phdr_table_load_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
+            .flags = elf.PF_R,
+            .@"align" = self.page_size,
+            .addr = image_base,
         });
     }
 
@@ -571,34 +582,23 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
 }
 
 const AllocateSegmentOpts = struct {
+    addr: u64,
     size: u64,
     alignment: u64,
-    addr: ?u64 = null,
     flags: u32 = elf.PF_R,
 };
 
 pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
-    const gpa = self.base.allocator;
-    const index = @as(u16, @intCast(self.phdrs.items.len));
-    try self.phdrs.ensureUnusedCapacity(gpa, 1);
     const off = self.findFreeSpace(opts.size, opts.alignment);
-    // Currently, we automatically allocate memory in sequence by finding the largest
-    // allocated virtual address and going from there.
-    // TODO we want to keep machine code segment in the furthest memory range among all
-    // segments as it is most likely to grow.
-    const addr = opts.addr orelse blk: {
-        const reserved_capacity = self.calcImageBase() * 4;
-        // Calculate largest VM address
-        var addresses = std.ArrayList(u64).init(gpa);
-        defer addresses.deinit();
-        try addresses.ensureTotalCapacityPrecise(self.phdrs.items.len);
-        for (self.phdrs.items) |phdr| {
-            if (phdr.p_type != elf.PT_LOAD) continue;
-            addresses.appendAssumeCapacity(phdr.p_vaddr + reserved_capacity);
-        }
-        mem.sort(u64, addresses.items, {}, std.sort.asc(u64));
-        break :blk mem.alignForward(u64, addresses.pop(), opts.alignment);
-    };
+    const index = try self.addPhdr(.{
+        .type = elf.PT_LOAD,
+        .offset = off,
+        .filesz = opts.size,
+        .addr = opts.addr,
+        .memsz = opts.size,
+        .@"align" = opts.alignment,
+        .flags = opts.flags,
+    });
     log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         index,
         if (opts.flags & elf.PF_R != 0) @as(u8, 'R') else '_',
@@ -606,18 +606,8 @@ pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}
         if (opts.flags & elf.PF_X != 0) @as(u8, 'X') else '_',
         off,
         off + opts.size,
-        addr,
-        addr + opts.size,
-    });
-    self.phdrs.appendAssumeCapacity(.{
-        .p_type = elf.PT_LOAD,
-        .p_offset = off,
-        .p_filesz = opts.size,
-        .p_vaddr = addr,
-        .p_paddr = addr,
-        .p_memsz = opts.size,
-        .p_align = opts.alignment,
-        .p_flags = opts.flags,
+        opts.addr,
+        opts.addr + opts.size,
     });
     return index;
 }
@@ -687,11 +677,13 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
 /// TODO move to ZigModule
 pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
-    const ptr_size: u8 = self.ptrWidthBytes();
+    const ptr_size = self.ptrWidthBytes();
+    const ptr_bit_width = self.base.options.target.ptrBitWidth();
     const is_linux = self.base.options.target.os.tag == .linux;
 
     if (self.phdr_load_re_zig_index == null) {
         self.phdr_load_re_zig_index = try self.allocateSegment(.{
+            .addr = if (ptr_bit_width >= 32) 0x8000000 else 0x8000,
             .size = self.base.options.program_code_size_hint,
             .alignment = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
@@ -703,6 +695,7 @@ pub fn initMetadata(self: *Elf) !void {
         // page align.
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_got_zig_index = try self.allocateSegment(.{
+            .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
             .size = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -712,6 +705,7 @@ pub fn initMetadata(self: *Elf) !void {
     if (self.phdr_load_ro_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_ro_zig_index = try self.allocateSegment(.{
+            .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -721,6 +715,7 @@ pub fn initMetadata(self: *Elf) !void {
     if (self.phdr_load_rw_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_rw_zig_index = try self.allocateSegment(.{
+            .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
             .size = 1024,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -730,6 +725,7 @@ pub fn initMetadata(self: *Elf) !void {
     if (self.phdr_load_zerofill_zig_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
         self.phdr_load_zerofill_zig_index = try self.allocateSegment(.{
+            .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
             .size = 0,
             .alignment = alignment,
             .flags = elf.PF_R | elf.PF_W,
@@ -2820,9 +2816,17 @@ fn writePhdrTable(self: *Elf) !void {
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
+    const phdr_segment = &self.phdrs.items[self.phdr_table_load_index.?];
     const needed_size = self.phdrs.items.len * phsize;
     phdr_table.p_filesz = needed_size;
     phdr_table.p_memsz = needed_size;
+
+    const ehsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Ehdr),
+        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    };
+    phdr_segment.p_filesz = needed_size + ehsize;
+    phdr_segment.p_memsz = needed_size + ehsize;
 
     log.debug("writing program headers from 0x{x} to 0x{x}", .{
         phdr_table.p_offset,
@@ -4387,6 +4391,7 @@ fn updateSectionSizes(self: *Elf) !void {
 
 /// The assumed layout of PHDRs in file is as follows:
 /// PT_PHDR
+/// PT_LOAD for PT_PHDR
 /// PT_INTERP
 /// PT_DYNAMIC
 /// PT_GNU_EH_FRAME
@@ -4399,7 +4404,8 @@ fn resetPhdrs(self: *Elf) !void {
     try self.phdrs.ensureUnusedCapacity(gpa, phdrs.len);
 
     for (&[_]?u16{
-        self.phdr_table_index.?,
+        self.phdr_table_index,
+        self.phdr_table_load_index,
         self.phdr_interp_index,
         self.phdr_dynamic_index,
         self.phdr_gnu_eh_frame_index,
@@ -4636,9 +4642,17 @@ fn allocateSectionsInFile(self: *Elf, base_offset: u64) void {
 }
 
 fn allocateSections(self: *Elf) !void {
+    const ehsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Ehdr),
+        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    };
+    const phsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Phdr),
+        .p64 => @sizeOf(elf.Elf64_Phdr),
+    };
     while (true) {
         const nphdrs = self.phdrs.items.len;
-        const base_offset: u64 = @sizeOf(elf.Elf64_Ehdr) + nphdrs * @sizeOf(elf.Elf64_Phdr);
+        const base_offset: u64 = ehsize + nphdrs * phsize;
         self.allocateSectionsInMemory(base_offset);
         self.allocateSectionsInFile(base_offset);
         try self.resetPhdrs();
@@ -4662,14 +4676,6 @@ fn allocateSpecialPhdrs(self: *Elf) void {
             phdr.p_filesz = shdr.sh_size;
             phdr.p_memsz = shdr.sh_size;
         }
-    }
-
-    {
-        // Backpatch size of the PHDR phdr
-        const phdr = &self.phdrs.items[self.phdr_table_index.?];
-        const size = @sizeOf(elf.Elf64_Phdr) * self.phdrs.items.len;
-        phdr.p_filesz = size;
-        phdr.p_memsz = size;
     }
 }
 
@@ -5341,7 +5347,7 @@ fn addPhdr(self: *Elf, opts: struct {
     addr: u64 = 0,
     filesz: u64 = 0,
     memsz: u64 = 0,
-}) !u16 {
+}) error{OutOfMemory}!u16 {
     const index = @as(u16, @intCast(self.phdrs.items.len));
     try self.phdrs.append(self.base.allocator, .{
         .p_type = opts.type,
