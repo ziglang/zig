@@ -4623,18 +4623,6 @@ fn allocateAllocSectionsInFile(self: *Elf, base_offset: u64) void {
     }
 }
 
-fn allocateNonAllocSectionsInFile(self: *Elf, base_offset: u64) void {
-    var offset = base_offset;
-    var i: usize = 0;
-    while (i < self.shdrs.items.len) : (i += 1) {
-        const first = &self.shdrs.items[i];
-        if (shdrIsAlloc(first) or first.sh_type == elf.SHT_NULL) continue;
-        // Non-alloc sections don't need congruency with their allocated virtual memory addresses
-        first.sh_offset = mem.alignForward(u64, offset, first.sh_addralign);
-        offset = first.sh_offset + first.sh_size;
-    }
-}
-
 fn initAndAllocateSegments(self: *Elf) !void {
     const ehsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Ehdr),
@@ -4658,13 +4646,16 @@ fn initAndAllocateSegments(self: *Elf) !void {
 }
 
 fn allocateNonAllocSections(self: *Elf) void {
-    var off: u64 = 0;
-    for (self.shdrs.items) |shdr| {
+    for (self.shdrs.items) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_flags & elf.SHF_ALLOC == 0) break;
-        off = @max(off, shdr.sh_offset + shdr.sh_size);
+        if (shdr.sh_flags & elf.SHF_ALLOC != 0) continue;
+        const needed_size = shdr.sh_size;
+        if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+            shdr.sh_size = 0;
+            shdr.sh_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
+            shdr.sh_size = needed_size;
+        }
     }
-    self.allocateNonAllocSectionsInFile(off);
 }
 
 fn allocateSpecialPhdrs(self: *Elf) void {
