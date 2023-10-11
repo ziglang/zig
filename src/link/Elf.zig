@@ -156,8 +156,6 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
-shdr_table_dirty: bool = false,
-
 debug_strtab_dirty: bool = false,
 debug_abbrev_section_dirty: bool = false,
 debug_aranges_section_dirty: bool = false,
@@ -244,8 +242,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         .read = true,
         .mode = link.determineMode(options),
     });
-
-    self.shdr_table_dirty = true;
 
     // Index 0 is always a null symbol.
     try self.symbols.append(allocator, .{});
@@ -523,16 +519,6 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    if (self.shdr_table_offset) |off| {
-        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
-        const tight_size = self.shdrs.items.len * shdr_size;
-        const increased_size = padToIdeal(tight_size);
-        const test_end = off + increased_size;
-        if (end > off and start < test_end) {
-            return test_end;
-        }
-    }
-
     for (self.shdrs.items) |shdr| {
         // SHT_NOBITS takes no physical space in the output file so set its size to 0.
         const sh_size = if (shdr.sh_type == elf.SHT_NOBITS) 0 else shdr.sh_size;
@@ -555,9 +541,6 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 fn allocatedSize(self: *Elf, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
-    if (self.shdr_table_offset) |off| {
-        if (off > start and off < min_pos) min_pos = off;
-    }
     for (self.shdrs.items) |section| {
         if (section.sh_offset <= start) continue;
         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
@@ -1012,8 +995,6 @@ pub fn growNonAllocSection(
 }
 
 pub fn markDirty(self: *Elf, shdr_index: u16) void {
-    self.shdr_table_dirty = true; // TODO look into only writing one section
-
     if (self.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
             self.debug_info_header_dirty = true;
@@ -1533,9 +1514,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
     }
 
-    const target_endian = self.base.options.target.cpu.arch.endian();
-    const foreign_endian = target_endian != builtin.cpu.arch.endian();
-
     if (self.dwarf) |*dw| {
         try dw.flushModule(self.base.options.module.?);
     }
@@ -1660,10 +1638,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (self.dwarf) |*dw| {
             if (self.debug_abbrev_section_dirty) {
                 try dw.writeDbgAbbrev();
-                if (!self.shdr_table_dirty) {
-                    // Then it won't get written with the others and we need to do it.
-                    try self.writeShdr(self.debug_abbrev_section_index.?);
-                }
                 self.debug_abbrev_section_dirty = false;
             }
 
@@ -1682,10 +1656,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 // identical to the main program header virtual address and memory size.
                 const text_phdr = &self.phdrs.items[self.phdr_load_re_zig_index.?];
                 try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-                if (!self.shdr_table_dirty) {
-                    // Then it won't get written with the others and we need to do it.
-                    try self.writeShdr(self.debug_aranges_section_index.?);
-                }
                 self.debug_aranges_section_dirty = false;
             }
 
@@ -1705,56 +1675,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    if (self.shdr_table_dirty) {
-        const shsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Shdr),
-            .p64 => @sizeOf(elf.Elf64_Shdr),
-        };
-        const shalign: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Shdr),
-            .p64 => @alignOf(elf.Elf64_Shdr),
-        };
-        const needed_size = self.shdrs.items.len * shsize;
-        const allocated_size = if (self.shdr_table_offset) |off|
-            self.allocatedSize(off)
-        else
-            0;
-        if (needed_size > allocated_size) {
-            self.shdr_table_offset = null; // free the space
-            self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
-        }
-
-        switch (self.ptr_width) {
-            .p32 => {
-                const buf = try gpa.alloc(elf.Elf32_Shdr, self.shdrs.items.len);
-                defer gpa.free(buf);
-
-                for (buf, 0..) |*shdr, i| {
-                    shdr.* = shdrTo32(self.shdrs.items[i]);
-                    log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
-                    if (foreign_endian) {
-                        mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
-                    }
-                }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
-            },
-            .p64 => {
-                const buf = try gpa.alloc(elf.Elf64_Shdr, self.shdrs.items.len);
-                defer gpa.free(buf);
-
-                for (buf, 0..) |*shdr, i| {
-                    shdr.* = self.shdrs.items[i];
-                    log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
-                    if (foreign_endian) {
-                        mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
-                    }
-                }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
-            },
-        }
-        self.shdr_table_dirty = false;
-    }
-
+    try self.writeShdrTable();
     try self.writePhdrTable();
     try self.writeAtoms();
     try self.writeSyntheticSections();
@@ -1780,7 +1701,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // such as debug_line_header_dirty and debug_info_header_dirty.
     assert(!self.debug_abbrev_section_dirty);
     assert(!self.debug_aranges_section_dirty);
-    assert(!self.shdr_table_dirty);
     assert(!self.debug_strtab_dirty);
 }
 
@@ -2840,6 +2760,54 @@ fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) 
     switch (self.ptr_width) {
         .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
         .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
+    }
+}
+
+fn writeShdrTable(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    const target_endian = self.base.options.target.cpu.arch.endian();
+    const foreign_endian = target_endian != builtin.cpu.arch.endian();
+    const shsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Shdr),
+        .p64 => @sizeOf(elf.Elf64_Shdr),
+    };
+    const shalign: u16 = switch (self.ptr_width) {
+        .p32 => @alignOf(elf.Elf32_Shdr),
+        .p64 => @alignOf(elf.Elf64_Shdr),
+    };
+    const needed_size = self.shdrs.items.len * shsize;
+    var shoff: u64 = 0;
+    for (self.shdrs.items) |shdr| {
+        const off = mem.alignForward(u64, shdr.sh_offset + shdr.sh_size, shalign);
+        shoff = @max(shoff, off);
+    }
+    self.shdr_table_offset = shoff;
+    log.debug("writing section headers from 0x{x} to 0x{x}", .{ shoff, shoff + needed_size });
+    switch (self.ptr_width) {
+        .p32 => {
+            const buf = try gpa.alloc(elf.Elf32_Shdr, self.shdrs.items.len);
+            defer gpa.free(buf);
+
+            for (buf, 0..) |*shdr, i| {
+                shdr.* = shdrTo32(self.shdrs.items[i]);
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+        },
+        .p64 => {
+            const buf = try gpa.alloc(elf.Elf64_Shdr, self.shdrs.items.len);
+            defer gpa.free(buf);
+
+            for (buf, 0..) |*shdr, i| {
+                shdr.* = self.shdrs.items[i];
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+        },
     }
 }
 
@@ -5084,29 +5052,6 @@ fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
     };
 }
 
-fn writeShdr(self: *Elf, index: usize) !void {
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => {
-            var shdr: [1]elf.Elf32_Shdr = undefined;
-            shdr[0] = shdrTo32(self.shdrs.items[index]);
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf32_Shdr, &shdr[0]);
-            }
-            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
-        },
-        .p64 => {
-            var shdr = [1]elf.Elf64_Shdr{self.shdrs.items[index]};
-            if (foreign_endian) {
-                mem.byteSwapAllFields(elf.Elf64_Shdr, &shdr[0]);
-            }
-            const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
-            return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
-        },
-    }
-}
-
 fn shdrTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
     return .{
         .sh_name = shdr.sh_name,
@@ -5437,7 +5382,6 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
         .sh_addralign = opts.addralign,
         .sh_entsize = opts.entsize,
     };
-    self.shdr_table_dirty = true;
     return index;
 }
 
