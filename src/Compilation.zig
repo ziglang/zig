@@ -845,6 +845,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (options.main_mod == null)
                 break :blk false;
 
+            // If we cannot use LLVM libraries, then our own backends will be a
+            // better default since the LLVM backend can only produce bitcode
+            // and not an object file or executable.
+            if (!use_lib_llvm)
+                break :blk false;
+
             // If LLVM does not support the target, then we can't use it.
             if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
                 break :blk false;
