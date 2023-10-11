@@ -531,6 +531,16 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
+    if (self.shdr_table_offset) |off| {
+        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
+        const tight_size = self.shdrs.items.len * shdr_size;
+        const increased_size = padToIdeal(tight_size);
+        const test_end = off + increased_size;
+        if (end > off and start < test_end) {
+            return test_end;
+        }
+    }
+
     for (self.shdrs.items) |shdr| {
         // SHT_NOBITS takes no physical space in the output file so set its size to 0.
         const sh_size = if (shdr.sh_type == elf.SHT_NOBITS) 0 else shdr.sh_size;
@@ -553,6 +563,9 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 fn allocatedSize(self: *Elf, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
+    if (self.shdr_table_offset) |off| {
+        if (off > start and off < min_pos) min_pos = off;
+    }
     for (self.shdrs.items) |section| {
         if (section.sh_offset <= start) continue;
         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
@@ -1673,8 +1686,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    try self.writeShdrTable();
     try self.writePhdrTable();
+    try self.writeShdrTable();
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
@@ -2773,14 +2786,20 @@ fn writeShdrTable(self: *Elf) !void {
         .p32 => @alignOf(elf.Elf32_Shdr),
         .p64 => @alignOf(elf.Elf64_Shdr),
     };
+
+    const shoff = self.shdr_table_offset orelse 0;
     const needed_size = self.shdrs.items.len * shsize;
-    var shoff: u64 = 0;
-    for (self.shdrs.items) |shdr| {
-        const off = mem.alignForward(u64, shdr.sh_offset + shdr.sh_size, shalign);
-        shoff = @max(shoff, off);
+
+    if (needed_size > self.allocatedSize(shoff)) {
+        self.shdr_table_offset = null;
+        self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
     }
-    self.shdr_table_offset = shoff;
-    log.debug("writing section headers from 0x{x} to 0x{x}", .{ shoff, shoff + needed_size });
+
+    log.debug("writing section headers from 0x{x} to 0x{x}", .{
+        self.shdr_table_offset.?,
+        self.shdr_table_offset.? + needed_size,
+    });
+
     switch (self.ptr_width) {
         .p32 => {
             const buf = try gpa.alloc(elf.Elf32_Shdr, self.shdrs.items.len);
