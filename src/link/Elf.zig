@@ -32,11 +32,6 @@ output_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.
 phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 
 /// Tracked loadable segments during incremental linking.
-/// The index into the program headers of the PT_LOAD program header containing the phdr
-/// Most linkers would merge this with phdr_load_ro_index,
-/// but incremental linking means we can't ensure they are consecutive.
-/// If this segment is not needed, it won't get emitted.
-phdr_table_load_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_zig_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
@@ -161,7 +156,6 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
-phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
 
 debug_strtab_dirty: bool = false,
@@ -291,14 +285,17 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
+        const offset: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Ehdr),
+            .p64 => @sizeOf(elf.Elf64_Ehdr),
+        };
         self.phdr_table_index = try self.addPhdr(.{
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = self.calcImageBase() + @sizeOf(elf.Elf64_Ehdr),
-            .offset = @sizeOf(elf.Elf64_Ehdr),
+            .addr = self.calcImageBase() + offset,
+            .offset = offset,
         });
-        // self.phdr_table_dirty = true;
     }
 
     if (options.module != null and !options.use_llvm) {
@@ -639,7 +636,6 @@ pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}
         .p_align = opts.alignment,
         .p_flags = opts.flags,
     });
-    self.phdr_table_dirty = true;
     return index;
 }
 
@@ -710,15 +706,6 @@ pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
     const ptr_size: u8 = self.ptrWidthBytes();
     const is_linux = self.base.options.target.os.tag == .linux;
-
-    if (self.phdr_table_load_index == null) {
-        self.phdr_table_load_index = try self.allocateSegment(.{
-            .addr = self.calcImageBase(),
-            .size = 0,
-            .alignment = self.page_size,
-        });
-        self.phdr_table_dirty = true;
-    }
 
     if (self.phdr_load_re_zig_index == null) {
         self.phdr_load_re_zig_index = try self.allocateSegment(.{
@@ -926,7 +913,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
 
     phdr.p_memsz = needed_size;
 
-    self.markDirty(shdr_index, phdr_index);
+    self.markDirty(shdr_index);
 }
 
 fn growSegment(self: *Elf, shndx: u16, needed_size: u64) !void {
@@ -1021,15 +1008,11 @@ pub fn growNonAllocSection(
 
     shdr.sh_size = needed_size; // anticipating adding the global symbols later
 
-    self.markDirty(shdr_index, null);
+    self.markDirty(shdr_index);
 }
 
-pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
+pub fn markDirty(self: *Elf, shdr_index: u16) void {
     self.shdr_table_dirty = true; // TODO look into only writing one section
-
-    if (phdr_index) |_| {
-        self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
-    }
 
     if (self.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
@@ -1722,68 +1705,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    // if (self.phdr_table_dirty) {
-    //     const phsize: u64 = switch (self.ptr_width) {
-    //         .p32 => @sizeOf(elf.Elf32_Phdr),
-    //         .p64 => @sizeOf(elf.Elf64_Phdr),
-    //     };
-
-    //     const phdr_table_index = self.phdr_table_index.?;
-    //     const phdr_table = &self.phdrs.items[phdr_table_index];
-    //     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
-
-    //     const allocated_size = self.allocatedSize(phdr_table.p_offset);
-    //     const needed_size = self.phdrs.items.len * phsize;
-
-    //     if (needed_size > allocated_size) {
-    //         phdr_table.p_offset = 0; // free the space
-    //         phdr_table.p_offset = self.findFreeSpace(needed_size, @as(u32, @intCast(phdr_table.p_align)));
-    //     }
-
-    //     phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-    //     const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-    //     phdr_table_load.p_filesz = load_align_offset + needed_size;
-    //     phdr_table_load.p_memsz = load_align_offset + needed_size;
-
-    //     phdr_table.p_filesz = needed_size;
-    //     phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-    //     phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
-    //     phdr_table.p_memsz = needed_size;
-
-    //     switch (self.ptr_width) {
-    //         .p32 => {
-    //             const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
-    //             defer gpa.free(buf);
-
-    //             for (buf, 0..) |*phdr, i| {
-    //                 phdr.* = phdrTo32(self.phdrs.items[i]);
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-    //         },
-    //         .p64 => {
-    //             const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
-    //             defer gpa.free(buf);
-
-    //             for (buf, 0..) |*phdr, i| {
-    //                 phdr.* = self.phdrs.items[i];
-    //                 if (foreign_endian) {
-    //                     mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
-    //                 }
-    //             }
-    //             try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
-    //         },
-    //     }
-
-    //     // We don't actually care if the phdr load section overlaps, only the phdr section matters.
-    //     phdr_table_load.p_offset = 0;
-    //     phdr_table_load.p_filesz = 0;
-
-    //     self.phdr_table_dirty = false;
-    // }
-
     if (self.shdr_table_dirty) {
         const shsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -1834,7 +1755,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.shdr_table_dirty = false;
     }
 
-    try self.writePhdrs();
+    try self.writePhdrTable();
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
@@ -1859,7 +1780,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // such as debug_line_header_dirty and debug_info_header_dirty.
     assert(!self.debug_abbrev_section_dirty);
     assert(!self.debug_aranges_section_dirty);
-    assert(!self.phdr_table_dirty);
     assert(!self.shdr_table_dirty);
     assert(!self.debug_strtab_dirty);
 }
@@ -2923,11 +2843,50 @@ fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) 
     }
 }
 
-fn writePhdrs(self: *Elf) !void {
-    const phoff = @sizeOf(elf.Elf64_Ehdr);
-    const phdrs_size = self.phdrs.items.len * @sizeOf(elf.Elf64_Phdr);
-    log.debug("writing program headers from 0x{x} to 0x{x}", .{ phoff, phoff + phdrs_size });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.phdrs.items), phoff);
+fn writePhdrTable(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    const target_endian = self.base.options.target.cpu.arch.endian();
+    const foreign_endian = target_endian != builtin.cpu.arch.endian();
+    const phsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Phdr),
+        .p64 => @sizeOf(elf.Elf64_Phdr),
+    };
+    const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
+    const needed_size = self.phdrs.items.len * phsize;
+    phdr_table.p_filesz = needed_size;
+    phdr_table.p_memsz = needed_size;
+
+    log.debug("writing program headers from 0x{x} to 0x{x}", .{
+        phdr_table.p_offset,
+        phdr_table.p_offset + needed_size,
+    });
+
+    switch (self.ptr_width) {
+        .p32 => {
+            const buf = try gpa.alloc(elf.Elf32_Phdr, self.phdrs.items.len);
+            defer gpa.free(buf);
+
+            for (buf, 0..) |*phdr, i| {
+                phdr.* = phdrTo32(self.phdrs.items[i]);
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+        },
+        .p64 => {
+            const buf = try gpa.alloc(elf.Elf64_Phdr, self.phdrs.items.len);
+            defer gpa.free(buf);
+
+            for (buf, 0..) |*phdr, i| {
+                phdr.* = self.phdrs.items[i];
+                if (foreign_endian) {
+                    mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
+                }
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
+        },
+    }
 }
 
 fn writeHeader(self: *Elf) !void {
@@ -4065,7 +4024,6 @@ fn initSpecialPhdrs(self: *Elf) !void {
         .memsz = self.base.options.stack_size_override orelse 0,
         .@"align" = 1,
     });
-    // self.phdr_table_dirty = true;
 }
 
 /// We need to sort constructors/destuctors in the following sections:

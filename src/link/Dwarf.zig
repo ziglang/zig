@@ -2642,7 +2642,7 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
         switch (self.bin_file.tag) {
             .elf => {
                 const elf_file = self.bin_file.cast(File.Elf).?;
-                elf_file.markDirty(elf_file.debug_line_section_index.?, null);
+                elf_file.markDirty(elf_file.debug_line_section_index.?);
             },
             .macho => {
                 const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
