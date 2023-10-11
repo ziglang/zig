@@ -157,3 +157,38 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
         return;
     }
 }
+
+/// Performs other work from this pool on the current thread until at least the given number of
+/// nanoseconds have elapsed.
+pub fn sleepWork(pool: *Pool, nanoseconds: u64) void {
+    var timer = std.time.Timer.start() catch {
+        // High-precision timing is not supported on this system. This should
+        // only fail in "hostile environments", so it is acceptable to just
+        // block the thread in this case.
+        std.time.sleep(nanoseconds);
+        return;
+    };
+
+    var remaining = nanoseconds;
+
+    while (remaining > 0) : (remaining = nanoseconds -| timer.read()) {
+        pool.mutex.lock();
+
+        // No deferred unlock here, since if there is a node available we want
+        // to unlock immediately to run it.
+
+        if (pool.run_queue.popFirst()) |run_node| {
+            pool.mutex.unlock();
+            run_node.data.runFn(&run_node.data);
+            continue;
+        }
+
+        if (pool.is_running) {
+            pool.cond.timedWait(&pool.mutex, remaining) catch {};
+            pool.mutex.unlock();
+        } else {
+            pool.mutex.unlock();
+            std.time.sleep(remaining);
+        }
+    }
+}
