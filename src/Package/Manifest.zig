@@ -313,7 +313,7 @@ const Parse = struct {
         var buf: [2]Ast.Node.Index = undefined;
         const array_init = ast.fullArrayInit(&buf, node) orelse {
             const tok = main_tokens[node];
-            return fail(p, tok, "expected paths expression to be a struct", .{});
+            return fail(p, tok, "expected paths expression to be a list of strings", .{});
         };
 
         for (array_init.ast.elements) |elem_node| {
