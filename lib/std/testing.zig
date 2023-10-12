@@ -28,8 +28,12 @@ pub var error_count: usize = 0;
 /// The common pattern is as follows.
 ///
 /// ```zig
+/// test "Demo" {
+/// …
 ///     if (got != want)
 ///         testing.fail("got {}, want {}", got, want);
+/// …
+/// }
 /// ```
 pub fn fail(comptime fmt: []const u8, args: anytype) void {
     // sanity check in compile-time
@@ -51,8 +55,12 @@ pub fn fail(comptime fmt: []const u8, args: anytype) void {
 /// Fatal test scenario must return immediately, unlike fail.
 ///
 /// ```zig
+/// test "Demo" {
+/// …
 ///     const got = foo(x) catch |err|
 ///         return testing.fatal("foo {} got error {}", .{ x, err });
+/// …
+/// }
 /// ```
 pub fn fatal(comptime fmt: []const u8, args: anytype) error{TestFatal} {
     fail(fmt, args);
@@ -393,8 +401,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const index_fmt = if (T == u8) "0x{X}" else "{}";
 
     print("====== expected this output: ====== len: {} (0x{X})\n\n", .{
-        expected.len,
-        expected.len,
+        expected.len, expected.len,
     });
     if (window_start > 0) {
         if (T == u8) {
@@ -418,8 +425,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     differ.expected = actual_window;
     differ.actual = expected_window;
     print("\n======== instead found this: ====== len: {} (0x{X})\n\n", .{
-        actual.len,
-        actual.len,
+        actual.len, actual.len,
     });
     if (window_start > 0) {
         if (T == u8) {
