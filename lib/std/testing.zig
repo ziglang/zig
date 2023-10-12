@@ -24,7 +24,7 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub var log_level = std.log.Level.warn;
 
 /// Non-zero counts imply test failure. The value is reset for every test.
-pub var error_count: usize = 0;
+pub var fail_count: usize = 0;
 
 /// Fail the test with a formatted message but continue execution, unlike fatal.
 pub fn fail(comptime fmt: []const u8, args: anytype) void {
@@ -37,11 +37,11 @@ pub fn fail(comptime fmt: []const u8, args: anytype) void {
         @compileError("message format string with trailing whitespace");
 
     // follow-up ellipsis ("...") from test header if first
-    if (error_count == 0) print("failed\n", .{});
+    if (fail_count == 0) print("failed\n", .{});
     // output error as indented line
     print("> " ++ fmt ++ "\n", args);
 
-    error_count += 1;
+    fail_count += 1;
 }
 
 test fail {
@@ -83,7 +83,7 @@ test fatal {
 
 // FailFinal maintains a single output-line when possible for the expect fn.
 fn failFinal(comptime fmt: []const u8, args: anytype) void {
-    if (error_count == 0) {
+    if (fail_count == 0) {
         // follow-up ellipsis ("...") from test header directly
         print(fmt ++ "\n", args);
     } else {
@@ -91,7 +91,7 @@ fn failFinal(comptime fmt: []const u8, args: anytype) void {
         print("> " ++ fmt ++ "\n", args);
     }
 
-    error_count += 1;
+    fail_count += 1;
 }
 
 fn print(comptime fmt: []const u8, args: anytype) void {
