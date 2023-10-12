@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 
 const math = std.math;
 
+const testing = @This();
+
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
 
 /// This should only be used in temporary test programs.
@@ -25,16 +27,6 @@ pub var log_level = std.log.Level.warn;
 pub var error_count: usize = 0;
 
 /// Fail the test with a formatted message but continue execution, unlike fatal.
-/// The common pattern is as follows.
-///
-/// ```zig
-/// test "Demo" {
-/// …
-///     if (got != want)
-///         testing.fail("got {}, want {}", got, want);
-/// …
-/// }
-/// ```
 pub fn fail(comptime fmt: []const u8, args: anytype) void {
     // sanity check in compile-time
     if (fmt.len == 0) @compileError("empty message format string");
@@ -52,19 +44,41 @@ pub fn fail(comptime fmt: []const u8, args: anytype) void {
     error_count += 1;
 }
 
+test fail {
+    const tests = [_]struct {
+        in: i32,
+        want: i32,
+    }{
+        .{ .in = 0, .want = 0 },
+        .{ .in = 1, .want = 2 },
+        .{ .in = -3, .want = -6 },
+        .{ .in = 0x0F, .want = 0x1E },
+    };
+
+    for (tests) |t| {
+        const got = double(t.in);
+        if (got != t.want)
+            testing.fail("double {} got {}, want {}", .{ t.in, got, t.want });
+    }
+}
+
+fn double(x: i32) i32 {
+    return x << 1;
+}
+
 /// Fatal test scenario must return immediately, unlike fail.
-///
-/// ```zig
-/// test "Demo" {
-/// …
-///     const got = foo(x) catch |err|
-///         return testing.fatal("foo {} got error {}", .{ x, err });
-/// …
-/// }
-/// ```
 pub fn fatal(comptime fmt: []const u8, args: anytype) error{TestFatal} {
     fail(fmt, args);
     return error.TestFatal;
+}
+
+test fatal {
+    const in = "foobar";
+    const sub = "oo";
+    const i = std.mem.indexOf(u8, in, sub) orelse
+        return testing.fatal("indexOf did not find {s} in {s}", .{ sub, in });
+    if (i >= in.len or !std.mem.startsWith(u8, in[i..], sub))
+        testing.fail("{s} not in {s} at index {d}", .{ sub, in, i });
 }
 
 // FailFinal maintains a single output-line when possible for the expect fn.
