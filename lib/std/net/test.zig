@@ -7,8 +7,7 @@ const testing = std.testing;
 test "parse and render IPv6 addresses" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var buffer: [100]u8 = undefined;
-    const ips = [_][]const u8{
+    const literals = [_][]const u8{
         "FF01:0:0:0:0:0:0:FB",
         "FF01::Fb",
         "::1",
@@ -32,15 +31,24 @@ test "parse and render IPv6 addresses" {
         "ff01::fb",
         "::ffff:123.5.123.5",
     };
-    for (ips, 0..) |ip, i| {
-        var addr = net.Address.parseIp6(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-        try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
-        if (builtin.os.tag == .linux) {
-            var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
-            var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
-            try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
+    var buffer: [100]u8 = undefined;
+    inline for (literals, 0..) |literal, i| {
+        const want = "[" ++ printed[i] ++ "]:0";
+
+        var addr = net.Address.parseIp6(literal, 0) catch |err|
+            return testing.fatal("parse IP6 {s} error {}", .{ literal, err });
+        const got = std.fmt.bufPrint(&buffer, "{}", .{addr}) catch unreachable;
+        if (!mem.eql(u8, got, want))
+            testing.fail("parse IP6 {s} got print {s}, want {s}", .{ literal, got, want });
+
+        // TODO Make this test pass on other operating systems.
+        if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin()) {
+            var resolved = net.Address.resolveIp6(literal, 0) catch |err|
+                return testing.fatal("resolve IP6 {s} error {}", .{ literal, err });
+            const resolved_print = std.fmt.bufPrint(&buffer, "{}", .{resolved}) catch unreachable;
+            if (!mem.eql(u8, resolved_print, want))
+                testing.fail("resolve IP6 {s} got print {s}, want {s}", .{ literal, resolved_print, want });
         }
     }
 

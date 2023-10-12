@@ -89,6 +89,7 @@ fn mainServer() !void {
             },
 
             .run_test => {
+                std.testing.error_count = 0;
                 std.testing.allocator_instance = .{};
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
@@ -107,6 +108,8 @@ fn mainServer() !void {
                         }
                     },
                 };
+                if (std.testing.error_count != 0)
+                    fail = true;
                 leak = std.testing.allocator_instance.deinit() == .leak;
                 try server.serveTestResults(.{
                     .index = index,
@@ -149,6 +152,7 @@ fn mainTerminal() void {
 
     var leaks: usize = 0;
     for (test_fn_list, 0..) |test_fn, i| {
+        std.testing.error_count = 0;
         std.testing.allocator_instance = .{};
         defer {
             if (std.testing.allocator_instance.deinit() == .leak) {
@@ -180,9 +184,15 @@ fn mainTerminal() void {
             },
         } else test_fn.func();
         if (result) |_| {
-            ok_count += 1;
-            test_node.end();
-            if (!have_tty) std.debug.print("OK\n", .{});
+            if (std.testing.error_count == 0) {
+                ok_count += 1;
+                test_node.end();
+                if (!have_tty) std.debug.print("OK\n", .{});
+            } else {
+                fail_count += 1;
+                progress.log("FAIL ({d} errors)\n", .{std.testing.error_count});
+                test_node.end();
+            }
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
