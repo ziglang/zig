@@ -171,7 +171,7 @@ pub fn createMempool(pool: [*]u8, rzB: usize, is_zeroed: bool, flags: usize) voi
 
 /// Destroy a memory pool.
 pub fn destroyMempool(pool: [*]u8) void {
-    doClientRequestStmt(.DestroyMempool, pool, 0, 0, 0, 0);
+    doClientRequestStmt(.DestroyMempool, @intFromPtr(pool), 0, 0, 0, 0);
 }
 
 /// Associate a piece of memory with a memory pool.
