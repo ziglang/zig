@@ -1507,6 +1507,7 @@ const Filter = struct {
     pub fn includePath(self: Filter, sub_path: []const u8) bool {
         if (self.include_paths.count() == 0) return true;
         if (self.include_paths.contains("")) return true;
+        if (self.include_paths.contains(".")) return true;
         if (self.include_paths.contains(sub_path)) return true;
 
         // Check if any included paths are parent directories of sub_path.
@@ -1571,4 +1572,5 @@ const ErrorBundle = std.zig.ErrorBundle;
 
 test {
     _ = Filter;
+    _ = FileType;
 }
