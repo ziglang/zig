@@ -1374,10 +1374,6 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     exe.link_function_sections = true;
     exe.linkLibC();
 
-    const run = addRunArtifact(exe);
-    run.expectStdOutEqual("Hello world");
-    test_step.dependOn(&run.step);
-
     const check = exe.checkObject();
     check.checkInSymtab();
     check.checkExtract("{addr1} {size1} {shndx1} FUNC LOCAL DEFAULT hello");
@@ -1386,6 +1382,10 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     check.checkComputeCompare("addr1 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     check.checkComputeCompare("addr2 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
