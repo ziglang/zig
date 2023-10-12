@@ -2345,10 +2345,7 @@ fn forPrefix(p: *Parse) Error!usize {
         _ = p.eatToken(.asterisk);
         const identifier = try p.expectToken(.identifier);
         captures += 1;
-        if (!warned_excess and inputs == 1 and captures == 2) {
-            // TODO remove the above condition after 0.11.0 release. this silences
-            // the error so that zig fmt can fix it.
-        } else if (captures > inputs and !warned_excess) {
+        if (captures > inputs and !warned_excess) {
             try p.warnMsg(.{ .tag = .extra_for_capture, .token = identifier });
             warned_excess = true;
         }

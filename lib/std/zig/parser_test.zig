@@ -1,23 +1,3 @@
-// TODO: remove this after zig 0.11.0 is released
-test "zig fmt: transform old for loop syntax to new" {
-    try testTransform(
-        \\fn foo() void {
-        \\    for (a) |b, i| {
-        \\        _ = b; _ = i;
-        \\    }
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    for (a, 0..) |b, i| {
-        \\        _ = b;
-        \\        _ = i;
-        \\    }
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
