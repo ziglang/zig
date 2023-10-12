@@ -531,7 +531,17 @@ const DeclGen = struct {
             },
             .Enum => return self.arithmeticTypeInfo(ty.intTagType(mod)),
             // As of yet, there is no vector support in the self-hosted compiler.
-            .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
+            .Vector => blk: {
+                const child_type = ty.childType(mod);
+                const child_ty_info = try self.arithmeticTypeInfo(child_type);
+                break :blk ArithmeticTypeInfo{
+                    .bits = child_ty_info.bits,
+                    .backing_bits = child_ty_info.backing_bits,
+                    .is_vector = true,
+                    .signedness = child_ty_info.signedness,
+                    .class = child_ty_info.class,
+                };
+            },
             // TODO: For which types is this the case?
             // else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmt(self.module)}),
             else => unreachable,
@@ -609,7 +619,7 @@ const DeclGen = struct {
         return result_id;
     }
 
-    /// Construct a struct at runtime.
+    /// Construct an array at runtime.
     /// result_ty_ref must be an array type.
     /// Constituents should be in `indirect` representation (as the elements of an array should be).
     /// Result is in `direct` representation.
@@ -812,7 +822,7 @@ const DeclGen = struct {
                 return try self.constructStruct(result_ty_ref, &.{ payload_id, has_pl_id });
             },
             .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
-                .array_type => |array_type| {
+                inline .array_type, .vector_type => |array_type, tag| {
                     const elem_ty = array_type.child.toType();
                     const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
@@ -839,9 +849,14 @@ const DeclGen = struct {
                             }
                         },
                     }
-                    if (array_type.sentinel != .none) {
-                        constituents[constituents.len - 1] = try self.constant(elem_ty, array_type.sentinel.toValue(), .indirect);
+
+                    switch (tag) {
+                        inline .array_type => if (array_type.sentinel != .none) {
+                            constituents[constituents.len - 1] = try self.constant(elem_ty, array_type.sentinel.toValue(), .indirect);
+                        },
+                        else => {},
                     }
+
                     return try self.constructArray(result_ty_ref, constituents);
                 },
                 .struct_type => {
@@ -870,7 +885,6 @@ const DeclGen = struct {
 
                     return try self.constructStruct(result_ty_ref, constituents.items);
                 },
-                .vector_type => unreachable, // TODO
                 .anon_struct_type => unreachable, // TODO
                 else => unreachable,
             },
@@ -1347,19 +1361,14 @@ const DeclGen = struct {
                 } });
             },
             .Vector => {
-                // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
-                // which work on them), so simply use those.
-                // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
-                // "composite integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
-                // TODO: The SPIR-V spec mentions that vector sizes may be quite restricted! look into which we can use, and whether OpTypeVector
-                // is adequate at all for this.
+                if (self.type_map.get(ty.toIntern())) |info| return info.ty_ref;
 
-                // TODO: Properly verify sizes and child type.
+                const elem_ty = ty.childType(mod);
+                const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
-                return try self.spv.resolve(.{ .vector_type = .{
-                    .component_type = try self.resolveType(ty.childType(mod), repr),
-                    .component_count = @as(u32, @intCast(ty.vectorLen(mod))),
-                } });
+                const ty_ref = try self.spv.arrayType(ty.vectorLen(mod), elem_ty_ref);
+                try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
+                return ty_ref;
             },
             .Struct => {
                 if (self.type_map.get(ty.toIntern())) |info| return info.ty_ref;
@@ -2223,17 +2232,51 @@ const DeclGen = struct {
         comptime modular: bool,
     ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
+
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.typeOfIndex(inst);
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-        var lhs_id = try self.resolve(bin_op.lhs);
-        var rhs_id = try self.resolve(bin_op.rhs);
-
-        const result_ty_ref = try self.resolveType(ty, .direct);
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
 
         assert(self.typeOf(bin_op.lhs).eql(ty, self.module));
         assert(self.typeOf(bin_op.rhs).eql(ty, self.module));
+
+        return try self.arithOp(ty, lhs_id, rhs_id, fop, sop, uop, modular);
+    }
+
+    fn arithOp(
+        self: *DeclGen,
+        ty: Type,
+        lhs_id_: IdRef,
+        rhs_id_: IdRef,
+        comptime fop: Opcode,
+        comptime sop: Opcode,
+        comptime uop: Opcode,
+        /// true if this operation holds under modular arithmetic.
+        comptime modular: bool,
+    ) !IdRef {
+        var rhs_id = rhs_id_;
+        var lhs_id = lhs_id_;
+
+        const mod = self.module;
+        const result_ty_ref = try self.resolveType(ty, .direct);
+
+        if (ty.isVector(mod)) {
+            const child_ty = ty.childType(mod);
+            const vector_len = ty.vectorLen(mod);
+            var constituents = try self.gpa.alloc(IdRef, vector_len);
+            defer self.gpa.free(constituents);
+
+            for (constituents, 0..) |*constituent, i| {
+                const lhs_index_id = try self.extractField(child_ty, lhs_id, @intCast(i));
+                const rhs_index_id = try self.extractField(child_ty, rhs_id, @intCast(i));
+                constituent.* = try self.arithOp(child_ty, lhs_index_id, rhs_index_id, fop, sop, uop, modular);
+            }
+
+            return self.constructArray(result_ty_ref, constituents);
+        }
 
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
