@@ -1,5 +1,5 @@
 /* Assembler macros for x86.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -78,14 +78,17 @@ enum cf_protection_level
 #define ASM_SIZE_DIRECTIVE(name) .size name,.-name;
 
 /* Define an entry point visible from C.  */
-#define	ENTRY(name)							      \
+#define	ENTRY_P2ALIGN(name, alignment)					      \
   .globl C_SYMBOL_NAME(name);						      \
   .type C_SYMBOL_NAME(name),@function;					      \
-  .align ALIGNARG(4);							      \
+  .align ALIGNARG(alignment);						      \
   C_LABEL(name)								      \
   cfi_startproc;							      \
   _CET_ENDBR;								      \
   CALL_MCOUNT
+
+/* Common entry 16 byte aligns.  */
+#define ENTRY(name) ENTRY_P2ALIGN (name, 4)
 
 #undef	END
 #define END(name)							      \
@@ -108,7 +111,8 @@ enum cf_protection_level
 /* Local label name for asm code. */
 #ifndef L
 /* ELF-like local names start with `.L'.  */
-# define L(name)	.L##name
+# define LOCAL_LABEL(name) .L##name
+# define L(name)	LOCAL_LABEL(name)
 #endif
 
 #define atom_text_section .section ".text.atom", "ax"

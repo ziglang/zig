@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.  SH version.
-   Copyright (C) 1999-2021 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -23,16 +23,9 @@
 #include <endian.h>
 
 /* These syscalls were added for SH in 2.6.37.  */
-#define __ASSUME_SOCKET_SYSCALL		1
-#define __ASSUME_BIND_SYSCALL		1
 #define __ASSUME_CONNECT_SYSCALL	1
-#define __ASSUME_LISTEN_SYSCALL		1
-#define __ASSUME_GETSOCKNAME_SYSCALL	1
-#define __ASSUME_GETPEERNAME_SYSCALL	1
-#define __ASSUME_SOCKETPAIR_SYSCALL	1
 #define __ASSUME_SEND_SYSCALL		1
 #define __ASSUME_RECV_SYSCALL		1
-#define __ASSUME_SHUTDOWN_SYSCALL	1
 
 #include_next <kernel-features.h>
 

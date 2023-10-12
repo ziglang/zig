@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -167,10 +167,6 @@ typedef __pid_t pid_t;
 					   effective IDs, not real IDs.  */
 #endif
 
-
-/* fcntl was a simple symbol until glibc 2.27 inclusive. glibc 2.28 onwards
- * re-defines it to fcntl64 (via #define) if _FILE_OFFSET_BITS == 64. */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2
 /* Do the file control operation described by CMD on FD.
    The remaining arguments are interpreted depending on CMD.
 
@@ -191,18 +187,15 @@ extern int fcntl64 (int __fd, int __cmd, ...);
 # endif
 #else /* __USE_TIME_BITS64 */
 # ifdef __REDIRECT
-extern int __REDIRECT (fcntl, (int __fd, int __request, ...),
-		       __fcntl_time64)  __THROW;
-extern int __REDIRECT (fcntl64, (int __fd, int __request, ...),
-		       __fcntl_time64)  __THROW;
+extern int __REDIRECT_NTH (fcntl, (int __fd, int __request, ...),
+			   __fcntl_time64);
+extern int __REDIRECT_NTH (fcntl64, (int __fd, int __request, ...),
+			   __fcntl_time64);
 # else
 extern int __fcntl_time64 (int __fd, int __request, ...) __THROW;
 #  define fcntl64 __fcntl_time64
 #  define fcntl __fcntl_time64
 # endif
-#endif
-#else /* glibc 2.27 or lower */
-extern int fcntl (int __fd, int __cmd, ...);
 #endif
 
 /* Open FILE and return a new file descriptor for it, or -1 on error.

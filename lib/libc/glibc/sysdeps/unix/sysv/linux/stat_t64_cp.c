@@ -1,5 +1,5 @@
 /* Struct stat/stat64 to stat/stat64 conversion for Linux.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,25 +22,6 @@
 #include <time.h>
 
 #if __TIMESIZE != 64
-
-static inline bool
-in_time_t_range (__time64_t t)
-{
-  time_t s = t;
-  return s == t;
-}
-
-static inline struct timespec
-valid_timespec64_to_timespec (const struct __timespec64 ts64)
-{
-  struct timespec ts;
-
-  ts.tv_sec = (time_t) ts64.tv_sec;
-  ts.tv_nsec = ts64.tv_nsec;
-
-  return ts;
-}
-
 int
 __cp_stat64_t64_stat64 (const struct __stat64_t64 *st64_t64,
 			struct stat64 *st64)
