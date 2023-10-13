@@ -3747,7 +3747,7 @@ fn initSections(self: *Elf) !void {
 
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or
-            self.copy_rel.symbols.items.len > 0) break :blk true;
+            self.zig_got.flags.needs_rela or self.copy_rel.symbols.items.len > 0) break :blk true;
         if (self.zig_module_index) |index| {
             if (self.file(index).?.zig_module.num_dynrelocs > 0) break :blk true;
         }
@@ -4319,7 +4319,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.rela_dyn_section_index) |shndx| {
-        var num = self.got.numRela(self) + self.copy_rel.numRela();
+        var num = self.got.numRela(self) + self.copy_rel.numRela() + self.zig_got.numRela();
         if (self.zig_module_index) |index| {
             num += self.file(index).?.zig_module.num_dynrelocs;
         }
@@ -4901,6 +4901,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         const shdr = self.shdrs.items[shndx];
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
+        try self.zig_got.addRela(self);
         self.sortRelaDyn();
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
     }

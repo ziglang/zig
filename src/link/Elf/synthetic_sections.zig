@@ -251,6 +251,9 @@ pub const ZigGotSection = struct {
         entry.* = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_zig_got = true;
+        if (elf_file.base.options.pic) {
+            zig_got.flags.needs_rela = true;
+        }
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.zig_got = index;
@@ -335,6 +338,23 @@ pub const ZigGotSection = struct {
             const symbol = elf_file.symbol(entry);
             const value = symbol.address(.{ .plt = false }, elf_file);
             try writeInt(value, elf_file, writer);
+        }
+    }
+
+    pub fn numRela(zig_got: ZigGotSection) usize {
+        return zig_got.entries.items.len;
+    }
+
+    pub fn addRela(zig_got: ZigGotSection, elf_file: *Elf) !void {
+        try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, zig_got.numRela());
+        for (zig_got.entries.items) |entry| {
+            const symbol = elf_file.symbol(entry);
+            const offset = symbol.zigGotAddress(elf_file);
+            elf_file.addRelaDynAssumeCapacity(.{
+                .offset = offset,
+                .type = elf.R_X86_64_RELATIVE,
+                .addend = @intCast(symbol.address(.{ .plt = false }, elf_file)),
+            });
         }
     }
 
