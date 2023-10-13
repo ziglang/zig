@@ -16,6 +16,8 @@ globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
+num_dynrelocs: u32 = 0,
+
 output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *ZigModule, allocator: Allocator) void {
@@ -77,6 +79,22 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     atom_ptr.relocs_section_index = relocs_index;
 
     return symbol_index;
+}
+
+/// TODO actually create fake input shdrs and return that instead.
+pub fn inputShdr(self: ZigModule, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
+    _ = self;
+    const shdr = shdr: {
+        const atom = elf_file.atom(atom_index) orelse break :shdr Elf.null_shdr;
+        const shndx = atom.outputShndx() orelse break :shdr Elf.null_shdr;
+        var shdr = elf_file.shdrs.items[shndx];
+        shdr.sh_addr = 0;
+        shdr.sh_offset = 0;
+        shdr.sh_size = atom.size;
+        shdr.sh_addralign = atom.alignment.toByteUnits(1);
+        break :shdr shdr;
+    };
+    return Object.ElfShdr.fromElf64Shdr(shdr) catch unreachable;
 }
 
 pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
@@ -145,6 +163,8 @@ pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
+        const shdr = atom.inputShdr(elf_file);
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
             // Perhaps it would make sense to save the code until flushModule where we
@@ -273,7 +293,10 @@ pub fn codeAlloc(self: ZigModule, elf_file: *Elf, atom_index: Atom.Index) ![]u8 
     const code = try gpa.alloc(u8, size);
     errdefer gpa.free(code);
     const amt = try elf_file.base.file.?.preadAll(code, file_offset);
-    if (amt != code.len) return error.InputOutput;
+    if (amt != code.len) {
+        log.err("fetching code for {s} failed", .{atom.name(elf_file)});
+        return error.InputOutput;
+    }
     return code;
 }
 
@@ -334,11 +357,13 @@ fn formatAtoms(
 const assert = std.debug.assert;
 const std = @import("std");
 const elf = std.elf;
+const log = std.log.scoped(.link);
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Module = @import("../../Module.zig");
+const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const ZigModule = @This();

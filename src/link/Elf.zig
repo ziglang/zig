@@ -762,6 +762,7 @@ pub fn initMetadata(self: *Elf) !void {
             .name = ".zig.got",
             .phdr_index = self.phdr_zig_got_index.?,
             .alignment = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         });
     }
 
@@ -785,7 +786,7 @@ pub fn initMetadata(self: *Elf) !void {
 
     if (self.zig_bss_section_index == null) {
         self.zig_bss_section_index = try self.allocateAllocSection(.{
-            .name = ".bss.zig",
+            .name = ".zig.bss",
             .phdr_index = self.phdr_zig_load_zerofill_index.?,
             .alignment = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -1558,7 +1559,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         for (zig_module.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
-            const shdr = &self.shdrs.items[atom_ptr.outputShndx().?];
+            const out_shndx = atom_ptr.outputShndx() orelse continue;
+            const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zig_module.codeAlloc(self, atom_index);
             defer gpa.free(code);
@@ -3744,6 +3746,9 @@ fn initSections(self: *Elf) !void {
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or
             self.copy_rel.symbols.items.len > 0) break :blk true;
+        if (self.zig_module_index) |index| {
+            if (self.file(index).?.zig_module.num_dynrelocs > 0) break :blk true;
+        }
         for (self.objects.items) |index| {
             if (self.file(index).?.object.num_dynrelocs > 0) break :blk true;
         }
@@ -4243,6 +4248,33 @@ fn sortSections(self: *Elf) !void {
         shdr.sh_link = self.dynsymtab_section_index.?;
         shdr.sh_info = self.plt_section_index.?;
     }
+
+    if (self.zig_module_index) |index| {
+        const zig_module = self.file(index).?.zig_module;
+        for (zig_module.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const out_shndx = atom_ptr.outputShndx() orelse continue;
+            atom_ptr.output_section_index = backlinks[out_shndx];
+        }
+
+        for (zig_module.locals()) |local_index| {
+            const local = self.symbol(local_index);
+            const atom_ptr = local.atom(self) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            const out_shndx = local.outputShndx() orelse continue;
+            local.output_section_index = backlinks[out_shndx];
+        }
+
+        for (zig_module.globals()) |global_index| {
+            const global = self.symbol(global_index);
+            const atom_ptr = global.atom(self) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
+            if (global.file(self).?.index() != index) continue;
+            const out_shndx = global.outputShndx() orelse continue;
+            global.output_section_index = backlinks[out_shndx];
+        }
+    }
 }
 
 fn updateSectionSizes(self: *Elf) !void {
@@ -4286,6 +4318,9 @@ fn updateSectionSizes(self: *Elf) !void {
 
     if (self.rela_dyn_section_index) |shndx| {
         var num = self.got.numRela(self) + self.copy_rel.numRela();
+        if (self.zig_module_index) |index| {
+            num += self.file(index).?.zig_module.num_dynrelocs;
+        }
         for (self.objects.items) |index| {
             num += self.file(index).?.object.num_dynrelocs;
         }
@@ -4373,9 +4408,10 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
 fn calcNumberOfSegments(self: *Elf) usize {
     var count: usize = 0;
     var flags: u64 = 0;
-    for (self.shdrs.items) |shdr| {
+    for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+        if (self.isZigSection(@intCast(shndx))) continue;
         if (flags != shdrToPhdrFlags(shdr.sh_flags)) count += 1;
         flags = shdrToPhdrFlags(shdr.sh_flags);
     }
@@ -4474,7 +4510,10 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
             }
         }
     }
-    covers[nphdrs - 1].len = shndx - covers[nphdrs - 1].start;
+
+    if (nphdrs > 0) {
+        covers[nphdrs - 1].len = shndx - covers[nphdrs - 1].start;
+    }
 
     // Now we can proceed with allocating the sections in virtual memory.
     // As the base address we take the end address of the PHDR table.
@@ -4647,6 +4686,7 @@ fn writeAtoms(self: *Elf) !void {
         undefs.deinit();
     }
 
+    // TODO iterate over `output_sections` directly
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -5830,7 +5870,10 @@ fn fmtDumpState(
     if (self.zig_module_index) |index| {
         const zig_module = self.file(index).?.zig_module;
         try writer.print("zig_module({d}) : {s}\n", .{ index, zig_module.path });
-        try writer.print("{}\n", .{zig_module.fmtSymtab(self)});
+        try writer.print("{}{}\n", .{
+            zig_module.fmtAtoms(self),
+            zig_module.fmtSymtab(self),
+        });
     }
 
     for (self.objects.items) |index| {
@@ -5872,7 +5915,7 @@ fn fmtDumpState(
             self.fmtShdr(shdr),
         });
     }
-    try writer.writeAll("Output phdrs\n");
+    try writer.writeAll("\nOutput phdrs\n");
     for (self.phdrs.items, 0..) |phdr, phndx| {
         try writer.print("phdr{d} : {}\n", .{ phndx, self.fmtPhdr(phdr) });
     }
@@ -5981,6 +6024,19 @@ pub const null_sym = elf.Elf64_Sym{
     .st_shndx = 0,
     .st_value = 0,
     .st_size = 0,
+};
+
+pub const null_shdr = elf.Elf64_Shdr{
+    .sh_name = 0,
+    .sh_type = 0,
+    .sh_flags = 0,
+    .sh_addr = 0,
+    .sh_offset = 0,
+    .sh_size = 0,
+    .sh_link = 0,
+    .sh_info = 0,
+    .sh_addralign = 0,
+    .sh_entsize = 0,
 };
 
 const SystemLib = struct {

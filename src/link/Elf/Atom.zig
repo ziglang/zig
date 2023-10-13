@@ -50,8 +50,11 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 }
 
 pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
-    const object = self.file(elf_file).?.object;
-    return object.shdrs.items[self.input_section_index];
+    return switch (self.file(elf_file).?) {
+        .object => |x| x.shdrs.items[self.input_section_index],
+        .zig_module => |x| x.inputShdr(self.atom_index, elf_file),
+        else => unreachable,
+    };
 }
 
 pub fn outputShndx(self: Atom) ?u16 {
@@ -199,7 +202,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         _ = free_list.swapRemove(i);
     }
 
-    self.flags.allocated = true;
+    self.flags.alive = true;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -471,7 +474,11 @@ fn scanReloc(
     elf_file: *Elf,
 ) error{OutOfMemory}!void {
     const is_writeable = self.inputShdr(elf_file).sh_flags & elf.SHF_WRITE != 0;
-    const object = self.file(elf_file).?.object;
+    const num_dynrelocs = switch (self.file(elf_file).?) {
+        .linker_defined => unreachable,
+        .shared_object => unreachable,
+        inline else => |x| &x.num_dynrelocs,
+    };
 
     switch (action) {
         .none => {},
@@ -500,7 +507,7 @@ fn scanReloc(
                         try self.reportTextRelocError(symbol, rel, elf_file);
                     }
                 }
-                object.num_dynrelocs += 1;
+                num_dynrelocs.* += 1;
             } else {
                 symbol.flags.needs_copy_rel = true;
             }
@@ -517,7 +524,7 @@ fn scanReloc(
 
         .dyn_cplt => {
             if (is_writeable) {
-                object.num_dynrelocs += 1;
+                num_dynrelocs.* += 1;
             } else {
                 symbol.flags.needs_plt = true;
                 symbol.flags.is_canonical = true;
@@ -532,7 +539,7 @@ fn scanReloc(
                     try self.reportTextRelocError(symbol, rel, elf_file);
                 }
             }
-            object.num_dynrelocs += 1;
+            num_dynrelocs.* += 1;
 
             if (action == .ifunc) elf_file.num_ifunc_dynrelocs += 1;
         },
@@ -898,9 +905,13 @@ fn resolveDynAbsReloc(
     const A = rel.r_addend;
     const S = @as(i64, @intCast(target.address(.{}, elf_file)));
     const is_writeable = self.inputShdr(elf_file).sh_flags & elf.SHF_WRITE != 0;
-    const object = self.file(elf_file).?.object;
 
-    try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, object.num_dynrelocs);
+    const num_dynrelocs = switch (self.file(elf_file).?) {
+        .linker_defined => unreachable,
+        .shared_object => unreachable,
+        inline else => |x| x.num_dynrelocs,
+    };
+    try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, num_dynrelocs);
 
     switch (action) {
         .@"error",
@@ -1165,7 +1176,7 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x})", .{
+    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
         atom.atom_index,           atom.name(elf_file), atom.value,
         atom.output_section_index, atom.alignment,      atom.size,
     });
@@ -1191,9 +1202,6 @@ pub const Flags = packed struct {
 
     /// Specifies if the atom has been visited during garbage collection.
     visited: bool = false,
-
-    /// Specifies whether this atom has been allocated in the output section.
-    allocated: bool = false,
 };
 
 const x86_64 = struct {

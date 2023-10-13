@@ -314,7 +314,7 @@ fn format2(
                 try writer.writeAll(" : absolute");
             }
         } else if (symbol.outputShndx()) |shndx| {
-            try writer.print(" : sect({d})", .{shndx});
+            try writer.print(" : shdr({d})", .{shndx});
         }
         if (symbol.atom(ctx.elf_file)) |atom_ptr| {
             try writer.print(" : atom({d})", .{atom_ptr.atom_index});
