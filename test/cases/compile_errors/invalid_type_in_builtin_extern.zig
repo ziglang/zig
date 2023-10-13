@@ -1,5 +1,5 @@
 const x = @extern(*comptime_int, .{ .name = "foo" });
-const y = @extern(*fn (u8) u8, .{.name = "bar"});
+const y = @extern(*fn (u8) u8, .{.name = "bar" });
 pub export fn entry() void {
     _ = x;
 }
