@@ -25620,7 +25620,7 @@ fn validateExternType(
         => return true,
         .Pointer => {
             if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
-                const is_cc_allowed = switch(ty.childType(mod).fnCallingConvention(mod)) {
+                const is_cc_allowed = switch (ty.childType(mod).fnCallingConvention(mod)) {
                     .Unspecified, .Inline, .Async => false,
                     else => true,
                 };
