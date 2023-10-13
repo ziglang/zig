@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -134,7 +134,7 @@
 /* Maximum number of characters in a tty name.  */
 #define	_POSIX_TTY_NAME_MAX	9
 
-/* Maximum length of a timezone name (element of `tzname').  */
+/* Maximum length of a time zone abbreviation (element of 'tzname').  */
 #ifdef __USE_XOPEN2K
 # define _POSIX_TZNAME_MAX	6
 #else

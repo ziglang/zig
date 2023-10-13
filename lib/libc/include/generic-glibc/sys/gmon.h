@@ -111,6 +111,8 @@ extern struct __bb *__bb_head;
  * Always allocate at least this many tostructs.  This
  * hides the inadequacy of the ARCDENSITY heuristic, at least
  * for small programs.
+ *
+ * Value can be overridden at runtime by glibc.gmon.minarcs tunable.
  */
 #define MINARCS		50
 
@@ -124,8 +126,8 @@ extern struct __bb *__bb_head;
  * Used to be max representable value of ARCINDEX minus 2, but now
  * that ARCINDEX is a long, that's too large; we don't really want
  * to allow a 48 gigabyte table.
- * The old value of 1<<16 wasn't high enough in practice for large C++
- * programs; will 1<<20 be adequate for long?  FIXME
+ *
+ * Value can be overridden at runtime by glibc.gmon.maxarcs tunable.
  */
 #define MAXARCS		(1 << 20)
 

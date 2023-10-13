@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 5.13.  */
+/* The system call list corresponds to kernel 6.4.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 331008
+#define __GLIBC_LINUX_VERSION_CODE 394240
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -495,6 +495,10 @@
 # define SYS_futex_time64 __NR_futex_time64
 #endif
 
+#ifdef __NR_futex_waitv
+# define SYS_futex_waitv __NR_futex_waitv
+#endif
+
 #ifdef __NR_futimesat
 # define SYS_futimesat __NR_futimesat
 #endif
@@ -899,6 +903,10 @@
 # define SYS_memfd_create __NR_memfd_create
 #endif
 
+#ifdef __NR_memfd_secret
+# define SYS_memfd_secret __NR_memfd_secret
+#endif
+
 #ifdef __NR_memory_ordering
 # define SYS_memory_ordering __NR_memory_ordering
 #endif
@@ -1121,6 +1129,10 @@
 
 #ifdef __NR_openat2
 # define SYS_openat2 __NR_openat2
+#endif
+
+#ifdef __NR_or1k_atomic
+# define SYS_or1k_atomic __NR_or1k_atomic
 #endif
 
 #ifdef __NR_osf_adjtime
@@ -1667,6 +1679,10 @@
 # define SYS_process_madvise __NR_process_madvise
 #endif
 
+#ifdef __NR_process_mrelease
+# define SYS_process_mrelease __NR_process_mrelease
+#endif
+
 #ifdef __NR_process_vm_readv
 # define SYS_process_vm_readv __NR_process_vm_readv
 #endif
@@ -1717,6 +1733,10 @@
 
 #ifdef __NR_quotactl
 # define SYS_quotactl __NR_quotactl
+#endif
+
+#ifdef __NR_quotactl_fd
+# define SYS_quotactl_fd __NR_quotactl_fd
 #endif
 
 #ifdef __NR_read
@@ -1797,6 +1817,10 @@
 
 #ifdef __NR_riscv_flush_icache
 # define SYS_riscv_flush_icache __NR_riscv_flush_icache
+#endif
+
+#ifdef __NR_riscv_hwprobe
+# define SYS_riscv_hwprobe __NR_riscv_hwprobe
 #endif
 
 #ifdef __NR_rmdir
@@ -1985,6 +2009,10 @@
 
 #ifdef __NR_set_mempolicy
 # define SYS_set_mempolicy __NR_set_mempolicy
+#endif
+
+#ifdef __NR_set_mempolicy_home_node
+# define SYS_set_mempolicy_home_node __NR_set_mempolicy_home_node
 #endif
 
 #ifdef __NR_set_robust_list

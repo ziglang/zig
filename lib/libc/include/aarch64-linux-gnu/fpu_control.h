@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -46,7 +46,7 @@
    contents. These two masks indicate which bits in each of FPCR and
    FPSR should not be changed.  */
 
-#define _FPU_RESERVED		0xfe0fe0ff
+#define _FPU_RESERVED		0xfe0fe0f8
 #define _FPU_FPSR_RESERVED	0x0fffffe0
 
 #define _FPU_DEFAULT		0x00000000

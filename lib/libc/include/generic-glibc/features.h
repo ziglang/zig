@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -57,7 +57,8 @@
 			__STRICT_ANSI__).
 
    _FORTIFY_SOURCE	Add security hardening to many library functions.
-			Set to 1 or 2; 2 performs stricter checks than 1.
+			Set to 1, 2 or 3; 3 performs stricter checks than 2, which
+			performs stricter checks than 1.
 
    _REENTRANT, _THREAD_SAFE
 			Obsolete; equivalent to _POSIX_C_SOURCE=199506L.
@@ -150,6 +151,7 @@
 #undef	__GLIBC_USE_ISOC2X
 #undef	__GLIBC_USE_DEPRECATED_GETS
 #undef	__GLIBC_USE_DEPRECATED_SCANF
+#undef	__GLIBC_USE_C2X_STRTOL
 
 /* Suppress kernel-name space pollution unless user expressedly asks
    for it.  */
@@ -220,12 +222,8 @@
 # define _DEFAULT_SOURCE	1
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
-
-# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 # undef  _DYNAMIC_STACK_SIZE_SOURCE
 # define _DYNAMIC_STACK_SIZE_SOURCE 1
-# endif
-
 #endif
 
 /* If nothing (other than _GNU_SOURCE and _DEFAULT_SOURCE) is defined,
@@ -416,7 +414,9 @@
 #  warning _FORTIFY_SOURCE requires compiling with optimization (-O)
 # elif !__GNUC_PREREQ (4, 1)
 #  warning _FORTIFY_SOURCE requires GCC 4.1 or later
-# elif _FORTIFY_SOURCE > 2 && __glibc_clang_prereq (9, 0)
+# elif _FORTIFY_SOURCE > 2 && (__glibc_clang_prereq (9, 0)		      \
+			       || __GNUC_PREREQ (12, 0))
+
 #  if _FORTIFY_SOURCE > 3
 #   warning _FORTIFY_SOURCE > 3 is treated like 3 on this platform
 #  endif
@@ -465,6 +465,17 @@
 # define __GLIBC_USE_DEPRECATED_SCANF 0
 #endif
 
+/* ISO C2X added support for a 0b or 0B prefix on binary constants as
+   inputs to strtol-family functions (base 0 or 2).  This macro is
+   used to condition redirection in headers to allow that redirection
+   to be disabled when building those functions, despite _GNU_SOURCE
+   being defined.  */
+#if __GLIBC_USE (ISOC2X)
+# define __GLIBC_USE_C2X_STRTOL 1
+#else
+# define __GLIBC_USE_C2X_STRTOL 0
+#endif
+
 /* Get definitions of __STDC_* predefined macros, if the compiler has
    not preincluded this header automatically.  */
 #include <stdc-predef.h>
@@ -481,7 +492,7 @@
 /* Major and minor version number of the GNU C library package.  Use
    these macros to test for features in specific releases.  */
 #define	__GLIBC__	2
-/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
+#define	__GLIBC_MINOR__	38
 
 #define __GLIBC_PREREQ(maj, min) \
 	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))

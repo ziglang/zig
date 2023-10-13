@@ -1,5 +1,5 @@
 /* termios control mode definitions.  Linux/generic version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -32,3 +32,7 @@
 #define PARODD	0001000
 #define HUPCL	0002000
 #define CLOCAL	0004000
+
+#ifdef __USE_MISC
+# define ADDRB 04000000000
+#endif
