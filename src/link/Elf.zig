@@ -1610,34 +1610,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.setVersionSymtab();
     try self.updateSectionSizes();
 
-    // Allocate PHDR table.
-    {
-        const new_load_segments = self.calcNumberOfSegments();
-        const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
-        const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
-
-        const phsize: u64 = switch (self.ptr_width) {
-            .p32 => @sizeOf(elf.Elf32_Phdr),
-            .p64 => @sizeOf(elf.Elf64_Phdr),
-        };
-        const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
-
-        if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
-            phdr_table.p_offset = 0;
-            phdr_table.p_offset = self.findFreeSpace(needed_size, phdr_table.p_align);
-        }
-
-        phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-        const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-        phdr_table_load.p_filesz = load_align_offset + needed_size;
-        phdr_table_load.p_memsz = load_align_offset + needed_size;
-
-        phdr_table.p_filesz = needed_size;
-        phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-        phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
-        phdr_table.p_memsz = needed_size;
-    }
-
+    self.allocatePhdrTable();
     try self.allocateAllocSections();
     self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
@@ -4441,84 +4414,6 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 }
 
-/// The assumed layout of PHDRs in file is as follows:
-/// PT_PHDR
-/// PT_LOAD for PT_PHDR
-/// PT_INTERP
-/// PT_DYNAMIC
-/// PT_GNU_EH_FRAME
-/// PT_GNU_STACK
-/// PT_LOAD...
-/// PT_TLS
-fn resetPhdrs(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    const phdrs = try self.phdrs.toOwnedSlice(gpa);
-    try self.phdrs.ensureUnusedCapacity(gpa, phdrs.len);
-    self.phdr_to_shdr_table.clearRetainingCapacity(); // TODO move this into Section structure
-
-    for (&[_]?u16{
-        self.phdr_table_index,
-        self.phdr_table_load_index,
-        self.phdr_interp_index,
-        self.phdr_dynamic_index,
-        self.phdr_gnu_eh_frame_index,
-        self.phdr_gnu_stack_index,
-        self.phdr_tls_index,
-    }) |maybe_index| {
-        if (maybe_index) |index| {
-            self.phdrs.appendAssumeCapacity(phdrs[index]);
-        }
-    }
-}
-
-fn initSegments(self: *Elf) !void {
-    // Add LOAD phdrs
-    const gpa = self.base.allocator;
-    const slice = self.shdrs.items;
-    var shndx: u16 = 0;
-    while (shndx < slice.len) {
-        const shdr = &slice[shndx];
-        if (!shdrIsAlloc(shdr) or shdrIsTbss(shdr)) {
-            shndx += 1;
-            continue;
-        }
-        const phndx = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .flags = shdrToPhdrFlags(shdr.sh_flags),
-            .@"align" = @max(self.page_size, shdr.sh_addralign),
-            .offset = shdr.sh_offset,
-            .addr = shdr.sh_addr,
-        });
-        const p_flags = self.phdrs.items[phndx].p_flags;
-        self.addShdrToPhdr(shndx, phndx);
-        try self.phdr_to_shdr_table.putNoClobber(gpa, shndx, phndx);
-        shndx += 1;
-
-        while (shndx < slice.len) : (shndx += 1) {
-            const next = &slice[shndx];
-            if (shdrIsTbss(next)) continue;
-            if (p_flags == shdrToPhdrFlags(next.sh_flags)) {
-                if (shdrIsBss(next) or next.sh_offset - shdr.sh_offset == next.sh_addr - shdr.sh_addr) {
-                    self.addShdrToPhdr(shndx, phndx);
-                    try self.phdr_to_shdr_table.putNoClobber(self.base.allocator, shndx, phndx);
-                    continue;
-                }
-            }
-            break;
-        }
-    }
-}
-
-fn addShdrToPhdr(self: *Elf, shdr_index: u16, phdr_index: u16) void {
-    const shdr = self.shdrs.items[shdr_index];
-    const phdr = &self.phdrs.items[phdr_index];
-    phdr.p_align = @max(phdr.p_align, shdr.sh_addralign);
-    if (shdr.sh_type != elf.SHT_NOBITS) {
-        phdr.p_filesz = shdr.sh_offset + shdr.sh_size - phdr.p_offset;
-    }
-    phdr.p_memsz = shdr.sh_addr + shdr.sh_size - phdr.p_vaddr;
-}
-
 fn shdrToPhdrFlags(sh_flags: u64) u32 {
     const write = sh_flags & elf.SHF_WRITE != 0;
     const exec = sh_flags & elf.SHF_EXECINSTR != 0;
@@ -4528,26 +4423,8 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
     return out_flags;
 }
 
-inline fn shdrIsAlloc(shdr: *const elf.Elf64_Shdr) bool {
-    return shdr.sh_flags & elf.SHF_ALLOC != 0;
-}
-
-inline fn shdrIsBss(shdr: *const elf.Elf64_Shdr) bool {
-    return shdrIsZerofill(shdr) and !shdrIsTls(shdr);
-}
-
-inline fn shdrIsTbss(shdr: *const elf.Elf64_Shdr) bool {
-    return shdrIsZerofill(shdr) and shdrIsTls(shdr);
-}
-
-inline fn shdrIsZerofill(shdr: *const elf.Elf64_Shdr) bool {
-    return shdr.sh_type == elf.SHT_NOBITS;
-}
-
-pub inline fn shdrIsTls(shdr: *const elf.Elf64_Shdr) bool {
-    return shdr.sh_flags & elf.SHF_TLS != 0;
-}
-
+/// Calculates how many segments (PT_LOAD progam headers) are required
+/// to cover the set of sections.
 fn calcNumberOfSegments(self: *Elf) usize {
     var count: usize = 0;
     var flags: u64 = 0;
@@ -4560,137 +4437,36 @@ fn calcNumberOfSegments(self: *Elf) usize {
     return count;
 }
 
-fn allocateAllocSectionsInMemory(self: *Elf, base_addr: u64) void {
-    // We use this struct to track maximum alignment of all TLS sections.
-    // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
-    // in-file offsets have to be aligned against the start of TLS program header.
-    // If that's not ensured, then in a multi-threaded context, TLS variables across a shared object
-    // boundary may not get correctly loaded at an aligned address.
-    const Align = struct {
-        tls_start_align: u64 = 1,
-        first_tls_index: ?usize = null,
+/// Allocates PHDR table in virtual memory and in file.
+fn allocatePhdrTable(self: *Elf) void {
+    const new_load_segments = self.calcNumberOfSegments();
+    const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
+    const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
-        fn isFirstTlsShdr(this: @This(), other: usize) bool {
-            if (this.first_tls_index) |index| return index == other;
-            return false;
-        }
-
-        fn @"align"(this: @This(), index: usize, sh_addralign: u64, addr: u64) u64 {
-            const alignment = if (this.isFirstTlsShdr(index)) this.tls_start_align else sh_addralign;
-            return mem.alignForward(u64, addr, alignment);
-        }
+    const phsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Phdr),
+        .p64 => @sizeOf(elf.Elf64_Phdr),
     };
+    const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
 
-    var alignment = Align{};
-    for (self.shdrs.items, 0..) |*shdr, i| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (!shdrIsTls(shdr)) continue;
-        if (alignment.first_tls_index == null) alignment.first_tls_index = i;
-        alignment.tls_start_align = @max(alignment.tls_start_align, shdr.sh_addralign);
+    if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
+        phdr_table.p_offset = 0;
+        phdr_table.p_offset = self.findFreeSpace(needed_size, phdr_table.p_align);
     }
 
-    var addr = base_addr;
-    var i: usize = 0;
-    while (i < self.shdrs.items.len) : (i += 1) {
-        const shdr = &self.shdrs.items[i];
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (!shdrIsAlloc(shdr)) continue;
-        if (i > 0) {
-            const prev_shdr = self.shdrs.items[i - 1];
-            if (shdrToPhdrFlags(shdr.sh_flags) != shdrToPhdrFlags(prev_shdr.sh_flags)) {
-                // We need to advance by page size
-                addr += self.page_size;
-            }
-        }
-        if (shdrIsTbss(shdr)) {
-            // .tbss is a little special as it's used only by the loader meaning it doesn't
-            // need to be actually mmap'ed at runtime. We still need to correctly increment
-            // the addresses of every TLS zerofill section tho. Thus, we hack it so that
-            // we increment the start address like normal, however, after we are done,
-            // the next ALLOC section will get its start address allocated within the same
-            // range as the .tbss sections. We will get something like this:
-            //
-            // ...
-            // .tbss 0x10
-            // .tcommon 0x20
-            // .data 0x10
-            // ...
-            var tbss_addr = addr;
-            while (i < self.shdrs.items.len and shdrIsTbss(&self.shdrs.items[i])) : (i += 1) {
-                const tbss_shdr = &self.shdrs.items[i];
-                tbss_addr = alignment.@"align"(i, tbss_shdr.sh_addralign, tbss_addr);
-                tbss_shdr.sh_addr = tbss_addr;
-                tbss_addr += tbss_shdr.sh_size;
-            }
-            i -= 1;
-            continue;
-        }
+    phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
+    const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
+    phdr_table_load.p_filesz = load_align_offset + needed_size;
+    phdr_table_load.p_memsz = load_align_offset + needed_size;
 
-        addr = alignment.@"align"(i, shdr.sh_addralign, addr);
-        shdr.sh_addr = addr;
-        addr += shdr.sh_size;
-    }
+    phdr_table.p_filesz = needed_size;
+    phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
+    phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
+    phdr_table.p_memsz = needed_size;
 }
 
-fn allocateAllocSectionsInFile(self: *Elf, base_offset: u64) void {
-    var offset = base_offset;
-    var i: usize = 0;
-    while (i < self.shdrs.items.len) {
-        const first = &self.shdrs.items[i];
-        if (shdrIsZerofill(first) or first.sh_type == elf.SHT_NULL) {
-            i += 1;
-            continue;
-        }
-        if (!shdrIsAlloc(first)) break;
-
-        // Set the offset to a value that is congruent with the section's allocated virtual memory address
-        if (first.sh_addralign > self.page_size) {
-            offset = mem.alignForward(u64, offset, first.sh_addralign);
-        } else {
-            const val = mem.alignBackward(u64, offset, self.page_size) + @rem(first.sh_addr, self.page_size);
-            offset = if (offset <= val) val else val + self.page_size;
-        }
-
-        while (true) {
-            const prev = &self.shdrs.items[i];
-            prev.sh_offset = offset + prev.sh_addr - first.sh_addr;
-            i += 1;
-
-            const next = &self.shdrs.items[i];
-            if (i >= self.shdrs.items.len or !shdrIsAlloc(next) or shdrIsZerofill(next)) break;
-            if (next.sh_addr < first.sh_addr) break;
-
-            const gap = next.sh_addr - prev.sh_addr - prev.sh_size;
-            if (gap >= self.page_size) break;
-        }
-
-        const prev = &self.shdrs.items[i - 1];
-        offset = prev.sh_offset + prev.sh_size;
-
-        // Skip any zerofill section
-        while (i < self.shdrs.items.len and
-            shdrIsAlloc(&self.shdrs.items[i]) and
-            shdrIsZerofill(&self.shdrs.items[i])) : (i += 1)
-        {}
-    }
-}
-
-/// This function is really only responsible for allocating alloc sections,
-/// and creating load segments as-if incremental linking mode didn't exist.
-/// As a base address we take space immediately after the PHDR table, and
-/// aim for fitting between it and where the first incremental segment is
-/// allocated (see `initMetadata`).
-fn initAndAllocateSegments(self: *Elf, base_addr: u64, base_offset: u64) !void {
-    while (true) {
-        const nphdrs = self.phdrs.items.len;
-        self.allocateAllocSectionsInMemory(base_addr);
-        self.allocateAllocSectionsInFile(base_offset);
-        try self.resetPhdrs();
-        try self.initSegments();
-        if (nphdrs == self.phdrs.items.len) break;
-    }
-}
-
+/// Allocates alloc sections and creates load segments for sections
+/// extracted from input object files.
 fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // We use this struct to track maximum alignment of all TLS sections.
     // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
@@ -4713,17 +4489,25 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     };
 
     var alignment = Align{};
-    for (self.shdrs.items, 0..) |*shdr, i| {
+    for (self.shdrs.items, 0..) |shdr, i| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (!shdrIsTls(shdr)) continue;
+        if (shdr.sh_flags & elf.SHF_TLS == 0) continue;
         if (alignment.first_tls_index == null) alignment.first_tls_index = i;
         alignment.tls_start_align = @max(alignment.tls_start_align, shdr.sh_addralign);
     }
 
+    // Next, calculate segment covers by scanning all alloc sections.
+    // If a section matches segment flags with the preceeding section,
+    // we put it in the same segment. Otherwise, we create a new cover.
+    // This algorithm is simple but suboptimal in terms of space re-use:
+    // normally we would also take into account any gaps in allocated
+    // virtual and file offsets. However, the simple one will do for one
+    // as we are more interested in quick turnaround and compatibility
+    // with `findFreeSpace` mechanics than anything else.
     const gpa = self.base.allocator;
     const nphdrs = self.calcNumberOfSegments();
-    var cuts = try gpa.alloc(struct { start: u16, len: u16 }, nphdrs);
-    defer gpa.free(cuts);
+    var covers = try gpa.alloc(struct { start: u16, len: u16 }, nphdrs);
+    defer gpa.free(covers);
 
     var shndx = for (self.shdrs.items, 0..) |shdr, in| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -4731,31 +4515,35 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         break @as(u16, @intCast(in));
     } else @as(u16, @intCast(self.shdrs.items.len));
 
-    for (cuts) |*cut| {
-        cut.* = .{ .start = shndx, .len = 0 };
+    for (covers) |*cover| {
+        cover.* = .{ .start = shndx, .len = 0 };
         var flags = shdrToPhdrFlags(self.shdrs.items[shndx].sh_flags);
 
         while (shndx < self.shdrs.items.len) : (shndx += 1) {
-            const shdr = &self.shdrs.items[shndx];
-            if (!shdrIsAlloc(shdr)) break;
+            const shdr = self.shdrs.items[shndx];
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) break;
             if (shdrToPhdrFlags(shdr.sh_flags) != flags) {
-                cut.len = shndx - cut.start;
+                cover.len = shndx - cover.start;
                 break;
             }
         }
     }
-    cuts[nphdrs - 1].len = shndx - cuts[nphdrs - 1].start;
+    covers[nphdrs - 1].len = shndx - covers[nphdrs - 1].start;
 
-    // Allocate in segments
+    // Now we can proceed with allocating the sections in virtual memory.
+    // As the base address we take the end address of the PHDR table.
+    // When allocating we first find the largest required alignment
+    // of any section that is contained in a cover and use it to align
+    // the start address of the segement (and first section).
     const phdr_table = &self.phdrs.items[self.phdr_table_load_index.?];
     var addr = phdr_table.p_vaddr + phdr_table.p_memsz;
 
-    for (cuts) |cut| {
-        const slice = self.shdrs.items[cut.start..][0..cut.len];
+    for (covers) |cover| {
+        const slice = self.shdrs.items[cover.start..][0..cover.len];
 
         var @"align": u64 = self.page_size;
-        for (slice) |*shdr| {
-            if (shdrIsTbss(shdr)) continue;
+        for (slice) |shdr| {
+            if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) continue;
             @"align" = @max(@"align", shdr.sh_addralign);
         }
 
@@ -4764,9 +4552,9 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         var memsz: u64 = 0;
         var filesz: u64 = 0;
         var i: usize = 0;
-        while (i < cut.len) : (i += 1) {
+        while (i < cover.len) : (i += 1) {
             const shdr = &slice[i];
-            if (shdrIsTbss(shdr)) {
+            if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) {
                 // .tbss is a little special as it's used only by the loader meaning it doesn't
                 // need to be actually mmap'ed at runtime. We still need to correctly increment
                 // the addresses of every TLS zerofill section tho. Thus, we hack it so that
@@ -4780,16 +4568,19 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
                 // .data 0x10
                 // ...
                 var tbss_addr = addr;
-                while (i < cut.len and shdrIsTbss(&slice[i])) : (i += 1) {
+                while (i < cover.len and
+                    slice[i].sh_type == elf.SHT_NOBITS and
+                    slice[i].sh_flags & elf.SHF_TLS != 0) : (i += 1)
+                {
                     const tbss_shdr = &slice[i];
-                    tbss_addr = alignment.@"align"(cut.start + i, tbss_shdr.sh_addralign, tbss_addr);
+                    tbss_addr = alignment.@"align"(cover.start + i, tbss_shdr.sh_addralign, tbss_addr);
                     tbss_shdr.sh_addr = tbss_addr;
                     tbss_addr += tbss_shdr.sh_size;
                 }
                 i -= 1;
                 continue;
             }
-            const next = alignment.@"align"(cut.start + i, shdr.sh_addralign, addr);
+            const next = alignment.@"align"(cover.start + i, shdr.sh_addralign, addr);
             const padding = next - addr;
             addr = next;
             shdr.sh_addr = addr;
@@ -4812,18 +4603,19 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         });
 
         for (slice, 0..) |*shdr, ii| {
-            if (shdrIsZerofill(shdr)) continue;
-            off = alignment.@"align"(cut.start + ii, shdr.sh_addralign, off);
+            if (shdr.sh_type == elf.SHT_NOBITS) continue;
+            off = alignment.@"align"(cover.start + ii, shdr.sh_addralign, off);
             // off = mem.alignForward(u64, off, shdr.sh_addralign);
             shdr.sh_offset = off;
             off += shdr.sh_size;
-            try self.phdr_to_shdr_table.putNoClobber(gpa, @intCast(ii + cut.start), phndx);
+            try self.phdr_to_shdr_table.putNoClobber(gpa, @intCast(ii + cover.start), phndx);
         }
 
         addr += self.page_size;
     }
 }
 
+/// Allocates non-alloc sections (debug info, symtabs, etc.).
 fn allocateNonAllocSections(self: *Elf) void {
     for (self.shdrs.items) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -4832,8 +4624,8 @@ fn allocateNonAllocSections(self: *Elf) void {
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
             shdr.sh_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
-            shdr.sh_size = needed_size;
         }
+        shdr.sh_size = needed_size;
     }
 }
 
@@ -4854,7 +4646,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
         }
     }
 
-    // Allocate TLS phdr
+    // Set the TLS segment boundaries.
     // We assume TLS sections are laid out contiguously and that there is
     // a single TLS segment.
     if (self.phdr_tls_index) |index| {
@@ -4871,14 +4663,21 @@ fn allocateSpecialPhdrs(self: *Elf) void {
             phdr.p_vaddr = shdr.sh_addr;
             phdr.p_paddr = shdr.sh_addr;
             phdr.p_align = shdr.sh_addralign;
-            self.addShdrToPhdr(shndx, index);
             shndx += 1;
+            phdr.p_align = @max(phdr.p_align, shdr.sh_addralign);
+            if (shdr.sh_type != elf.SHT_NOBITS) {
+                phdr.p_filesz = shdr.sh_offset + shdr.sh_size - phdr.p_offset;
+            }
+            phdr.p_memsz = shdr.sh_addr + shdr.sh_size - phdr.p_vaddr;
 
             while (shndx < slice.len) : (shndx += 1) {
                 const next = slice[shndx];
-                // if (next.sh_flags & elf.SHF_TLS == 0) continue :outer; // TODO uncomment if we permit more TLS segments
                 if (next.sh_flags & elf.SHF_TLS == 0) break;
-                self.addShdrToPhdr(shndx, index);
+                phdr.p_align = @max(phdr.p_align, next.sh_addralign);
+                if (next.sh_type != elf.SHT_NOBITS) {
+                    phdr.p_filesz = next.sh_offset + next.sh_size - phdr.p_offset;
+                }
+                phdr.p_memsz = next.sh_addr + next.sh_size - phdr.p_vaddr;
             }
         }
     }
