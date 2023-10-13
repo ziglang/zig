@@ -9846,11 +9846,19 @@ fn analyzeAs(
     const mod = sema.mod;
     const operand = try sema.resolveInst(zir_operand);
     if (zir_dest_type == .var_args_param_type) return operand;
-    const dest_ty = sema.resolveType(block, src, zir_dest_type) catch |err| switch (err) {
+    const operand_air_inst = sema.resolveInst(zir_dest_type) catch |err| switch (err) {
         error.GenericPoison => return operand,
         else => |e| return e,
     };
-    if (dest_ty.zigTypeTag(mod) == .NoReturn) {
+    if (operand_air_inst == .var_args_param_type) return operand;
+    const dest_ty = sema.analyzeAsType(block, src, operand_air_inst) catch |err| switch (err) {
+        error.GenericPoison => return operand,
+        else => |e| return e,
+    };
+    const dest_ty_tag = dest_ty.zigTypeTagOrPoison(mod) catch |err| switch (err) {
+        error.GenericPoison => return operand,
+    };
+    if (dest_ty_tag == .NoReturn) {
         return sema.fail(block, src, "cannot cast to noreturn", .{});
     }
     const is_ret = if (Zir.refToIndex(zir_dest_type)) |ptr_index|

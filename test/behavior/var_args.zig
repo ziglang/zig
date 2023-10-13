@@ -150,6 +150,15 @@ test "simple variadic function" {
     try std.testing.expectEqual(@as(c_int, 0), S.add(0));
     try std.testing.expectEqual(@as(c_int, 1), S.add(1, @as(c_int, 1)));
     try std.testing.expectEqual(@as(c_int, 3), S.add(2, @as(c_int, 1), @as(c_int, 2)));
+
+    {
+        // Test type coercion of a var args argument.
+        // Originally reported at https://github.com/ziglang/zig/issues/16197
+        var runtime: bool = true;
+        var a: i32 = 1;
+        var b: i32 = 2;
+        try expect(1 == S.add(1, if (runtime) a else b));
+    }
 }
 
 test "variadic functions" {
