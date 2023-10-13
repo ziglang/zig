@@ -169,13 +169,14 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = Arch.s390x },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
+    // It's unclear which zig target this glibc sparcv9 target maps to.
+    //LibCTarget{
+    //    .name = "sparcv9-linux-gnu",
+    //    .arch = MultiArch{ .specific = Arch.sparc },
+    //    .abi = MultiAbi{ .specific = Abi.gnu },
+    //},
     LibCTarget{
-        .name = "sparc-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.sparc },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "sparcv9-linux-gnu",
+        .name = "sparc64-linux-gnu",
         .arch = MultiArch{ .specific = Arch.sparc64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
