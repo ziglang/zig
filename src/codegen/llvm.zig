@@ -898,10 +898,11 @@ pub const Object = struct {
                 // very location dependent.
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
-                var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                 const compile_unit_dir_z = blk: {
-                    if (options.module) |mod| {
+                    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    if (options.module) |mod| m: {
                         const d = try mod.root_mod.root.joinStringZ(builder.gpa, "");
+                        if (d.len == 0) break :m;
                         if (std.fs.path.isAbsolute(d)) break :blk d;
                         const abs = std.fs.realpath(d, &buf) catch break :blk d;
                         builder.gpa.free(d);
@@ -1840,7 +1841,8 @@ pub const Object = struct {
             const dir_path = try file.mod.root.joinStringZ(gpa, sub_path);
             if (std.fs.path.isAbsolute(dir_path)) break :d dir_path;
             const abs = std.fs.realpath(dir_path, &buffer) catch break :d dir_path;
-            break :d try std.fs.path.joinZ(gpa, &.{ abs, sub_path });
+            gpa.free(dir_path);
+            break :d try gpa.dupeZ(u8, abs);
         };
         defer gpa.free(dir_path_z);
         const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
