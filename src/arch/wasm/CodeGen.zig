@@ -5331,17 +5331,17 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 else => {
                     const result = try func.allocStack(result_ty);
                     const offset = try func.buildPointerOffset(result, 0, .new); // pointer to offset
+                    var prev_field_offset: u64 = 0;
                     for (elements, 0..) |elem, elem_index| {
                         if ((try result_ty.structFieldValueComptime(mod, elem_index)) != null) continue;
 
                         const elem_ty = result_ty.structFieldType(elem_index, mod);
-                        const elem_size: u32 = @intCast(elem_ty.abiSize(mod));
+                        const field_offset = result_ty.structFieldOffset(elem_index, mod);
+                        _ = try func.buildPointerOffset(offset, @intCast(field_offset - prev_field_offset), .modify);
+                        prev_field_offset = field_offset;
+
                         const value = try func.resolveInst(elem);
                         try func.store(offset, value, elem_ty, 0);
-
-                        if (elem_index < elements.len - 1) {
-                            _ = try func.buildPointerOffset(offset, elem_size, .modify);
-                        }
                     }
 
                     break :result_value result;
