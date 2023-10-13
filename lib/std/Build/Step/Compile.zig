@@ -1294,7 +1294,7 @@ fn appendModuleArgs(
             const name = kv.value_ptr.*;
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
-            const src = mod.builder.pathFromRoot(mod.source_file.getPath(mod.builder));
+            const src = mod.source_file.getPath(mod.builder);
             try zig_args.append("--mod");
             try zig_args.append(try std.fmt.allocPrint(b.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
         }
