@@ -256,22 +256,11 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     try self.atoms.append(allocator, .{});
     // Append null file at index 0
     try self.files.append(allocator, .null);
-    // There must always be a null shdr in index 0
-    try self.shdrs.append(allocator, .{
-        .sh_name = 0,
-        .sh_type = elf.SHT_NULL,
-        .sh_flags = 0,
-        .sh_addr = 0,
-        .sh_offset = 0,
-        .sh_size = 0,
-        .sh_link = 0,
-        .sh_info = 0,
-        .sh_addralign = 0,
-        .sh_entsize = 0,
-    });
     // Append null byte to string tables
     try self.shstrtab.buffer.append(allocator, 0);
     try self.strtab.buffer.append(allocator, 0);
+    // There must always be a null shdr in index 0
+    _ = try self.addSection(.{ .name = "" });
 
     const is_obj_or_ar = switch (options.output_mode) {
         .Obj => true,
@@ -886,91 +875,18 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     }
 
     const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
-    if (needed_size > mem_capacity) {
-        // We are exceeding our allocated VM capacity so we need to shift everything in memory
-        // and grow.
-        {
-            const dirty_addr = phdr.p_vaddr + phdr.p_memsz;
-            const got_addresses_dirty = for (self.got.entries.items) |entry| {
-                if (self.symbol(entry.symbol_index).value >= dirty_addr) break true;
-            } else false;
-            _ = got_addresses_dirty;
-
-            // TODO mark relocs dirty
-        }
-        try self.growSegment(shdr_index, needed_size);
-
-        if (self.zig_module_index != null) {
-            // TODO self-hosted backends cannot yet handle this condition correctly as the linker
-            // cannot update emitted virtual addresses of symbols already committed to the final file.
-            var err = try self.addErrorWithNotes(2);
-            try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
-                phdr_index,
-            });
-            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-        }
+    if (needed_size <= mem_capacity) {
+        var err = try self.addErrorWithNotes(2);
+        try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
+            phdr_index,
+        });
+        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
     }
 
     phdr.p_memsz = needed_size;
 
     self.markDirty(shdr_index);
-}
-
-fn growSegment(self: *Elf, shndx: u16, needed_size: u64) !void {
-    const phdr_index = self.phdr_to_shdr_table.get(shndx).?;
-    const phdr = &self.phdrs.items[phdr_index];
-    const increased_size = padToIdeal(needed_size);
-    const end_addr = phdr.p_vaddr + phdr.p_memsz;
-    const old_aligned_end = phdr.p_vaddr + mem.alignForward(u64, phdr.p_memsz, phdr.p_align);
-    const new_aligned_end = phdr.p_vaddr + mem.alignForward(u64, increased_size, phdr.p_align);
-    const diff = new_aligned_end - old_aligned_end;
-    log.debug("growing phdr({d}) in memory by {x}", .{ phdr_index, diff });
-
-    // Update symbols and atoms.
-    var files = std.ArrayList(File.Index).init(self.base.allocator);
-    defer files.deinit();
-    try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
-
-    if (self.zig_module_index) |index| files.appendAssumeCapacity(index);
-    files.appendSliceAssumeCapacity(self.objects.items);
-
-    for (files.items) |index| {
-        const file_ptr = self.file(index).?;
-
-        for (file_ptr.locals()) |sym_index| {
-            const sym = self.symbol(sym_index);
-            const atom_ptr = sym.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive or !atom_ptr.flags.allocated) continue;
-            if (sym.value >= end_addr) sym.value += diff;
-        }
-
-        for (file_ptr.globals()) |sym_index| {
-            const sym = self.symbol(sym_index);
-            if (sym.file_index != index) continue;
-            const atom_ptr = sym.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive or !atom_ptr.flags.allocated) continue;
-            if (sym.value >= end_addr) sym.value += diff;
-        }
-
-        for (file_ptr.atoms()) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive or !atom_ptr.flags.allocated) continue;
-            if (atom_ptr.value >= end_addr) atom_ptr.value += diff;
-        }
-    }
-
-    // Finally, update section headers.
-    for (self.shdrs.items, 0..) |*other_shdr, other_shndx| {
-        if (other_shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (other_shndx == shndx) continue;
-        const other_phdr_index = self.phdr_to_shdr_table.get(@intCast(other_shndx)) orelse continue;
-        const other_phdr = &self.phdrs.items[other_phdr_index];
-        if (other_phdr.p_vaddr < end_addr) continue;
-        other_shdr.sh_addr += diff;
-        other_phdr.p_vaddr += diff;
-        other_phdr.p_paddr += diff;
-    }
 }
 
 pub fn growNonAllocSection(
@@ -4149,9 +4065,28 @@ fn setHashSections(self: *Elf) !void {
     }
 }
 
-fn sectionRank(self: *Elf, shdr: elf.Elf64_Shdr) u8 {
+fn sectionRank(self: *Elf, shndx: u16) u8 {
+    const shdr = self.shdrs.items[shndx];
     const name = self.shstrtab.getAssumeExists(shdr.sh_name);
     const flags = shdr.sh_flags;
+
+    if (self.isZigSection(shndx)) {
+        switch (shdr.sh_type) {
+            elf.SHT_PROGBITS => {
+                assert(flags & elf.SHF_ALLOC != 0);
+                if (flags & elf.SHF_EXECINSTR != 0) {
+                    return 0xe1;
+                } else if (flags & elf.SHF_WRITE != 0) {
+                    return 0xe2;
+                } else {
+                    return 0xe0;
+                }
+            },
+            elf.SHT_NOBITS => return 0xef,
+            else => unreachable,
+        }
+    }
+
     switch (shdr.sh_type) {
         elf.SHT_NULL => return 0,
         elf.SHT_DYNSYM => return 2,
@@ -4200,9 +4135,7 @@ fn sortSections(self: *Elf) !void {
         shndx: u16,
 
         pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
-            const lhs_shdr = elf_file.shdrs.items[lhs.shndx];
-            const rhs_shdr = elf_file.shdrs.items[rhs.shndx];
-            return elf_file.sectionRank(lhs_shdr) < elf_file.sectionRank(rhs_shdr);
+            return elf_file.sectionRank(lhs.shndx) < elf_file.sectionRank(rhs.shndx);
         }
     };
 
@@ -4250,6 +4183,16 @@ fn sortSections(self: *Elf) !void {
         &self.copy_rel_section_index,
         &self.versym_section_index,
         &self.verneed_section_index,
+        &self.text_zig_section_index,
+        &self.got_zig_section_index,
+        &self.rodata_zig_section_index,
+        &self.data_zig_section_index,
+        &self.bss_zig_section_index,
+        &self.debug_str_section_index,
+        &self.debug_info_section_index,
+        &self.debug_abbrev_section_index,
+        &self.debug_aranges_section_index,
+        &self.debug_line_section_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
@@ -4512,6 +4455,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     var shndx = for (self.shdrs.items, 0..) |shdr, in| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+        if (self.isZigSection(@intCast(in))) continue;
         break @as(u16, @intCast(in));
     } else @as(u16, @intCast(self.shdrs.items.len));
 
@@ -5341,6 +5285,21 @@ pub fn isExe(self: Elf) bool {
 
 pub fn isDynLib(self: Elf) bool {
     return self.base.options.effectiveOutputMode() == .Lib and self.base.options.link_mode == .Dynamic;
+}
+
+pub fn isZigSection(self: Elf, shndx: u16) bool {
+    inline for (&[_]?u16{
+        self.text_zig_section_index,
+        self.rodata_zig_section_index,
+        self.data_zig_section_index,
+        self.bss_zig_section_index,
+        self.got_zig_section_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            if (index == shndx) return true;
+        }
+    }
+    return false;
 }
 
 fn addPhdr(self: *Elf, opts: struct {
