@@ -753,52 +753,57 @@ pub const XxHash3 = struct {
         //     self.bufLen = 0;
         // }
 
-        while (in.len >= self.buf.len) : (in = in[self.buf.len..]) {
-            std.debug.print("Blocks: {d}\n", .{self.buf.len / @sizeOf(Block)});
-            std.debug.print("Internal Length: {d}\n", .{in.len});
+        if (in.len > self.buf.len) {
+            const num_stripes = (in.len - 1) / @sizeOf(Block);
 
-            consumeStripe(&self.acc, &self.scrt, in[0..self.buf.len], &self.stripesSoFar, self.buf.len / @sizeOf(Block));
+            const result = consumeStripe(&self.acc, &self.scrt, in.ptr, &self.stripesSoFar, num_stripes);
+
+            in = in[result..];
+
+            @memcpy(self.buf[self.buf.len - @sizeOf(Block) ..], (in.ptr - @sizeOf(Block))[0..@sizeOf(Block)]);
         }
 
         std.debug.print("Length: {d}\n", .{in.len});
 
-        if (in.len > 0) {
-            @memcpy(self.buf[0..in.len], in);
-            self.bufLen = in.len;
-        }
+        @memcpy(self.buf[0..in.len], in);
+        self.bufLen = in.len;
     }
 
     fn consumeStripe(
         noalias acc: *Block,
-        noalias scrt: *align(@alignOf(Block)) const [192]u8,
+        noalias scrt: [*]const u8,
         noalias buf: [*]const u8,
         noalias stripesSoFar: *usize,
         num_blocks: usize,
-    ) void {
-        printAcc(acc);
+    ) usize {
+        // printAcc(acc);
+        var offset: usize = 0;
 
-        if (num_blocks >= (16 - stripesSoFar.*)) {
-            for (0..num_blocks) |n| {
-                const offset = @sizeOf(Block) * n;
+        // if (num_blocks >= (16 - stripesSoFar.*)) {
+        //     for (0..num_blocks) |n| {
+        //         const offset = @sizeOf(Block) * n;
 
-                std.debug.print("Offset: {d}\n", .{(n + stripesSoFar.*) * 8});
+        //         std.debug.print("Offset: {d}\n", .{(n + stripesSoFar.*) * 8});
 
-                accumulateBlock(acc, buf + offset, scrt[0..].ptr + (n + stripesSoFar.*) * 8);
-                stripesSoFar.* += 1;
+        //         accumulateBlock(acc, buf + offset, scrt[0..].ptr + (n + stripesSoFar.*) * 8);
+        //         stripesSoFar.* += 1;
 
-                if (stripesSoFar.* == num_stripe_blocks) {
-                    stripesSoFar.* = 0;
-                    scrambleAccumulator(acc, scrt);
-                }
+        //         if (stripesSoFar.* == num_stripe_blocks) {
+        //             stripesSoFar.* = 0;
+        //             scrambleAccumulator(acc, scrt);
+        //         }
 
-                printAcc(acc);
-            }
-        }
+        //         printAcc(acc);
+        //     }
+        // }
 
         if (num_blocks > 0) {
-            accumulate(acc, buf, scrt, num_blocks);
+            accumulate(acc, buf + offset, scrt + (stripesSoFar.* * 8), num_blocks);
+            offset += num_blocks * @sizeOf(Block);
             stripesSoFar.* += num_blocks;
         }
+
+        return offset;
     }
 
     inline fn digest_long(
@@ -806,22 +811,26 @@ pub const XxHash3 = struct {
         acc: *Block,
         stripesSoFar: *usize,
     ) void {
-        if (self.bufLen < @sizeOf(Block)) {
-            var last_block: [@sizeOf(Block)]u8 = undefined;
+        var last_block: [@sizeOf(Block)]u8 = undefined;
+        var lastBlockPointer: [*]const u8 = undefined;
+
+        if (self.bufLen >= @sizeOf(Block)) {
+            const stripes = (self.bufLen - 1) / @sizeOf(Block);
+            _ = consumeStripe(acc, &self.scrt, &self.buf, stripesSoFar, stripes);
+
+            lastBlockPointer = self.buf[0..].ptr + self.bufLen - @sizeOf(Block);
+        } else {
             const bufRemains = @sizeOf(Block) - self.bufLen;
             @memcpy(last_block[0..bufRemains], self.buf[self.buf.len - bufRemains ..]);
             @memcpy(last_block[bufRemains..], self.buf[0..self.bufLen]);
-            consumeStripe(acc, &self.scrt, &last_block, stripesSoFar, 1);
-        } else {
-            const stripes = (self.bufLen - 1) / @sizeOf(Block);
-            consumeStripe(acc, &self.scrt, &self.buf, stripesSoFar, stripes);
-
-            accumulateBlock(
-                acc,
-                self.buf[0..].ptr + self.bufLen - @sizeOf(Block),
-                @ptrCast(&self.scrt[121]),
-            );
+            lastBlockPointer = &last_block;
         }
+
+        accumulateBlock(
+            acc,
+            lastBlockPointer,
+            self.scrt[0..].ptr + 121,
+        );
     }
 
     pub fn final(self: *const XxHash3) u64 {
@@ -837,6 +846,8 @@ pub const XxHash3 = struct {
         printAcc(&acc);
 
         self.digest_long(&acc, &stripesSoFar);
+
+        // printAcc(&acc);
 
         return mergeAccumulator(&acc, &self.scrt, self.totalLen);
     }
