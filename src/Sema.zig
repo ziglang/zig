@@ -25263,13 +25263,7 @@ fn zirBuiltinExtern(
     if (!ty.isPtrAtRuntime(mod)) {
         return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
-
-    const child_ty = ty.childType(mod);
-    const is_function_child_ty = child_ty.zigTypeTag(mod) == .Fn;
-    if (is_function_child_ty and !ty.isConstPtr(mod)) {
-        return sema.fail(block, ty_src, "pointer to extern function should be 'const'", .{});
-    }
-    if (!try sema.validateExternType(if (is_function_child_ty) ty else child_ty, .other)) {
+    if (!try sema.validateExternType(ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
@@ -25610,7 +25604,16 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty)),
+        .Pointer => {
+            if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
+                const is_cc_allowed = switch(ty.childType(mod).fnCallingConvention(mod)) {
+                    .Unspecified, .Inline, .Async => false,
+                    else => true,
+                };
+                return ty.isConstPtr(mod) and is_cc_allowed;
+            }
+            return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty));
+        },
         .Int => switch (ty.intInfo(mod).bits) {
             0, 8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -25679,8 +25682,14 @@ fn explainWhyTypeIsNotExtern(
                 try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
             } else {
                 const pointee_ty = ty.childType(mod);
-                try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
-                try sema.explainWhyTypeIsComptime(msg, src_loc, pointee_ty);
+                if (!ty.isConstPtr(mod) and pointee_ty.zigTypeTag(mod) == .Fn) {
+                    try mod.errNoteNonLazy(src_loc, msg, "pointer to extern function must be 'const'", .{});
+                }
+                if (try sema.typeRequiresComptime(ty)) {
+                    try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
+                    try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
+                }
+                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, .other);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
@@ -25693,7 +25702,6 @@ fn explainWhyTypeIsNotExtern(
         .Fn => {
             if (position != .other) {
                 try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
-                try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
                 return;
             }
             switch (ty.fnCallingConvention(mod)) {
