@@ -4081,26 +4081,26 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
             elf.SHT_PROGBITS => {
                 assert(flags & elf.SHF_ALLOC != 0);
                 if (flags & elf.SHF_EXECINSTR != 0) {
-                    return 0xe1;
+                    return 0x2;
                 } else if (flags & elf.SHF_WRITE != 0) {
-                    return 0xe2;
+                    return 0x3;
                 } else {
-                    return 0xe0;
+                    return 0x1;
                 }
             },
-            elf.SHT_NOBITS => return 0xef,
+            elf.SHT_NOBITS => return 0xf,
             else => unreachable,
         }
     }
 
     switch (shdr.sh_type) {
-        elf.SHT_NULL => return 0,
-        elf.SHT_DYNSYM => return 2,
-        elf.SHT_HASH => return 3,
-        elf.SHT_GNU_HASH => return 3,
-        elf.SHT_GNU_VERSYM => return 4,
-        elf.SHT_GNU_VERDEF => return 4,
-        elf.SHT_GNU_VERNEED => return 4,
+        elf.SHT_NULL => return 0x0,
+        elf.SHT_DYNSYM => return 0x12,
+        elf.SHT_HASH => return 0x13,
+        elf.SHT_GNU_HASH => return 0x13,
+        elf.SHT_GNU_VERSYM => return 0x14,
+        elf.SHT_GNU_VERDEF => return 0x14,
+        elf.SHT_GNU_VERNEED => return 0x14,
 
         elf.SHT_PREINIT_ARRAY,
         elf.SHT_INIT_ARRAY,
@@ -4109,7 +4109,7 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
 
         elf.SHT_DYNAMIC => return 0xf3,
 
-        elf.SHT_RELA => return 0xf,
+        elf.SHT_RELA => return 0x1f,
 
         elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
             if (flags & elf.SHF_EXECINSTR != 0) {
@@ -4117,7 +4117,7 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
             } else if (flags & elf.SHF_WRITE != 0) {
                 return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6;
             } else if (mem.eql(u8, name, ".interp")) {
-                return 1;
+                return 0x11;
             } else {
                 return 0xf0;
             }
@@ -4131,7 +4131,7 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
 
         elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf5 else 0xf7,
         elf.SHT_SYMTAB => return 0xfa,
-        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 4 else 0xfb,
+        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x14 else 0xfb,
         else => return 0xff,
     }
 }
