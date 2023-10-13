@@ -161,6 +161,37 @@ test "simple variadic function" {
     }
 }
 
+test "coerce reference to var arg" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.os.tag != .macos and comptime builtin.cpu.arch.isAARCH64()) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn addPtr(count: c_int, ...) callconv(.C) c_int {
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+            var i: usize = 0;
+            var sum: c_int = 0;
+            while (i < count) : (i += 1) {
+                sum += @cVaArg(&ap, *c_int).*;
+            }
+            return sum;
+        }
+    };
+
+    // Originally reported at https://github.com/ziglang/zig/issues/17494
+    var a: i32 = 12;
+    var b: i32 = 34;
+    try expect(46 == S.addPtr(2, &a, &b));
+}
+
 test "variadic functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

@@ -4371,13 +4371,19 @@ fn zirValidateRefTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const mod = sema.mod;
     const un_tok = sema.code.instructions.items(.data)[inst].un_tok;
     const src = un_tok.src();
-    const ty_operand = sema.resolveType(block, src, un_tok.operand) catch |err| switch (err) {
-        error.GenericPoison => {
-            // We don't actually have a type, so this will be treated as an untyped address-of operator.
-            return;
-        },
+    // In case of GenericPoison, we don't actually have a type, so this will be
+    // treated as an untyped address-of operator.
+    if (un_tok.operand == .var_args_param_type) return;
+    const operand_air_inst = sema.resolveInst(un_tok.operand) catch |err| switch (err) {
+        error.GenericPoison => return,
         else => |e| return e,
     };
+    if (operand_air_inst == .var_args_param_type) return;
+    const ty_operand = sema.analyzeAsType(block, src, operand_air_inst) catch |err| switch (err) {
+        error.GenericPoison => return,
+        else => |e| return e,
+    };
+    if (ty_operand.isGenericPoison()) return;
     if (ty_operand.optEuBaseType(mod).zigTypeTag(mod) != .Pointer) {
         return sema.failWithOwnedErrorMsg(block, msg: {
             const msg = try sema.errMsg(block, src, "expected type '{}', found pointer", .{ty_operand.fmt(mod)});
