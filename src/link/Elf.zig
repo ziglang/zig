@@ -1515,6 +1515,47 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
 
+    // TODO I need to re-think how to handle ZigModule's debug sections AND debug sections
+    // extracted from input object files correctly.
+    if (self.dwarf) |*dw| {
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev();
+            self.debug_abbrev_section_dirty = false;
+        }
+
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
+        }
+
+        if (self.debug_aranges_section_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+            self.debug_aranges_section_dirty = false;
+        }
+
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader();
+            self.debug_line_header_dirty = false;
+        }
+
+        if (self.debug_str_section_index) |shndx| {
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[shndx].sh_size) {
+                try self.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
+                const shdr = self.shdrs.items[shndx];
+                try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
+                self.debug_strtab_dirty = false;
+            }
+        }
+    }
+
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.initSpecialPhdrs();
@@ -1531,7 +1572,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     self.allocatePhdrTable();
     try self.allocateAllocSections();
-    self.allocateNonAllocSections();
+    try self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
     self.allocateAtoms();
     self.allocateLinkerDefinedSymbols();
@@ -1573,45 +1614,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 else => |e| return e,
             };
             try self.base.file.?.pwriteAll(code, file_offset);
-        }
-
-        if (self.dwarf) |*dw| {
-            if (self.debug_abbrev_section_dirty) {
-                try dw.writeDbgAbbrev();
-                self.debug_abbrev_section_dirty = false;
-            }
-
-            if (self.debug_info_header_dirty) {
-                // Currently only one compilation unit is supported, so the address range is simply
-                // identical to the main program header virtual address and memory size.
-                const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-                const low_pc = text_phdr.p_vaddr;
-                const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-                try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
-                self.debug_info_header_dirty = false;
-            }
-
-            if (self.debug_aranges_section_dirty) {
-                // Currently only one compilation unit is supported, so the address range is simply
-                // identical to the main program header virtual address and memory size.
-                const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-                try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-                self.debug_aranges_section_dirty = false;
-            }
-
-            if (self.debug_line_header_dirty) {
-                try dw.writeDbgLineHeader();
-                self.debug_line_header_dirty = false;
-            }
-
-            if (self.debug_str_section_index) |shndx| {
-                if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[shndx].sh_size) {
-                    try self.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
-                    const shdr = self.shdrs.items[shndx];
-                    try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
-                    self.debug_strtab_dirty = false;
-                }
-            }
         }
     }
 
@@ -4601,14 +4603,26 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
 }
 
 /// Allocates non-alloc sections (debug info, symtabs, etc.).
-fn allocateNonAllocSections(self: *Elf) void {
-    for (self.shdrs.items) |*shdr| {
+fn allocateNonAllocSections(self: *Elf) !void {
+    for (self.shdrs.items, 0..) |*shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC != 0) continue;
         const needed_size = shdr.sh_size;
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
-            shdr.sh_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
+            const new_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
+
+            if (self.isDebugSection(@intCast(shndx))) {
+                const amt = try self.base.file.?.copyRangeAll(
+                    shdr.sh_offset,
+                    self.base.file.?,
+                    new_offset,
+                    needed_size, // TODO this will copy too much but ah well
+                );
+                if (amt != needed_size) return error.InputOutput;
+            }
+
+            shdr.sh_offset = new_offset;
         }
         shdr.sh_size = needed_size;
     }
@@ -5346,6 +5360,21 @@ pub fn isZigSection(self: Elf, shndx: u16) bool {
         self.zig_data_section_index,
         self.zig_bss_section_index,
         self.zig_got_section_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            if (index == shndx) return true;
+        }
+    }
+    return false;
+}
+
+pub fn isDebugSection(self: Elf, shndx: u16) bool {
+    inline for (&[_]?u16{
+        self.debug_info_section_index,
+        self.debug_abbrev_section_index,
+        self.debug_str_section_index,
+        self.debug_aranges_section_index,
+        self.debug_line_section_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == shndx) return true;
