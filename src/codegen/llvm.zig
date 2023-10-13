@@ -4917,7 +4917,7 @@ pub const FuncGen = struct {
                 .int_from_float_optimized => try self.airIntFromFloat(inst, .fast),
 
                 .array_to_slice => try self.airArrayToSlice(inst),
-                .float_from_int   => try self.airFloatFromInt(inst),
+                .float_from_int => try self.airFloatFromInt(inst),
                 .cmpxchg_weak   => try self.airCmpxchg(inst, .weak),
                 .cmpxchg_strong => try self.airCmpxchg(inst, .strong),
                 .fence          => try self.airFence(inst),
@@ -5955,9 +5955,28 @@ pub const FuncGen = struct {
         const mod = o.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
-        const operand = try self.resolveInst(ty_op.operand);
+        const workaround_operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_scalar_ty = operand_ty.scalarType(mod);
+        const is_signed_int = operand_scalar_ty.isSignedInt(mod);
+
+        const operand = o: {
+            // Work around LLVM bug. See https://github.com/ziglang/zig/issues/17381.
+            const bit_size = operand_scalar_ty.bitSize(mod);
+            for ([_]u8{ 8, 16, 32, 64, 128 }) |b| {
+                if (bit_size < b) {
+                    break :o try self.wip.cast(
+                        if (is_signed_int) .sext else .zext,
+                        workaround_operand,
+                        try o.builder.intType(b),
+                        "",
+                    );
+                } else if (bit_size == b) {
+                    break :o workaround_operand;
+                }
+            }
+            break :o workaround_operand;
+        };
 
         const dest_ty = self.typeOfIndex(inst);
         const dest_scalar_ty = dest_ty.scalarType(mod);
@@ -5965,7 +5984,7 @@ pub const FuncGen = struct {
         const target = mod.getTarget();
 
         if (intrinsicsAllowed(dest_scalar_ty, target)) return self.wip.conv(
-            if (operand_scalar_ty.isSignedInt(mod)) .signed else .unsigned,
+            if (is_signed_int) .signed else .unsigned,
             operand,
             dest_llvm_ty,
             "",
@@ -5974,7 +5993,7 @@ pub const FuncGen = struct {
         const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(mod)));
         const rt_int_ty = try o.builder.intType(rt_int_bits);
         var extended = try self.wip.conv(
-            if (operand_scalar_ty.isSignedInt(mod)) .signed else .unsigned,
+            if (is_signed_int) .signed else .unsigned,
             operand,
             rt_int_ty,
             "",
@@ -5982,7 +6001,7 @@ pub const FuncGen = struct {
         const dest_bits = dest_scalar_ty.floatBits(target);
         const compiler_rt_operand_abbrev = compilerRtIntAbbrev(rt_int_bits);
         const compiler_rt_dest_abbrev = compilerRtFloatAbbrev(dest_bits);
-        const sign_prefix = if (operand_scalar_ty.isSignedInt(mod)) "" else "un";
+        const sign_prefix = if (is_signed_int) "" else "un";
         const fn_name = try o.builder.fmt("__float{s}{s}i{s}f", .{
             sign_prefix,
             compiler_rt_operand_abbrev,
