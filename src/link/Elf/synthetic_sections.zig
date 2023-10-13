@@ -220,6 +220,191 @@ pub const DynamicSection = struct {
     }
 };
 
+pub const ZigGotSection = struct {
+    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    output_symtab_size: Elf.SymtabSize = .{},
+    flags: Flags = .{},
+
+    const Flags = packed struct {
+        needs_rela: bool = false, // TODO in prep for PIC/PIE and base relocations
+        dirty: bool = false,
+    };
+
+    pub const Index = u32;
+
+    pub fn deinit(zig_got: *ZigGotSection, allocator: Allocator) void {
+        zig_got.entries.deinit(allocator);
+    }
+
+    fn allocateEntry(zig_got: *ZigGotSection, allocator: Allocator) !Index {
+        try zig_got.entries.ensureUnusedCapacity(allocator, 1);
+        // TODO add free list
+        const index = @as(Index, @intCast(zig_got.entries.items.len));
+        _ = zig_got.entries.addOneAssumeCapacity();
+        zig_got.flags.dirty = true;
+        return index;
+    }
+
+    pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
+        const index = try zig_got.allocateEntry(elf_file.base.allocator);
+        const entry = &zig_got.entries.items[index];
+        entry.* = sym_index;
+        const symbol = elf_file.symbol(sym_index);
+        symbol.flags.has_zig_got = true;
+        if (symbol.extra(elf_file)) |extra| {
+            var new_extra = extra;
+            new_extra.zig_got = index;
+            symbol.setExtra(new_extra, elf_file);
+        } else try symbol.addExtra(.{ .zig_got = index }, elf_file);
+        return index;
+    }
+
+    pub fn entryOffset(zig_got: ZigGotSection, index: Index, elf_file: *Elf) u64 {
+        _ = zig_got;
+        const entry_size = elf_file.archPtrWidthBytes();
+        const shdr = elf_file.shdrs.items[elf_file.zig_got_section_index.?];
+        return shdr.sh_offset + @as(u64, entry_size) * index;
+    }
+
+    pub fn entryAddress(zig_got: ZigGotSection, index: Index, elf_file: *Elf) u64 {
+        _ = zig_got;
+        const entry_size = elf_file.archPtrWidthBytes();
+        const shdr = elf_file.shdrs.items[elf_file.zig_got_section_index.?];
+        return shdr.sh_addr + @as(u64, entry_size) * index;
+    }
+
+    pub fn size(zig_got: ZigGotSection, elf_file: *Elf) usize {
+        return elf_file.archPtrWidthBytes() * zig_got.entries.items.len;
+    }
+
+    pub fn writeOne(zig_got: *ZigGotSection, elf_file: *Elf, index: Index) !void {
+        if (zig_got.flags.dirty) {
+            const needed_size = zig_got.size(elf_file);
+            try elf_file.growAllocSection(elf_file.zig_got_section_index.?, needed_size);
+            zig_got.flags.dirty = false;
+        }
+        const entry_size: u16 = elf_file.archPtrWidthBytes();
+        const endian = elf_file.base.options.target.cpu.arch.endian();
+        const off = zig_got.entryOffset(index, elf_file);
+        const vaddr = zig_got.entryAddress(index, elf_file);
+        const entry = zig_got.entries.items[index];
+        const value = elf_file.symbol(entry).value;
+        switch (entry_size) {
+            2 => {
+                var buf: [2]u8 = undefined;
+                std.mem.writeInt(u16, &buf, @as(u16, @intCast(value)), endian);
+                try elf_file.base.file.?.pwriteAll(&buf, off);
+            },
+            4 => {
+                var buf: [4]u8 = undefined;
+                std.mem.writeInt(u32, &buf, @as(u32, @intCast(value)), endian);
+                try elf_file.base.file.?.pwriteAll(&buf, off);
+            },
+            8 => {
+                var buf: [8]u8 = undefined;
+                std.mem.writeInt(u64, &buf, value, endian);
+                try elf_file.base.file.?.pwriteAll(&buf, off);
+
+                if (elf_file.base.child_pid) |pid| {
+                    switch (builtin.os.tag) {
+                        .linux => {
+                            var local_vec: [1]std.os.iovec_const = .{.{
+                                .iov_base = &buf,
+                                .iov_len = buf.len,
+                            }};
+                            var remote_vec: [1]std.os.iovec_const = .{.{
+                                .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
+                                .iov_len = buf.len,
+                            }};
+                            const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                            switch (std.os.errno(rc)) {
+                                .SUCCESS => assert(rc == buf.len),
+                                else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                            }
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn writeAll(zig_got: ZigGotSection, elf_file: *Elf, writer: anytype) !void {
+        for (zig_got.entries.items) |entry| {
+            const symbol = elf_file.symbol(entry);
+            const value = symbol.address(.{ .plt = false }, elf_file);
+            try writeInt(value, elf_file, writer);
+        }
+    }
+
+    pub fn updateSymtabSize(zig_got: *ZigGotSection, elf_file: *Elf) void {
+        _ = elf_file;
+        zig_got.output_symtab_size.nlocals = @as(u32, @intCast(zig_got.entries.items.len));
+    }
+
+    pub fn updateStrtab(zig_got: ZigGotSection, elf_file: *Elf) !void {
+        const gpa = elf_file.base.allocator;
+        for (zig_got.entries.items) |entry| {
+            const symbol_name = elf_file.symbol(entry).name(elf_file);
+            const name = try std.fmt.allocPrint(gpa, "{s}$ziggot", .{symbol_name});
+            defer gpa.free(name);
+            _ = try elf_file.strtab.insert(gpa, name);
+        }
+    }
+
+    pub fn writeSymtab(zig_got: ZigGotSection, elf_file: *Elf, ctx: anytype) !void {
+        const gpa = elf_file.base.allocator;
+        for (zig_got.entries.items, ctx.ilocal.., 0..) |entry, ilocal, index| {
+            const symbol = elf_file.symbol(entry);
+            const symbol_name = symbol.name(elf_file);
+            const name = try std.fmt.allocPrint(gpa, "{s}$ziggot", .{symbol_name});
+            defer gpa.free(name);
+            const st_name = try elf_file.strtab.insert(gpa, name);
+            const st_value = zig_got.entryAddress(@intCast(index), elf_file);
+            const st_size = elf_file.archPtrWidthBytes();
+            ctx.symtab[ilocal] = .{
+                .st_name = st_name,
+                .st_info = elf.STT_OBJECT,
+                .st_other = 0,
+                .st_shndx = elf_file.zig_got_section_index.?,
+                .st_value = st_value,
+                .st_size = st_size,
+            };
+        }
+    }
+
+    const FormatCtx = struct {
+        zig_got: ZigGotSection,
+        elf_file: *Elf,
+    };
+
+    pub fn fmt(zig_got: ZigGotSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+        return .{ .data = .{ .zig_got = zig_got, .elf_file = elf_file } };
+    }
+
+    pub fn format2(
+        ctx: FormatCtx,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = unused_fmt_string;
+        try writer.writeAll(".zig.got\n");
+        for (ctx.zig_got.entries.items, 0..) |entry, index| {
+            const symbol = ctx.elf_file.symbol(entry);
+            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
+                index,
+                ctx.zig_got.entryAddress(@intCast(index), ctx.elf_file),
+                entry,
+                symbol.address(.{}, ctx.elf_file),
+                symbol.name(ctx.elf_file),
+            });
+        }
+    }
+};
+
 pub const GotSection = struct {
     entries: std.ArrayListUnmanaged(Entry) = .{},
     output_symtab_size: Elf.SymtabSize = .{},
@@ -417,17 +602,6 @@ pub const GotSection = struct {
                     try writeInt(0, elf_file, writer);
                 },
             }
-        }
-    }
-
-    fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
-        const entry_size = elf_file.archPtrWidthBytes();
-        const endian = elf_file.base.options.target.cpu.arch.endian();
-        switch (entry_size) {
-            2 => try writer.writeInt(u16, @intCast(value), endian),
-            4 => try writer.writeInt(u32, @intCast(value), endian),
-            8 => try writer.writeInt(u64, @intCast(value), endian),
-            else => unreachable,
         }
     }
 
@@ -1326,6 +1500,17 @@ pub const VerneedSection = struct {
         try writer.writeAll(mem.sliceAsBytes(vern.vernaux.items));
     }
 };
+
+fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
+    const entry_size = elf_file.archPtrWidthBytes();
+    const endian = elf_file.base.options.target.cpu.arch.endian();
+    switch (entry_size) {
+        2 => try writer.writeInt(u16, @intCast(value), endian),
+        4 => try writer.writeInt(u32, @intCast(value), endian),
+        8 => try writer.writeInt(u64, @intCast(value), endian),
+        else => unreachable,
+    }
+}
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");

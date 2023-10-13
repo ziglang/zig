@@ -367,8 +367,16 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 try self.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
             },
 
+            // TODO I have temporarily repurposed those for handling .zig.got indirection
+            // but we should probably claim unused custom values for incremental linking
+            // that get rewritten to standard relocs when lowering to a relocatable object
+            // file.
             elf.R_X86_64_GOT32,
             elf.R_X86_64_GOT64,
+            => {
+                assert(symbol.flags.has_zig_got);
+            },
+
             elf.R_X86_64_GOTPC32,
             elf.R_X86_64_GOTPC64,
             elf.R_X86_64_GOTPCREL,
@@ -736,6 +744,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
                 null;
             break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
         };
+        // Address of the .zig.got table entry if any.
+        const ZIG_GOT = @as(i64, @intCast(target.zigGotAddress(elf_file)));
         // Relative offset to the start of the global offset table.
         const G = @as(i64, @intCast(target.gotAddress(elf_file))) - GOT;
         // // Address of the thread pointer.
@@ -796,8 +806,12 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
             elf.R_X86_64_32 => try cwriter.writeIntLittle(u32, @as(u32, @truncate(@as(u64, @intCast(S + A))))),
             elf.R_X86_64_32S => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A))),
 
-            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(G + GOT + A))),
-            elf.R_X86_64_GOT64 => try cwriter.writeIntLittle(u64, @as(u64, @intCast(G + GOT + A))),
+            // TODO I have temporarily repurposed those for handling .zig.got indirection
+            // but we should probably claim unused custom values for incremental linking
+            // that get rewritten to standard relocs when lowering to a relocatable object
+            // file.
+            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(ZIG_GOT + A))),
+            elf.R_X86_64_GOT64 => try cwriter.writeIntLittle(u64, @as(u64, @intCast(ZIG_GOT + A))),
 
             elf.R_X86_64_TPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A - TP))),
             elf.R_X86_64_TPOFF64 => try cwriter.writeIntLittle(i64, S + A - TP),

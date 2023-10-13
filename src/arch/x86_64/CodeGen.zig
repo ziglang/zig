@@ -9189,8 +9189,7 @@ fn genCall(self: *Self, info: union(enum) {
                 if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                     const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
                     const sym = elf_file.symbol(sym_index);
-                    sym.flags.needs_got = true;
-                    _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+                    _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     _ = try self.addInst(.{
                         .tag = .call,
                         .ops = .direct_got_reloc,
@@ -11637,8 +11636,7 @@ fn genLazySymbolRef(
         const sym_index = elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
-        sym.flags.needs_got = true;
-        _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
+        _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
         const reloc = Mir.Reloc{
             .atom_index = try self.owner.getSymbolIndex(self),
             .sym_index = sym.esym_index,

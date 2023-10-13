@@ -137,19 +137,6 @@ pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) u64 {
     return shdr.sh_addr + symbol.value;
 }
 
-const GetOrCreateGotEntryResult = struct {
-    found_existing: bool,
-    index: GotSection.Index,
-};
-
-pub fn getOrCreateGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateGotEntryResult {
-    assert(symbol.flags.needs_got);
-    if (symbol.flags.has_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.got };
-    const index = try elf_file.got.addGotSymbol(symbol_index, elf_file);
-    symbol.flags.has_got = true;
-    return .{ .found_existing = false, .index = index };
-}
-
 pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) u64 {
     if (!symbol.flags.has_tlsgd) return 0;
     const extras = symbol.extra(elf_file).?;
@@ -169,6 +156,23 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) u64 {
     const extras = symbol.extra(elf_file).?;
     const entry = elf_file.got.entries.items[extras.tlsdesc];
     return entry.address(elf_file);
+}
+
+const GetOrCreateZigGotEntryResult = struct {
+    found_existing: bool,
+    index: ZigGotSection.Index,
+};
+
+pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
+    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
+    const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
+    return .{ .found_existing = false, .index = index };
+}
+
+pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) u64 {
+    if (!symbol.flags.has_zig_got) return 0;
+    const extras = symbol.extra(elf_file).?;
+    return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
 }
 
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
@@ -367,6 +371,9 @@ pub const Flags = packed struct {
     /// Whether the symbol contains TLSDESC indirection.
     needs_tlsdesc: bool = false,
     has_tlsdesc: bool = false,
+
+    /// Whether the symbol contains .zig.got indirection.
+    has_zig_got: bool = false,
 };
 
 pub const Extra = struct {
@@ -378,6 +385,7 @@ pub const Extra = struct {
     tlsgd: u32 = 0,
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
+    zig_got: u32 = 0,
 };
 
 pub const Index = u32;
@@ -397,4 +405,5 @@ const Object = @import("Object.zig");
 const PltSection = synthetic_sections.PltSection;
 const SharedObject = @import("SharedObject.zig");
 const Symbol = @This();
+const ZigGotSection = synthetic_sections.ZigGotSection;
 const ZigModule = @import("ZigModule.zig");
