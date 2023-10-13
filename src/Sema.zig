@@ -25264,12 +25264,12 @@ fn zirBuiltinExtern(
         return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
 
-    const child_type = ty.childType(mod);
-    const is_function_child_type = child_type.zigTypeTag(mod) == .Fn;
-    if (is_function_child_type and !ty.isConstPtr(mod)) {
+    const child_ty = ty.childType(mod);
+    const is_function_child_ty = child_ty.zigTypeTag(mod) == .Fn;
+    if (is_function_child_ty and !ty.isConstPtr(mod)) {
         return sema.fail(block, ty_src, "pointer to extern function should be 'const'", .{});
     }
-    if (!try sema.validateExternType(if (is_function_child_type) ty else child_type, .other)) {
+    if (!try sema.validateExternType(if (is_function_child_ty) ty else child_ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
