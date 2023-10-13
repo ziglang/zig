@@ -6,7 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {
+pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
@@ -55,7 +55,7 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
 
 /// Suggests a target-dependant vector size for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.
-pub fn suggestVectorSize(comptime T: type) ?usize {
+pub fn suggestVectorSize(comptime T: type) ?comptime_int {
     return suggestVectorSizeForCpu(T, builtin.cpu);
 }
 
