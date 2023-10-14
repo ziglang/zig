@@ -1,5 +1,6 @@
 const std = @import("std");
 const DiagnosticTag = @import("Diagnostics.zig").Tag;
+const CharInfo = @import("CharInfo.zig");
 
 const LangOpts = @This();
 
@@ -85,6 +86,20 @@ pub const Standard = enum {
             .c2x, .gnu2x => "202311L",
         };
     }
+
+    pub fn codepointAllowedInIdentifier(standard: Standard, codepoint: u21, is_start: bool) bool {
+        if (is_start) {
+            return if (standard.atLeast(.c11))
+                CharInfo.isC11IdChar(codepoint) and !CharInfo.isC11DisallowedInitialIdChar(codepoint)
+            else
+                CharInfo.isC99IdChar(codepoint) and !CharInfo.isC99DisallowedInitialIDChar(codepoint);
+        } else {
+            return if (standard.atLeast(.c11))
+                CharInfo.isC11IdChar(codepoint)
+            else
+                CharInfo.isC99IdChar(codepoint);
+        }
+    }
 };
 
 emulate: Compiler = .clang,
@@ -109,6 +124,11 @@ has_char8_t_override: ?bool = null,
 
 /// Whether to allow GNU-style inline assembly
 gnu_asm: bool = true,
+
+/// Preserve comments when preprocessing
+preserve_comments: bool = false,
+/// Preserve comments in macros when preprocessing
+preserve_comments_in_macros: bool = false,
 
 pub fn setStandard(self: *LangOpts, name: []const u8) error{InvalidStandard}!void {
     self.standard = Standard.NameMap.get(name) orelse return error.InvalidStandard;

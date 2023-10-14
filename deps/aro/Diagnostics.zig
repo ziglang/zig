@@ -54,6 +54,10 @@ pub const Message = struct {
             builtin: BuiltinFunction.Tag,
             header: Header,
         },
+        invalid_escape: struct {
+            offset: u32,
+            char: u8,
+        },
         actual_codepoint: u21,
         ascii: u7,
         unsigned: u64,
@@ -114,6 +118,7 @@ pub const Options = packed struct {
     @"c99-compat": Kind = .default,
     @"unicode-zero-width": Kind = .default,
     @"unicode-homoglyph": Kind = .default,
+    unicode: Kind = .default,
     @"return-type": Kind = .default,
     @"dollar-in-identifier-extension": Kind = .default,
     @"unknown-pragmas": Kind = .default,
@@ -168,6 +173,11 @@ pub const Options = packed struct {
     @"fuse-ld-path": Kind = .default,
     @"language-extension-token": Kind = .default,
     @"complex-component-init": Kind = .default,
+    @"microsoft-include": Kind = .default,
+    @"microsoft-end-of-file": Kind = .default,
+    @"invalid-source-encoding": Kind = .default,
+    @"four-char-constants": Kind = .default,
+    @"unknown-escape-sequence": Kind = .default,
 };
 
 const messages = struct {
@@ -371,6 +381,10 @@ const messages = struct {
         const opt = "implicit-int";
         const kind = .warning;
         const all = true;
+    };
+    pub const missing_type_specifier_c2x = struct {
+        const msg = "a type specifier is required for all declarations";
+        const kind = .@"error";
     };
     pub const multiple_storage_class = struct {
         const msg = "cannot combine with previous '{s}' declaration specifier";
@@ -831,15 +845,20 @@ const messages = struct {
         const msg = "invalid universal character";
         const kind = .@"error";
     };
-    pub const multichar_literal = struct {
+    pub const incomplete_universal_character = struct {
+        const msg = "incomplete universal character name";
+        const kind = .@"error";
+    };
+    pub const multichar_literal_warning = struct {
         const msg = "multi-character character constant";
         const opt = "multichar";
         const kind = .warning;
         const all = true;
     };
-    pub const unicode_multichar_literal = struct {
-        const msg = "Unicode character literals may not contain multiple characters";
+    pub const invalid_multichar_literal = struct {
+        const msg = "{s} character literals may not contain multiple characters";
         const kind = .@"error";
+        const extra = .str;
     };
     pub const wide_multichar_literal = struct {
         const msg = "extraneous characters in character constant ignored";
@@ -1474,6 +1493,16 @@ const messages = struct {
         const opt = "c99-compat";
         const kind = .off;
     };
+    pub const unexpected_character = struct {
+        const msg = "unexpected character <U+{X:0>4}>";
+        const extra = .actual_codepoint;
+        const kind = .@"error";
+    };
+    pub const invalid_identifier_start_char = struct {
+        const msg = "character <U+{X:0>4}> not allowed at the start of an identifier";
+        const extra = .actual_codepoint;
+        const kind = .@"error";
+    };
     pub const unicode_zero_width = struct {
         const msg = "identifier contains Unicode character <U+{X:0>4}> that is invisible in some environments";
         const opt = "unicode-homoglyph";
@@ -1797,9 +1826,10 @@ const messages = struct {
         const kind = .warning;
     };
     pub const non_standard_escape_char = struct {
-        const msg = "use of non-standard escape character '\\e'";
+        const msg = "use of non-standard escape character '\\{s}'";
         const kind = .off;
         const opt = "pedantic";
+        const extra = .invalid_escape;
     };
     pub const invalid_pp_stringify_escape = struct {
         const msg = "invalid string literal, ignoring final '\\'";
@@ -2399,7 +2429,6 @@ const messages = struct {
         const opt = "pedantic";
         const extra = .str;
         const kind = .off;
-        const pedantic = true;
     };
     pub const not_floating_type = struct {
         const msg = "argument type '{s}' is not a real floating point type";
@@ -2410,6 +2439,75 @@ const messages = struct {
         const msg = "arguments are of different types ({s})";
         const extra = .str;
         const kind = .@"error";
+    };
+    pub const ms_search_rule = struct {
+        const msg = "#include resolved using non-portable Microsoft search rules as: {s}";
+        const extra = .str;
+        const opt = "microsoft-include";
+        const kind = .warning;
+    };
+    pub const ctrl_z_eof = struct {
+        const msg = "treating Ctrl-Z as end-of-file is a Microsoft extension";
+        const opt = "microsoft-end-of-file";
+        const kind = .off;
+        const pedantic = true;
+    };
+    pub const illegal_char_encoding_warning = struct {
+        const msg = "illegal character encoding in character literal";
+        const opt = "invalid-source-encoding";
+        const kind = .warning;
+    };
+    pub const illegal_char_encoding_error = struct {
+        const msg = "illegal character encoding in character literal";
+        const kind = .@"error";
+    };
+    pub const ucn_basic_char_error = struct {
+        const msg = "character '{c}' cannot be specified by a universal character name";
+        const kind = .@"error";
+        const extra = .ascii;
+    };
+    pub const ucn_basic_char_warning = struct {
+        const msg = "specifying character '{c}' with a universal character name is incompatible with C standards before C2x";
+        const kind = .off;
+        const extra = .ascii;
+        const suppress_unless_version = .c2x;
+        const opt = "pre-c2x-compat";
+    };
+    pub const ucn_control_char_error = struct {
+        const msg = "universal character name refers to a control character";
+        const kind = .@"error";
+    };
+    pub const ucn_control_char_warning = struct {
+        const msg = "universal character name referring to a control character is incompatible with C standards before C2x";
+        const kind = .off;
+        const suppress_unless_version = .c2x;
+        const opt = "pre-c2x-compat";
+    };
+    pub const c89_ucn_in_literal = struct {
+        const msg = "universal character names are only valid in C99 or later";
+        const suppress_version = .c99;
+        const kind = .warning;
+        const opt = "unicode";
+    };
+    pub const four_char_char_literal = struct {
+        const msg = "multi-character character constant";
+        const opt = "four-char-constants";
+        const kind = .off;
+    };
+    pub const multi_char_char_literal = struct {
+        const msg = "multi-character character constant";
+        const kind = .off;
+    };
+    pub const missing_hex_escape = struct {
+        const msg = "\\{c} used with no following hex digits";
+        const kind = .@"error";
+        const extra = .ascii;
+    };
+    pub const unknown_escape_sequence = struct {
+        const msg = "unknown escape sequence '\\{s}'";
+        const kind = .warning;
+        const opt = "unknown-escape-sequence";
+        const extra = .invalid_escape;
     };
 };
 
@@ -2585,9 +2683,11 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
         switch (msg.tag) {
             .escape_sequence_overflow,
             .invalid_universal_character,
-            .non_standard_escape_char,
             // use msg.extra.unsigned for index into string literal
             => loc.byte_offset += @truncate(msg.extra.unsigned),
+            .non_standard_escape_char,
+            .unknown_escape_sequence,
+            => loc.byte_offset += msg.extra.invalid_escape.offset,
             else => {},
         }
         const source = comp.getSource(loc.id);
@@ -2650,8 +2750,18 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                     }),
                     .builtin_with_header => m.print(info.msg, .{
                         @tagName(msg.extra.builtin_with_header.header),
-                        @tagName(msg.extra.builtin_with_header.builtin),
+                        BuiltinFunction.nameFromTag(msg.extra.builtin_with_header.builtin).span(),
                     }),
+                    .invalid_escape => {
+                        if (std.ascii.isPrint(msg.extra.invalid_escape.char)) {
+                            const str: [1]u8 = .{msg.extra.invalid_escape.char};
+                            m.print(info.msg, .{&str});
+                        } else {
+                            var buf: [3]u8 = undefined;
+                            _ = std.fmt.bufPrint(&buf, "x{x}", .{std.fmt.fmtSliceHexLower(&.{msg.extra.invalid_escape.char})}) catch unreachable;
+                            m.print(info.msg, .{&buf});
+                        }
+                    },
                     else => @compileError("invalid extra kind " ++ @tagName(info.extra)),
                 }
             } else {
@@ -2770,6 +2880,7 @@ const MsgWriter = struct {
     fn end(m: *MsgWriter, maybe_line: ?[]const u8, col: u32, end_with_splice: bool) void {
         const line = maybe_line orelse {
             m.write("\n");
+            m.setColor(.reset);
             return;
         };
         const trailer = if (end_with_splice) "\\ " else "";

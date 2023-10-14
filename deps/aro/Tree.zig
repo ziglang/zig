@@ -77,6 +77,20 @@ pub const Token = struct {
         return copy;
     }
 
+    pub fn checkMsEof(tok: Token, source: Source, comp: *Compilation) !void {
+        std.debug.assert(tok.id == .eof);
+        if (source.buf.len > tok.loc.byte_offset and source.buf[tok.loc.byte_offset] == 0x1A) {
+            try comp.diag.add(.{
+                .tag = .ctrl_z_eof,
+                .loc = .{
+                    .id = source.id,
+                    .byte_offset = tok.loc.byte_offset,
+                    .line = tok.loc.line,
+                },
+            }, &.{});
+        }
+    }
+
     pub const List = std.MultiArrayList(Token);
     pub const Id = Tokenizer.Token.Id;
 };

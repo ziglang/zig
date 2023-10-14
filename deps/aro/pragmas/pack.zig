@@ -34,7 +34,7 @@ fn parserHandler(pragma: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation
     var idx = start_idx + 1;
     const l_paren = p.pp.tokens.get(idx);
     if (l_paren.id != .l_paren) {
-        return p.pp.comp.diag.add(.{
+        return p.comp.diag.add(.{
             .tag = .pragma_pack_lparen,
             .loc = l_paren.loc,
         }, l_paren.expansionSlice());
@@ -83,7 +83,7 @@ fn parserHandler(pragma: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation
                         }
                     }
                     if (action == .push) {
-                        try pack.stack.append(p.pp.comp.gpa, .{ .label = label orelse "", .val = p.pragma_pack orelse 8 });
+                        try pack.stack.append(p.gpa, .{ .label = label orelse "", .val = p.pragma_pack orelse 8 });
                     } else {
                         pack.pop(p, label);
                         if (new_val != null) {
@@ -107,7 +107,7 @@ fn parserHandler(pragma: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation
             const new_val = (try packInt(p, arg)) orelse return;
             idx += 1;
             if (apple_or_xl) {
-                try pack.stack.append(p.pp.comp.gpa, .{ .label = "", .val = p.pragma_pack });
+                try pack.stack.append(p.gpa, .{ .label = "", .val = p.pragma_pack });
             }
             p.pragma_pack = new_val;
         },

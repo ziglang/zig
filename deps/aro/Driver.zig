@@ -28,6 +28,10 @@ link_objects: std.ArrayListUnmanaged([]const u8) = .{},
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
 temp_file_count: u32 = 0,
+/// If false, do not emit line directives in -E mode
+line_commands: bool = true,
+/// If true, use `#line <num>` instead of `# <num>` for line directives
+use_line_directives: bool = false,
 only_preprocess: bool = false,
 only_syntax: bool = false,
 only_compile: bool = false,
@@ -111,11 +115,15 @@ pub const usage =
     \\  -fsyntax-only           Only run the preprocessor, parser, and semantic analysis stages
     \\  -funsigned-char         "char" is unsigned
     \\  -fno-unsigned-char      "char" is signed
+    \\  -fuse-line-directives   Use `#line <num>` linemarkers in preprocessed output
+    \\  -fno-use-line-directives
+    \\                          Use `# <num>` linemarkers in preprocessed output
     \\  -I <dir>                Add directory to include search path
     \\  -isystem                Add directory to SYSTEM include search path
     \\  --emulate=[clang|gcc|msvc]
     \\                          Select which C compiler to emulate (default clang)
     \\  -o <file>               Write output to <file>
+    \\  -P, --no-line-commands  Disable linemarker output in -E mode
     \\  -pedantic               Warn on language extensions
     \\  --rtlib=<arg>           Compiler runtime library to use (libgcc or compiler-rt)
     \\  -std=<standard>         Specify language standard
@@ -169,6 +177,7 @@ pub fn parseArgs(
         off,
         unset,
     } = .unset;
+    var comment_arg: []const u8 = "";
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (mem.startsWith(u8, arg, "-") and arg.len > 1) {
@@ -213,6 +222,12 @@ pub fn parseArgs(
                 d.only_compile = true;
             } else if (mem.eql(u8, arg, "-E")) {
                 d.only_preprocess = true;
+            } else if (mem.eql(u8, arg, "-P") or mem.eql(u8, arg, "--no-line-commands")) {
+                d.line_commands = false;
+            } else if (mem.eql(u8, arg, "-fuse-line-directives")) {
+                d.use_line_directives = true;
+            } else if (mem.eql(u8, arg, "-fno-use-line-directives")) {
+                d.use_line_directives = false;
             } else if (mem.eql(u8, arg, "-fchar8_t")) {
                 d.comp.langopts.has_char8_t_override = true;
             } else if (mem.eql(u8, arg, "-fno-char8_t")) {
@@ -358,6 +373,13 @@ pub fn parseArgs(
                 d.verbose_ir = true;
             } else if (mem.eql(u8, arg, "--verbose-linker-args")) {
                 d.verbose_linker_args = true;
+            } else if (mem.eql(u8, arg, "-C") or mem.eql(u8, arg, "--comments")) {
+                d.comp.langopts.preserve_comments = true;
+                comment_arg = arg;
+            } else if (mem.eql(u8, arg, "-CC") or mem.eql(u8, arg, "--comments-in-macros")) {
+                d.comp.langopts.preserve_comments = true;
+                d.comp.langopts.preserve_comments_in_macros = true;
+                comment_arg = arg;
             } else if (option(arg, "-fuse-ld=")) |linker_name| {
                 d.use_linker = linker_name;
             } else if (mem.eql(u8, arg, "-fuse-ld=")) {
@@ -419,6 +441,9 @@ pub fn parseArgs(
         .off => false,
         .unset => util.fileSupportsColor(std.io.getStdErr()) and !std.process.hasEnvVarConstant("NO_COLOR"),
     };
+    if (d.comp.langopts.preserve_comments and !d.only_preprocess) {
+        return d.fatal("invalid argument '{s}' only allowed with '-E'", .{comment_arg});
+    }
     return false;
 }
 
@@ -518,12 +543,25 @@ fn processSource(
     var pp = Preprocessor.init(d.comp);
     defer pp.deinit();
 
+    if (d.comp.langopts.ms_extensions) {
+        d.comp.ms_cwd_source_id = source.id;
+    }
+
     if (d.verbose_pp) pp.verbose = true;
-    if (d.only_preprocess) pp.preserve_whitespace = true;
+    if (d.only_preprocess) {
+        pp.preserve_whitespace = true;
+        if (d.line_commands) {
+            pp.linemarkers = if (d.use_line_directives) .line_directives else .numeric_directives;
+        }
+    }
     try pp.addBuiltinMacros();
 
+    try pp.addIncludeStart(source);
+    try pp.addIncludeStart(builtin);
     _ = try pp.preprocess(builtin);
+    try pp.addIncludeStart(user_macros);
     _ = try pp.preprocess(user_macros);
+    try pp.addIncludeResume(source.id, 0, 0);
     const eof = try pp.preprocess(source);
     try pp.tokens.append(pp.comp.gpa, eof);
 
