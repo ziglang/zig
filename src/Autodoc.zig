@@ -6,7 +6,7 @@ const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const CompilationModule = @import("Module.zig");
 const File = CompilationModule.File;
-const Module = @import("Package.zig");
+const Module = @import("Package.zig").Module;
 const Tokenizer = std.zig.Tokenizer;
 const InternPool = @import("InternPool.zig");
 const Zir = @import("Zir.zig");
@@ -98,9 +98,8 @@ pub fn generate(cm: *CompilationModule, output_dir: std.fs.Dir) !void {
 }
 
 fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
-    const root_src_dir = self.comp_module.main_pkg.root_src_directory;
-    const root_src_path = self.comp_module.main_pkg.root_src_path;
-    const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
+    const root_src_path = self.comp_module.main_mod.root_src_path;
+    const joined_src_path = try self.comp_module.main_mod.root.joinString(self.arena, root_src_path);
     defer self.arena.free(joined_src_path);
 
     const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
@@ -295,20 +294,20 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
     }
 
     const rootName = blk: {
-        const rootName = std.fs.path.basename(self.comp_module.main_pkg.root_src_path);
+        const rootName = std.fs.path.basename(self.comp_module.main_mod.root_src_path);
         break :blk rootName[0 .. rootName.len - 4];
     };
 
     const main_type_index = self.types.items.len;
     {
-        try self.modules.put(self.arena, self.comp_module.main_pkg, .{
+        try self.modules.put(self.arena, self.comp_module.main_mod, .{
             .name = rootName,
             .main = main_type_index,
             .table = .{},
         });
         try self.modules.entries.items(.value)[0].table.put(
             self.arena,
-            self.comp_module.main_pkg,
+            self.comp_module.main_mod,
             .{
                 .name = rootName,
                 .value = 0,
@@ -412,7 +411,7 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
 
         while (files_iterator.next()) |entry| {
             const sub_file_path = entry.key_ptr.*.sub_file_path;
-            const file_module = entry.key_ptr.*.pkg;
+            const file_module = entry.key_ptr.*.mod;
             const module_name = (self.modules.get(file_module) orelse continue).name;
 
             const file_path = std.fs.path.dirname(sub_file_path) orelse "";
@@ -986,12 +985,12 @@ fn walkInstruction(
 
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (file.pkg.table.get(path)) |other_module| {
+            if (file.mod.deps.get(path)) |other_module| {
                 const result = try self.modules.getOrPut(self.arena, other_module);
 
                 // Immediately add this module to the import table of our
                 // current module, regardless of wether it's new or not.
-                if (self.modules.getPtr(file.pkg)) |current_module| {
+                if (self.modules.getPtr(file.mod)) |current_module| {
                     // TODO: apparently, in the stdlib a file gets analyzed before
                     //       its module gets added. I guess we're importing a file
                     //       that belongs to another module through its file path?
@@ -1025,12 +1024,12 @@ fn walkInstruction(
                 // TODO: Add this module as a dependency to the current module
                 // TODO: this seems something that could be done in bulk
                 //       at the beginning or the end, or something.
-                const root_src_dir = other_module.root_src_directory;
-                const root_src_path = other_module.root_src_path;
-                const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
-                defer self.arena.free(joined_src_path);
-
-                const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
+                const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{
+                    ".",
+                    other_module.root.root_dir.path orelse ".",
+                    other_module.root.sub_path,
+                    other_module.root_src_path,
+                });
                 defer self.arena.free(abs_root_src_path);
 
                 const new_file = self.comp_module.import_table.get(abs_root_src_path).?;
@@ -5683,7 +5682,7 @@ fn writeFileTableToJson(
     while (it.next()) |entry| {
         try jsw.beginArray();
         try jsw.write(entry.key_ptr.*.sub_file_path);
-        try jsw.write(mods.getIndex(entry.key_ptr.*.pkg) orelse 0);
+        try jsw.write(mods.getIndex(entry.key_ptr.*.mod) orelse 0);
         try jsw.endArray();
     }
     try jsw.endArray();
@@ -5840,7 +5839,7 @@ fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Secti
         file.sub_file_path, "..", guide_path,
     });
 
-    var guide_file = try file.pkg.root_src_directory.handle.openFile(resolved_path, .{});
+    var guide_file = try file.mod.root.openFile(resolved_path, .{});
     defer guide_file.close();
 
     const guide = guide_file.reader().readAllAlloc(self.arena, 1 * 1024 * 1024) catch |err| switch (err) {

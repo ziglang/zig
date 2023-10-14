@@ -467,7 +467,7 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// `ctx` has the following method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
-        fn sortInternal(self: Self, a: usize, b: usize, ctx: anytype, comptime mode: enum { stable, unstable }) void {
+        fn sortInternal(self: Self, a: usize, b: usize, ctx: anytype, comptime mode: std.sort.Mode) void {
             const sort_context: struct {
                 sub_ctx: @TypeOf(ctx),
                 slice: Slice,

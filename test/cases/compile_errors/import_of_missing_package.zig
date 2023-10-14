@@ -7,4 +7,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :1:21: error: no package named 'foo' available within package 'root'
+// :1:21: error: no module named 'foo' available within module root

@@ -200,7 +200,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 pub fn utf8ValidateSlice(input: []const u8) bool {
     var remaining = input;
 
-    const V_len = comptime std.simd.suggestVectorSize(usize) orelse 1;
+    const V_len = std.simd.suggestVectorSize(usize) orelse 1;
     const V = @Vector(V_len, usize);
     const u8s_in_vector = @sizeOf(usize) * V_len;
 

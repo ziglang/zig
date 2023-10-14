@@ -163,12 +163,12 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const subdir_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(subdir_path);
 
             for ([_][]const u8{ "", ".", ".." }) |sub_path| {
-                const dir_path = try fs.path.join(testing.allocator, &[_][]const u8{ subdir_path, sub_path });
-                defer testing.allocator.free(dir_path);
+                const dir_path = try fs.path.join(allocator, &.{ subdir_path, sub_path });
                 var dir = try ctx.dir.openDir(dir_path, .{});
                 defer dir.close();
             }
@@ -187,7 +187,7 @@ test "accessAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -206,7 +206,7 @@ test "openDirAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -216,8 +216,7 @@ test "openDirAbsolute" {
     }
 
     for ([_][]const u8{ ".", ".." }) |sub_path| {
-        const dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, sub_path });
-        defer allocator.free(dir_path);
+        const dir_path = try fs.path.join(allocator, &.{ base_path, sub_path });
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
     }
@@ -270,13 +269,13 @@ test "readLinkAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
+        const target_path = try fs.path.join(allocator, &.{ base_path, "file.txt" });
+        const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink1" });
 
         // Create symbolic link by path
         fs.symLinkAbsolute(target_path, symlink_path, .{}) catch |err| switch (err) {
@@ -287,8 +286,8 @@ test "readLinkAbsolute" {
         try testReadLinkAbsolute(target_path, symlink_path);
     }
     {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
+        const target_path = try fs.path.join(allocator, &.{ base_path, "subdir" });
+        const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink2" });
 
         // Create symbolic link by path
         fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true }) catch |err| switch (err) {
@@ -485,14 +484,15 @@ test "Dir.realpath smoke test" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_file_path = try ctx.transformPath("test_file");
             const test_dir_path = try ctx.transformPath("test_dir");
             var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
 
             // FileNotFound if the path doesn't exist
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_file_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_file_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_file_path, &buf));
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_dir_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_dir_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_dir_path, &buf));
 
             // Now create the file and dir
@@ -500,18 +500,15 @@ test "Dir.realpath smoke test" {
             try ctx.dir.makeDir(test_dir_path);
 
             const base_path = try ctx.transformPath(".");
-            const base_realpath = try ctx.dir.realpathAlloc(testing.allocator, base_path);
-            defer testing.allocator.free(base_realpath);
+            const base_realpath = try ctx.dir.realpathAlloc(allocator, base_path);
             const expected_file_path = try fs.path.join(
-                testing.allocator,
-                &[_][]const u8{ base_realpath, "test_file" },
+                allocator,
+                &.{ base_realpath, "test_file" },
             );
-            defer testing.allocator.free(expected_file_path);
             const expected_dir_path = try fs.path.join(
-                testing.allocator,
-                &[_][]const u8{ base_realpath, "test_dir" },
+                allocator,
+                &.{ base_realpath, "test_dir" },
             );
-            defer testing.allocator.free(expected_dir_path);
 
             // First, test non-alloc version
             {
@@ -524,12 +521,10 @@ test "Dir.realpath smoke test" {
 
             // Next, test alloc version
             {
-                const file_path = try ctx.dir.realpathAlloc(testing.allocator, test_file_path);
-                defer testing.allocator.free(file_path);
+                const file_path = try ctx.dir.realpathAlloc(allocator, test_file_path);
                 try testing.expectEqualStrings(expected_file_path, file_path);
 
-                const dir_path = try ctx.dir.realpathAlloc(testing.allocator, test_dir_path);
-                defer testing.allocator.free(dir_path);
+                const dir_path = try ctx.dir.realpathAlloc(allocator, test_dir_path);
                 try testing.expectEqualStrings(expected_dir_path, dir_path);
             }
         }
@@ -849,13 +844,13 @@ test "renameAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     try testing.expectError(error.FileNotFound, fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, "missing_file_name" }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, "something_else" }),
+        try fs.path.join(allocator, &.{ base_path, "missing_file_name" }),
+        try fs.path.join(allocator, &.{ base_path, "something_else" }),
     ));
 
     // Renaming files
@@ -864,8 +859,8 @@ test "renameAbsolute" {
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
     file.close();
     try fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, test_file_name }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_file_name }),
+        try fs.path.join(allocator, &.{ base_path, test_file_name }),
+        try fs.path.join(allocator, &.{ base_path, renamed_test_file_name }),
     );
 
     // ensure the file was renamed
@@ -880,8 +875,8 @@ test "renameAbsolute" {
     const renamed_test_dir_name = "test_dir_renamed";
     try tmp_dir.dir.makeDir(test_dir_name);
     try fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, test_dir_name }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_dir_name }),
+        try fs.path.join(allocator, &.{ base_path, test_dir_name }),
+        try fs.path.join(allocator, &.{ base_path, renamed_test_dir_name }),
     );
 
     // ensure the directory was renamed
@@ -900,11 +895,12 @@ test "openSelfExe" {
 test "makePath, put some files in it, deleteTree" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
 
             try ctx.dir.deleteTree(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -915,11 +911,12 @@ test "makePath, put some files in it, deleteTree" {
 test "makePath, put some files in it, deleteTreeMinStackSize" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
 
             try ctx.dir.deleteTreeMinStackSize(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -1204,6 +1201,7 @@ fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
 test "AtomicFile" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_out_file = try ctx.transformPath("tmp_atomic_file_test_dest.txt");
             const test_content =
                 \\ hello!
@@ -1216,8 +1214,7 @@ test "AtomicFile" {
                 try af.file.writeAll(test_content);
                 try af.finish();
             }
-            const content = try ctx.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
-            defer testing.allocator.free(content);
+            const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
             try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
@@ -1337,7 +1334,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     const cwd = try std.process.getCwdAlloc(gpa);
     defer gpa.free(cwd);
 
-    const filename = try fs.path.resolve(gpa, &[_][]const u8{ cwd, sub_path });
+    const filename = try fs.path.resolve(gpa, &.{ cwd, sub_path });
     defer gpa.free(filename);
 
     const file1 = try fs.createFileAbsolute(filename, .{
@@ -1477,30 +1474,30 @@ test ". and .. in absolute functions" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
+    const subdir_path = try fs.path.join(allocator, &.{ base_path, "./subdir" });
     try fs.makeDirAbsolute(subdir_path);
     try fs.accessAbsolute(subdir_path, .{});
     var created_subdir = try fs.openDirAbsolute(subdir_path, .{});
     created_subdir.close();
 
-    const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
+    const created_file_path = try fs.path.join(allocator, &.{ subdir_path, "../file" });
     const created_file = try fs.createFileAbsolute(created_file_path, .{});
     created_file.close();
     try fs.accessAbsolute(created_file_path, .{});
 
-    const copied_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../copy" });
+    const copied_file_path = try fs.path.join(allocator, &.{ subdir_path, "../copy" });
     try fs.copyFileAbsolute(created_file_path, copied_file_path, .{});
-    const renamed_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../rename" });
+    const renamed_file_path = try fs.path.join(allocator, &.{ subdir_path, "../rename" });
     try fs.renameAbsolute(copied_file_path, renamed_file_path);
     const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
 
-    const update_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../update" });
+    const update_file_path = try fs.path.join(allocator, &.{ subdir_path, "../update" });
     const update_file = try fs.createFileAbsolute(update_file_path, .{});
     try update_file.writeAll("something");
     update_file.close();

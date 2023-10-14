@@ -4,6 +4,8 @@ const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
 
+pub const Mode = enum { stable, unstable };
+
 pub const block = @import("sort/block.zig").block;
 pub const pdq = @import("sort/pdq.zig").pdq;
 pub const pdqContext = @import("sort/pdq.zig").pdqContext;
