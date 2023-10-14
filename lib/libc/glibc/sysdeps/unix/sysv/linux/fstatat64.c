@@ -29,18 +29,6 @@
 #include <stat_t64_cp.h>
 #include <sys/sysmacros.h>
 
-#if __TIMESIZE == 64 \
-     && (__WORDSIZE == 32 \
-     && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32))
-/* Sanity check to avoid newer 32-bit ABI to support non-LFS calls.  */
-_Static_assert (sizeof (__off_t) == sizeof (__off64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__ino_t) == sizeof (__ino64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__blkcnt_t) == sizeof (__blkcnt64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-#endif
-
 #if (__WORDSIZE == 32 \
      && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32)) \
      || defined STAT_HAS_TIME32 \
