@@ -2027,12 +2027,13 @@ const DeclGen = struct {
             .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
-            .cmp_eq  => try self.airCmp(inst, .eq),
-            .cmp_neq => try self.airCmp(inst, .neq),
-            .cmp_gt  => try self.airCmp(inst, .gt),
-            .cmp_gte => try self.airCmp(inst, .gte),
-            .cmp_lt  => try self.airCmp(inst, .lt),
-            .cmp_lte => try self.airCmp(inst, .lte),
+            .cmp_eq     => try self.airCmp(inst, .eq),
+            .cmp_neq    => try self.airCmp(inst, .neq),
+            .cmp_gt     => try self.airCmp(inst, .gt),
+            .cmp_gte    => try self.airCmp(inst, .gte),
+            .cmp_lt     => try self.airCmp(inst, .lt),
+            .cmp_lte    => try self.airCmp(inst, .lte),
+            .cmp_vector => try self.airVectorCmp(inst),
 
             .arg     => self.airArg(),
             .alloc   => try self.airAlloc(inst),
@@ -2088,13 +2089,30 @@ const DeclGen = struct {
         try self.inst_results.putNoClobber(self.gpa, inst, result_id);
     }
 
-    fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-        const lhs_id = try self.resolve(bin_op.lhs);
-        const rhs_id = try self.resolve(bin_op.rhs);
+    fn binOpSimple(self: *DeclGen, ty: Type, lhs_id: IdRef, rhs_id: IdRef, comptime opcode: Opcode) !IdRef {
+        const mod = self.module;
+
+        if (ty.isVector(mod)) {
+            const child_ty = ty.childType(mod);
+            const vector_len = ty.vectorLen(mod);
+
+            var constituents = try self.gpa.alloc(IdRef, vector_len);
+            defer self.gpa.free(constituents);
+
+            for (constituents, 0..) |*constituent, i| {
+                const lhs_index_id = try self.extractField(child_ty, lhs_id, @intCast(i));
+                const rhs_index_id = try self.extractField(child_ty, rhs_id, @intCast(i));
+                const result_id = try self.binOpSimple(child_ty, lhs_index_id, rhs_index_id, opcode);
+                constituent.* = try self.convertToIndirect(child_ty, result_id);
+            }
+
+            const result_ty = try self.resolveType(child_ty, .indirect);
+            const result_ty_ref = try self.spv.arrayType(vector_len, result_ty);
+            return try self.constructArray(result_ty_ref, constituents);
+        }
+
         const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(self.typeOfIndex(inst));
+        const result_type_id = try self.resolveTypeId(ty);
         try self.func.body.emit(self.spv.gpa, opcode, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
@@ -2102,6 +2120,17 @@ const DeclGen = struct {
             .operand_2 = rhs_id,
         });
         return result_id;
+    }
+
+    fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
+        const ty = self.typeOf(bin_op.lhs);
+
+        return try self.binOpSimple(ty, lhs_id, rhs_id, opcode);
     }
 
     fn airShift(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
@@ -2676,6 +2705,24 @@ const DeclGen = struct {
                 }
                 return result_id;
             },
+            .Vector => {
+                const child_ty = ty.childType(mod);
+                const vector_len = ty.vectorLen(mod);
+                const bool_ty_ref_indirect = try self.resolveType(Type.bool, .indirect);
+
+                var constituents = try self.gpa.alloc(IdRef, vector_len);
+                defer self.gpa.free(constituents);
+
+                for (constituents, 0..) |*constituent, i| {
+                    const lhs_index_id = try self.extractField(child_ty, cmp_lhs_id, @intCast(i));
+                    const rhs_index_id = try self.extractField(child_ty, cmp_rhs_id, @intCast(i));
+                    const result_id = try self.cmp(op, child_ty, lhs_index_id, rhs_index_id);
+                    constituent.* = try self.convertToIndirect(Type.bool, result_id);
+                }
+
+                const result_ty_ref = try self.spv.arrayType(vector_len, bool_ty_ref_indirect);
+                return try self.constructArray(result_ty_ref, constituents);
+            },
             else => unreachable,
         };
 
@@ -2747,6 +2794,19 @@ const DeclGen = struct {
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const ty = self.typeOf(bin_op.lhs);
+
+        return try self.cmp(op, ty, lhs_id, rhs_id);
+    }
+
+    fn airVectorCmp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const vec_cmp = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+        const lhs_id = try self.resolve(vec_cmp.lhs);
+        const rhs_id = try self.resolve(vec_cmp.rhs);
+        const op = vec_cmp.compareOperator();
+        const ty = self.typeOf(vec_cmp.lhs);
 
         return try self.cmp(op, ty, lhs_id, rhs_id);
     }
