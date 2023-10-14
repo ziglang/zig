@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         /// Appends `node` to the queue.
-        /// The lifetime of `node` must be longer than lifetime of queue.
+        /// The lifetime of `node` must be longer than the lifetime of the queue.
         pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
