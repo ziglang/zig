@@ -20,7 +20,11 @@
 #define _X86_64_SYSDEP_H 1
 
 #include <sysdeps/x86/sysdep.h>
-#include <x86-lp_size.h>
+#ifdef __ASSEMBLER__
+# define LP_SIZE 8
+#else
+# define LP_SIZE "8"
+#endif
 
 /* __CET__ is defined by GCC with Control-Flow Protection values:
 
