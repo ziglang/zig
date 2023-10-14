@@ -17,7 +17,11 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/x86_64/sysdep.h>
-#include <x86-lp_size.h>
+#ifdef __ASSEMBLER__
+# define LP_SIZE 4
+#else
+# define LP_SIZE "4"
+#endif
 
 #undef LP_OP
 #undef ASM_ADDR
