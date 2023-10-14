@@ -6074,6 +6074,9 @@ const SystemLib = struct {
     path: []const u8,
 };
 
+pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
+pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;
+
 const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");

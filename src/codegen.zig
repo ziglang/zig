@@ -890,7 +890,11 @@ fn genDeclRef(
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-        return GenResult.mcv(.{ .memory = sym.zigGotAddress(elf_file) });
+        if (bin_file.options.pic) {
+            return GenResult.mcv(.{ .load_got = sym.esym_index });
+        } else {
+            return GenResult.mcv(.{ .memory = sym.zigGotAddress(elf_file) });
+        }
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -925,7 +929,12 @@ fn genUnnamedConst(
         return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        return GenResult.mcv(.{ .memory = elf_file.symbol(local_sym_index).value });
+        const local = elf_file.symbol(local_sym_index);
+        if (bin_file.options.pic) {
+            return GenResult.mcv(.{ .load_direct = local.esym_index });
+        } else {
+            return GenResult.mcv(.{ .memory = local.value });
+        }
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

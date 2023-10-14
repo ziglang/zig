@@ -9190,14 +9190,19 @@ fn genCall(self: *Self, info: union(enum) {
                     const sym_index = try elf_file.getOrCreateMetadataForDecl(owner_decl);
                     const sym = elf_file.symbol(sym_index);
                     _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                    _ = try self.addInst(.{
-                        .tag = .call,
-                        .ops = .direct_got_reloc,
-                        .data = .{ .reloc = .{
-                            .atom_index = try self.owner.getSymbolIndex(self),
-                            .sym_index = sym.esym_index,
-                        } },
-                    });
+                    if (self.bin_file.options.pic) {
+                        try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym.esym_index });
+                        try self.asmRegister(.{ ._, .call }, .rax);
+                    } else {
+                        _ = try self.addInst(.{
+                            .tag = .call,
+                            .ops = .direct_got_reloc,
+                            .data = .{ .reloc = .{
+                                .atom_index = try self.owner.getSymbolIndex(self),
+                                .sym_index = sym.esym_index,
+                            } },
+                        });
+                    }
                 } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom = try coff_file.getOrCreateAtomForDecl(owner_decl);
                     const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -11637,34 +11642,48 @@ fn genLazySymbolRef(
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-        const reloc = Mir.Reloc{
-            .atom_index = try self.owner.getSymbolIndex(self),
-            .sym_index = sym.esym_index,
-        };
-        switch (tag) {
-            .lea, .mov => _ = try self.addInst(.{
-                .tag = .mov,
-                .ops = .direct_got_reloc,
-                .data = .{ .rx = .{
-                    .r1 = reg.to64(),
-                    .payload = try self.addExtra(reloc),
-                } },
-            }),
-            .call => _ = try self.addInst(.{
-                .tag = .call,
-                .ops = .direct_got_reloc,
-                .data = .{ .reloc = reloc },
-            }),
-            else => unreachable,
-        }
-        switch (tag) {
-            .lea, .call => {},
-            .mov => try self.asmRegisterMemory(
-                .{ ._, tag },
-                reg.to64(),
-                Memory.sib(.qword, .{ .base = .{ .reg = reg.to64() } }),
-            ),
-            else => unreachable,
+
+        if (self.bin_file.options.pic) {
+            switch (tag) {
+                .lea, .call => try self.genSetReg(reg, Type.usize, .{ .lea_got = sym.esym_index }),
+                .mov => try self.genSetReg(reg, Type.usize, .{ .load_got = sym.esym_index }),
+                else => unreachable,
+            }
+            switch (tag) {
+                .lea, .mov => {},
+                .call => try self.asmRegister(.{ ._, .call }, reg),
+                else => unreachable,
+            }
+        } else {
+            const reloc = Mir.Reloc{
+                .atom_index = try self.owner.getSymbolIndex(self),
+                .sym_index = sym.esym_index,
+            };
+            switch (tag) {
+                .lea, .mov => _ = try self.addInst(.{
+                    .tag = .mov,
+                    .ops = .direct_got_reloc,
+                    .data = .{ .rx = .{
+                        .r1 = reg.to64(),
+                        .payload = try self.addExtra(reloc),
+                    } },
+                }),
+                .call => _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = .direct_got_reloc,
+                    .data = .{ .reloc = reloc },
+                }),
+                else => unreachable,
+            }
+            switch (tag) {
+                .lea, .call => {},
+                .mov => try self.asmRegisterMemory(
+                    .{ ._, tag },
+                    reg.to64(),
+                    Memory.sib(.qword, .{ .base = .{ .reg = reg.to64() } }),
+                ),
+                else => unreachable,
+            }
         }
     } else if (self.bin_file.cast(link.File.Plan9)) |p9_file| {
         const atom_index = p9_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
