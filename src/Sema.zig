@@ -25620,11 +25620,7 @@ fn validateExternType(
         => return true,
         .Pointer => {
             if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
-                const is_cc_allowed = switch (ty.childType(mod).fnCallingConvention(mod)) {
-                    .Unspecified, .Inline, .Async => false,
-                    else => true,
-                };
-                return ty.isConstPtr(mod) and is_cc_allowed;
+                return ty.isConstPtr(mod) and try sema.validateExternType(ty.childType(mod), .other);
             }
             return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty));
         },
@@ -25698,8 +25694,7 @@ fn explainWhyTypeIsNotExtern(
                 const pointee_ty = ty.childType(mod);
                 if (!ty.isConstPtr(mod) and pointee_ty.zigTypeTag(mod) == .Fn) {
                     try mod.errNoteNonLazy(src_loc, msg, "pointer to extern function must be 'const'", .{});
-                }
-                if (try sema.typeRequiresComptime(ty)) {
+                } else if (try sema.typeRequiresComptime(ty)) {
                     try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
                     try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
                 }
@@ -25719,7 +25714,6 @@ fn explainWhyTypeIsNotExtern(
                 try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
                 return;
             }
-            try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
             switch (ty.fnCallingConvention(mod)) {
                 .Unspecified => try mod.errNoteNonLazy(src_loc, msg, "extern function must specify calling convention", .{}),
                 .Async => try mod.errNoteNonLazy(src_loc, msg, "async function cannot be extern", .{}),
