@@ -426,440 +426,6 @@ pub const XxHash32 = struct {
     }
 };
 
-pub const XxHash3 = struct {
-    const Block = @Vector(8, u64);
-    const secret: [192]u8 align(@alignOf(Block)) = [_]u8{
-        0xb8, 0xfe, 0x6c, 0x39, 0x23, 0xa4, 0x4b, 0xbe, 0x7c, 0x01, 0x81, 0x2c, 0xf7, 0x21, 0xad, 0x1c,
-        0xde, 0xd4, 0x6d, 0xe9, 0x83, 0x90, 0x97, 0xdb, 0x72, 0x40, 0xa4, 0xa4, 0xb7, 0xb3, 0x67, 0x1f,
-        0xcb, 0x79, 0xe6, 0x4e, 0xcc, 0xc0, 0xe5, 0x78, 0x82, 0x5a, 0xd0, 0x7d, 0xcc, 0xff, 0x72, 0x21,
-        0xb8, 0x08, 0x46, 0x74, 0xf7, 0x43, 0x24, 0x8e, 0xe0, 0x35, 0x90, 0xe6, 0x81, 0x3a, 0x26, 0x4c,
-        0x3c, 0x28, 0x52, 0xbb, 0x91, 0xc3, 0x00, 0xcb, 0x88, 0xd0, 0x65, 0x8b, 0x1b, 0x53, 0x2e, 0xa3,
-        0x71, 0x64, 0x48, 0x97, 0xa2, 0x0d, 0xf9, 0x4e, 0x38, 0x19, 0xef, 0x46, 0xa9, 0xde, 0xac, 0xd8,
-        0xa8, 0xfa, 0x76, 0x3f, 0xe3, 0x9c, 0x34, 0x3f, 0xf9, 0xdc, 0xbb, 0xc7, 0xc7, 0x0b, 0x4f, 0x1d,
-        0x8a, 0x51, 0xe0, 0x4b, 0xcd, 0xb4, 0x59, 0x31, 0xc8, 0x9f, 0x7e, 0xc9, 0xd9, 0x78, 0x73, 0x64,
-        0xea, 0xc5, 0xac, 0x83, 0x34, 0xd3, 0xeb, 0xc3, 0xc5, 0x81, 0xa0, 0xff, 0xfa, 0x13, 0x63, 0xeb,
-        0x17, 0x0d, 0xdd, 0x51, 0xb7, 0xf0, 0xda, 0x49, 0xd3, 0x16, 0x55, 0x26, 0x29, 0xd4, 0x68, 0x9e,
-        0x2b, 0x16, 0xbe, 0x58, 0x7d, 0x47, 0xa1, 0xfc, 0x8f, 0xf8, 0xb8, 0xd1, 0x7a, 0xd0, 0x31, 0xce,
-        0x45, 0xcb, 0x3a, 0x8f, 0x95, 0x16, 0x04, 0x28, 0xaf, 0xd7, 0xfb, 0xca, 0xbb, 0x4b, 0x40, 0x7e,
-    };
-
-    const primes32 = [_]u32{
-        0x9E3779B1,
-        0x85EBCA77,
-        0xC2B2AE3D,
-        0x27D4EB2F,
-        0x165667B1,
-    };
-    const primes64 = [_]u64{
-        0x9E3779B185EBCA87,
-        0xC2B2AE3D27D4EB4F,
-        0x165667B19E3779F9,
-        0x85EBCA77C2B2AE63,
-        0x27D4EB2F165667C5,
-    };
-
-    const primesMX = [_]u64{
-        0x165667919E3779F9,
-        0x9FB21C651E98DF25,
-    };
-
-    const defaultAcc: Block = @bitCast([8]u64{
-        primes32[2], primes64[0], primes64[1], primes64[2],
-        primes64[3], primes32[1], primes64[4], primes32[0],
-    });
-
-    inline fn read(comptime int: type, data: []const u8) int {
-        return std.mem.readIntLittle(int, data[0..@sizeOf(int)]);
-    }
-
-    inline fn fold(a: u64, b: u64) u64 {
-        const c = @as(u128, a) *% b;
-        return @as(u64, @truncate(c)) ^ @as(u64, @truncate(c >> 64));
-    }
-
-    inline fn mix16(in: []const u8, scrt: []const u8, seed: u64) u64 {
-        const lo = read(u64, in[0..]) ^ (read(u64, scrt[0..]) +% seed);
-        const hi = read(u64, in[8..]) ^ (read(u64, scrt[8..]) -% seed);
-        return fold(lo, hi);
-    }
-
-    fn avalanceH3(x0: u64) u64 {
-        const x1 = (x0 ^ (x0 >> 37)) *% primesMX[0];
-        return x1 ^ (x1 >> 32);
-    }
-
-    fn avalanceH64(x0: u64) u64 {
-        const x1 = (x0 ^ (x0 >> 33)) *% primes64[1];
-        const x2 = (x1 ^ (x1 >> 29)) *% primes64[2];
-        return x2 ^ (x2 >> 32);
-    }
-
-    fn avalanceRRMXMX(x0: u64, len: u64) u64 {
-        const x1 = (x0 ^ rotl(u64, x0, 49) ^ rotl(u64, x0, 24)) *% primesMX[1];
-        const x2 = (x1 ^ ((x1 >> 35) +% len)) *% primesMX[1];
-        return x2 ^ (x2 >> 28);
-    }
-
-    pub fn hash(seed: u64, input: anytype) u64 {
-        validateType(@TypeOf(input));
-
-        if (input.len <= 16) return hash16(seed, input);
-        if (input.len <= 128) return hash128(seed, input);
-        if (input.len <= 240) return hash240(seed, input);
-
-        return hashLong(seed, input);
-    }
-
-    inline fn hash16(seed: u64, in: []const u8) u64 {
-        std.debug.assert(in.len <= 16);
-
-        // 9 to 16
-        if (in.len > 8) {
-            const a = (read(u64, secret[24..]) ^ read(u64, secret[32..])) +% seed;
-            const b = (read(u64, secret[40..]) ^ read(u64, secret[48..])) -% seed;
-            const lo = a ^ read(u64, in);
-            const hi = b ^ read(u64, in[in.len - 8 ..]);
-
-            const x0 = fold(lo, hi) +% @byteSwap(lo) +% hi +% in.len;
-
-            return avalanceH3(x0);
-        }
-
-        // 4 to 8
-        if (in.len >= 4) {
-            const a = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
-            const b = (@as(u64, read(u32, in)) << 32) +% read(u32, in[in.len - 4 ..]);
-
-            const c1 = read(u64, secret[8..]);
-            const c2 = read(u64, secret[16..]);
-            const c = (c1 ^ c2) -% a;
-            const x0 = b ^ c;
-
-            return avalanceRRMXMX(x0, in.len);
-        }
-
-        // 1 to 3
-        if (in.len > 0) {
-            const a = (@as(u32, @truncate(in.len)) << 8) | in[in.len - 1];
-            const b = (@as(u32, in[0]) << 16) | (@as(u32, in[in.len >> 1]) << 24);
-            const c = seed +% (read(u32, secret[0..]) ^ read(u32, secret[4..]));
-
-            const x0 = (a | b) ^ c;
-
-            return avalanceH64(x0);
-        }
-
-        const x0 = seed ^ read(u64, secret[56..]) ^ read(u64, secret[64..]);
-        return avalanceH64(x0);
-    }
-
-    inline fn hash128(seed: u64, in: []const u8) u64 {
-        std.debug.assert(in.len <= 128);
-        std.debug.assert(in.len > 0);
-
-        var acc = primes64[0] *% in.len;
-
-        if (@import("builtin").mode == .ReleaseSmall) {
-            var i = @as(u32, @truncate(in.len - 1)) / 32;
-            while (true) {
-                acc +%= mix16(in[16 * i ..], secret[32 * i ..], seed);
-                acc +%= mix16(in[in.len - 16 * (i + 1) ..], secret[32 * i + 16 ..], seed);
-                i = std.math.sub(u32, i, 1) catch break;
-            }
-        } else {
-            if (in.len > 32) {
-                if (in.len > 64) {
-                    if (in.len > 96) {
-                        acc +%= mix16(in[48..], secret[96..], seed);
-                        acc +%= mix16(in[in.len - 64 ..], secret[112..], seed);
-                    }
-
-                    acc +%= mix16(in[32..], secret[64..], seed);
-                    acc +%= mix16(in[in.len - 48 ..], secret[80..], seed);
-                }
-
-                acc +%= mix16(in[16..], secret[32..], seed);
-                acc +%= mix16(in[in.len - 32 ..], secret[48..], seed);
-            }
-
-            acc +%= mix16(in[0..], secret[0..], seed);
-            acc +%= mix16(in[in.len - 16 ..], secret[16..], seed);
-        }
-
-        return avalanceH3(acc);
-    }
-
-    noinline fn hash240(seed: u64, in: []const u8) u64 {
-        std.debug.assert(in.len <= 240);
-        std.debug.assert(in.len > 0);
-
-        var acc = primes64[0] *% in.len;
-        for (0..8) |i| {
-            acc +%= mix16(in[16 * i ..], secret[16 * i ..], seed);
-        }
-        acc = avalanceH3(acc);
-
-        for (8..(in.len / 16)) |i| {
-            acc +%= mix16(in[16 * i ..], secret[16 * (i - 8) + 3 ..], seed);
-        }
-        acc +%= mix16(in[in.len - 16 ..], secret[119..], seed);
-
-        return avalanceH3(acc);
-    }
-
-    const num_stripe_blocks = (secret.len - @sizeOf(Block)) / 8;
-    const block_len = @sizeOf(Block) * num_stripe_blocks;
-
-    noinline fn hashLong(seed: u64, in: []const u8) u64 {
-        var scrt: *align(@alignOf(Block)) const [secret.len]u8 = &secret;
-        var custom_secret: [secret.len]u8 align(@alignOf(Block)) = undefined;
-
-        if (seed == 0) {
-            // initCustomSecret
-            const apply: u128 = @bitCast([2]u64{ seed, @as(u64, 0) -% seed });
-            const scale: Block = @bitCast([_]u128{apply} ** 4);
-            scrt = &custom_secret;
-
-            const src: [3]Block = @bitCast(secret);
-            const dst: *[3]Block = @ptrCast(&custom_secret);
-            for (src, dst) |s, *d| d.* = s +% scale;
-        }
-
-        var acc: Block = defaultAcc;
-
-        const num_blocks = in.len / block_len;
-
-        for (0..num_blocks) |n| {
-            accumulate(&acc, in.ptr + (n * block_len), scrt, num_stripe_blocks);
-            scrambleAccumulator(&acc, scrt);
-        }
-
-        std.debug.print("Input: {d}\n", .{in.len});
-
-        // Last Step (final)
-        const num_stripes = ((in.len - 1) - (block_len * num_blocks)) / @sizeOf(Block);
-
-        std.debug.print("Num Blocks: {d}\n", .{num_blocks});
-
-        accumulate(&acc, in.ptr + (num_blocks * block_len), scrt, num_stripes);
-        accumulateBlock(&acc, in.ptr + (in.len - @sizeOf(Block)), @alignCast(scrt.ptr + 121));
-
-        // mergeAccumulator
-        return mergeAccumulator(&acc, scrt, in.len);
-    }
-
-    inline fn mergeAccumulator(
-        noalias acc: *Block,
-        noalias scrt: *align(@alignOf(Block)) const [192]u8,
-        total_length: u64,
-    ) u64 {
-        var result64 = primes64[0] *% total_length;
-        for (@as([4][2]u64, @bitCast(acc.*)), @as([4][2]u64, @bitCast(scrt[11..][0..64].*))) |p, s| {
-            result64 +%= fold(p[0] ^ s[0], p[1] ^ s[1]);
-        }
-
-        return avalanceH3(result64);
-    }
-
-    inline fn scrambleAccumulator(
-        noalias acc: *Block,
-        noalias scrt: *align(@alignOf(Block)) const [192]u8,
-    ) void {
-        acc.* ^= acc.* >> @splat(@as(u6, 47));
-        acc.* ^= @as(Block, @bitCast(scrt[scrt.len - @sizeOf(Block) ..][0..@sizeOf(Block)].*));
-        acc.* *%= @splat(@as(u64, primes32[0]));
-    }
-
-    inline fn accumulate(acc: *Block, in: [*]const u8, scrt: [*]const u8, num_stripes: usize) void {
-        for (0..num_stripes) |n| {
-            const in_block = in + (n * @sizeOf(Block));
-            @prefetch(in_block + 320, .{});
-            accumulateBlock(acc, in_block, scrt + (n * 8));
-        }
-    }
-
-    inline fn accumulateBlock(
-        noalias acc: *Block,
-        noalias in: [*]const u8,
-        noalias scrt: [*]const u8,
-    ) void {
-        const data: Block = @bitCast(in[0..@sizeOf(Block)].*);
-        const keys: Block = @bitCast(scrt[0..@sizeOf(Block)].*);
-
-        const flipped = keys ^ data;
-        const lo = flipped & @as(@Vector(8, u32), @splat(@as(u64, 0xffffffff)));
-        const hi = flipped >> @as(@Vector(8, u32), @splat(@as(u6, 32)));
-
-        const swapped = @shuffle(u64, data, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
-        acc.* +%= swapped +% (lo *% hi);
-    }
-
-    // Streaming
-
-    acc: Block,
-    buf: [256]u8 align(@alignOf(Block)),
-    scrt: [secret.len]u8 align(@alignOf(Block)),
-
-    bufLen: usize,
-    totalLen: usize,
-    stripesSoFar: usize,
-
-    seed: u64,
-
-    pub fn init(seed: u64) XxHash3 {
-        var self = XxHash3{
-            .acc = defaultAcc,
-            .buf = undefined,
-            .scrt = undefined,
-            .bufLen = 0,
-            .totalLen = 0,
-            .stripesSoFar = 0,
-            .seed = seed,
-        };
-
-        if (seed == 0) {
-            const apply: u128 = @bitCast([2]u64{ seed, @as(u64, 0) -% seed });
-            const scale: Block = @bitCast([_]u128{apply} ** 4);
-
-            const src: [3]Block = @bitCast(secret);
-            const dst: *[3]Block = @ptrCast(&self.scrt);
-            for (src, dst) |s, *d| d.* = s +% scale;
-        } else {
-            @memcpy(&self.scrt, &secret);
-        }
-
-        return self;
-    }
-
-    pub fn update(self: *XxHash3, input: []const u8) void {
-        var in = input;
-        self.totalLen += input.len;
-
-        if (self.bufLen + in.len <= self.buf.len) {
-            @memcpy(self.buf[self.bufLen..][0..in.len], in);
-            self.bufLen += in.len;
-            return;
-        }
-
-        if (self.bufLen > 0) {
-            std.debug.print("Eating Stripes\n", .{});
-
-            const bufRemains = self.buf.len - self.bufLen;
-            @memcpy(self.buf[self.bufLen..][0..bufRemains], in[0..bufRemains]);
-            _ = consumeStripe(&self.acc, &self.scrt, &self.buf, &self.stripesSoFar, self.buf.len / @sizeOf(Block));
-
-            in = in[bufRemains..];
-            self.bufLen = 0;
-        }
-
-        if (in.len > self.buf.len) {
-            const num_stripes = (in.len - 1) / @sizeOf(Block);
-
-            const result = consumeStripe(&self.acc, &self.scrt, in.ptr, &self.stripesSoFar, num_stripes);
-
-            in = in[result..];
-
-            @memcpy(self.buf[self.buf.len - @sizeOf(Block) ..], (in.ptr - @sizeOf(Block))[0..@sizeOf(Block)]);
-        }
-
-        std.debug.print("Length: {d}\n", .{in.len});
-
-        @memcpy(self.buf[0..in.len], in);
-        self.bufLen = in.len;
-    }
-
-    fn consumeStripe(
-        noalias acc: *Block,
-        noalias scrt: [*]const u8,
-        noalias buf: [*]const u8,
-        noalias stripesSoFar: *usize,
-        num_blocks: usize,
-    ) usize {
-        // printAcc(acc);
-        var offset: usize = 0;
-
-        std.debug.print("Stripes So Far: {d}\n", .{stripesSoFar.*});
-
-        if (@as(isize, @intCast(num_blocks)) >= (@as(isize, @intCast(16)) - @as(isize, @intCast(stripesSoFar.*)))) {
-            for (0..num_blocks) |n| {
-                // offset = @sizeOf(Block) * n;
-
-                std.debug.print("Offset: {d}\n", .{(n + stripesSoFar.*) * 8});
-
-                accumulateBlock(acc, buf + offset, scrt + (n + stripesSoFar.*) * 8);
-                stripesSoFar.* += 1;
-
-                if (stripesSoFar.* == num_stripe_blocks) {
-                    stripesSoFar.* = 0;
-                    scrambleAccumulator(acc, @alignCast(@ptrCast(scrt)));
-                }
-
-                printAcc(acc);
-            }
-        }
-
-        if (num_blocks > 0) {
-            accumulate(acc, buf + offset, scrt + (stripesSoFar.* * 8), num_blocks);
-            offset += num_blocks * @sizeOf(Block);
-            stripesSoFar.* += num_blocks;
-        }
-
-        return offset;
-    }
-
-    inline fn digest_long(
-        self: *const XxHash3,
-        acc: *Block,
-        stripesSoFar: *usize,
-    ) void {
-        var last_block: [@sizeOf(Block)]u8 = undefined;
-        var lastBlockPointer: [*]const u8 = undefined;
-
-        if (self.bufLen >= @sizeOf(Block)) {
-            const stripes = (self.bufLen - 1) / @sizeOf(Block);
-            _ = consumeStripe(acc, &self.scrt, &self.buf, stripesSoFar, stripes);
-
-            lastBlockPointer = self.buf[0..].ptr + self.bufLen - @sizeOf(Block);
-        } else {
-            const bufRemains = @sizeOf(Block) - self.bufLen;
-            @memcpy(last_block[0..bufRemains], self.buf[self.buf.len - bufRemains ..]);
-            @memcpy(last_block[bufRemains..], self.buf[0..self.bufLen]);
-            lastBlockPointer = &last_block;
-        }
-
-        accumulateBlock(
-            acc,
-            lastBlockPointer,
-            self.scrt[0..].ptr + 121,
-        );
-    }
-
-    pub fn final(self: *const XxHash3) u64 {
-        if (self.totalLen <= 240) {
-            return hash(self.seed, self.buf[0..self.totalLen]);
-        }
-
-        std.debug.print("\n\nFinal:\n", .{});
-
-        var acc = self.acc;
-        var stripesSoFar = self.stripesSoFar;
-
-        printAcc(&acc);
-
-        self.digest_long(&acc, &stripesSoFar);
-
-        // printAcc(&acc);
-
-        return mergeAccumulator(&acc, &self.scrt, self.totalLen);
-    }
-};
-
-fn printAcc(acc: *XxHash3.Block) void {
-    for (0..8) |i| {
-        std.debug.print("Accumulator: {x}\n", .{@as([8]u64, @bitCast(acc.*))[i]});
-    }
-}
-
 fn validateType(comptime T: type) void {
     comptime {
         if (!((std.meta.trait.isSlice(T) or
@@ -872,20 +438,319 @@ fn validateType(comptime T: type) void {
     }
 }
 
+pub const XxHash3 = struct {
+    const Block = @Vector(8, u64);
+    const default_secret: [@sizeOf(Block) * 3]u8 = @bitCast([_]u64{
+        0xbe4ba423396cfeb8, 0x1cad21f72c81017c, 0xdb979083e96dd4de, 0x1f67b3b7a4a44072,
+        0x78e5c0cc4ee679cb, 0x2172ffcc7dd05a82, 0x8e2443f7744608b8, 0x4c263a81e69035e0,
+        0xcb00c391bb52283c, 0xa32e531b8b65d088, 0x4ef90da297486471, 0xd8acdea946ef1938,
+        0x3f349ce33f76faa8, 0x1d4f0bc7c7bbdcf9, 0x3159b4cd4be0518a, 0x647378d9c97e9fc8,
+        0xc3ebd33483acc5ea, 0xeb6313faffa081c5, 0x49daf0b751dd0d17, 0x9e68d429265516d3,
+        0xfca1477d58be162b, 0xce31d07ad1b8f88f, 0x280416958f3acb45, 0x7e404bbbcafbd7af,
+    });
+
+    const primes = [_]u64{
+        0x9E3779B185EBCA87,
+        0xC2B2AE3D27D4EB4F,
+        0x165667B19E3779F9,
+        0x85EBCA77C2B2AE63,
+        0x27D4EB2F165667C5,
+        0x165667919E3779F9,
+        0x9FB21C651E98DF25,
+    };
+
+    inline fn avalanche(mode: union(enum) { h3, h64, rrmxmx: u64 }, x0: u64) u64 {
+        switch (mode) {
+            .h3 => {
+                const x1 = (x0 ^ (x0 >> 37)) *% primes[5];
+                return x1 ^ (x1 >> 32);
+            },
+            .h64 => {
+                const x1 = (x0 ^ (x0 >> 33)) *% primes[1];
+                const x2 = (x1 ^ (x1 >> 29)) *% primes[2];
+                return x2 ^ (x2 >> 32);
+            },
+            .rrmxmx => |len| {
+                const x1 = (x0 ^ rotl(u64, x0, 49) ^ rotl(u64, x0, 24)) *% primes[6];
+                const x2 = (x1 ^ ((x1 >> 35) +% len)) *% primes[6];
+                return x2 ^ (x2 >> 28);
+            },
+        }
+    }
+
+    inline fn fold(a: u64, b: u64) u64 {
+        const wide: [2]u64 = @bitCast(@as(u128, a) *% b);
+        return wide[0] ^ wide[1];
+    }
+
+    inline fn mix16(input: []const u8, secret: []const u8, seed: u64) u64 {
+        const blocks: [4]u64 = @bitCast([_][16]u8{ input[0..16].*, secret[0..16].* });
+        const lo = blocks[0] ^ (blocks[2] +% seed);
+        const hi = blocks[1] ^ (blocks[3] -% seed);
+        return fold(lo, hi);
+    }
+
+    const State = struct {
+        block_count: u32 = 0,
+        seed: u64,
+        custom_secret: [192]u8 = undefined,
+        accumulator: Block = @bitCast([_]u64{
+            primes[1] >> 32,
+            primes[0],
+            primes[1],
+            primes[2],
+            primes[3],
+            primes[3] >> 32,
+            primes[4],
+            primes[0] >> 32,
+        }),
+
+        inline fn init(seed: u64) State {
+            var self = State{ .seed = seed };
+            if (seed != 0) {
+                const mix_seed: u128 = @bitCast([_]u64{ seed, @as(u64, 0) -% seed });
+                const mix_block: Block = @bitCast(@as(@Vector(4, u128), @splat(mix_seed)));
+                for (
+                    std.mem.bytesAsSlice(Block, &self.custom_secret),
+                    std.mem.bytesAsSlice(Block, &default_secret),
+                ) |*dst, src| dst.* = src +% mix_block;
+            }
+            return self;
+        }
+
+        inline fn getSecret(self: *const State) *const [192]u8 {
+            const secret_ptrs = [_]*const [192]u8{ &default_secret, &self.custom_secret };
+            return secret_ptrs[@intFromBool(self.seed != 0)];
+        }
+
+        inline fn round(
+            noalias self: *State,
+            noalias input_block: *align(1) const Block,
+            noalias secret_block: *align(1) const Block,
+        ) void {
+            const keyed = input_block.* ^ secret_block.*;
+            const product = (keyed & @as(Block, @splat(0xffffffff))) *% (keyed >> @splat(32));
+            const swapped = @shuffle(u64, input_block.*, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
+            self.accumulator +%= product +% swapped;
+        }
+
+        fn update(noalias self: *State, input_blocks: []align(1) const Block) void {
+            const blocks_per_scramble = @divExact(1024, @sizeOf(Block));
+            std.debug.assert(self.block_count <= blocks_per_scramble);
+            const secret = self.getSecret();
+
+            var blocks = input_blocks;
+            while (blocks.len > 0) {
+                const blocks_until_scramble = blocks_per_scramble - self.block_count;
+                const scramble = blocks.len >= blocks_until_scramble;
+
+                const round_sizes = [_]usize{ blocks.len, blocks_until_scramble };
+                const round_size: u32 = @intCast(round_sizes[@intFromBool(scramble)]);
+                defer blocks = blocks[round_size..];
+
+                for (
+                    blocks[0..round_size],
+                    std.mem.bytesAsSlice(u64, secret[self.block_count * 8 ..])[0..round_size],
+                ) |*block, *secret_block| {
+                    @prefetch(@as([*]align(1) const Block, @ptrCast(block)) + @sizeOf(Block), .{});
+                    self.round(block, @ptrCast(secret_block));
+                }
+
+                if (scramble) {
+                    self.accumulator ^= self.accumulator >> @splat(47);
+                    self.accumulator ^= @bitCast(secret[secret.len - @sizeOf(Block) .. secret.len].*);
+                    self.accumulator *%= @as(Block, @splat(primes[0] >> 32));
+                    self.block_count = 0;
+                } else {
+                    self.block_count += round_size;
+                    return;
+                }
+            }
+        }
+
+        fn final(noalias self: *State, noalias last_block: *align(1) const Block, len: u64) u64 {
+            const secret = self.getSecret();
+            const last_secret_block = secret[secret.len - @sizeOf(Block) - 7 ..][0..@sizeOf(Block)];
+
+            self.round(last_block, @ptrCast(last_secret_block));
+            self.accumulator ^= @bitCast(secret[11 .. 11 + @sizeOf(Block)].*);
+
+            var result = len *% primes[0];
+            inline for (@as([4][2]u64, @bitCast(self.accumulator))) |pair| {
+                result +%= fold(pair[0], pair[1]);
+            }
+            return avalanche(.h3, result);
+        }
+    };
+
+    pub fn hash(seed: u64, input: anytype) u64 {
+        validateType(@TypeOf(input));
+
+        if (input.len <= 240) {
+            return hashSmall(seed, input, &default_secret);
+        } else {
+            return hashLarge(seed, input);
+        }
+    }
+
+    fn hashSmall(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
+        if (input.len == 0) {
+            const flip: [2]u64 = @bitCast(secret[56..72].*);
+            return avalanche(.h64, seed ^ (flip[0] ^ flip[1]));
+        }
+
+        if (input.len < 4) {
+            const blk: u32 = @bitCast([_]u8{
+                input[input.len - 1],
+                @truncate(input.len),
+                input[0],
+                input[input.len / 2],
+            });
+            const flip: [2]u32 = @bitCast(secret[0..8].*);
+            const keyed = (seed +% (flip[0] ^ flip[1])) ^ blk;
+            return avalanche(.h64, keyed);
+        }
+
+        if (input.len <= 8) {
+            const blk: u64 = @bitCast([_][4]u8{
+                input[input.len - 4 ..][0..4].*,
+                input[0..4].*,
+            });
+            const flip: [2]u64 = @bitCast(secret[8..24].*);
+            const swapped = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
+            const keyed = ((flip[0] ^ flip[1]) -% swapped) ^ blk;
+            return avalanche(.{ .rrmxmx = input.len }, keyed);
+        }
+
+        if (input.len <= 16) {
+            var blk: [2]u64 = @bitCast([_][8]u8{
+                input[0..8].*,
+                input[input.len - 8 ..][0..8].*,
+            });
+            const flip: [4]u64 = @bitCast(secret[24..56].*);
+            blk[0] ^= (flip[0] ^ flip[1]) +% seed;
+            blk[1] ^= (flip[2] ^ flip[3]) -% seed;
+            const keyed = fold(blk[0], blk[1]) +% blk[1] +% @byteSwap(blk[0]) +% input.len;
+            return avalanche(.h3, keyed);
+        }
+
+        if (input.len <= 128) {
+            var acc = primes[0] *% input.len;
+            inline for (0..4) |i| {
+                const s_offset = 96 - (i * 32);
+                const i_offset = 48 - (i * 16);
+                if (input.len > s_offset) {
+                    acc +%= mix16(input[i_offset..], secret[s_offset..], seed);
+                    acc +%= mix16(input[input.len - (i_offset + 16) ..], secret[s_offset + 16 ..], seed);
+                }
+            }
+            return avalanche(.h3, acc);
+        }
+
+        std.debug.assert(input.len <= 240);
+        {
+            var acc0 = primes[0] *% input.len;
+            for (0..8) |i| {
+                acc0 +%= mix16(input[16 * i ..], secret[16 * i ..], seed);
+            }
+
+            var acc1 = mix16(input[input.len - 16 ..], secret[136 - 17 ..], seed);
+            for (8..input.len / 16) |i| {
+                acc1 +%= mix16(input[16 * i ..], secret[(16 * (i - 8)) + 3 ..], seed);
+            }
+
+            acc0 = avalanche(.h3, acc0) +% acc1;
+            return avalanche(.h3, acc0);
+        }
+    }
+
+    fn hashLarge(seed: u64, input: []const u8) u64 {
+        @setCold(true);
+
+        var state = State.init(seed);
+        std.debug.assert(input.len > 240);
+
+        const input_blocks = input[0 .. ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block)];
+        state.update(std.mem.bytesAsSlice(Block, input_blocks));
+
+        const last_block = input[input.len - @sizeOf(Block) ..][0..@sizeOf(Block)];
+        return state.final(@ptrCast(last_block), input.len);
+    }
+
+    total_len: usize = 0,
+    buffer_size: u32 = 0,
+    state: State,
+    buffer: [256]u8 = undefined,
+
+    pub fn init(seed: u64) XxHash3 {
+        return .{ .state = State.init(seed) };
+    }
+
+    pub fn update(self: *XxHash3, input: anytype) void {
+        validateType(@TypeOf(input));
+
+        self.total_len += input.len;
+        std.debug.assert(self.buffer_size <= self.buffer.len);
+
+        const remaining = self.buffer.len - self.buffer_size;
+        if (input.len <= remaining) {
+            @memcpy(self.buffer[self.buffer_size..][0..input.len], input);
+            self.buffer_size += @intCast(input.len);
+            return;
+        }
+
+        var leftover: []const u8 = input;
+        if (self.buffer_size > 0) {
+            @memcpy(self.buffer[self.buffer_size..][0..remaining], leftover[0..remaining]);
+            leftover = leftover[remaining..];
+
+            self.state.update(std.mem.bytesAsSlice(Block, &self.buffer));
+            self.buffer_size = 0;
+        }
+
+        if (leftover.len > self.buffer.len) {
+            const consume = ((leftover.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
+            self.state.update(std.mem.bytesAsSlice(Block, leftover[0..consume]));
+            leftover = leftover[consume..];
+
+            @memcpy(
+                self.buffer[self.buffer.len - @sizeOf(Block) ..],
+                (leftover.ptr - @sizeOf(Block))[0..@sizeOf(Block)],
+            );
+        }
+
+        @memcpy(self.buffer[0..leftover.len], leftover);
+        self.buffer_size = @intCast(leftover.len);
+    }
+
+    pub fn final(self: *XxHash3) u64 {
+        if (self.total_len <= 240) {
+            return hashSmall(self.state.seed, self.buffer[0..self.total_len], self.state.getSecret());
+        }
+
+        var state_copy = self.state;
+        var last_block: [@sizeOf(Block)]u8 = undefined;
+        std.debug.assert(self.buffer_size <= self.buffer.len);
+
+        const last_block_ptr: *align(1) const Block = if (self.buffer_size >= @sizeOf(Block)) last_blk: {
+            const consume = ((self.buffer_size - 1) / @sizeOf(Block)) * @sizeOf(Block);
+            state_copy.update(std.mem.bytesAsSlice(Block, self.buffer[0..consume]));
+            break :last_blk @ptrCast(&self.buffer[self.buffer_size - @sizeOf(Block)]);
+        } else last_blk: {
+            const leftover = @sizeOf(Block) - self.buffer_size;
+            @memcpy(last_block[0..leftover], self.buffer[self.buffer.len - leftover ..][0..leftover]);
+            @memcpy(last_block[leftover..][0..self.buffer_size], self.buffer[0..self.buffer_size]);
+            break :last_blk @ptrCast(&last_block);
+        };
+
+        return state_copy.final(last_block_ptr, self.total_len);
+    }
+};
+
 const verify = @import("verify.zig");
-
-fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
-    try expectEqual(expected, H.hash(seed, input));
-
-    var hasher = H.init(seed);
-    hasher.update(input);
-    try expectEqual(expected, hasher.final());
-}
 
 test "xxhash.3" {
     const H = XxHash3;
-
-    std.debug.print("\n", .{});
 
     try testExpect(H, 0, "", 0x2d06800538d394c2);
     try testExpect(H, 0, "a", 0xe6c632b61e964e1f);
@@ -897,17 +762,17 @@ test "xxhash.3" {
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x7f58aa2520c681f9);
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x8845e0b1b57330de);
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123123", 0xf031f373d63c5653);
-
     try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890", 0xf1bf601f9d868dce);
 }
 
 test "xxhash3 smhasher" {
     const Test = struct {
         fn do() !void {
-            try expectEqual(verify.smhasher(XxHash3.hash), 0xD677BC30);
+            const result = verify.smhasher(XxHash3.hash);
+            std.debug.assert(result == 0x9a636405);
         }
     };
-    try Test.do();
+    _ = try Test.do();
     @setEvalBranchQuota(75000);
     comptime try Test.do();
 }
@@ -923,9 +788,16 @@ test "xxhash3 iterative api" {
     comptime try Test.do();
 }
 
+fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
+    try expectEqual(expected, H.hash(0, input));
+
+    var hasher = H.init(seed);
+    hasher.update(input);
+    try expectEqual(expected, hasher.final());
+}
+
 test "xxhash64" {
     const H = XxHash64;
-
     try testExpect(H, 0, "", 0xef46db3751d8e999);
     try testExpect(H, 0, "a", 0xd24ec4f1a98c6e5b);
     try testExpect(H, 0, "abc", 0x44bc2cf5ad770999);
