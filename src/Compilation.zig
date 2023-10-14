@@ -2409,7 +2409,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 10;
+pub const link_hash_implementation_version = 11;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2419,7 +2419,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 10);
+    comptime assert(link_hash_implementation_version == 11);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
