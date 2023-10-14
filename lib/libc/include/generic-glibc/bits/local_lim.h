@@ -1,5 +1,5 @@
 /* Minimum guaranteed maximum values for system limits.  Linux version.
-   Copyright (C) 1993-2021 Free Software Foundation, Inc.
+   Copyright (C) 1993-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -73,7 +73,7 @@
 /* We have no predefined limit on the number of threads.  */
 #undef PTHREAD_THREADS_MAX
 
-/* Maximum amount by which a process can descrease its asynchronous I/O
+/* Maximum amount by which a process can decrease its asynchronous I/O
    priority level.  */
 #define AIO_PRIO_DELTA_MAX	20
 

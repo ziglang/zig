@@ -11,7 +11,7 @@
 #define MAXRESOLVSORT		10	/* number of net to sort on */
 
 struct __res_state {
-	int	retrans;		/* retransmition time interval */
+	int	retrans;		/* retransmission time interval */
 	int	retry;			/* number of times to retransmit */
 	unsigned long options;		/* option flags - see below. */
 	int	nscount;		/* number of name servers */

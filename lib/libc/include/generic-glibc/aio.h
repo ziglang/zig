@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -168,7 +168,7 @@ extern int aio_suspend (const struct aiocb *const __list[], int __nent,
 			const struct timespec *__restrict __timeout)
   __nonnull ((1));
 
-/* Force all operations associated with file desriptor described by
+/* Force all operations associated with file descriptor described by
    `aio_fildes' member of AIOCBP.  */
 extern int aio_fsync (int __operation, struct aiocb *__aiocbp)
   __THROW __nonnull ((2));

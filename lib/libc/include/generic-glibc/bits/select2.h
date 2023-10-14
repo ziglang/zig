@@ -1,5 +1,5 @@
 /* Checking macros for select functions.
-   Copyright (C) 2011-2021 Free Software Foundation, Inc.
+   Copyright (C) 2011-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -20,10 +20,8 @@
 # error "Never include <bits/select2.h> directly; use <sys/select.h> instead."
 #endif
 
-/* Helper functions to issue warnings and errors when needed.  */
-extern long int __fdelt_chk (long int __d);
-extern long int __fdelt_warn (long int __d)
-  __warnattr ("bit outside of fd_set selected");
+#include <bits/select-decl.h>
+
 #undef __FD_ELT
 #define	__FD_ELT(d) \
   __extension__								    \

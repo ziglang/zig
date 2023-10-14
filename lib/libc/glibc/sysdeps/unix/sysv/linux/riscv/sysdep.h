@@ -19,7 +19,8 @@
 #ifndef _LINUX_RISCV_SYSDEP_H
 #define _LINUX_RISCV_SYSDEP_H 1
 
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
+#include <sysdeps/unix/sysv/linux/sysdep.h>
+#include <sysdeps/unix/sysdep.h>
 #include <tls.h>
 
 #undef SYS_ify
@@ -102,7 +103,7 @@
 # else
 #  define SYSCALL_ERROR_HANDLER(name)				\
 .Lsyscall_error ## name:					\
-        j       __syscall_error;
+        tail    __syscall_error;
 # endif
 
 /* Performs a system call, not setting errno.  */
@@ -120,7 +121,7 @@
 # undef ret_NOERRNO
 # define ret_NOERRNO ret
 
-/* Perfroms a system call, returning the error code.  */
+/* Performs a system call, returning the error code.  */
 # undef PSEUDO_ERRVAL
 # define PSEUDO_ERRVAL(name, syscall_name, args) 	\
   PSEUDO_NOERRNO (name, syscall_name, args)		\
@@ -150,6 +151,7 @@
 
 /* RV32 does not support the gettime VDSO syscalls.  */
 # endif
+# define HAVE_CLONE3_WRAPPER		1
 
 /* List of system calls which are supported as vsyscalls (for RV32 and
    RV64).  */
@@ -356,9 +358,5 @@
 extern long int __syscall_error (long int neg_errno);
 
 #endif /* ! __ASSEMBLER__ */
-
-/* Pointer mangling is not supported.  */
-#define PTR_MANGLE(var) (void) (var)
-#define PTR_DEMANGLE(var) (void) (var)
 
 #endif /* linux/riscv/sysdep.h */
