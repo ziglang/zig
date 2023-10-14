@@ -1172,3 +1172,51 @@ test "pointer to struct literal with runtime field is constant" {
     const ptr = &S{ .data = runtime_zero };
     try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
 }
+
+test "integer compare" {
+    const S = struct {
+        fn doTheTestSigned(comptime T: type) !void {
+            var z: T = 0;
+            var p: T = 123;
+            var n: T = -123;
+            try expect(z == z and z != p and z != n);
+            try expect(p == p and p != n and n == n);
+            try expect(z > n and z < p and z >= n and z <= p);
+            try expect(!(z < n or z > p or z <= n or z >= p or z > z or z < z));
+            try expect(p > n and n < p and p >= n and n <= p and p >= p and p <= p and n >= n and n <= n);
+            try expect(!(p < n or n > p or p <= n or n >= p or p > p or p < p or n > n or n < n));
+            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p and 0 != n);
+            try expect(z > -123 and p > -123 and !(n > 123));
+            try expect(z < 123 and !(p < 123) and n < 123);
+            try expect(-123 <= z and -123 <= p and -123 <= n);
+            try expect(123 >= z and 123 >= p and 123 >= n);
+            try expect(!(0 != z or 123 != p or -123 != n));
+            try expect(!(z > 0 or -123 > p or 123 < n));
+        }
+        fn doTheTestUnsigned(comptime T: type) !void {
+            var z: T = 0;
+            var p: T = 123;
+            try expect(z == z and z != p);
+            try expect(p == p);
+            try expect(z < p and z <= p);
+            try expect(!(z > p or z >= p or z > z or z < z));
+            try expect(p >= p and p <= p);
+            try expect(!(p > p or p < p));
+            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p);
+            try expect(z > -123 and p > -123);
+            try expect(z < 123 and !(p < 123));
+            try expect(-123 <= z and -123 <= p);
+            try expect(123 >= z and 123 >= p);
+            try expect(!(0 != z or 123 != p));
+            try expect(!(z > 0 or -123 > p));
+        }
+    };
+    inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
+        try S.doTheTestUnsigned(T);
+        try comptime S.doTheTestUnsigned(T);
+    }
+    inline for (.{ i8, i16, i32, i64, isize, i10, i20, i30, i60 }) |T| {
+        try S.doTheTestSigned(T);
+        try comptime S.doTheTestSigned(T);
+    }
+}
