@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/16965
         return;
     }

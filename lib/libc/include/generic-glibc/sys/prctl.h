@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -42,7 +42,7 @@ __BEGIN_DECLS
 extern int prctl (int __option, ...) __THROW;
 #else
 # ifdef __REDIRECT
-extern int __REDIRECT (prctl, (int __option, ...), __prctl_time64) __THROW;
+extern int __REDIRECT_NTH (prctl, (int __option, ...), __prctl_time64);
 # else
 extern int __prctl_time64 (int __option,d ...) __THROW;
 #  define ioctl __prctl_time64

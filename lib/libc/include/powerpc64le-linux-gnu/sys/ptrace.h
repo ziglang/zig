@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/PowerPC version.
-   Copyright (C) 2001-2021 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,6 +36,7 @@ __BEGIN_DECLS
 # undef PTRACE_GETREGS
 # undef PTRACE_GETREGS64
 # undef PTRACE_GETREGSET
+# undef PTRACE_GET_RSEQ_CONFIGURATION
 # undef PTRACE_GETSIGINFO
 # undef PTRACE_GETSIGMASK
 # undef PTRACE_GET_SYSCALL_INFO
@@ -260,8 +261,12 @@ enum __ptrace_request
 #define PTRACE_SECCOMP_GET_METADATA PTRACE_SECCOMP_GET_METADATA
 
   /* Get information about system call.  */
-  PTRACE_GET_SYSCALL_INFO = 0x420e
+  PTRACE_GET_SYSCALL_INFO = 0x420e,
 #define PTRACE_GET_SYSCALL_INFO PTRACE_GET_SYSCALL_INFO
+
+  /* Get rseq configuration information.  */
+  PTRACE_GET_RSEQ_CONFIGURATION = 0x420f
+#define PTRACE_GET_RSEQ_CONFIGURATION PTRACE_GET_RSEQ_CONFIGURATION
 };
 
 

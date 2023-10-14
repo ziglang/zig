@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -43,7 +43,7 @@
 #ifdef __ASSEMBLER__
 
 /* In microblaze ABI function call arguments are passed in registers
-   r5...r10. The return value is stored in r3 (or r3:r4 regiters pair).
+   r5...r10. The return value is stored in r3 (or r3:r4 register pair).
    Linux syscall uses the same convention with the addition that the
    syscall number is passed in r12. To enter the kernel "brki r14,8"
    instruction is used.
@@ -58,7 +58,7 @@
    a large offset.  Therefore we must not anymore test for < 0, but test
    for a real error by making sure the value in %d0 is a real error
    number.  Linus said he will make sure the no syscall returns a value
-   in -1 .. -4095 as a valid result so we can savely test with -4095.  */
+   in -1 .. -4095 as a valid result so we can safely test with -4095.  */
 
 /* We don't want the label for the error handler to be visible in the symbol
    table when we define it here.  */
@@ -303,12 +303,6 @@ SYSCALL_ERROR_LABEL_DCL:                            \
       : SYSCALL_CLOBBERS_6 ); __ret;                                          \
   })
 
-
-/* Pointer mangling is not yet supported for Microblaze.  */
-# define PTR_MANGLE(var) (void) (var)
-# define PTR_DEMANGLE(var) (void) (var)
-
-# define SINGLE_THREAD_BY_GLOBAL	1
 
 #undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 #define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1

@@ -1,7 +1,5 @@
-/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
-   ARM changes by Philip Blundell, <pjb27@cam.ac.uk>, May 1997.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -409,8 +407,6 @@ __local_syscall_error:						\
 #undef INTERNAL_SYSCALL_NCS
 #define INTERNAL_SYSCALL_NCS(number, nr, args...)              \
   INTERNAL_SYSCALL_RAW (number, nr, args)
-
-#define SINGLE_THREAD_BY_GLOBAL	1
 
 #endif	/* __ASSEMBLER__ */
 

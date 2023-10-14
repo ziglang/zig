@@ -1,5 +1,5 @@
 /* Assembler macros for ARC.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -20,7 +20,9 @@
 #define _LINUX_ARC_SYSDEP_H 1
 
 #include <sysdeps/arc/sysdep.h>
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
+#include <bits/wordsize.h>
+#include <sysdeps/unix/sysdep.h>
+#include <sysdeps/unix/sysv/linux/sysdep.h>
 
 /* "workarounds" for generic code needing to handle 64-bit time_t.  */
 
@@ -132,14 +134,14 @@ L (call_syscall_err):			ASM_LINE_SEP	\
 
 #else  /* !__ASSEMBLER__ */
 
-# define SINGLE_THREAD_BY_GLOBAL		1
-
 # if IS_IN (libc)
 extern long int __syscall_error (long int);
 hidden_proto (__syscall_error)
 # endif
 
 # define ARC_TRAP_INSN	"trap_s 0	\n\t"
+
+# define HAVE_CLONE3_WRAPPER	1
 
 # undef INTERNAL_SYSCALL_NCS
 # define INTERNAL_SYSCALL_NCS(number, nr_args, args...)	\
@@ -180,11 +182,11 @@ hidden_proto (__syscall_error)
   __ret = (long int) (arg1);					\
   LOAD_ARGS_0 (nm, arg1)
 
-/* Note that the use of _tmpX might look superflous, however it is needed
+/* Note that the use of _tmpX might look superfluous, however it is needed
    to ensure that register variables are not clobbered if arg happens to be
    a function call itself. e.g. sched_setaffinity() calling getpid() for arg2
    Also this specific order of recursive calling is important to segregate
-   the tmp args evaluation (function call case described above) and assigment
+   the tmp args evaluation (function call case described above) and assignment
    of register variables.  */
 
 # define LOAD_ARGS_2(nm, arg1, arg2)			\
@@ -216,10 +218,6 @@ hidden_proto (__syscall_error)
   long int _tmp7 = (int) (arg7);				\
   LOAD_ARGS_6 (nm, arg1, arg2, arg3, arg4, arg5, arg6)	\
   register long int _arg7 __asm__ ("r6") = _tmp7;
-
-/* Pointer mangling not yet supported.  */
-# define PTR_MANGLE(var) (void) (var)
-# define PTR_DEMANGLE(var) (void) (var)
 
 # undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 # define HAVE_INTERNAL_BRK_ADDR_SYMBOL  1

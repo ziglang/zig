@@ -1,5 +1,5 @@
 /* Syscall definitions, Linux s390 version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -21,32 +21,6 @@
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
 
-#undef INTERNAL_SYSCALL_DIRECT
-#define INTERNAL_SYSCALL_DIRECT(name, nr, args...)			      \
-  ({									      \
-    DECLARGS_##nr(args)							      \
-    register long int _ret __asm__("2");				      \
-    __asm__ __volatile__ (						      \
-			  "svc    %b1\n\t"				      \
-			  : "=d" (_ret)					      \
-			  : "i" (__NR_##name) ASMFMT_##nr		      \
-			  : "memory" );					      \
-    _ret; })
-
-#undef INTERNAL_SYSCALL_SVC0
-#define INTERNAL_SYSCALL_SVC0(name, nr, args...)			      \
-  ({									      \
-    DECLARGS_##nr(args)							      \
-    register unsigned long int _nr __asm__("1") =			      \
-      (unsigned long int)(__NR_##name);					      \
-    register long int _ret __asm__("2");				      \
-    __asm__ __volatile__ (						      \
-			  "svc    0\n\t"				      \
-			  : "=d" (_ret)					      \
-			  : "d" (_nr) ASMFMT_##nr			      \
-			  : "memory" );					      \
-    _ret; })
-
 #undef INTERNAL_SYSCALL_NCS
 #define INTERNAL_SYSCALL_NCS(no, nr, args...)				      \
   ({									      \
@@ -61,10 +35,8 @@
     _ret; })
 
 #undef INTERNAL_SYSCALL
-#define INTERNAL_SYSCALL(name, nr, args...)				      \
-  (((__NR_##name) < 256)						      \
-   ? INTERNAL_SYSCALL_DIRECT(name, nr, args)				      \
-   : INTERNAL_SYSCALL_SVC0(name, nr, args))
+#define INTERNAL_SYSCALL(name, nr, args...)				\
+  INTERNAL_SYSCALL_NCS(__NR_##name, nr, args)
 
 #define DECLARGS_0()
 #define DECLARGS_1(arg1) \
@@ -93,9 +65,6 @@
 #define ASMFMT_5 , "0" (gpr2), "d" (gpr3), "d" (gpr4), "d" (gpr5), "d" (gpr6)
 #define ASMFMT_6 , "0" (gpr2), "d" (gpr3), "d" (gpr4), "d" (gpr5), "d" (gpr6), "d" (gpr7)
 
-#define SINGLE_THREAD_BY_GLOBAL		1
-
-
 #define VDSO_NAME  "LINUX_2.6.29"
 #define VDSO_HASH  123718585
 
@@ -110,4 +79,5 @@
 #define HAVE_GETTIMEOFDAY_VSYSCALL	"__kernel_gettimeofday"
 #define HAVE_GETCPU_VSYSCALL		"__kernel_getcpu"
 
+#define HAVE_CLONE3_WRAPPER		1
 #endif

@@ -87,7 +87,7 @@
 /*
  * Resolver configuration file.
  * Normally not present, but may contain the address of the
- * inital name server(s) to query and the domain search list.
+ * initial name server(s) to query and the domain search list.
  */
 
 #ifndef _PATH_RESCONF
@@ -132,6 +132,7 @@ struct res_sym {
 					   as a TLD.  */
 #define RES_NORELOAD    0x02000000 /* No automatic configuration reload.  */
 #define RES_TRUSTAD     0x04000000 /* Request AD bit, keep it in responses.  */
+#define RES_NOAAAA      0x08000000 /* Suppress AAAA queries.  */
 
 #define RES_DEFAULT	(RES_RECURSE|RES_DEFNAMES|RES_DNSRCH)
 

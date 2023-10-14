@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -119,7 +119,7 @@ struct sg_scsi_id {
 /* Used by SG_GET_REQUEST_TABLE ioctl().  */
 typedef struct sg_req_info {
     char req_state;     /* 0 -> not used, 1 -> written, 2 -> ready to read */
-    char orphan;        /* 0 -> normal request, 1 -> from interruped SG_IO */
+    char orphan;        /* 0 -> normal request, 1 -> from interrupted SG_IO */
     char sg_io_owned;   /* 0 -> complete with read(), 1 -> owned by SG_IO */
     char problem;       /* 0 -> no problem detected, 1 -> error to report */
     int pack_id;        /* pack_id associated with request */

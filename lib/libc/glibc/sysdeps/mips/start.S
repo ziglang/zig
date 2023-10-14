@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF Mips ABI.
-   Copyright (C) 1995-2021 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -60,7 +60,7 @@
 		...
 					NULL
    ra ($31)	The return address register is set to zero so that programs
-		that search backword through stack frames recognize the last
+		that search backward through stack frames recognize the last
 		stack frame.
 */
 

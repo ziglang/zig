@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 #define __GLIBC_INTERNAL_STARTING_HEADER_IMPLEMENTATION
 #include <bits/libc-header-start.h>
 
-/* Get the architecture dependend definitions.  The following definitions
+/* Get the architecture dependent definitions.  The following definitions
    are expected to be done:
 
    fenv_t	type for object representing an entire floating-point
