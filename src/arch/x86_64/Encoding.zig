@@ -260,7 +260,7 @@ pub const Mnemonic = enum {
     ud2,
     xadd, xchg, xor,
     // X87
-    fisttp, fld,
+    fabs, fchs, ffree, fisttp, fld, fst, fstp,
     // MMX
     movd, movq,
     packssdw, packsswb, packuswb,
@@ -316,6 +316,8 @@ pub const Mnemonic = enum {
     xorpd,
     // SSE3
     movddup, movshdup, movsldup,
+    // SSSE3
+    pabsb, pabsd, pabsw,
     // SSE4.1
     blendpd, blendps, blendvpd, blendvps,
     extractps,
@@ -353,6 +355,7 @@ pub const Mnemonic = enum {
     vmovupd, vmovups,
     vmulpd, vmulps, vmulsd, vmulss,
     vorpd, vorps,
+    vpabsb, vpabsd, vpabsw,
     vpackssdw, vpacksswb, vpackusdw, vpackuswb,
     vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
     vpand, vpandn,
@@ -750,6 +753,7 @@ pub const Feature = enum {
     sse2,
     sse3,
     sse4_1,
+    ssse3,
     x87,
 };
 
