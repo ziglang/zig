@@ -123,6 +123,12 @@ test "@min/max for floats" {
             try expectEqual(x, @min(y, x));
             try expectEqual(y, @max(x, y));
             try expectEqual(y, @max(y, x));
+
+            if (T != comptime_float) {
+                var nan: T = std.math.nan(T);
+                try expectEqual(y, @max(nan, y));
+                try expectEqual(y, @max(y, nan));
+            }
         }
     };
 
