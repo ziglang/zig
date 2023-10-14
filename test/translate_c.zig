@@ -4150,4 +4150,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ,
         \\pub export var struct_foo: [*c]const u8 = "hello world";
     });
+
+    cases.add("unsupport declare statement at the last of compound statement which belonging to a statement expr",
+        \\void somefunc(void) {
+        \\  int y;
+        \\  (void)({y=1; _Static_assert(1);});
+        \\}
+    , &[_][]const u8{
+        \\pub export fn somefunc() void {
+        \\    var y: c_int = undefined;
+        \\    _ = blk: {
+        \\        y = 1;
+        \\    };
+        \\}
+    });
 }
