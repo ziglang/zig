@@ -2526,6 +2526,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.tsan);
     man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
     man.hash.add(comp.bin_file.options.linker_optimization);
+    man.hash.add(comp.bin_file.options.allow_undefined_version);
+
 
     // WASM specific stuff
     man.hash.add(comp.bin_file.options.import_memory);
