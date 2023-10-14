@@ -161,6 +161,7 @@ pub const CRTFile = enum {
     libc_nonshared_a,
 };
 
+// Build the glibc standard library C Runtime files.
 pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -269,49 +270,35 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 start_o, abi_note_o,
             });
         },
+        // libc_nonshared.a is a mechanism for glibc to statically link stubs into executables that
+        // will be dynamically linked to glibc.  These stubs are generally meant to provide forward
+        // compatibility for APIs that do not fit in the existing symbol versioning scheme.  Look
+        // for Makefiles in glibc that put routines into the "static-only-routines".  The implementation
+        // rountines meant for libc_nonshared.a should generally be simple stubs that forward the call
+        // into a versioned, private API in the (future) dynamically linked glibc.
         .libc_nonshared_a => {
             const s = path.sep_str;
-            const linux_prefix = lib_libc_glibc ++
-                "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
-            const Flavor = enum { nonshared, shared };
             const Dep = struct {
                 path: []const u8,
-                flavor: Flavor = .shared,
                 exclude: bool = false,
             };
             const deps = [_]Dep{
                 .{
                     .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
-                    .flavor = .nonshared,
                 },
                 .{
                     .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
-                    .flavor = .nonshared,
                 },
                 .{
                     .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
-                    .flavor = .nonshared,
                 },
                 .{
                     .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
-                    .flavor = .nonshared,
                 },
-                .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
                 .{
                     .path = lib_libc_glibc ++ "csu" ++ s ++ "elf-init-2.33.c",
                     .exclude = !start_old_init_fini,
                 },
-                .{ .path = linux_prefix ++ "stat.c" },
-                .{ .path = linux_prefix ++ "fstat.c" },
-                .{ .path = linux_prefix ++ "lstat.c" },
-                .{ .path = linux_prefix ++ "stat64.c" },
-                .{ .path = linux_prefix ++ "fstat64.c" },
-                .{ .path = linux_prefix ++ "lstat64.c" },
-                .{ .path = linux_prefix ++ "fstatat.c" },
-                .{ .path = linux_prefix ++ "fstatat64.c" },
-                .{ .path = linux_prefix ++ "mknodat.c" },
-                .{ .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c" },
-                .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
             var files_buf: [deps.len]Compilation.CSourceFile = undefined;
@@ -342,23 +329,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     try args.append("-DCAN_USE_REGISTER_ASM_EBP");
                 }
 
-                const shared_def = switch (dep.flavor) {
-                    .nonshared => "-DLIBC_NONSHARED=1",
-                    // glibc passes `-DSHARED` for these. However, empirically if
-                    // we do that here we will see undefined symbols such as `__GI_memcpy`.
-                    // So we pass the same thing as for nonshared.
-                    .shared => "-DLIBC_NONSHARED=1",
-                };
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
                     "-include",
-                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ s ++ "libc-modules.h"),
                     "-DMODULE_NAME=libc",
                     "-Wno-nonportable-include-path",
                     "-include",
-                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ s ++ "libc-symbols.h"),
                     "-DPIC",
-                    shared_def,
+                    "-DLIBC_NONSHARED=1",
                     "-DTOP_NAMESPACE=glibc",
                 });
                 files_buf[files_index] = .{
@@ -1038,8 +1018,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
         .dir_path = try comp.global_cache_directory.join(comp.gpa, &.{ "o", &digest }),
     };
 }
-
-// zig fmt: on
 
 fn buildSharedLib(
     comp: *Compilation,
