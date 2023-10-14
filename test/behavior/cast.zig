@@ -2454,6 +2454,16 @@ test "numeric coercions with undefined" {
     try expectEqual(@as(f32, 42.0), to);
 }
 
+test "15-bit int to float" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var a: u15 = 42;
+    var b: f32 = @floatFromInt(a);
+    try expect(b == 42.0);
+}
+
 test "@as does not corrupt values with incompatible representations" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

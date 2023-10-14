@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/x86 version.
-   Copyright (C) 1996-2021 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -190,8 +190,12 @@ enum __ptrace_request
 #define PTRACE_SECCOMP_GET_METADATA PTRACE_SECCOMP_GET_METADATA
 
   /* Get information about system call.  */
-  PTRACE_GET_SYSCALL_INFO = 0x420e
+  PTRACE_GET_SYSCALL_INFO = 0x420e,
 #define PTRACE_GET_SYSCALL_INFO PTRACE_GET_SYSCALL_INFO
+
+  /* Get rseq configuration information.  */
+  PTRACE_GET_RSEQ_CONFIGURATION = 0x420f
+#define PTRACE_GET_RSEQ_CONFIGURATION PTRACE_GET_RSEQ_CONFIGURATION
 };
 
 

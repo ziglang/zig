@@ -1,6 +1,7 @@
 #ifndef _STDLIB_H
 
 #ifndef _ISOMAC
+# include <stdbool.h>
 # include <stddef.h>
 #endif
 
@@ -34,6 +35,45 @@ libc_hidden_proto (__strtoull_l)
 libc_hidden_proto (__strtod_l)
 libc_hidden_proto (__strtof_l)
 libc_hidden_proto (__strtold_l)
+
+extern __typeof (strtol) __isoc23_strtol __attribute_copy__ (strtol);
+extern __typeof (strtoul) __isoc23_strtoul __attribute_copy__ (strtoul);
+extern __typeof (strtoll) __isoc23_strtoll __attribute_copy__ (strtoll);
+extern __typeof (strtoull) __isoc23_strtoull __attribute_copy__ (strtoull);
+extern __typeof (strtol_l) __isoc23_strtol_l __attribute_copy__ (strtol_l);
+extern __typeof (strtoul_l) __isoc23_strtoul_l __attribute_copy__ (strtoul_l);
+extern __typeof (strtoll_l) __isoc23_strtoll_l __attribute_copy__ (strtoll_l);
+extern __typeof (strtoull_l) __isoc23_strtoull_l __attribute_copy__ (strtoull_l);
+libc_hidden_proto (__isoc23_strtol)
+libc_hidden_proto (__isoc23_strtoul)
+libc_hidden_proto (__isoc23_strtoll)
+libc_hidden_proto (__isoc23_strtoull)
+libc_hidden_proto (__isoc23_strtol_l)
+libc_hidden_proto (__isoc23_strtoul_l)
+libc_hidden_proto (__isoc23_strtoll_l)
+libc_hidden_proto (__isoc23_strtoull_l)
+
+#if __GLIBC_USE (C2X_STRTOL)
+/* Redirect internal uses of these functions to the C2X versions; the
+   redirection in the installed header does not work with
+   libc_hidden_proto.  */
+# undef strtol
+# define strtol __isoc23_strtol
+# undef strtoul
+# define strtoul __isoc23_strtoul
+# undef strtoll
+# define strtoll __isoc23_strtoll
+# undef strtoull
+# define strtoull __isoc23_strtoull
+# undef strtol_l
+# define strtol_l __isoc23_strtol_l
+# undef strtoul_l
+# define strtoul_l __isoc23_strtoul_l
+# undef strtoll_l
+# define strtoll_l __isoc23_strtoll_l
+# undef strtoull_l
+# define strtoull_l __isoc23_strtoull_l
+#endif
 
 libc_hidden_proto (exit)
 libc_hidden_proto (abort)
@@ -144,6 +184,15 @@ libc_hidden_proto (__ptsname_r)
 libc_hidden_proto (grantpt)
 libc_hidden_proto (unlockpt)
 
+__typeof (arc4random) __arc4random;
+libc_hidden_proto (__arc4random);
+__typeof (arc4random_buf) __arc4random_buf;
+libc_hidden_proto (__arc4random_buf);
+__typeof (arc4random_uniform) __arc4random_uniform;
+libc_hidden_proto (__arc4random_uniform);
+extern void __arc4random_buf_internal (void *buffer, size_t len)
+     attribute_hidden;
+
 extern double __strtod_internal (const char *__restrict __nptr,
 				 char **__restrict __endptr, int __group)
      __THROW __nonnull ((1)) __wur;
@@ -193,23 +242,25 @@ extern long double ____strtold_l_internal (const char *__restrict __nptr,
 extern long int ____strtol_l_internal (const char *__restrict __nptr,
 				       char **__restrict __endptr,
 				       int __base, int __group,
-				       locale_t __loc);
+				       bool __bin_cst, locale_t __loc);
 extern unsigned long int ____strtoul_l_internal (const char *
 						 __restrict __nptr,
 						 char **__restrict __endptr,
 						 int __base, int __group,
+						 bool __bin_cst,
 						 locale_t __loc);
 __extension__
 extern long long int ____strtoll_l_internal (const char *__restrict __nptr,
 					     char **__restrict __endptr,
 					     int __base, int __group,
-					     locale_t __loc);
+					     bool __bin_cst, locale_t __loc);
 __extension__
 extern unsigned long long int ____strtoull_l_internal (const char *
 						       __restrict __nptr,
 						       char **
 						       __restrict __endptr,
 						       int __base, int __group,
+						       bool __bin_cst,
 						       locale_t __loc);
 
 libc_hidden_proto (____strtof_l_internal)

@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -369,7 +369,7 @@ extern void closefrom (int __lowfd) __THROW;
    This function is a cancellation point and therefore not marked with
    __THROW.  */
 extern ssize_t read (int __fd, void *__buf, size_t __nbytes) __wur
-    __attr_access ((__write_only__, 2, 3));
+    __fortified_attr_access (__write_only__, 2, 3);
 
 /* Write N bytes of BUF to FD.  Return the number written, or -1.
 
@@ -388,7 +388,7 @@ extern ssize_t write (int __fd, const void *__buf, size_t __n) __wur
    __THROW.  */
 extern ssize_t pread (int __fd, void *__buf, size_t __nbytes,
 		      __off_t __offset) __wur
-    __attr_access ((__write_only__, 2, 3));
+    __fortified_attr_access (__write_only__, 2, 3);
 
 /* Write N bytes of BUF to FD at the given position OFFSET without
    changing the file pointer.  Return the number written, or -1.
@@ -404,7 +404,7 @@ extern ssize_t pwrite (int __fd, const void *__buf, size_t __n,
 extern ssize_t __REDIRECT (pread, (int __fd, void *__buf, size_t __nbytes,
 				   __off64_t __offset),
 			   pread64) __wur
-    __attr_access ((__write_only__, 2, 3));
+    __fortified_attr_access (__write_only__, 2, 3);
 extern ssize_t __REDIRECT (pwrite, (int __fd, const void *__buf,
 				    size_t __nbytes, __off64_t __offset),
 			   pwrite64) __wur
@@ -421,7 +421,7 @@ extern ssize_t __REDIRECT (pwrite, (int __fd, const void *__buf,
    or 0 for EOF.  */
 extern ssize_t pread64 (int __fd, void *__buf, size_t __nbytes,
 			__off64_t __offset) __wur
-    __attr_access ((__write_only__, 2, 3));
+    __fortified_attr_access (__write_only__, 2, 3);
 /* Write N bytes of BUF to FD at the given position OFFSET without
    changing the file pointer.  Return the number written, or -1.  */
 extern ssize_t pwrite64 (int __fd, const void *__buf, size_t __n,
@@ -528,8 +528,7 @@ extern int fchdir (int __fd) __THROW __wur;
    an array is allocated with `malloc'; the array is SIZE
    bytes long, unless SIZE == 0, in which case it is as
    big as necessary.  */
-extern char *getcwd (char *__buf, size_t __size) __THROW __wur
-    __attr_access ((__write_only__, 1, 2));
+extern char *getcwd (char *__buf, size_t __size) __THROW __wur;
 
 #ifdef	__USE_GNU
 /* Return a malloc'd string containing the current directory name.
@@ -643,7 +642,7 @@ extern long int sysconf (int __name) __THROW;
 #ifdef	__USE_POSIX2
 /* Get the value of the string-valued system variable NAME.  */
 extern size_t confstr (int __name, char *__buf, size_t __len) __THROW
-    __attr_access ((__write_only__, 2, 3));
+    __fortified_attr_access (__write_only__, 2, 3);
 #endif
 
 
@@ -710,7 +709,7 @@ extern __gid_t getegid (void) __THROW;
    the calling process is in.  Otherwise, fill in the group IDs
    of its supplementary groups in LIST and return the number written.  */
 extern int getgroups (int __size, __gid_t __list[]) __THROW __wur
-    __attr_access ((__write_only__, 2, 1));
+    __fortified_attr_access (__write_only__, 2, 1);
 #ifdef	__USE_GNU
 /* Return nonzero iff the calling process is in group GID.  */
 extern int group_member (__gid_t __gid) __THROW;
@@ -802,7 +801,8 @@ extern char *ttyname (int __fd) __THROW;
 /* Store at most BUFLEN characters of the pathname of the terminal FD is
    open on in BUF.  Return 0 on success, otherwise an error number.  */
 extern int ttyname_r (int __fd, char *__buf, size_t __buflen)
-     __THROW __nonnull ((2)) __wur __attr_access ((__write_only__, 2, 3));
+     __THROW __nonnull ((2)) __wur
+     __fortified_attr_access (__write_only__, 2, 3);
 
 /* Return 1 if FD is a valid descriptor associated
    with a terminal, zero if not.  */
@@ -837,7 +837,8 @@ extern int symlink (const char *__from, const char *__to)
    Returns the number of characters read, or -1 for errors.  */
 extern ssize_t readlink (const char *__restrict __path,
 			 char *__restrict __buf, size_t __len)
-     __THROW __nonnull ((1, 2)) __wur __attr_access ((__write_only__, 2, 3));
+     __THROW __nonnull ((1, 2)) __wur
+     __fortified_attr_access (__write_only__, 2, 3);
 
 #endif /* Use POSIX.1-2001.  */
 
@@ -849,7 +850,8 @@ extern int symlinkat (const char *__from, int __tofd,
 /* Like readlink but a relative PATH is interpreted relative to FD.  */
 extern ssize_t readlinkat (int __fd, const char *__restrict __path,
 			   char *__restrict __buf, size_t __len)
-     __THROW __nonnull ((2, 3)) __wur __attr_access ((__write_only__, 3, 4));
+     __THROW __nonnull ((2, 3)) __wur
+     __fortified_attr_access (__write_only__, 3, 4);
 #endif
 
 /* Remove the link NAME.  */
@@ -885,7 +887,7 @@ extern char *getlogin (void);
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int getlogin_r (char *__name, size_t __name_len) __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+    __fortified_attr_access (__write_only__, 1, 2);
 #endif
 
 #ifdef	__USE_MISC
@@ -907,7 +909,7 @@ extern int setlogin (const char *__name) __THROW __nonnull ((1));
    The result is null-terminated if LEN is large enough for the full
    name and the terminator.  */
 extern int gethostname (char *__name, size_t __len) __THROW __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+    __fortified_attr_access (__write_only__, 1, 2);
 #endif
 
 
@@ -926,7 +928,8 @@ extern int sethostid (long int __id) __THROW __wur;
    Called just like `gethostname' and `sethostname'.
    The NIS domain name is usually the empty string when not using NIS.  */
 extern int getdomainname (char *__name, size_t __len)
-     __THROW __nonnull ((1)) __wur __attr_access ((__write_only__, 1, 2));
+     __THROW __nonnull ((1)) __wur
+     __fortified_attr_access (__write_only__, 1, 2);
 extern int setdomainname (const char *__name, size_t __len)
      __THROW __nonnull ((1)) __wur __attr_access ((__read_only__, 1, 2));
 
@@ -1194,6 +1197,16 @@ extern int pthread_atfork (void (*__prepare) (void),
    success or -1 on error.  */
 int getentropy (void *__buffer, size_t __length) __wur
     __attr_access ((__write_only__, 1, 2));
+#endif
+
+#ifdef __USE_GNU
+/* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
+   are define by the CLOSE_RANGE prefix.  This function behaves like close
+   on the range and gaps where the file descriptor is invalid or errors
+   encountered while closing file descriptors are ignored.   Returns 0 on
+   successor or -1 for failure (and sets errno accordingly).  */
+extern int close_range (unsigned int __fd, unsigned int __max_fd,
+			int __flags) __THROW;
 #endif
 
 /* Define some macros helping to catch buffer overflows.  */

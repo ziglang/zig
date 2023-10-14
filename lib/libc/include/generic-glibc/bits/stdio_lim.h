@@ -1,4 +1,5 @@
-/* Copyright (C) 1994-2021 Free Software Foundation, Inc.
+/* System specific stdio.h definitions.  Linux version.
+   Copyright (C) 2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,18 +23,6 @@
 # error "Never include <bits/stdio_lim.h> directly; use <stdio.h> instead."
 #endif
 
-#define L_tmpnam 20
-#define TMP_MAX 238328
 #define FILENAME_MAX 4096
-
-#ifdef __USE_POSIX
-# define L_ctermid 9
-# if !defined __USE_XOPEN2K || defined __USE_GNU
-#  define L_cuserid 9
-# endif
-#endif
-
-#undef  FOPEN_MAX
-#define FOPEN_MAX 16
 
 #endif /* bits/stdio_lim.h */

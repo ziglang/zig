@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -128,6 +128,7 @@
 #define IP_MSFILTER			41
 #define IP_MULTICAST_ALL		49
 #define IP_UNICAST_IF			50
+#define IP_LOCAL_PORT_RANGE		51
 
 /* To select the IP level.  */
 #define SOL_IP	0
@@ -144,14 +145,6 @@ struct ip_opts
   {
     struct in_addr ip_dst;	/* First hop; zero without source route.  */
     char ip_opts[40];		/* Actually variable in size.  */
-  };
-
-/* Like `struct ip_mreq' but including interface specification by index.  */
-struct ip_mreqn
-  {
-    struct in_addr imr_multiaddr;	/* IP multicast address of group */
-    struct in_addr imr_address;		/* local IP address of interface */
-    int	imr_ifindex;			/* Interface index */
   };
 
 /* Structure used for IP_PKTINFO.  */

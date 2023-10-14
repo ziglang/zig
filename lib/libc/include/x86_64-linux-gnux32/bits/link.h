@@ -1,4 +1,4 @@
-/* Copyright (C) 2004-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2004-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -38,8 +38,8 @@ typedef struct La_i86_retval
   uint32_t lrv_edx;
   long double lrv_st0;
   long double lrv_st1;
-  uint64_t lrv_bnd0;
-  uint64_t lrv_bnd1;
+  uint64_t __glibc_unused1;
+  uint64_t __glibc_unused2;
 } La_i86_retval;
 
 
@@ -96,7 +96,7 @@ typedef struct La_x86_64_regs
   La_x86_64_xmm lr_xmm[8];
   La_x86_64_vector lr_vector[8];
 #ifndef __ILP32__
-  __int128_t lr_bnd[4];
+  __int128_t __glibc_unused1[4];
 #endif
 } La_x86_64_regs;
 
@@ -112,8 +112,8 @@ typedef struct La_x86_64_retval
   La_x86_64_vector lrv_vector0;
   La_x86_64_vector lrv_vector1;
 #ifndef __ILP32__
-  __int128_t lrv_bnd0;
-  __int128_t lrv_bnd1;
+  __int128_t __glibc_unused1;
+  __int128_t __glibc_unused2;
 #endif
 } La_x86_64_retval;
 

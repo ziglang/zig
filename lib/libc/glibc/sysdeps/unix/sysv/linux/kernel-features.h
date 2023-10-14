@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 1999-2021 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -79,6 +79,13 @@
 #define __ASSUME_SENDMMSG_SYSCALL	1
 #define __ASSUME_GETSOCKOPT_SYSCALL	1
 #define __ASSUME_SETSOCKOPT_SYSCALL	1
+#define __ASSUME_BIND_SYSCALL		1
+#define __ASSUME_SOCKET_SYSCALL		1
+#define __ASSUME_SOCKETPAIR_SYSCALL	1
+#define __ASSUME_LISTEN_SYSCALL		1
+#define __ASSUME_SHUTDOWN_SYSCALL	1
+#define __ASSUME_GETSOCKNAME_SYSCALL	1
+#define __ASSUME_GETPEERNAME_SYSCALL	1
 
 /* Support for SysV IPC through wired syscalls.  All supported architectures
    either support ipc syscall and/or all the ipc correspondent syscalls.  */
@@ -218,6 +225,31 @@
 # define __ASSUME_FACCESSAT2 1
 #else
 # define __ASSUME_FACCESSAT2 0
+#endif
+
+/* The close_range system call was introduced across all architectures
+   in Linux 5.9.  */
+#if __LINUX_KERNEL_VERSION >= 0x050900
+# define __ASSUME_CLOSE_RANGE 1
+#else
+# define __ASSUME_CLOSE_RANGE 0
+#endif
+
+/* The FUTEX_LOCK_PI2 operation was introduced across all architectures in Linux
+   5.14.  */
+#if __LINUX_KERNEL_VERSION >= 0x050e00
+# define __ASSUME_FUTEX_LOCK_PI2 1
+#else
+# define __ASSUME_FUTEX_LOCK_PI2 0
+#endif
+
+/* The clone3 system call was introduced across on most architectures in
+   Linux 5.3.  Not all ports implements it, so it should be used along
+   HAVE_CLONE3_WRAPPER define.  */
+#if __LINUX_KERNEL_VERSION >= 0x050300
+# define __ASSUME_CLONE3 1
+#else
+# define __ASSUME_CLONE3 0
 #endif
 
 #endif /* kernel-features.h */

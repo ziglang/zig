@@ -1,5 +1,5 @@
 /* Defines for bits in AT_HWCAP.
-   Copyright (C) 2012-2021 Free Software Foundation, Inc.
+   Copyright (C) 2012-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,6 +22,11 @@
 
 /*
  * The following must match the kernels asm/elf.h.
+ * Note: The kernel commit 511ad531afd4090625def4d9aba1f5227bd44b8e
+ * "s390/hwcaps: shorten HWCAP defines" has shortened the prefix of the macros
+ * from "HWCAP_S390_" to "HWCAP_".  For compatibility reasons, we do not
+ * change the prefix in public glibc header file.
+ *
  * Note that these are *not* the same as the STORE FACILITY LIST bits.
  */
 #define HWCAP_S390_ESAN3        1
@@ -48,3 +53,5 @@
 #define HWCAP_S390_DFLT         262144
 #define HWCAP_S390_VXRS_PDE2    524288
 #define HWCAP_S390_NNPA         1048576
+#define HWCAP_S390_PCI_MIO      2097152
+#define HWCAP_S390_SIE          4194304
