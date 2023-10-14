@@ -2340,7 +2340,7 @@ pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSuppor
     try os.sigaction(os.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
+/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
