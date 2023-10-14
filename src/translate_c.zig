@@ -3269,11 +3269,18 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
             else => try block_scope.statements.append(result),
         }
     }
-    const break_node = try Tag.break_val.create(c.arena, .{
-        .label = block_scope.label,
-        .val = try transStmt(c, &block_scope.base, it[0], .used),
-    });
-    try block_scope.statements.append(break_node);
+
+    const last_result = try transStmt(c, &block_scope.base, it[0], .used);
+    switch (last_result.tag()) {
+        .declaration, .empty_block => {},
+        else => {
+            const break_node = try Tag.break_val.create(c.arena, .{
+                .label = block_scope.label,
+                .val = last_result,
+            });
+            try block_scope.statements.append(break_node);
+        },
+    }
     const res = try block_scope.complete(c);
     return maybeSuppressResult(c, used, res);
 }
