@@ -4,6 +4,315 @@ const expectEqual = std.testing.expectEqual;
 
 const rotl = std.math.rotl;
 
+pub const XxHash3 = struct {
+    const Block = @Vector(8, u64);
+    const default_secret: [@sizeOf(Block) * 3]u8 = @bitCast([_]u64{
+        0xbe4ba423396cfeb8, 0x1cad21f72c81017c, 0xdb979083e96dd4de, 0x1f67b3b7a4a44072,
+        0x78e5c0cc4ee679cb, 0x2172ffcc7dd05a82, 0x8e2443f7744608b8, 0x4c263a81e69035e0,
+        0xcb00c391bb52283c, 0xa32e531b8b65d088, 0x4ef90da297486471, 0xd8acdea946ef1938,
+        0x3f349ce33f76faa8, 0x1d4f0bc7c7bbdcf9, 0x3159b4cd4be0518a, 0x647378d9c97e9fc8,
+        0xc3ebd33483acc5ea, 0xeb6313faffa081c5, 0x49daf0b751dd0d17, 0x9e68d429265516d3,
+        0xfca1477d58be162b, 0xce31d07ad1b8f88f, 0x280416958f3acb45, 0x7e404bbbcafbd7af,
+    });
+
+    const primes = [_]u64{
+        0x9E3779B185EBCA87,
+        0xC2B2AE3D27D4EB4F,
+        0x165667B19E3779F9,
+        0x85EBCA77C2B2AE63,
+        0x27D4EB2F165667C5,
+        0x165667919E3779F9,
+        0x9FB21C651E98DF25,
+    };
+
+    inline fn avalanche(mode: union(enum) { h3, h64, rrmxmx: u64 }, x0: u64) u64 {
+        switch (mode) {
+            .h3 => {
+                const x1 = (x0 ^ (x0 >> 37)) *% primes[5];
+                return x1 ^ (x1 >> 32);
+            },
+            .h64 => {
+                const x1 = (x0 ^ (x0 >> 33)) *% primes[1];
+                const x2 = (x1 ^ (x1 >> 29)) *% primes[2];
+                return x2 ^ (x2 >> 32);
+            },
+            .rrmxmx => |len| {
+                const x1 = (x0 ^ rotl(u64, x0, 49) ^ rotl(u64, x0, 24)) *% primes[6];
+                const x2 = (x1 ^ ((x1 >> 35) +% len)) *% primes[6];
+                return x2 ^ (x2 >> 28);
+            },
+        }
+    }
+
+    inline fn fold(a: u64, b: u64) u64 {
+        const wide: [2]u64 = @bitCast(@as(u128, a) *% b);
+        return wide[0] ^ wide[1];
+    }
+
+    inline fn mix16(input: []const u8, secret: []const u8, seed: u64) u64 {
+        const blocks: [4]u64 = @bitCast([_][16]u8{ input[0..16].*, secret[0..16].* });
+        const lo = blocks[0] ^ (blocks[2] +% seed);
+        const hi = blocks[1] ^ (blocks[3] -% seed);
+        return fold(lo, hi);
+    }
+
+    const State = struct {
+        block_count: u32 = 0,
+        seed: u64,
+        custom_secret: [192]u8 = undefined,
+        accumulator: Block = @bitCast([_]u64{
+            primes[1] >> 32,
+            primes[0],
+            primes[1],
+            primes[2],
+            primes[3],
+            primes[3] >> 32,
+            primes[4],
+            primes[0] >> 32,
+        }),
+
+        inline fn init(seed: u64) State {
+            var self = State{ .seed = seed };
+            if (seed != 0) {
+                const mix_seed: u128 = @bitCast([_]u64{ seed, @as(u64, 0) -% seed });
+                const mix_block: Block = @bitCast(@as(@Vector(4, u128), @splat(mix_seed)));
+                for (
+                    std.mem.bytesAsSlice(Block, &self.custom_secret),
+                    std.mem.bytesAsSlice(Block, &default_secret),
+                ) |*dst, src| dst.* = src +% mix_block;
+            }
+            return self;
+        }
+
+        inline fn getSecret(self: *const State) *const [192]u8 {
+            const secret_ptrs = [_]*const [192]u8{ &default_secret, &self.custom_secret };
+            return secret_ptrs[@intFromBool(self.seed != 0)];
+        }
+
+        inline fn round(
+            noalias self: *State,
+            noalias input_block: *align(1) const Block,
+            noalias secret_block: *align(1) const Block,
+        ) void {
+            const keyed = input_block.* ^ secret_block.*;
+            const product = (keyed & @as(Block, @splat(0xffffffff))) *% (keyed >> @splat(32));
+            const swapped = @shuffle(u64, input_block.*, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
+            self.accumulator +%= product +% swapped;
+        }
+
+        fn update(noalias self: *State, input_blocks: []align(1) const Block) void {
+            const blocks_per_scramble = @divExact(1024, @sizeOf(Block));
+            std.debug.assert(self.block_count <= blocks_per_scramble);
+            const secret = self.getSecret();
+
+            var blocks = input_blocks;
+            while (blocks.len > 0) {
+                const blocks_until_scramble = blocks_per_scramble - self.block_count;
+                const scramble = blocks.len >= blocks_until_scramble;
+
+                const round_sizes = [_]usize{ blocks.len, blocks_until_scramble };
+                const round_size: u32 = @intCast(round_sizes[@intFromBool(scramble)]);
+                defer blocks = blocks[round_size..];
+
+                for (
+                    blocks[0..round_size],
+                    std.mem.bytesAsSlice(u64, secret[self.block_count * 8 ..])[0..round_size],
+                ) |*block, *secret_block| {
+                    @prefetch(@as([*]align(1) const Block, @ptrCast(block)) + @sizeOf(Block), .{});
+                    self.round(block, @ptrCast(secret_block));
+                }
+
+                if (scramble) {
+                    self.accumulator ^= self.accumulator >> @splat(47);
+                    self.accumulator ^= @bitCast(secret[secret.len - @sizeOf(Block) .. secret.len].*);
+                    self.accumulator *%= @as(Block, @splat(primes[0] >> 32));
+                    self.block_count = 0;
+                } else {
+                    self.block_count += round_size;
+                    return;
+                }
+            }
+        }
+
+        fn final(noalias self: *State, noalias last_block: *align(1) const Block, len: u64) u64 {
+            const secret = self.getSecret();
+            const last_secret_block = secret[secret.len - @sizeOf(Block) - 7 ..][0..@sizeOf(Block)];
+
+            self.round(last_block, @ptrCast(last_secret_block));
+            self.accumulator ^= @bitCast(secret[11 .. 11 + @sizeOf(Block)].*);
+
+            var result = len *% primes[0];
+            inline for (@as([4][2]u64, @bitCast(self.accumulator))) |pair| {
+                result +%= fold(pair[0], pair[1]);
+            }
+            return avalanche(.h3, result);
+        }
+    };
+
+    pub fn hash(seed: u64, input: anytype) u64 {
+        validateType(@TypeOf(input));
+
+        if (input.len <= 240) {
+            return hashSmall(seed, input, &default_secret);
+        } else {
+            return hashLarge(seed, input);
+        }
+    }
+
+    fn hashSmall(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
+        if (input.len == 0) {
+            const flip: [2]u64 = @bitCast(secret[56..72].*);
+            return avalanche(.h64, seed ^ (flip[0] ^ flip[1]));
+        }
+
+        if (input.len < 4) {
+            const blk: u32 = @bitCast([_]u8{
+                input[input.len - 1],
+                @truncate(input.len),
+                input[0],
+                input[input.len / 2],
+            });
+            const flip: [2]u32 = @bitCast(secret[0..8].*);
+            const keyed = (seed +% (flip[0] ^ flip[1])) ^ blk;
+            return avalanche(.h64, keyed);
+        }
+
+        if (input.len <= 8) {
+            const blk: u64 = @bitCast([_][4]u8{
+                input[input.len - 4 ..][0..4].*,
+                input[0..4].*,
+            });
+            const flip: [2]u64 = @bitCast(secret[8..24].*);
+            const swapped = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
+            const keyed = ((flip[0] ^ flip[1]) -% swapped) ^ blk;
+            return avalanche(.{ .rrmxmx = input.len }, keyed);
+        }
+
+        if (input.len <= 16) {
+            var blk: [2]u64 = @bitCast([_][8]u8{
+                input[0..8].*,
+                input[input.len - 8 ..][0..8].*,
+            });
+            const flip: [4]u64 = @bitCast(secret[24..56].*);
+            blk[0] ^= (flip[0] ^ flip[1]) +% seed;
+            blk[1] ^= (flip[2] ^ flip[3]) -% seed;
+            const keyed = fold(blk[0], blk[1]) +% blk[1] +% @byteSwap(blk[0]) +% input.len;
+            return avalanche(.h3, keyed);
+        }
+
+        if (input.len <= 128) {
+            var acc = primes[0] *% input.len;
+            inline for (0..4) |i| {
+                const s_offset = 96 - (i * 32);
+                const i_offset = 48 - (i * 16);
+                if (input.len > s_offset) {
+                    acc +%= mix16(input[i_offset..], secret[s_offset..], seed);
+                    acc +%= mix16(input[input.len - (i_offset + 16) ..], secret[s_offset + 16 ..], seed);
+                }
+            }
+            return avalanche(.h3, acc);
+        }
+
+        std.debug.assert(input.len <= 240);
+        {
+            var acc0 = primes[0] *% input.len;
+            for (0..8) |i| {
+                acc0 +%= mix16(input[16 * i ..], secret[16 * i ..], seed);
+            }
+
+            var acc1 = mix16(input[input.len - 16 ..], secret[136 - 17 ..], seed);
+            for (8..input.len / 16) |i| {
+                acc1 +%= mix16(input[16 * i ..], secret[(16 * (i - 8)) + 3 ..], seed);
+            }
+
+            acc0 = avalanche(.h3, acc0) +% acc1;
+            return avalanche(.h3, acc0);
+        }
+    }
+
+    fn hashLarge(seed: u64, input: []const u8) u64 {
+        @setCold(true);
+
+        var state = State.init(seed);
+        std.debug.assert(input.len > 240);
+
+        const input_blocks = input[0 .. ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block)];
+        state.update(std.mem.bytesAsSlice(Block, input_blocks));
+
+        const last_block = input[input.len - @sizeOf(Block) ..][0..@sizeOf(Block)];
+        return state.final(@ptrCast(last_block), input.len);
+    }
+
+    total_len: usize = 0,
+    buffer_size: u32 = 0,
+    state: State,
+    buffer: [256]u8 = undefined,
+
+    pub fn init(seed: u64) XxHash3 {
+        return .{ .state = State.init(seed) };
+    }
+
+    pub fn update(self: *XxHash3, input: anytype) void {
+        validateType(@TypeOf(input));
+
+        self.total_len += input.len;
+        std.debug.assert(self.buffer_size <= self.buffer.len);
+
+        const remaining = self.buffer.len - self.buffer_size;
+        if (input.len <= remaining) {
+            @memcpy(self.buffer[self.buffer_size..][0..input.len], input);
+            self.buffer_size += @intCast(input.len);
+            return;
+        }
+
+        var leftover: []const u8 = input;
+        if (self.buffer_size > 0) {
+            @memcpy(self.buffer[self.buffer_size..][0..remaining], leftover[0..remaining]);
+            leftover = leftover[remaining..];
+
+            self.state.update(std.mem.bytesAsSlice(Block, &self.buffer));
+            self.buffer_size = 0;
+        }
+
+        if (leftover.len > self.buffer.len) {
+            const consume = ((leftover.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
+            self.state.update(std.mem.bytesAsSlice(Block, leftover[0..consume]));
+            leftover = leftover[consume..];
+
+            @memcpy(
+                self.buffer[self.buffer.len - @sizeOf(Block) ..],
+                (leftover.ptr - @sizeOf(Block))[0..@sizeOf(Block)],
+            );
+        }
+
+        @memcpy(self.buffer[0..leftover.len], leftover);
+        self.buffer_size = @intCast(leftover.len);
+    }
+
+    pub fn final(self: *XxHash3) u64 {
+        if (self.total_len <= 240) {
+            return hashSmall(self.state.seed, self.buffer[0..self.total_len], self.state.getSecret());
+        }
+
+        var state_copy = self.state;
+        var last_block: [@sizeOf(Block)]u8 = undefined;
+        std.debug.assert(self.buffer_size <= self.buffer.len);
+
+        const last_block_ptr: *align(1) const Block = if (self.buffer_size >= @sizeOf(Block)) last_blk: {
+            const consume = ((self.buffer_size - 1) / @sizeOf(Block)) * @sizeOf(Block);
+            state_copy.update(std.mem.bytesAsSlice(Block, self.buffer[0..consume]));
+            break :last_blk @ptrCast(&self.buffer[self.buffer_size - @sizeOf(Block)]);
+        } else last_blk: {
+            const leftover = @sizeOf(Block) - self.buffer_size;
+            @memcpy(last_block[0..leftover], self.buffer[self.buffer.len - leftover ..][0..leftover]);
+            @memcpy(last_block[leftover..][0..self.buffer_size], self.buffer[0..self.buffer_size]);
+            break :last_blk @ptrCast(&last_block);
+        };
+
+        return state_copy.final(last_block_ptr, self.total_len);
+    }
+};
+
 pub const XxHash64 = struct {
     accumulator: Accumulator,
     seed: u64,
@@ -426,6 +735,8 @@ pub const XxHash32 = struct {
     }
 };
 
+const verify = @import("verify.zig");
+
 fn validateType(comptime T: type) void {
     comptime {
         if (!((std.meta.trait.isSlice(T) or
@@ -438,316 +749,13 @@ fn validateType(comptime T: type) void {
     }
 }
 
-pub const XxHash3 = struct {
-    const Block = @Vector(8, u64);
-    const default_secret: [@sizeOf(Block) * 3]u8 = @bitCast([_]u64{
-        0xbe4ba423396cfeb8, 0x1cad21f72c81017c, 0xdb979083e96dd4de, 0x1f67b3b7a4a44072,
-        0x78e5c0cc4ee679cb, 0x2172ffcc7dd05a82, 0x8e2443f7744608b8, 0x4c263a81e69035e0,
-        0xcb00c391bb52283c, 0xa32e531b8b65d088, 0x4ef90da297486471, 0xd8acdea946ef1938,
-        0x3f349ce33f76faa8, 0x1d4f0bc7c7bbdcf9, 0x3159b4cd4be0518a, 0x647378d9c97e9fc8,
-        0xc3ebd33483acc5ea, 0xeb6313faffa081c5, 0x49daf0b751dd0d17, 0x9e68d429265516d3,
-        0xfca1477d58be162b, 0xce31d07ad1b8f88f, 0x280416958f3acb45, 0x7e404bbbcafbd7af,
-    });
+fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
+    try expectEqual(expected, H.hash(0, input));
 
-    const primes = [_]u64{
-        0x9E3779B185EBCA87,
-        0xC2B2AE3D27D4EB4F,
-        0x165667B19E3779F9,
-        0x85EBCA77C2B2AE63,
-        0x27D4EB2F165667C5,
-        0x165667919E3779F9,
-        0x9FB21C651E98DF25,
-    };
-
-    inline fn avalanche(mode: union(enum) { h3, h64, rrmxmx: u64 }, x0: u64) u64 {
-        switch (mode) {
-            .h3 => {
-                const x1 = (x0 ^ (x0 >> 37)) *% primes[5];
-                return x1 ^ (x1 >> 32);
-            },
-            .h64 => {
-                const x1 = (x0 ^ (x0 >> 33)) *% primes[1];
-                const x2 = (x1 ^ (x1 >> 29)) *% primes[2];
-                return x2 ^ (x2 >> 32);
-            },
-            .rrmxmx => |len| {
-                const x1 = (x0 ^ rotl(u64, x0, 49) ^ rotl(u64, x0, 24)) *% primes[6];
-                const x2 = (x1 ^ ((x1 >> 35) +% len)) *% primes[6];
-                return x2 ^ (x2 >> 28);
-            },
-        }
-    }
-
-    inline fn fold(a: u64, b: u64) u64 {
-        const wide: [2]u64 = @bitCast(@as(u128, a) *% b);
-        return wide[0] ^ wide[1];
-    }
-
-    inline fn mix16(input: []const u8, secret: []const u8, seed: u64) u64 {
-        const blocks: [4]u64 = @bitCast([_][16]u8{ input[0..16].*, secret[0..16].* });
-        const lo = blocks[0] ^ (blocks[2] +% seed);
-        const hi = blocks[1] ^ (blocks[3] -% seed);
-        return fold(lo, hi);
-    }
-
-    const State = struct {
-        block_count: u32 = 0,
-        seed: u64,
-        custom_secret: [192]u8 = undefined,
-        accumulator: Block = @bitCast([_]u64{
-            primes[1] >> 32,
-            primes[0],
-            primes[1],
-            primes[2],
-            primes[3],
-            primes[3] >> 32,
-            primes[4],
-            primes[0] >> 32,
-        }),
-
-        inline fn init(seed: u64) State {
-            var self = State{ .seed = seed };
-            if (seed != 0) {
-                const mix_seed: u128 = @bitCast([_]u64{ seed, @as(u64, 0) -% seed });
-                const mix_block: Block = @bitCast(@as(@Vector(4, u128), @splat(mix_seed)));
-                for (
-                    std.mem.bytesAsSlice(Block, &self.custom_secret),
-                    std.mem.bytesAsSlice(Block, &default_secret),
-                ) |*dst, src| dst.* = src +% mix_block;
-            }
-            return self;
-        }
-
-        inline fn getSecret(self: *const State) *const [192]u8 {
-            const secret_ptrs = [_]*const [192]u8{ &default_secret, &self.custom_secret };
-            return secret_ptrs[@intFromBool(self.seed != 0)];
-        }
-
-        inline fn round(
-            noalias self: *State,
-            noalias input_block: *align(1) const Block,
-            noalias secret_block: *align(1) const Block,
-        ) void {
-            const keyed = input_block.* ^ secret_block.*;
-            const product = (keyed & @as(Block, @splat(0xffffffff))) *% (keyed >> @splat(32));
-            const swapped = @shuffle(u64, input_block.*, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
-            self.accumulator +%= product +% swapped;
-        }
-
-        fn update(noalias self: *State, input_blocks: []align(1) const Block) void {
-            const blocks_per_scramble = @divExact(1024, @sizeOf(Block));
-            std.debug.assert(self.block_count <= blocks_per_scramble);
-            const secret = self.getSecret();
-
-            var blocks = input_blocks;
-            while (blocks.len > 0) {
-                const blocks_until_scramble = blocks_per_scramble - self.block_count;
-                const scramble = blocks.len >= blocks_until_scramble;
-
-                const round_sizes = [_]usize{ blocks.len, blocks_until_scramble };
-                const round_size: u32 = @intCast(round_sizes[@intFromBool(scramble)]);
-                defer blocks = blocks[round_size..];
-
-                for (
-                    blocks[0..round_size],
-                    std.mem.bytesAsSlice(u64, secret[self.block_count * 8 ..])[0..round_size],
-                ) |*block, *secret_block| {
-                    @prefetch(@as([*]align(1) const Block, @ptrCast(block)) + @sizeOf(Block), .{});
-                    self.round(block, @ptrCast(secret_block));
-                }
-
-                if (scramble) {
-                    self.accumulator ^= self.accumulator >> @splat(47);
-                    self.accumulator ^= @bitCast(secret[secret.len - @sizeOf(Block) .. secret.len].*);
-                    self.accumulator *%= @as(Block, @splat(primes[0] >> 32));
-                    self.block_count = 0;
-                } else {
-                    self.block_count += round_size;
-                    return;
-                }
-            }
-        }
-
-        fn final(noalias self: *State, noalias last_block: *align(1) const Block, len: u64) u64 {
-            const secret = self.getSecret();
-            const last_secret_block = secret[secret.len - @sizeOf(Block) - 7 ..][0..@sizeOf(Block)];
-
-            self.round(last_block, @ptrCast(last_secret_block));
-            self.accumulator ^= @bitCast(secret[11 .. 11 + @sizeOf(Block)].*);
-
-            var result = len *% primes[0];
-            inline for (@as([4][2]u64, @bitCast(self.accumulator))) |pair| {
-                result +%= fold(pair[0], pair[1]);
-            }
-            return avalanche(.h3, result);
-        }
-    };
-
-    pub fn hash(seed: u64, input: anytype) u64 {
-        validateType(@TypeOf(input));
-
-        if (input.len <= 240) {
-            return hashSmall(seed, input, &default_secret);
-        } else {
-            return hashLarge(seed, input);
-        }
-    }
-
-    fn hashSmall(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        if (input.len == 0) {
-            const flip: [2]u64 = @bitCast(secret[56..72].*);
-            return avalanche(.h64, seed ^ (flip[0] ^ flip[1]));
-        }
-
-        if (input.len < 4) {
-            const blk: u32 = @bitCast([_]u8{
-                input[input.len - 1],
-                @truncate(input.len),
-                input[0],
-                input[input.len / 2],
-            });
-            const flip: [2]u32 = @bitCast(secret[0..8].*);
-            const keyed = (seed +% (flip[0] ^ flip[1])) ^ blk;
-            return avalanche(.h64, keyed);
-        }
-
-        if (input.len <= 8) {
-            const blk: u64 = @bitCast([_][4]u8{
-                input[input.len - 4 ..][0..4].*,
-                input[0..4].*,
-            });
-            const flip: [2]u64 = @bitCast(secret[8..24].*);
-            const swapped = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
-            const keyed = ((flip[0] ^ flip[1]) -% swapped) ^ blk;
-            return avalanche(.{ .rrmxmx = input.len }, keyed);
-        }
-
-        if (input.len <= 16) {
-            var blk: [2]u64 = @bitCast([_][8]u8{
-                input[0..8].*,
-                input[input.len - 8 ..][0..8].*,
-            });
-            const flip: [4]u64 = @bitCast(secret[24..56].*);
-            blk[0] ^= (flip[0] ^ flip[1]) +% seed;
-            blk[1] ^= (flip[2] ^ flip[3]) -% seed;
-            const keyed = fold(blk[0], blk[1]) +% blk[1] +% @byteSwap(blk[0]) +% input.len;
-            return avalanche(.h3, keyed);
-        }
-
-        if (input.len <= 128) {
-            var acc = primes[0] *% input.len;
-            inline for (0..4) |i| {
-                const s_offset = 96 - (i * 32);
-                const i_offset = 48 - (i * 16);
-                if (input.len > s_offset) {
-                    acc +%= mix16(input[i_offset..], secret[s_offset..], seed);
-                    acc +%= mix16(input[input.len - (i_offset + 16) ..], secret[s_offset + 16 ..], seed);
-                }
-            }
-            return avalanche(.h3, acc);
-        }
-
-        std.debug.assert(input.len <= 240);
-        {
-            var acc0 = primes[0] *% input.len;
-            for (0..8) |i| {
-                acc0 +%= mix16(input[16 * i ..], secret[16 * i ..], seed);
-            }
-
-            var acc1 = mix16(input[input.len - 16 ..], secret[136 - 17 ..], seed);
-            for (8..input.len / 16) |i| {
-                acc1 +%= mix16(input[16 * i ..], secret[(16 * (i - 8)) + 3 ..], seed);
-            }
-
-            acc0 = avalanche(.h3, acc0) +% acc1;
-            return avalanche(.h3, acc0);
-        }
-    }
-
-    fn hashLarge(seed: u64, input: []const u8) u64 {
-        @setCold(true);
-
-        var state = State.init(seed);
-        std.debug.assert(input.len > 240);
-
-        const input_blocks = input[0 .. ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block)];
-        state.update(std.mem.bytesAsSlice(Block, input_blocks));
-
-        const last_block = input[input.len - @sizeOf(Block) ..][0..@sizeOf(Block)];
-        return state.final(@ptrCast(last_block), input.len);
-    }
-
-    total_len: usize = 0,
-    buffer_size: u32 = 0,
-    state: State,
-    buffer: [256]u8 = undefined,
-
-    pub fn init(seed: u64) XxHash3 {
-        return .{ .state = State.init(seed) };
-    }
-
-    pub fn update(self: *XxHash3, input: anytype) void {
-        validateType(@TypeOf(input));
-
-        self.total_len += input.len;
-        std.debug.assert(self.buffer_size <= self.buffer.len);
-
-        const remaining = self.buffer.len - self.buffer_size;
-        if (input.len <= remaining) {
-            @memcpy(self.buffer[self.buffer_size..][0..input.len], input);
-            self.buffer_size += @intCast(input.len);
-            return;
-        }
-
-        var leftover: []const u8 = input;
-        if (self.buffer_size > 0) {
-            @memcpy(self.buffer[self.buffer_size..][0..remaining], leftover[0..remaining]);
-            leftover = leftover[remaining..];
-
-            self.state.update(std.mem.bytesAsSlice(Block, &self.buffer));
-            self.buffer_size = 0;
-        }
-
-        if (leftover.len > self.buffer.len) {
-            const consume = ((leftover.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
-            self.state.update(std.mem.bytesAsSlice(Block, leftover[0..consume]));
-            leftover = leftover[consume..];
-
-            @memcpy(
-                self.buffer[self.buffer.len - @sizeOf(Block) ..],
-                (leftover.ptr - @sizeOf(Block))[0..@sizeOf(Block)],
-            );
-        }
-
-        @memcpy(self.buffer[0..leftover.len], leftover);
-        self.buffer_size = @intCast(leftover.len);
-    }
-
-    pub fn final(self: *XxHash3) u64 {
-        if (self.total_len <= 240) {
-            return hashSmall(self.state.seed, self.buffer[0..self.total_len], self.state.getSecret());
-        }
-
-        var state_copy = self.state;
-        var last_block: [@sizeOf(Block)]u8 = undefined;
-        std.debug.assert(self.buffer_size <= self.buffer.len);
-
-        const last_block_ptr: *align(1) const Block = if (self.buffer_size >= @sizeOf(Block)) last_blk: {
-            const consume = ((self.buffer_size - 1) / @sizeOf(Block)) * @sizeOf(Block);
-            state_copy.update(std.mem.bytesAsSlice(Block, self.buffer[0..consume]));
-            break :last_blk @ptrCast(&self.buffer[self.buffer_size - @sizeOf(Block)]);
-        } else last_blk: {
-            const leftover = @sizeOf(Block) - self.buffer_size;
-            @memcpy(last_block[0..leftover], self.buffer[self.buffer.len - leftover ..][0..leftover]);
-            @memcpy(last_block[leftover..][0..self.buffer_size], self.buffer[0..self.buffer_size]);
-            break :last_blk @ptrCast(&last_block);
-        };
-
-        return state_copy.final(last_block_ptr, self.total_len);
-    }
-};
-
-const verify = @import("verify.zig");
+    var hasher = H.init(seed);
+    hasher.update(input);
+    try expectEqual(expected, hasher.final());
+}
 
 test "xxhash.3" {
     const H = XxHash3;
@@ -786,14 +794,6 @@ test "xxhash3 iterative api" {
     try Test.do();
     @setEvalBranchQuota(30000);
     comptime try Test.do();
-}
-
-fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
-    try expectEqual(expected, H.hash(0, input));
-
-    var hasher = H.init(seed);
-    hasher.update(input);
-    try expectEqual(expected, hasher.final());
 }
 
 test "xxhash64" {
