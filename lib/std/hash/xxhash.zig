@@ -776,11 +776,10 @@ test "xxhash.3" {
 test "xxhash3 smhasher" {
     const Test = struct {
         fn do() !void {
-            const result = verify.smhasher(XxHash3.hash);
-            std.debug.assert(result == 0x9a636405);
+            try expectEqual(verify.smhasher(XxHash3.hash), 0x9a636405);
         }
     };
-    _ = try Test.do();
+    try Test.do();
     @setEvalBranchQuota(75000);
     comptime try Test.do();
 }
