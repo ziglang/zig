@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 /// Many reader, many writer, non-allocating, thread-safe.
-/// Uses a spinlock to protect push() and pop()
+/// Uses a spinlock to protect `push()` and `pop()`.
 /// When building in single threaded mode, this is a simple linked list.
 pub fn Stack(comptime T: type) type {
     return struct {
