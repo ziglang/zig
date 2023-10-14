@@ -15,4 +15,5 @@ pub export fn entry2() void {
 // :1:19: note: pointer to comptime-only type 'comptime_int'
 // :2:19: error: extern symbol cannot have type '*fn (u8) u8'
 // :2:19: note: pointer to extern function must be 'const'
+// :2:19: note: use '*const ' to make a function pointer type
 // :2:19: note: extern function must specify calling convention

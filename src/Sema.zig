@@ -25703,7 +25703,7 @@ fn explainWhyTypeIsNotExtern(
                     try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
                     try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
                 }
-                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, position);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
@@ -25716,8 +25716,10 @@ fn explainWhyTypeIsNotExtern(
         .Fn => {
             if (position != .other) {
                 try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
+                try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
                 return;
             }
+            try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
             switch (ty.fnCallingConvention(mod)) {
                 .Unspecified => try mod.errNoteNonLazy(src_loc, msg, "extern function must specify calling convention", .{}),
                 .Async => try mod.errNoteNonLazy(src_loc, msg, "async function cannot be extern", .{}),
