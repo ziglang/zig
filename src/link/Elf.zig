@@ -1573,6 +1573,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     self.allocatePhdrTable();
     try self.allocateAllocSections();
+    try self.sortPhdrs();
     try self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
     self.allocateAtoms();
@@ -4073,6 +4074,77 @@ fn setHashSections(self: *Elf) !void {
     }
     if (self.gnu_hash_section_index != null) {
         try self.gnu_hash.calcSize(self);
+    }
+}
+
+fn phdrRank(self: *Elf, phndx: u16) u8 {
+    const phdr = self.phdrs.items[phndx];
+    const flags = phdr.p_flags;
+    switch (phdr.p_type) {
+        elf.PT_NULL => return 0,
+        elf.PT_PHDR => return 1,
+        elf.PT_INTERP => return 2,
+        elf.PT_LOAD => if (flags & elf.PF_X != 0) {
+            return 4;
+        } else if (flags & elf.PF_W != 0) {
+            return 5;
+        } else {
+            return 3;
+        },
+        elf.PT_DYNAMIC, elf.PT_TLS => return 6,
+        elf.PT_GNU_EH_FRAME => return 7,
+        elf.PT_GNU_STACK => return 8,
+        else => return 0xf,
+    }
+}
+
+fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
+    const Entry = struct {
+        phndx: u16,
+
+        pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
+            return elf_file.phdrRank(lhs.phndx) < elf_file.phdrRank(rhs.phndx);
+        }
+    };
+
+    const gpa = self.base.allocator;
+    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.phdrs.items.len);
+    defer entries.deinit();
+    for (0..self.phdrs.items.len) |phndx| {
+        entries.appendAssumeCapacity(.{ .phndx = @as(u16, @intCast(phndx)) });
+    }
+
+    mem.sort(Entry, entries.items, self, Entry.lessThan);
+
+    const backlinks = try gpa.alloc(u16, entries.items.len);
+    defer gpa.free(backlinks);
+    for (entries.items, 0..) |entry, i| {
+        backlinks[entry.phndx] = @as(u16, @intCast(i));
+    }
+
+    var slice = try self.phdrs.toOwnedSlice(gpa);
+    defer gpa.free(slice);
+
+    try self.phdrs.ensureTotalCapacityPrecise(gpa, slice.len);
+    for (entries.items) |sorted| {
+        self.phdrs.appendAssumeCapacity(slice[sorted.phndx]);
+    }
+
+    for (&[_]*?u16{
+        &self.phdr_zig_load_re_index,
+        &self.phdr_zig_got_index,
+        &self.phdr_zig_load_ro_index,
+        &self.phdr_zig_load_zerofill_index,
+        &self.phdr_table_index,
+        &self.phdr_table_load_index,
+        &self.phdr_interp_index,
+        &self.phdr_dynamic_index,
+        &self.phdr_gnu_eh_frame_index,
+        &self.phdr_tls_index,
+    }) |maybe_index| {
+        if (maybe_index.*) |*index| {
+            index.* = backlinks[index.*];
+        }
     }
 }
 
