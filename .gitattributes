@@ -10,3 +10,4 @@ lib/libcxx/** linguist-vendored
 lib/libcxxabi/** linguist-vendored
 lib/libunwind/** linguist-vendored
 lib/tsan/** linguist-vendored
+deps/** linguist-vendored

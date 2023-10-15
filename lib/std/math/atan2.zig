@@ -108,7 +108,7 @@ fn atan2_32(y: f32, x: f32) f32 {
         if ((m & 2) != 0 and iy + (26 << 23) < ix) {
             break :z 0.0;
         } else {
-            break :z math.atan(@fabs(y / x));
+            break :z math.atan(@abs(y / x));
         }
     };
 
@@ -198,7 +198,7 @@ fn atan2_64(y: f64, x: f64) f64 {
         if ((m & 2) != 0 and iy +% (64 << 20) < ix) {
             break :z 0.0;
         } else {
-            break :z math.atan(@fabs(y / x));
+            break :z math.atan(@abs(y / x));
         }
     };
 

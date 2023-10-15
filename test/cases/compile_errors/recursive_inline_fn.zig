@@ -11,8 +11,25 @@ pub export fn entry() void {
     _ = foo(x) == 20;
 }
 
+inline fn first() void {
+    second();
+}
+
+inline fn second() void {
+    third();
+}
+
+inline fn third() void {
+    first();
+}
+
+pub export fn entry2() void {
+    first();
+}
+
 // error
 // backend=stage2
 // target=native
 //
 // :5:27: error: inline call is recursive
+// :23:10: error: inline call is recursive

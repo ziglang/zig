@@ -1,12 +1,3 @@
-const std = @import("std");
-const fs = std.fs;
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-const Compilation = @import("../../Compilation.zig");
-const Md5 = std.crypto.hash.Md5;
-const Hasher = @import("hasher.zig").ParallelHasher;
-
 /// Calculates Md5 hash of each chunk in parallel and then hashes all Md5 hashes to produce
 /// the final digest.
 /// While this is NOT a correct MD5 hash of the contents, this methodology is used by LLVM/LLD
@@ -43,3 +34,12 @@ inline fn conform(out: *[Md5.digest_length]u8) void {
     out[6] = (out[6] & 0x0F) | (3 << 4);
     out[8] = (out[8] & 0x3F) | 0x80;
 }
+
+const std = @import("std");
+const fs = std.fs;
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+const Compilation = @import("../../Compilation.zig");
+const Md5 = std.crypto.hash.Md5;
+const Hasher = @import("hasher.zig").ParallelHasher;

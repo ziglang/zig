@@ -109,6 +109,7 @@ protected:
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__fwd/streambuf.h>
 #include <cstdint>
 #include <ios>
 #include <iosfwd>
@@ -489,11 +490,9 @@ basic_streambuf<_CharT, _Traits>::overflow(int_type)
 }
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<char>;
-extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<char>;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<wchar_t>;
-extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<wchar_t>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -1,23 +1,3 @@
-// TODO: remove this after zig 0.11.0 is released
-test "zig fmt: transform old for loop syntax to new" {
-    try testTransform(
-        \\fn foo() void {
-        \\    for (a) |b, i| {
-        \\        _ = b; _ = i;
-        \\    }
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    for (a, 0..) |b, i| {
-        \\        _ = b;
-        \\        _ = i;
-        \\    }
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
@@ -2109,14 +2089,14 @@ test "zig fmt: multiline string parameter in fn call with trailing comma" {
     try testCanonical(
         \\fn foo() void {
         \\    try stdout.print(
-        \\        \\ZIG_CMAKE_BINARY_DIR {}
-        \\        \\ZIG_C_HEADER_FILES   {}
-        \\        \\ZIG_DIA_GUIDS_LIB    {}
+        \\        \\ZIG_CMAKE_BINARY_DIR {s}
+        \\        \\ZIG_C_HEADER_FILES   {s}
+        \\        \\ZIG_DIA_GUIDS_LIB    {s}
         \\        \\
         \\    ,
-        \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
-        \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
-        \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        \\        std.mem.sliceTo(c.ZIG_CMAKE_BINARY_DIR, 0),
+        \\        std.mem.sliceTo(c.ZIG_CXX_COMPILER, 0),
+        \\        std.mem.sliceTo(c.ZIG_DIA_GUIDS_LIB, 0),
         \\    );
         \\}
         \\
@@ -4348,12 +4328,12 @@ test "zig fmt: invalid else branch statement" {
         \\    for ("") |_| {} else defer {}
         \\}
     , &[_]Error{
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
-        .expected_statement,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
+        .expected_expr_or_assignment,
     });
 }
 
@@ -5251,8 +5231,8 @@ test "zig fmt: make single-line if no trailing comma, fmt: off" {
         \\    }
         \\}
         \\
-        \\const fn_no_comma = fn(i32, i32)void;
-        \\const fn_trailing_comma = fn(i32, i32,)void;
+        \\const fn_no_comma = fn (i32, i32) void;
+        \\const fn_trailing_comma = fn (i32, i32,) void;
         \\
         \\fn fn_calls() void {
         \\    fn add(x: i32, y: i32,) i32 { x + y };
@@ -6078,7 +6058,7 @@ test "recovery: missing for payload" {
     try testError(
         \\comptime {
         \\    const a = for(a) {};
-        \\    const a: for(a) blk: {};
+        \\    const a: for(a) blk: {} = {};
         \\    for(a) {}
         \\}
     , &[_]Error{

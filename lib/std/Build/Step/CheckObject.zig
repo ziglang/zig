@@ -539,7 +539,7 @@ const MachODumper = struct {
         strings: []const u8,
     };
 
-    fn parseAndDump(step: *Step, bytes: []align(@alignOf(u64)) const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -556,7 +556,7 @@ const MachODumper = struct {
         var sections = std.ArrayList(macho.section_64).init(gpa);
         var imports = std.ArrayList([]const u8).init(gpa);
 
-        var it = LoadCommandIterator{
+        var it: LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
             .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
         };
@@ -763,6 +763,60 @@ const MachODumper = struct {
                     dlc.nundefsym,
                     dlc.indirectsymoff,
                     dlc.nindirectsyms,
+                });
+            },
+
+            .BUILD_VERSION => {
+                const blc = lc.cast(macho.build_version_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\platform {s}
+                    \\minos {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                    \\ntools {d}
+                , .{
+                    @tagName(blc.platform),
+                    blc.minos >> 16,
+                    @as(u8, @truncate(blc.minos >> 8)),
+                    @as(u8, @truncate(blc.minos)),
+                    blc.sdk >> 16,
+                    @as(u8, @truncate(blc.sdk >> 8)),
+                    @as(u8, @truncate(blc.sdk)),
+                    blc.ntools,
+                });
+                for (lc.getBuildVersionTools()) |tool| {
+                    try writer.writeByte('\n');
+                    switch (tool.tool) {
+                        .CLANG, .SWIFT, .LD, .LLD, .ZIG => try writer.print("tool {s}\n", .{@tagName(tool.tool)}),
+                        else => |x| try writer.print("tool {d}\n", .{@intFromEnum(x)}),
+                    }
+                    try writer.print(
+                        \\version {d}.{d}.{d}
+                    , .{
+                        tool.version >> 16,
+                        @as(u8, @truncate(tool.version >> 8)),
+                        @as(u8, @truncate(tool.version)),
+                    });
+                }
+            },
+
+            .VERSION_MIN_MACOSX,
+            .VERSION_MIN_IPHONEOS,
+            .VERSION_MIN_WATCHOS,
+            .VERSION_MIN_TVOS,
+            => {
+                const vlc = lc.cast(macho.version_min_command).?;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\version {d}.{d}.{d}
+                    \\sdk {d}.{d}.{d}
+                , .{
+                    vlc.version >> 16,
+                    @as(u8, @truncate(vlc.version >> 8)),
+                    @as(u8, @truncate(vlc.version)),
+                    vlc.sdk >> 16,
+                    @as(u8, @truncate(vlc.sdk >> 8)),
+                    @as(u8, @truncate(vlc.sdk)),
                 });
             },
 

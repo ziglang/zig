@@ -21,19 +21,19 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 struct _LIBCPP_TEMPLATE_VIS monostate {};
 
 _LIBCPP_HIDE_FROM_ABI constexpr bool operator==(monostate, monostate) noexcept { return true; }
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_HIDE_FROM_ABI constexpr strong_ordering operator<=>(monostate, monostate) noexcept {
   return strong_ordering::equal;
 }
 
-#  else // _LIBCPP_STD_VER > 17
+#  else // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_HIDE_FROM_ABI constexpr bool operator!=(monostate, monostate) noexcept { return false; }
 
@@ -45,7 +45,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool operator<=(monostate, monostate) noexcept {
 
 _LIBCPP_HIDE_FROM_ABI constexpr bool operator>=(monostate, monostate) noexcept { return true; }
 
-#  endif // _LIBCPP_STD_VER > 17
+#  endif // _LIBCPP_STD_VER >= 20
 
 template <>
 struct _LIBCPP_TEMPLATE_VIS hash<monostate> {
@@ -57,7 +57,7 @@ struct _LIBCPP_TEMPLATE_VIS hash<monostate> {
   }
 };
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 

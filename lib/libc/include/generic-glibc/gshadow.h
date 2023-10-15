@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -108,19 +108,23 @@ extern int putsgent (const struct sgrp *__g, FILE *__stream);
    or due to the implementation they are cancellation points and
    therefore not marked with __THROW.  */
 extern int getsgent_r (struct sgrp *__result_buf, char *__buffer,
-		       size_t __buflen, struct sgrp **__result);
+		       size_t __buflen, struct sgrp **__result)
+	__attr_access ((__write_only__, 2, 3));
 
 extern int getsgnam_r (const char *__name, struct sgrp *__result_buf,
 		       char *__buffer, size_t __buflen,
-		       struct sgrp **__result);
+		       struct sgrp **__result)
+	__attr_access ((__write_only__, 3, 4));
 
 extern int sgetsgent_r (const char *__string, struct sgrp *__result_buf,
 			char *__buffer, size_t __buflen,
-			struct sgrp **__result);
+			struct sgrp **__result)
+	__attr_access ((__write_only__, 3, 4));
 
 extern int fgetsgent_r (FILE *__stream, struct sgrp *__result_buf,
 			char *__buffer, size_t __buflen,
-			struct sgrp **__result);
+			struct sgrp **__result)
+	__attr_access ((__write_only__, 3, 4));
 #endif	/* misc */
 
 __END_DECLS

@@ -9,6 +9,20 @@ pub const Directory = struct {
     path: ?[]const u8,
     handle: fs.Dir,
 
+    pub fn clone(d: Directory, arena: Allocator) Allocator.Error!Directory {
+        return .{
+            .path = if (d.path) |p| try arena.dupe(u8, p) else null,
+            .handle = d.handle,
+        };
+    }
+
+    pub fn cwd() Directory {
+        return .{
+            .path = null,
+            .handle = fs.cwd(),
+        };
+    }
+
     pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
@@ -47,11 +61,15 @@ pub const Directory = struct {
         writer: anytype,
     ) !void {
         _ = options;
-        if (fmt_string.len != 0) fmt.invalidFmtError(fmt, self);
+        if (fmt_string.len != 0) fmt.invalidFmtError(fmt_string, self);
         if (self.path) |p| {
             try writer.writeAll(p);
             try writer.writeAll(fs.path.sep_str);
         }
+    }
+
+    pub fn eql(self: Directory, other: Directory) bool {
+        return self.handle.fd == other.handle.fd;
     }
 };
 
@@ -123,21 +141,38 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
     var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
     while (i < prefixes_slice.len) : (i += 1) {
         const p = prefixes_slice[i].path.?;
-        if (p.len > 0 and mem.startsWith(u8, resolved_path, p)) {
-            // +1 to skip over the path separator here
-            const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
-            gpa.free(resolved_path);
-            return PrefixedPath{
-                .prefix = @as(u8, @intCast(i)),
-                .sub_path = sub_path,
-            };
-        }
+        var sub_path = getPrefixSubpath(gpa, p, resolved_path) catch |err| switch (err) {
+            error.NotASubPath => continue,
+            else => |e| return e,
+        };
+        // Free the resolved path since we're not going to return it
+        gpa.free(resolved_path);
+        return PrefixedPath{
+            .prefix = i,
+            .sub_path = sub_path,
+        };
     }
 
     return PrefixedPath{
         .prefix = 0,
         .sub_path = resolved_path,
     };
+}
+
+fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 {
+    const relative = try std.fs.path.relative(allocator, prefix, path);
+    errdefer allocator.free(relative);
+    var component_iterator = std.fs.path.NativeUtf8ComponentIterator.init(relative) catch {
+        return error.NotASubPath;
+    };
+    if (component_iterator.root() != null) {
+        return error.NotASubPath;
+    }
+    const first_component = component_iterator.first();
+    if (first_component != null and std.mem.eql(u8, first_component.?.name, "..")) {
+        return error.NotASubPath;
+    }
+    return relative;
 }
 
 /// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
@@ -734,7 +769,7 @@ pub const Manifest = struct {
         resolved_path: []u8,
         bytes: []const u8,
         stat: File.Stat,
-    ) error{OutOfMemory}!void {
+    ) !void {
         assert(self.manifest_file != null);
         const gpa = self.cache.gpa;
 

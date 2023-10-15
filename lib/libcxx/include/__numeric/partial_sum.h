@@ -18,6 +18,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator, class _OutputIterator>
@@ -31,7 +34,7 @@ partial_sum(_InputIterator __first, _InputIterator __last, _OutputIterator __res
         *__result = __t;
         for (++__first, (void) ++__result; __first != __last; ++__first, (void) ++__result)
         {
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
             __t = _VSTD::move(__t) + *__first;
 #else
             __t = __t + *__first;
@@ -54,7 +57,7 @@ partial_sum(_InputIterator __first, _InputIterator __last, _OutputIterator __res
         *__result = __t;
         for (++__first, (void) ++__result; __first != __last; ++__first, (void) ++__result)
         {
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
             __t = __binary_op(_VSTD::move(__t), *__first);
 #else
             __t = __binary_op(__t, *__first);
@@ -66,5 +69,7 @@ partial_sum(_InputIterator __first, _InputIterator __last, _OutputIterator __res
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___NUMERIC_PARTIAL_SUM_H

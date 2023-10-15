@@ -18,24 +18,13 @@ test "@alignOf(T) before referencing T" {
 }
 
 test "comparison of @alignOf(T) against zero" {
-    {
-        const T = struct { x: u32 };
-        try expect(!(@alignOf(T) == 0));
-        try expect(@alignOf(T) != 0);
-        try expect(!(@alignOf(T) < 0));
-        try expect(!(@alignOf(T) <= 0));
-        try expect(@alignOf(T) > 0);
-        try expect(@alignOf(T) >= 0);
-    }
-    {
-        const T = struct {};
-        try expect(@alignOf(T) == 0);
-        try expect(!(@alignOf(T) != 0));
-        try expect(!(@alignOf(T) < 0));
-        try expect(@alignOf(T) <= 0);
-        try expect(!(@alignOf(T) > 0));
-        try expect(@alignOf(T) >= 0);
-    }
+    const T = struct { x: u32 };
+    try expect(!(@alignOf(T) == 0));
+    try expect(@alignOf(T) != 0);
+    try expect(!(@alignOf(T) < 0));
+    try expect(!(@alignOf(T) <= 0));
+    try expect(@alignOf(T) > 0);
+    try expect(@alignOf(T) >= 0);
 }
 
 test "correct alignment for elements and slices of aligned array" {

@@ -132,6 +132,10 @@ modules: std.StringArrayHashMap(*Module),
 /// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
 /// `Build`s.
 initialized_deps: *InitializedDepMap,
+/// A mapping from dependency names to package hashes.
+available_deps: AvailableDeps,
+
+const AvailableDeps = []const struct { []const u8, []const u8 };
 
 const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
 const InitializedDepKey = struct {
@@ -248,6 +252,7 @@ pub fn create(
     global_cache_root: Cache.Directory,
     host: NativeTargetInfo,
     cache: *Cache,
+    available_deps: AvailableDeps,
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
@@ -308,6 +313,7 @@ pub fn create(
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .initialized_deps = initialized_deps,
+        .available_deps = available_deps,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -319,14 +325,15 @@ fn createChild(
     parent: *Build,
     dep_name: []const u8,
     build_root: Cache.Directory,
+    pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
 ) !*Build {
-    const child = try createChildOnly(parent, dep_name, build_root, user_input_options);
+    const child = try createChildOnly(parent, dep_name, build_root, pkg_deps, user_input_options);
     try determineAndApplyInstallPrefix(child);
     return child;
 }
 
-fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory, user_input_options: UserInputOptionsMap) !*Build {
+fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory, pkg_deps: AvailableDeps, user_input_options: UserInputOptionsMap) !*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
@@ -393,6 +400,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .initialized_deps = parent.initialized_deps,
+        .available_deps = pkg_deps,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -414,7 +422,12 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{ .scalar = serializeCpu(allocator, v.getCpu()) catch unreachable },
+                    .value = .{
+                        .scalar = if (v.isNativeCpu())
+                            "native"
+                        else
+                            serializeCpu(allocator, v.getCpu()) catch unreachable,
+                    },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -621,6 +634,9 @@ pub const ExecutableOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -639,7 +655,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -654,6 +670,9 @@ pub const ObjectOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -670,7 +689,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -686,6 +705,9 @@ pub const SharedLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -704,7 +726,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -720,6 +742,9 @@ pub const StaticLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -738,7 +763,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -756,6 +781,9 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -774,7 +802,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -1694,26 +1722,37 @@ pub const Dependency = struct {
             panic("unable to find module '{s}'", .{name});
         };
     }
+
+    pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
+        return .{
+            .dependency = .{
+                .dependency = d,
+                .sub_path = sub_path,
+            },
+        };
+    }
 };
 
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
-    inline for (@typeInfo(deps.imports).Struct.decls) |decl| {
-        if (mem.startsWith(u8, decl.name, b.dep_prefix) and
-            mem.endsWith(u8, decl.name, name) and
-            decl.name.len == b.dep_prefix.len + name.len)
-        {
-            const build_zig = @field(deps.imports, decl.name);
-            const build_root = @field(deps.build_root, decl.name);
-            return dependencyInner(b, name, build_root, build_zig, args);
+    const pkg_hash = for (b.available_deps) |dep| {
+        if (mem.eql(u8, dep[0], name)) break dep[1];
+    } else {
+        const full_path = b.pathFromRoot("build.zig.zon");
+        std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
+        process.exit(1);
+    };
+
+    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        if (mem.eql(u8, decl.name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl.name);
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
         }
     }
 
-    const full_path = b.pathFromRoot("build.zig.zon");
-    std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
-    process.exit(1);
+    unreachable; // Bad @dependencies source
 }
 
 pub fn anonymousDependency(
@@ -1732,7 +1771,7 @@ pub fn anonymousDependency(
         '/', '\\' => byte.* = '.',
         else => continue,
     };
-    return dependencyInner(b, name, build_root, build_zig, args);
+    return dependencyInner(b, name, build_root, build_zig, &.{}, args);
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
@@ -1786,7 +1825,8 @@ pub fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
-    comptime build_zig: type,
+    comptime build_zig: ?type,
+    pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
@@ -1805,11 +1845,14 @@ pub fn dependencyInner(
             process.exit(1);
         },
     };
-    const sub_builder = b.createChild(name, build_root, user_input_options) catch @panic("unhandled error");
-    sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
-    if (sub_builder.validateUserInputDidItFail()) {
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
+    if (build_zig) |bz| {
+        sub_builder.runBuild(bz) catch @panic("unhandled error");
+
+        if (sub_builder.validateUserInputDidItFail()) {
+            std.debug.dumpCurrentStackTrace(@returnAddress());
+        }
     }
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
@@ -1876,6 +1919,11 @@ pub const LazyPath = union(enum) {
     /// Use of this tag indicates a dependency on the host system.
     cwd_relative: []const u8,
 
+    dependency: struct {
+        dependency: *Dependency,
+        sub_path: []const u8,
+    },
+
     /// Returns a new file source that will have a relative path to the build root guaranteed.
     /// Asserts the parameter is not an absolute path.
     pub fn relative(path: []const u8) LazyPath {
@@ -1889,13 +1937,14 @@ pub const LazyPath = union(enum) {
         return switch (self) {
             .path, .cwd_relative => self.path,
             .generated => "generated",
+            .dependency => "dependency",
         };
     }
 
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path, .cwd_relative => {},
+            .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
         }
     }
@@ -1921,6 +1970,12 @@ pub const LazyPath = union(enum) {
                 dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
             },
+            .dependency => |dep| {
+                return dep.dependency.builder.pathJoin(&[_][]const u8{
+                    dep.dependency.builder.build_root.path.?,
+                    dep.sub_path,
+                });
+            },
         }
     }
 
@@ -1930,6 +1985,7 @@ pub const LazyPath = union(enum) {
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
+            .dependency => |dep| .{ .dependency = dep },
         };
     }
 };

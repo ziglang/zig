@@ -29,4 +29,4 @@ export fn f4() void {
 // :2:22: error: expected type 'usize', found 'void'
 // :7:9: error: expected type 'usize', found 'void'
 // :14:9: error: expected type 'usize', found 'void'
-// :19:27: error: expected type 'usize', found 'void'
+// :20:9: error: expected type 'usize', found 'void'

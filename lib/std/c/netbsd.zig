@@ -93,7 +93,7 @@ pub const pthread_rwlock_t = extern struct {
     wblocked_first: ?*u8 = null,
     wblocked_last: ?*u8 = null,
     nreaders: c_uint = 0,
-    owner: std.c.pthread_t = null,
+    owner: ?std.c.pthread_t = null,
     private: ?*anyopaque = null,
 };
 
@@ -1227,9 +1227,32 @@ pub const REG = switch (builtin.cpu.arch) {
         pub const PC = 15;
     },
     .x86_64 => struct {
+        pub const RDI = 0;
+        pub const RSI = 1;
+        pub const RDX = 2;
+        pub const RCX = 3;
+        pub const R8 = 4;
+        pub const R9 = 5;
+        pub const R10 = 6;
+        pub const R11 = 7;
+        pub const R12 = 8;
+        pub const R13 = 9;
+        pub const R14 = 10;
+        pub const R15 = 11;
         pub const RBP = 12;
+        pub const RBX = 13;
+        pub const RAX = 14;
+        pub const GS = 15;
+        pub const FS = 16;
+        pub const ES = 17;
+        pub const DS = 18;
+        pub const TRAPNO = 19;
+        pub const ERR = 20;
         pub const RIP = 21;
+        pub const CS = 22;
+        pub const RFLAGS = 23;
         pub const RSP = 24;
+        pub const SS = 25;
     },
     else => struct {},
 };

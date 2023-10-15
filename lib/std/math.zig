@@ -47,6 +47,8 @@ pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
+pub const nan = @import("math/float.zig").nan;
+pub const snan = @import("math/float.zig").snan;
 
 pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
 pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
@@ -73,46 +75,37 @@ pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` inste
 pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
 pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
 pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
 pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
 pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
 pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
 pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
 pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
+pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
+pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
+pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
+pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
+pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
+pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
+pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
+pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
+pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
+pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-
-pub const nan_u16 = @as(u16, 0x7C01);
-pub const nan_f16 = @as(f16, @bitCast(nan_u16));
-
-pub const qnan_u16 = @as(u16, 0x7E00);
-pub const qnan_f16 = @as(f16, @bitCast(qnan_u16));
-
-pub const nan_u32 = @as(u32, 0x7F800001);
-pub const nan_f32 = @as(f32, @bitCast(nan_u32));
-
-pub const qnan_u32 = @as(u32, 0x7FC00000);
-pub const qnan_f32 = @as(f32, @bitCast(qnan_u32));
-
-pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
-pub const nan_f64 = @as(f64, @bitCast(nan_u64));
-
-pub const qnan_u64 = @as(u64, 0x7ff8000000000000);
-pub const qnan_f64 = @as(f64, @bitCast(qnan_u64));
-
-pub const nan_f80 = make_f80(F80{ .fraction = 0xA000000000000000, .exp = 0x7fff });
-pub const qnan_f80 = make_f80(F80{ .fraction = 0xC000000000000000, .exp = 0x7fff });
-
-pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
-pub const nan_f128 = @as(f128, @bitCast(nan_u128));
-
-pub const qnan_u128 = @as(u128, 0x7fff8000000000000000000000000000);
-pub const qnan_f128 = @as(f128, @bitCast(qnan_u128));
-
-pub const nan = @import("math/nan.zig").nan;
-pub const snan = @import("math/nan.zig").snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -137,7 +130,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= tolerance;
+    return @abs(x - y) <= tolerance;
 }
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
@@ -165,7 +158,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= @max(@fabs(x), @fabs(y)) * tolerance;
+    return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
 }
 
 test "approxEqAbs and approxEqRel" {
@@ -230,6 +223,7 @@ pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
+pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
 pub const ldexp = @import("math/ldexp.zig").ldexp;
@@ -248,6 +242,7 @@ pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
 pub const log10_int = @import("math/log10.zig").log10_int;
+pub const log_int = @import("math/log_int.zig").log_int;
 pub const log1p = @import("math/log1p.zig").log1p;
 pub const asinh = @import("math/asinh.zig").asinh;
 pub const acosh = @import("math/acosh.zig").acosh;
@@ -336,37 +331,8 @@ test {
     _ = floatMax;
     _ = floatEps;
     _ = inf;
-
-    _ = nan_u16;
-    _ = nan_f16;
-
-    _ = qnan_u16;
-    _ = qnan_f16;
-
-    _ = nan_u32;
-    _ = nan_f32;
-
-    _ = qnan_u32;
-    _ = qnan_f32;
-
-    _ = nan_u64;
-    _ = nan_f64;
-
-    _ = qnan_u64;
-    _ = qnan_f64;
-
-    _ = nan_f80;
-    _ = qnan_f80;
-
-    _ = nan_u128;
-    _ = nan_f128;
-
-    _ = qnan_u128;
-    _ = qnan_f128;
-
     _ = nan;
     _ = snan;
-
     _ = isNan;
     _ = isSignalNan;
     _ = frexp;
@@ -380,6 +346,7 @@ test {
     _ = isPositiveInf;
     _ = isNegativeInf;
     _ = isNormal;
+    _ = nextAfter;
     _ = signbit;
     _ = scalbn;
     _ = ldexp;
@@ -398,6 +365,7 @@ test {
     _ = log2;
     _ = log10;
     _ = log10_int;
+    _ = log_int;
     _ = log1p;
     _ = asinh;
     _ = acosh;
@@ -500,7 +468,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// Shifts left. Overflowed bits are truncated.
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
-    const abs_shift_amt = absCast(shift_amt);
+    const abs_shift_amt = @abs(shift_amt);
 
     const casted_shift_amt = blk: {
         if (@typeInfo(T) == .Vector) {
@@ -544,7 +512,7 @@ test "shl" {
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
-    const abs_shift_amt = absCast(shift_amt);
+    const abs_shift_amt = @abs(shift_amt);
 
     const casted_shift_amt = blk: {
         if (@typeInfo(T) == .Vector) {
@@ -774,51 +742,6 @@ fn testOverflow() !void {
     try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-/// Returns the absolute value of x, where x is a value of a signed integer type.
-/// Does not convert and returns a value of a signed integer type.
-/// Use `absCast` if you want to convert the result and get an unsigned type.
-pub fn absInt(x: anytype) !@TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (@typeInfo(T)) {
-        .Int => |info| {
-            comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-            if (x == minInt(T)) {
-                return error.Overflow;
-            } else {
-                @setRuntimeSafety(false);
-                return if (x < 0) -x else x;
-            }
-        },
-        .Vector => |vinfo| blk: {
-            switch (@typeInfo(vinfo.child)) {
-                .Int => |info| {
-                    comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-                    if (@reduce(.Or, x == @as(T, @splat(minInt(vinfo.child))))) {
-                        return error.Overflow;
-                    }
-                    const zero: T = @splat(0);
-                    break :blk @select(vinfo.child, x > zero, x, -x);
-                },
-                else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
-            }
-        },
-        else => @compileError("Expected an int or vector, found " ++ @typeName(T)),
-    };
-}
-
-test "absInt" {
-    try testAbsInt();
-    try comptime testAbsInt();
-}
-fn testAbsInt() !void {
-    try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
-    try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
-    try testing.expectEqual(@Vector(3, i32){ 10, 10, 0 }, (absInt(@Vector(3, i32){ -10, 10, 0 }) catch unreachable));
-
-    try testing.expectError(error.Overflow, absInt(@as(i32, minInt(i32))));
-    try testing.expectError(error.Overflow, absInt(@Vector(3, i32){ 10, -10, minInt(i32) }));
-}
-
 /// Divide numerator by denominator, rounding toward zero. Returns an
 /// error on overflow or when denominator is zero.
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
@@ -999,50 +922,6 @@ fn testRem() !void {
     try testing.expect((rem(f32, 5, 3) catch unreachable) == 2);
     try testing.expectError(error.NegativeDenominator, rem(f32, 10, -1));
     try testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
-}
-
-/// Returns the absolute value of a floating point number.
-/// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @fabs
-pub inline fn fabs(value: anytype) @TypeOf(value) {
-    return @fabs(value);
-}
-
-/// Returns the absolute value of the integer parameter.
-/// Converts result type to unsigned if needed and returns a value of an unsigned integer type.
-/// Use `absInt` if you want to keep your integer type signed.
-pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
-    .ComptimeInt => comptime_int,
-    .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
-    else => @compileError("absCast only accepts integers"),
-} {
-    switch (@typeInfo(@TypeOf(x))) {
-        .ComptimeInt => {
-            if (x < 0) {
-                return -x;
-            } else {
-                return x;
-            }
-        },
-        .Int => |int_info| {
-            if (int_info.signedness == .unsigned) return x;
-            const Uint = std.meta.Int(.unsigned, int_info.bits);
-            if (x < 0) {
-                return ~@as(Uint, @bitCast(x +% -1));
-            } else {
-                return @as(Uint, @intCast(x));
-            }
-        },
-        else => unreachable,
-    }
-}
-
-test "absCast" {
-    try testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
-    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
-    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
-    try testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
-    try testing.expectEqual(999, absCast(-999));
 }
 
 /// Returns the negation of the integer parameter.

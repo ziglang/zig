@@ -49,7 +49,7 @@ pub usingnamespace switch (builtin.os.tag) {
     .openbsd => @import("c/openbsd.zig"),
     .haiku => @import("c/haiku.zig"),
     .hermit => @import("c/hermit.zig"),
-    .solaris => @import("c/solaris.zig"),
+    .solaris, .illumos => @import("c/solaris.zig"),
     .fuchsia => @import("c/fuchsia.zig"),
     .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),
@@ -408,7 +408,11 @@ pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
-pub usingnamespace if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
+pub usingnamespace if (builtin.target.isAndroid()) struct {
+    // android bionic libc does not implement getcontext,
+    // and std.os.linux.getcontext also cannot be built for
+    // bionic libc currently.
+} else if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
     // musl does not implement getcontext
     pub const getcontext = std.os.linux.getcontext;
 } else struct {

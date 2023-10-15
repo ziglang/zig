@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -78,7 +78,7 @@ extern char *inet_neta (in_addr_t __net, char *__buf, size_t __len) __THROW
   __attribute_deprecated_msg__ ("Use inet_ntop instead");
 
 /* Convert network number for interface type AF in buffer starting at
-   CP to presentation format.  The result will specifiy BITS bits of
+   CP to presentation format.  The result will specify BITS bits of
    the number.  */
 extern char *inet_net_ntop (int __af, const void *__cp, int __bits,
 			    char *__buf, size_t __len) __THROW;

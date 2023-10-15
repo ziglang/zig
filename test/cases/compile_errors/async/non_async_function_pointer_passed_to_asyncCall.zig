@@ -9,4 +9,4 @@ fn afunc() void {}
 // backend=stage1
 // target=native
 //
-// tmp.zig:4:32: error: expected async function, found 'fn() void'
+// tmp.zig:4:32: error: expected async function, found 'fn () void'

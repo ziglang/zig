@@ -1,4 +1,4 @@
-/* Copyright (C) 2001-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2001-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -43,7 +43,7 @@
    might return a large offset.	 Therefore we must not anymore test
    for < 0, but test for a real error by making sure the value in %eax
    is a real error number.  Linus said he will make sure the no syscall
-   returns a value in -1 .. -4095 as a valid result so we can savely
+   returns a value in -1 .. -4095 as a valid result so we can safely
    test with -4095.  */
 
 /* We don't want the label for the error handle to be global when we define
@@ -379,49 +379,7 @@
 
 # define HAVE_CLONE3_WRAPPER			1
 
-# define SINGLE_THREAD_BY_GLOBAL		1
-
 #endif	/* __ASSEMBLER__ */
-
-
-/* Pointer mangling support.  */
-#if IS_IN (rtld)
-/* We cannot use the thread descriptor because in ld.so we use setjmp
-   earlier than the descriptor is initialized.  */
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(reg)	xor __pointer_chk_guard_local(%rip), reg;    \
-				rol $2*LP_SIZE+1, reg
-#  define PTR_DEMANGLE(reg)	ror $2*LP_SIZE+1, reg;			     \
-				xor __pointer_chk_guard_local(%rip), reg
-# else
-#  define PTR_MANGLE(reg)	asm ("xor __pointer_chk_guard_local(%%rip), %0\n" \
-				     "rol $2*" LP_SIZE "+1, %0"			  \
-				     : "=r" (reg) : "0" (reg))
-#  define PTR_DEMANGLE(reg)	asm ("ror $2*" LP_SIZE "+1, %0\n"		  \
-				     "xor __pointer_chk_guard_local(%%rip), %0"   \
-				     : "=r" (reg) : "0" (reg))
-# endif
-#else
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(reg)	xor %fs:POINTER_GUARD, reg;		      \
-				rol $2*LP_SIZE+1, reg
-#  define PTR_DEMANGLE(reg)	ror $2*LP_SIZE+1, reg;			      \
-				xor %fs:POINTER_GUARD, reg
-# else
-#  define PTR_MANGLE(var)	asm ("xor %%fs:%c2, %0\n"		      \
-				     "rol $2*" LP_SIZE "+1, %0"		      \
-				     : "=r" (var)			      \
-				     : "0" (var),			      \
-				       "i" (offsetof (tcbhead_t,	      \
-						      pointer_guard)))
-#  define PTR_DEMANGLE(var)	asm ("ror $2*" LP_SIZE "+1, %0\n"	      \
-				     "xor %%fs:%c2, %0"			      \
-				     : "=r" (var)			      \
-				     : "0" (var),			      \
-				       "i" (offsetof (tcbhead_t,	      \
-						      pointer_guard)))
-# endif
-#endif
 
 /* How to pass the off{64}_t argument on p{readv,writev}{64}.  */
 #undef LO_HI_LONG

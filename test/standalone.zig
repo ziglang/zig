@@ -84,10 +84,11 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/test_runner_module_imports",
         .import = @import("standalone/test_runner_module_imports/build.zig"),
     },
-    .{
-        .build_root = "test/standalone/issue_13970",
-        .import = @import("standalone/issue_13970/build.zig"),
-    },
+    // https://github.com/ziglang/zig/issues/17483
+    //.{
+    //    .build_root = "test/standalone/issue_13970",
+    //    .import = @import("standalone/issue_13970/build.zig"),
+    //},
     .{
         .build_root = "test/standalone/main_pkg_path",
         .import = @import("standalone/main_pkg_path/build.zig"),
@@ -140,12 +141,12 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/install_raw_hex",
         .import = @import("standalone/install_raw_hex/build.zig"),
     },
-    // TODO take away EmitOption.emit_to option and make it give a FileSource
+    // https://github.com/ziglang/zig/issues/17484
     //.{
     //    .build_root = "test/standalone/emit_asm_and_bin",
     //    .import = @import("standalone/emit_asm_and_bin/build.zig"),
     //},
-    // TODO take away EmitOption.emit_to option and make it give a FileSource
+    // https://github.com/ziglang/zig/issues/17484
     //.{
     //    .build_root = "test/standalone/issue_12588",
     //    .import = @import("standalone/issue_12588/build.zig"),
@@ -195,8 +196,16 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/load_dynamic_library/build.zig"),
     },
     .{
+        .build_root = "test/standalone/windows_resources",
+        .import = @import("standalone/windows_resources/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/windows_spawn",
         .import = @import("standalone/windows_spawn/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/self_exe_symlink",
+        .import = @import("standalone/self_exe_symlink/build.zig"),
     },
     .{
         .build_root = "test/standalone/c_compiler",
@@ -244,6 +253,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/compiler_rt_panic",
         .import = @import("standalone/compiler_rt_panic/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/ios",
+        .import = @import("standalone/ios/build.zig"),
     },
 };
 

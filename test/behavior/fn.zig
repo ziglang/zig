@@ -20,8 +20,6 @@ fn testLocVars(b: i32) void {
 }
 
 test "mutable local variables" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var zero: i32 = 0;
     try expect(zero == 0);
 
@@ -53,8 +51,6 @@ test "weird function name" {
 }
 
 test "assign inline fn to const variable" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const a = inlineFn;
     a();
 }
@@ -190,7 +186,6 @@ test "function with complex callconv and return type expressions" {
 
 test "pass by non-copying value" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
 }
@@ -218,7 +213,6 @@ fn addPointCoordsVar(pt: anytype) !i32 {
 
 test "pass by non-copying value as method" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var pt = Point2{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords() == 3);
@@ -235,7 +229,6 @@ const Point2 = struct {
 
 test "pass by non-copying value as method, which is generic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var pt = Point3{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords(i32) == 3);
@@ -253,7 +246,6 @@ const Point3 = struct {
 
 test "pass by non-copying value as method, at comptime" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         var pt = Point2{ .x = 1, .y = 2 };
@@ -396,8 +388,6 @@ test "function call with anon list literal - 2D" {
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 1;
@@ -415,8 +405,6 @@ test "ability to give comptime types and non comptime types to same parameter" {
 }
 
 test "function with inferred error set but returning no error" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo() !void {}
     };
@@ -583,6 +571,8 @@ test "lazy values passed to anytype parameter" {
 }
 
 test "pass and return comptime-only types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn returnNull(comptime x: @Type(.Null)) @Type(.Null) {
             return x;

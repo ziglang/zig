@@ -28,39 +28,6 @@ pub const subsystem: ?std.Target.SubSystem = blk: {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const StackTrace = struct {
-    index: usize,
-    instruction_addresses: []usize,
-
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
-        try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
-        };
-    }
-};
-
-/// This data structure is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
 pub const GlobalLinkage = enum {
     Internal,
     Strong,
@@ -717,7 +684,27 @@ pub const TestFn = struct {
 
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
+const CheckNonScalarSentinelFn = fn (anytype, anytype) void;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicSentinelMismatchFn = fn (anytype, anytype) noreturn;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicUnwrapErrorFn = fn (?*StackTrace, anyerror) noreturn;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicOutOfBoundsFn = fn (usize, usize) noreturn;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicInactiveUnionFieldFn = fn (anytype, anytype) noreturn;
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+const PanicFn = fn ([]const u8, ?*default.StackTrace, ?usize) noreturn;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -728,91 +715,72 @@ else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
 else
     default.panic;
 
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const PanicSentinelMismatchFn = @TypeOf(default.panicSentinelMismatch);
-
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const panicSentinelMismatch: PanicSentinelMismatchFn = if (@hasDecl(root, "panicSentinelMismatch"))
-    root.panicSentinelMismatch
-else
-    default.panicSentinelMismatch;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const PanicUnwrapErrorFn = @TypeOf(default.panicUnwrapError);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const panicUnwrapError: PanicUnwrapErrorFn = if (@hasDecl(root, "panicUnwrapError"))
-    root.panicUnwrapError
-else
-    default.panicUnwrapError;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const PanicOutOfBoundsFn = @TypeOf(default.panicOutOfBounds);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const panicOutOfBounds: PanicOutOfBoundsFn = if (@hasDecl(root, "panicOutOfBounds"))
-    root.panicOutOfBounds
-else
-    default.panicOutOfBounds;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const StartGreaterThanEndFn = @TypeOf(default.panicStartGreaterThanEnd);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const panicStartGreaterThanEnd: StartGreaterThanEndFn = if (@hasDecl(root, "panicStartGreaterThanEnd"))
-    root.panicStartGreaterThanEnd
-else
-    default.panicStartGreaterThanEnd;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const InactiveUnionFieldFn = @TypeOf(default.panicInactiveUnionField);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const panicInactiveUnionField: InactiveUnionFieldFn = if (@hasDecl(root, "panicInactiveUnionField"))
+pub const panicInactiveUnionField: PanicInactiveUnionFieldFn = if (@hasDecl(root, "panicInactiveUnionField"))
     root.panicInactiveUnionField
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicInactiveUnionField"))
+    root.os.panicInactiveUnionField
 else
     default.panicInactiveUnionField;
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const checkNonScalarSentinel = if (@hasDecl(root, "checkNonScalarSentinel"))
+pub const panicOutOfBounds: PanicOutOfBoundsFn = if (@hasDecl(root, "panicOutOfBounds"))
+    root.panicOutOfBounds
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicOutOfBounds"))
+    root.os.panicOutOfBounds
+else
+    default.panicOutOfBounds;
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicSentinelMismatch: PanicSentinelMismatchFn = if (@hasDecl(root, "panicSentinelMismatch"))
+    root.panicSentinelMismatch
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicSentinelMismatch"))
+    root.os.panicSentinelMismatch
+else
+    default.panicSentinelMismatch;
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const checkNonScalarSentinel: CheckNonScalarSentinelFn = if (@hasDecl(root, "checkNonScalarSentinel"))
     root.checkNonScalarSentinel
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "checkNonScalarSentinel"))
+    root.os.checkNonScalarSentinel
 else
     default.checkNonScalarSentinel;
 
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicStartGreaterThanEnd: PanicOutOfBoundsFn = if (@hasDecl(root, "panicStartGreaterThanEnd"))
+    root.panicStartGreaterThanEnd
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicStartGreaterThanEnd"))
+    root.os.panicStartGreaterThanEnd
+else
+    default.panicStartGreaterThanEnd;
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const panicUnwrapError: PanicUnwrapErrorFn = if (@hasDecl(root, "panicUnwrapError"))
+    root.panicUnwrapError
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicUnwrapError"))
+    root.os.panicUnwrapError
+else
+    default.panicUnwrapError;
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const StackTrace = if (@hasDecl(root, "StackTrace"))
+    root.StackTrace
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "StackTrace"))
+    root.os.StackTrace
+else
+    default.StackTrace;
+
 pub const default_panic = default.panic;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const ReturnErrorFn = @TypeOf(default.returnError);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const returnError: ReturnErrorFn = if (@hasDecl(root, "returnError"))
-    root.returnError
-else
-    default.returnError;
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-const AddErrRetTraceAddrFn = @TypeOf(default.addErrRetTraceAddr);
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const addErrRetTraceAddr: AddErrRetTraceAddrFn = if (@hasDecl(root, "addErrRetTraceAddr"))
-    root.addErrRetTraceAddr
-else
-    default.addErrRetTraceAddr;
+pub const returnError = StackTrace.returnError;
+pub const addErrRetTraceAddr = StackTrace.addErrRetTraceAddr;
 
 pub const panic_messages = struct {
     pub const unreach = "reached unreachable code";
@@ -843,9 +811,53 @@ pub const panic_messages = struct {
 };
 
 const default = struct {
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    const StackTrace = struct {
+        index: usize,
+        instruction_addresses: []usize,
+
+        pub fn format(
+            self: default.StackTrace,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+
+            // TODO: re-evaluate whether to use format() methods at all.
+            // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
+            // where it tries to call detectTTYConfig here.
+            if (builtin.os.tag == .freestanding) return;
+
+            _ = options;
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+                return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
+            };
+            const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+            try writer.writeAll("\n");
+            std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+                try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
+            };
+        }
+        noinline fn returnError(st: *default.StackTrace) void {
+            @setCold(true);
+            @setRuntimeSafety(false);
+            st.addErrRetTraceAddr(@returnAddress());
+        }
+        inline fn addErrRetTraceAddr(st: *default.StackTrace, addr: usize) void {
+            if (st.index < st.instruction_addresses.len) {
+                st.instruction_addresses[st.index] = addr;
+            }
+            st.index += 1;
+        }
+    };
+
     /// This function is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    fn panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
+    fn panic(msg: []const u8, error_return_trace: ?*default.StackTrace, ret_addr: ?usize) noreturn {
         @setCold(true);
 
         // For backends that cannot handle the language features depended on by the
@@ -941,7 +953,7 @@ const default = struct {
         std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
     }
 
-    fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
+    fn panicUnwrapError(st: ?*default.StackTrace, err: anyerror) noreturn {
         @setCold(true);
         std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
     }
@@ -959,19 +971,6 @@ const default = struct {
     fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
         @setCold(true);
         std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
-    }
-
-    noinline fn returnError(st: *StackTrace) void {
-        @setCold(true);
-        default.addErrRetTraceAddr(st, @returnAddress());
-    }
-
-    inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-        @setRuntimeSafety(false);
-        if (st.index < st.instruction_addresses.len) {
-            st.instruction_addresses[st.index] = addr;
-        }
-        st.index +%= 1;
     }
 };
 const std = @import("std.zig");

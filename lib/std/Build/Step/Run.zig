@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Step = std.Build.Step;
+const Build = std.Build;
+const Step = Build.Step;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
@@ -19,10 +20,8 @@ step: Step,
 /// See also addArg and addArgs to modifying this directly
 argv: ArrayList(Arg),
 
-/// Set this to modify the current working directory
-/// TODO change this to a Build.Cache.Directory to better integrate with
-/// future child process cwd API.
-cwd: ?[]const u8,
+/// Use `setCwd` to set the initial current working directory
+cwd: ?Build.LazyPath,
 
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
@@ -285,6 +284,11 @@ pub fn setStdIn(self: *Run, stdin: StdIn) void {
         .bytes, .none => {},
     }
     self.stdin = stdin;
+}
+
+pub fn setCwd(self: *Run, cwd: Build.LazyPath) void {
+    cwd.addStepDependencies(&self.step);
+    self.cwd = cwd;
 }
 
 pub fn clearEnvironment(self: *Run) void {
@@ -650,8 +654,10 @@ fn runCommand(
     const b = step.owner;
     const arena = b.allocator;
 
-    try step.handleChildProcUnsupported(self.cwd, argv);
-    try Step.handleVerbose2(step.owner, self.cwd, self.env_map, argv);
+    const cwd: ?[]const u8 = if (self.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
+
+    try step.handleChildProcUnsupported(cwd, argv);
+    try Step.handleVerbose2(step.owner, cwd, self.env_map, argv);
 
     const allow_skip = switch (self.stdio) {
         .check, .zig_test => self.skip_foreign_checks,
@@ -679,7 +685,7 @@ fn runCommand(
             }
 
             const need_cross_glibc = exe.target.isGnuLibC() and exe.is_linking_libc;
-            switch (b.host.getExternalExecutor(exe.target_info, .{
+            switch (b.host.getExternalExecutor(&exe.target_info, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -778,7 +784,7 @@ fn runCommand(
                 self.addPathForDynLibs(exe);
             }
 
-            try Step.handleVerbose2(step.owner, self.cwd, self.env_map, interp_argv.items);
+            try Step.handleVerbose2(step.owner, cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
                 if (!self.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
@@ -848,7 +854,7 @@ fn runCommand(
                     , .{
                         expected_bytes,
                         result.stdio.stderr.?,
-                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
@@ -865,7 +871,7 @@ fn runCommand(
                     , .{
                         match,
                         result.stdio.stderr.?,
-                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
@@ -882,7 +888,7 @@ fn runCommand(
                     , .{
                         expected_bytes,
                         result.stdio.stdout.?,
-                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
@@ -899,7 +905,7 @@ fn runCommand(
                     , .{
                         match,
                         result.stdio.stdout.?,
-                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
@@ -908,7 +914,7 @@ fn runCommand(
                     return step.fail("the following command {} (expected {}):\n{s}", .{
                         fmtTerm(result.term),
                         fmtTerm(expected_term),
-                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
@@ -929,18 +935,18 @@ fn runCommand(
                     prefix,
                     fmtTerm(result.term),
                     fmtTerm(expected_term),
-                    try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                    try Step.allocPrintCmd(arena, cwd, final_argv),
                 });
             }
             if (!result.stdio.test_results.isSuccess()) {
                 return step.fail(
                     "{s}the following test command failed:\n{s}",
-                    .{ prefix, try Step.allocPrintCmd(arena, self.cwd, final_argv) },
+                    .{ prefix, try Step.allocPrintCmd(arena, cwd, final_argv) },
                 );
             }
         },
         else => {
-            try step.handleChildProcessTerm(result.term, self.cwd, final_argv);
+            try step.handleChildProcessTerm(result.term, cwd, final_argv);
         },
     }
 }
@@ -963,8 +969,8 @@ fn spawnChildAndCollect(
     const arena = b.allocator;
 
     var child = std.process.Child.init(argv, arena);
-    if (self.cwd) |cwd| {
-        child.cwd = b.pathFromRoot(cwd);
+    if (self.cwd) |lazy_cwd| {
+        child.cwd = lazy_cwd.getPath(b);
     } else {
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
@@ -993,7 +999,7 @@ fn spawnChildAndCollect(
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
     if (self.stdin != .none) {
-        assert(child.stdin_behavior != .Inherit);
+        assert(self.stdio != .inherit);
         child.stdin_behavior = .Pipe;
     }
 
@@ -1048,6 +1054,7 @@ fn evalZigTest(
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
     var test_count: u32 = 0;
+    var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
 
@@ -1112,14 +1119,22 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
-                fail_count += @intFromBool(tr_hdr.flags.fail);
-                skip_count += @intFromBool(tr_hdr.flags.skip);
-                leak_count += @intFromBool(tr_hdr.flags.leak);
+                fail_count +|= @intFromBool(tr_hdr.flags.fail);
+                skip_count +|= @intFromBool(tr_hdr.flags.skip);
+                leak_count +|= @intFromBool(tr_hdr.flags.leak);
+                log_err_count +|= tr_hdr.flags.log_err_count;
 
-                if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
+                if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    const label = if (tr_hdr.flags.fail)
+                        "failed"
+                    else if (tr_hdr.flags.leak)
+                        "leaked"
+                    else if (tr_hdr.flags.log_err_count > 0)
+                        "logged errors"
+                    else
+                        unreachable;
                     if (msg.len > 0) {
                         try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
                     } else {
@@ -1153,6 +1168,7 @@ fn evalZigTest(
             .fail_count = fail_count,
             .skip_count = skip_count,
             .leak_count = leak_count,
+            .log_err_count = log_err_count,
         },
         .test_metadata = metadata,
     };

@@ -935,7 +935,6 @@ const Bar = enum { A, B, C, D };
 test "enum literal casting to error union with payload enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var bar: error{B}!Bar = undefined;
     bar = .B; // should never cast to the error set
@@ -947,7 +946,6 @@ test "constant enum initialization with differing sizes" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try test3_1(test3_foo);
     try test3_2(test3_bar);
@@ -1050,11 +1048,26 @@ test "@tagName on enum literals" {
     try comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
-test "enum literal casting to optional" {
+test "tag name with signed enum values" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const LocalFoo = enum(isize) {
+        alfa = 62,
+        bravo = 63,
+        charlie = 64,
+        delta = 65,
+    };
+    var b = LocalFoo.bravo;
+    try expect(mem.eql(u8, @tagName(b), "bravo"));
+}
+
+test "enum literal casting to optional" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var bar: ?Bar = undefined;
     bar = .B;
@@ -1141,7 +1154,6 @@ test "tag name functions are unique" {
 test "size of enum with only one tag which has explicit integer tag type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = enum(u8) { nope = 10 };
     const S0 = struct { e: E };

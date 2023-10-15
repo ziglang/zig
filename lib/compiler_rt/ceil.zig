@@ -43,7 +43,7 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
     if (e >= 23) {
         return x;
     } else if (e >= 0) {
-        m = @as(u32, 0x007FFFFF) >> @as(u5, @intCast(e));
+        m = @as(u32, 0x007FFFFF) >> @intCast(e);
         if (u & m == 0) {
             return x;
         }

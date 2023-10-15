@@ -14,10 +14,6 @@
 #include <stdio.h>
 #include <sys/debug.h>
 
-#if !__has_cpp_attribute(clang::optnone)
-#error This file requires clang::optnone attribute support
-#endif
-
 /*
   The legacy IBM xlC and xlclang++ compilers use the state table for EH
   instead of the range table. Destructors, or addresses of the possible catch
@@ -563,7 +559,8 @@ __xlcxx_personality_v0(int version, _Unwind_Action actions, uint64_t exceptionCl
       uintptr_t *currentSP = reinterpret_cast<uintptr_t*>(_Unwind_GetGR(context, 1));
       uintptr_t *callersSP = reinterpret_cast<uintptr_t*>(currentSP[0]);
       callersSP[3] = reinterpret_cast<uintptr_t>(unwind_exception);
-      _LIBCXXABI_TRACE_STATETAB("Handshake: set unwind_exception=%p in stack=%p\n", reinterpret_cast<void*>(unwind_exception), reinterpret_cast<void*>(callersSP));
+      _LIBCXXABI_TRACE_STATETAB("Handshake: save unwind_exception=%p in stack=%p\n",
+                                reinterpret_cast<void*>(unwind_exception), reinterpret_cast<void*>(callersSP));
       // Jump to the handler.
       _Unwind_SetIP(context, results.landingPad);
       return _URC_INSTALL_CONTEXT;
@@ -641,38 +638,68 @@ _LIBCXXABI_FUNC_VIS void __xlc_throw_badexception() {
   __cxa_throw(newexception, const_cast<std::type_info*>(&typeid(std::bad_exception)), 0);
 }
 
-// force_a_stackframe
-// This function is called by __xlc_exception_handle() to ensure a stack frame
-// is created for __xlc_exception_handle().
-__attribute__((noinline, optnone))
-static void force_a_stackframe() {}
+// skip_non_cxx_eh_aware_frames
+// This function skips non-C++ EH aware stack frames by unwinding from the
+// stack frame pointed by 'Sp' and returns the first C++ EH aware stack frame
+// found. 'Pc' is an instruction address inside the function that owns the
+// stack frame pointed to by 'Sp'.
+static uintptr_t* skip_non_cxx_eh_aware_frames(uint32_t* Pc, uintptr_t* Sp) {
+  uint32_t* currentPc = Pc;
+  uintptr_t* currentStack = Sp;
+
+  // Loop until a C++ EH aware frame is found or the return address is 0,
+  // which is the return address of the startup function '__start'.
+  while (currentPc != 0) {
+    uint32_t* p = currentPc;
+
+    // Keep looking forward until a word of 0 is found. The traceback
+    // table starts at the following word.
+    while (*p)
+      ++p;
+    tbtable* TBTable = reinterpret_cast<tbtable*>(p + 1);
+
+    // A stack frame with a C++ state table is C++ EH aware.
+    if (TBTable->tb.lang == TB_CPLUSPLUS && TBTable->tb.has_ctl)
+      return currentStack;
+
+    // Move up one stack frame.
+    currentStack = reinterpret_cast<uintptr_t*>(currentStack[0]);
+    // Get the value of the LR (saved, prior to incrementing the SP, by the
+    // prolog of the function just inspected) from the frame.
+    currentPc = reinterpret_cast<uint32_t*>(currentStack[2]);
+  }
+  // This should not happen.
+  _LIBCXXABI_TRACE_STATETAB0("skip_non_cxx_eh_aware_frames() reached the end of stack frames, aborting\n");
+  abort();
+}
 
 // __xlc_exception_handle
 // This function is for xlclang++. It returns the address of the exception
 // object stored in the reserved field in the stack of the caller of the
 // function that calls __xlc_exception_handle() (within the link area for the
 // call to the latter). The address is stored by the personality routine for
-// xlclang++ compiled code. The implementation of __xlc_exception_handle()
-// assumes a stack frame is created for it. The following ensures this
-// assumption holds true: 1) a call to force_a_stackframe() is made inside
-// __xlc_exception_handle() to make it non-leaf; and 2) optimizations are
-// disabled for this function with attribute 'optnone'. Note: this function
-// may not work as expected if these are changed.
-__attribute__((optnone))
+// xlclang++ compiled code. If __xlc_exception_handle() is called by
+// non-C++ EH aware functions, their frames are skipped until a C++ EH aware
+// frame is found.
+// Note: make sure __xlc_excpetion_handle() is a non-leaf function. Currently
+// it calls skip_non_cxx_eh_aware_frames(), which in turn calls abort().
 _LIBCXXABI_FUNC_VIS uintptr_t __xlc_exception_handle() {
-  // Make a call to force_a_stackframe() so that the compiler creates a stack
-  // frame for this function.
-  force_a_stackframe();
-
   // Get the SP of this function, i.e., __xlc_exception_handle().
-  uintptr_t *lastStack;
-  asm("mr %0, 1" : "=r"(lastStack));
-  // Get the SP of the caller of __xlc_exception_handle().
-  uintptr_t *callerStack = reinterpret_cast<uintptr_t*>(lastStack[0]);
-  // Get the SP of the caller of the caller.
-  uintptr_t *callerStack2 = reinterpret_cast<uintptr_t*>(callerStack[0]);
-  uintptr_t exceptionObject = callerStack2[3];
-  _LIBCXXABI_TRACE_STATETAB("Handshake: exceptionObject=%p from stack=%p\n", reinterpret_cast<void*>(exceptionObject), reinterpret_cast<void*>(callerStack2));
+  uintptr_t* lastStack = reinterpret_cast<uintptr_t*>(__builtin_frame_address(0));
+  // Move one frame up to the frame of the caller of __xlc_exception_handle().
+  lastStack = reinterpret_cast<uintptr_t*>(lastStack[0]);
+  // Get the return address of this function, i.e., __xlc_exception_handle().
+  uint32_t* returnAddress = reinterpret_cast<uint32_t*>(__builtin_return_address(0));
+
+  // Skip non-C++ EH aware frames and get the first C++ EH aware frame.
+  uintptr_t* callerStack = skip_non_cxx_eh_aware_frames(returnAddress, lastStack);
+
+  // Get the SP of the caller of the C++ EH aware caller.
+  callerStack = reinterpret_cast<uintptr_t*>(callerStack[0]);
+  // Retrieve the exception object in the stack slot saved by the personality.
+  uintptr_t exceptionObject = callerStack[3];
+  _LIBCXXABI_TRACE_STATETAB("Handshake: retrieve exceptionObject=%p from stack=%p\n",
+                            reinterpret_cast<void*>(exceptionObject), reinterpret_cast<void*>(callerStack));
   return exceptionObject;
 }
 

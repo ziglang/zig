@@ -445,25 +445,23 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
 
             // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
             // increasing the pc
-            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - quant;
+            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, quant) + 128)) - quant);
-                if (dbg_out.pcop_change_index.*) |pci|
+                // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
+                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
+                if (dbg_out.pcop_change_index) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
             } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
+                // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = self.prev_di_line;
-            dbg_out.end_line.* = line;
+            if (dbg_out.start_line == null)
+                dbg_out.start_line = self.prev_di_line;
+            dbg_out.end_line = line;
             // only do this if the pc changed
             self.prev_di_line = line;
             self.prev_di_column = column;
@@ -670,7 +668,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
             .type = .branch,
@@ -885,9 +883,9 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const Atom = link.File.MachO.Atom;
         const Relocation = Atom.Relocation;
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index }).?;
         try Atom.addRelocations(macho_file, atom_index, &[_]Relocation{ .{
-            .target = .{ .sym_index = data.sym_index, .file = null },
+            .target = .{ .sym_index = data.sym_index },
             .offset = offset,
             .addend = 0,
             .pcrel = true,
@@ -898,7 +896,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         }, .{
-            .target = .{ .sym_index = data.sym_index, .file = null },
+            .target = .{ .sym_index = data.sym_index },
             .offset = offset + 4,
             .addend = 0,
             .pcrel = false,

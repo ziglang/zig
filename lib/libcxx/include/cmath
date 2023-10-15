@@ -311,6 +311,7 @@ constexpr long double lerp(long double a, long double b, long double t) noexcept
 #include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_floating_point.h>
 #include <__type_traits/is_same.h>
+#include <__type_traits/promote.h>
 #include <__type_traits/remove_cv.h>
 #include <version>
 
@@ -543,7 +544,7 @@ using ::scalbnl _LIBCPP_USING_IF_EXISTS;
 using ::tgammal _LIBCPP_USING_IF_EXISTS;
 using ::truncl _LIBCPP_USING_IF_EXISTS;
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 inline _LIBCPP_INLINE_VISIBILITY float       hypot(       float __x,       float __y,       float __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
 inline _LIBCPP_INLINE_VISIBILITY double      hypot(      double __x,      double __y,      double __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
 inline _LIBCPP_INLINE_VISIBILITY long double hypot( long double __x, long double __y, long double __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
@@ -782,7 +783,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp __constexpr_scalbn(_Tp _
   return __builtin_scalbn(__x, __exp);
 }
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 template <typename _Fp>
 _LIBCPP_HIDE_FROM_ABI constexpr
 _Fp __lerp(_Fp __a, _Fp __b, _Fp __t) noexcept {
@@ -823,7 +824,7 @@ lerp(_A1 __a, _A2 __b, _A3 __t) noexcept
                     _IsSame<_A3, __result_type>::value));
     return std::__lerp((__result_type)__a, (__result_type)__b, (__result_type)__t);
 }
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -110,6 +110,9 @@ pub const WriteStream = @import("json/stringify.zig").WriteStream;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
 pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
 
+pub const Formatter = @import("json/fmt.zig").Formatter;
+pub const fmt = @import("json/fmt.zig").fmt;
+
 // Deprecations
 pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
 pub const parseFree = @compileError("Deprecated; call Parsed(T).deinit() instead.");

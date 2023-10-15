@@ -29,11 +29,18 @@ pub const cases = [_]Case{
         .import = @import("link/glibc_compat/build.zig"),
     },
 
-    // WASM Cases
+    // Elf Cases
     .{
-        .build_root = "test/link/wasm/archive",
-        .import = @import("link/wasm/archive/build.zig"),
+        .build_root = "test/link",
+        .import = @import("link/elf.zig"),
     },
+
+    // WASM Cases
+    // https://github.com/ziglang/zig/issues/16938
+    //.{
+    //    .build_root = "test/link/wasm/archive",
+    //    .import = @import("link/wasm/archive/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/basic-features",
         .import = @import("link/wasm/basic-features/build.zig"),
@@ -46,10 +53,11 @@ pub const cases = [_]Case{
         .build_root = "test/link/wasm/export",
         .import = @import("link/wasm/export/build.zig"),
     },
-    .{
-        .build_root = "test/link/wasm/export-data",
-        .import = @import("link/wasm/export-data/build.zig"),
-    },
+    // https://github.com/ziglang/zig/issues/16937
+    //.{
+    //    .build_root = "test/link/wasm/export-data",
+    //    .import = @import("link/wasm/export-data/build.zig"),
+    //},
     .{
         .build_root = "test/link/wasm/extern",
         .import = @import("link/wasm/extern/build.zig"),
@@ -155,6 +163,10 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/macho/pagezero",
         .import = @import("link/macho/pagezero/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/reexports",
+        .import = @import("link/macho/reexports/build.zig"),
     },
     .{
         .build_root = "test/link/macho/search_strategy",

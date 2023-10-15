@@ -181,6 +181,4 @@ typedef struct task_qos_policy *task_qos_policy_t;
 #define PROC_FLAG_IOS_APPLICATION PROC_FLAG_APPLICATION /* Process is an application */
 
 
-
-
 #endif  /* _MACH_TASK_POLICY_H_ */

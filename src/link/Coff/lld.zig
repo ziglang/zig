@@ -63,7 +63,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -71,6 +71,11 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
+        }
+        if (!build_options.only_core_functionality) {
+            for (comp.win32_resource_table.keys()) |key| {
+                _ = try man.addFile(key.status.success.res_path, null);
+            }
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(self.base.options.entry);
@@ -266,6 +271,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         for (comp.c_object_table.keys()) |key| {
             try argv.append(key.status.success.object_path);
+        }
+
+        if (!build_options.only_core_functionality) {
+            for (comp.win32_resource_table.keys()) |key| {
+                try argv.append(key.status.success.res_path);
+            }
         }
 
         if (module_obj_path) |p| {
@@ -480,9 +491,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_lib) |lib| {
-                try argv.append(lib.full_object_path);
-            }
+            if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
+            if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
         }
 
         try argv.ensureUnusedCapacity(self.base.options.system_libs.count());

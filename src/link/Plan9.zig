@@ -82,6 +82,8 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 
 lazy_syms: LazySymbolTable = .{},
 
+anon_decls: std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+
 relocs: std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Reloc)) = .{},
 hdr: aout.ExecHdr = undefined,
 
@@ -166,6 +168,9 @@ pub const Atom = struct {
             code_len: usize,
             decl_index: Module.Decl.Index,
         },
+        fn fromSlice(slice: []u8) CodePtr {
+            return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
+        }
         fn getCode(self: CodePtr, plan9: *const Plan9) []u8 {
             const mod = plan9.base.options.module.?;
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
@@ -204,6 +209,31 @@ pub const Atom = struct {
         const got_index = self.got_index.?;
         return got_addr + got_index * ptr_bytes;
     }
+};
+
+/// the plan9 debuginfo output is a bytecode with 4 opcodes
+/// assume all numbers/variables are bytes
+/// 0 w x y z -> interpret w x y z as a big-endian i32, and add it to the line offset
+/// x when x < 65 -> add x to line offset
+/// x when x < 129 -> subtract 64 from x and subtract it from the line offset
+/// x -> subtract 129 from x, multiply it by the quanta of the instruction size
+/// (1 on x86_64), and add it to the pc
+/// after every opcode, add the quanta of the instruction size to the pc
+pub const DebugInfoOutput = struct {
+    /// the actual opcodes
+    dbg_line: std.ArrayList(u8),
+    /// what line the debuginfo starts on
+    /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+    start_line: ?u32,
+    /// what the line count ends on after codegen
+    /// this helps because the linker might have to insert some opcodes to make sure that the line count starts at the right amount for the next decl
+    end_line: u32,
+    /// the last pc change op
+    /// This is very useful for adding quanta
+    /// to it if its not actually the last one.
+    pcop_change_index: ?u32,
+    /// cached pc quanta
+    pc_quanta: u8,
 };
 
 const DeclMetadata = struct {
@@ -322,9 +352,12 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
 
         // getting the full file path
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const dir = file.pkg.root_src_directory.path orelse try std.os.getcwd(&buf);
-        const sub_path = try std.fs.path.join(arena, &.{ dir, file.sub_file_path });
-        try self.addPathComponents(sub_path, &a);
+        const full_path = try std.fs.path.join(arena, &.{
+            file.mod.root.root_dir.path orelse try std.os.getcwd(&buf),
+            file.mod.root.sub_path,
+            file.sub_file_path,
+        });
+        try self.addPathComponents(full_path, &a);
 
         // null terminate
         try a.append(0);
@@ -371,11 +404,15 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_line_buffer.deinit();
-    var start_line: ?u32 = null;
-    var end_line: u32 = undefined;
-    var pcop_change_index: ?u32 = null;
+    var dbg_info_output: DebugInfoOutput = .{
+        .dbg_line = std.ArrayList(u8).init(self.base.allocator),
+        .start_line = null,
+        .end_line = undefined,
+        .pcop_change_index = null,
+        // we have already checked the target in the linker to make sure it is compatable
+        .pc_quanta = aout.getPCQuant(self.base.options.target.cpu.arch) catch unreachable,
+    };
+    defer dbg_info_output.dbg_line.deinit();
 
     const res = try codegen.generateFunction(
         &self.base,
@@ -384,14 +421,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
         air,
         liveness,
         &code_buffer,
-        .{
-            .plan9 = .{
-                .dbg_line = &dbg_line_buffer,
-                .end_line = &end_line,
-                .start_line = &start_line,
-                .pcop_change_index = &pcop_change_index,
-            },
-        },
+        .{ .plan9 = &dbg_info_output },
     );
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
@@ -407,9 +437,9 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     };
     const out: FnDeclOutput = .{
         .code = code,
-        .lineinfo = try dbg_line_buffer.toOwnedSlice(),
-        .start_line = start_line.?,
-        .end_line = end_line,
+        .lineinfo = try dbg_info_output.dbg_line.toOwnedSlice(),
+        .start_line = dbg_info_output.start_line.?,
+        .end_line = dbg_info_output.end_line,
     };
     try self.putFn(decl_index, out);
     return self.updateFinish(decl_index);
@@ -608,8 +638,9 @@ fn atomCount(self: *Plan9) usize {
     while (it_lazy.next()) |kv| {
         lazy_atom_count += kv.value_ptr.numberOfAtoms();
     }
+    const anon_atom_count = self.anon_decls.count();
     const extern_atom_count = self.externCount();
-    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count;
+    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count + anon_atom_count;
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -790,6 +821,27 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 const atom = self.getAtomPtr(atom_idx);
                 const code = atom.code.getOwnedCode().?; // unnamed consts must own their code
                 log.debug("write unnamed const: ({s})", .{self.syms.items[atom.sym_index.?].name});
+                foff += code.len;
+                iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+                iovecs_i += 1;
+                const off = self.getAddr(data_i, .d);
+                data_i += code.len;
+                atom.offset = off;
+                if (!self.sixtyfour_bit) {
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                }
+                self.syms.items[atom.sym_index.?].value = off;
+            }
+        }
+        // the anon decls
+        {
+            var it_anon = self.anon_decls.iterator();
+            while (it_anon.next()) |kv| {
+                const atom = self.getAtomPtr(kv.value_ptr.*);
+                const code = atom.code.getOwnedCode().?;
+                log.debug("write anon decl: {s}", .{self.syms.items[atom.sym_index.?].name});
                 foff += code.len;
                 iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
                 iovecs_i += 1;
@@ -1106,7 +1158,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
-    var required_alignment: u32 = undefined;
+    var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1195,6 +1247,11 @@ pub fn deinit(self: *Plan9) void {
     var itd = self.data_decl_table.iterator();
     while (itd.next()) |entry| {
         gpa.free(entry.value_ptr.*);
+    }
+    var it_anon = self.anon_decls.iterator();
+    while (it_anon.next()) |entry| {
+        const sym_index = self.getAtom(entry.value_ptr.*).sym_index.?;
+        gpa.free(self.syms.items[sym_index].name);
     }
     self.data_decl_table.deinit(gpa);
     self.syms.deinit(gpa);
@@ -1410,6 +1467,63 @@ pub fn getDeclVAddr(
     // otherwise, we just add a relocation
     const atom_index = try self.seeDecl(decl_index);
     // the parent_atom_index in this case is just the decl_index of the parent
+    try self.addReloc(reloc_info.parent_atom_index, .{
+        .target = atom_index,
+        .offset = reloc_info.offset,
+        .addend = reloc_info.addend,
+    });
+    return undefined;
+}
+
+pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    // This is basically the same as lowerUnnamedConst.
+    // example:
+    // const ty = mod.intern_pool.typeOf(decl_val).toType();
+    // const val = decl_val.toValue();
+    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
+    // It doesn't have an owner decl because it's just an unnamed constant that might
+    // be used by more than one function, however, its address is being used so we need
+    // to put it in some location.
+    // ...
+    const gpa = self.base.allocator;
+    var gop = try self.anon_decls.getOrPut(gpa, decl_val);
+    const mod = self.base.options.module.?;
+    if (!gop.found_existing) {
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const val = decl_val.toValue();
+        const tv = TypedValue{ .ty = ty, .val = val };
+        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
+
+        const index = try self.createAtom();
+        const got_index = self.allocateGotIndex();
+        gop.value_ptr.* = index;
+        // we need to free name latex
+        var code_buffer = std.ArrayList(u8).init(gpa);
+        const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| return .{ .fail = em },
+        };
+        const atom_ptr = self.getAtomPtr(index);
+        atom_ptr.* = .{
+            .type = .d,
+            .offset = undefined,
+            .sym_index = null,
+            .got_index = got_index,
+            .code = Atom.CodePtr.fromSlice(code),
+        };
+        _ = try atom_ptr.getOrCreateSymbolTableEntry(self);
+        self.syms.items[atom_ptr.sym_index.?] = .{
+            .type = .d,
+            .value = undefined,
+            .name = name,
+        };
+    }
+    return .ok;
+}
+
+pub fn getAnonDeclVAddr(self: *Plan9, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    const atom_index = self.anon_decls.get(decl_val).?;
     try self.addReloc(reloc_info.parent_atom_index, .{
         .target = atom_index,
         .offset = reloc_info.offset,

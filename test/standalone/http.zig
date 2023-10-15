@@ -20,7 +20,19 @@ var server: Server = undefined;
 fn handleRequest(res: *Server.Response) !void {
     const log = std.log.scoped(.server);
 
-    log.info("{s} {s} {s}", .{ @tagName(res.request.method), @tagName(res.request.version), res.request.target });
+    log.info("{} {s} {s}", .{ res.request.method, @tagName(res.request.version), res.request.target });
+
+    if (res.request.headers.contains("expect")) {
+        if (mem.eql(u8, res.request.headers.getFirstValue("expect").?, "100-continue")) {
+            res.status = .@"continue";
+            try res.do();
+            res.status = .ok;
+        } else {
+            res.status = .expectation_failed;
+            try res.do();
+            return;
+        }
+    }
 
     const body = try res.reader().readAllAlloc(salloc, 8192);
     defer salloc.free(body);
@@ -43,6 +55,8 @@ fn handleRequest(res: *Server.Response) !void {
             try res.writeAll("Hello, ");
             try res.writeAll("World!\n");
             try res.finish();
+        } else {
+            try testing.expectEqual(res.writeAll("errors"), error.NotWriteable);
         }
     } else if (mem.startsWith(u8, res.request.target, "/large")) {
         res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };
@@ -62,7 +76,7 @@ fn handleRequest(res: *Server.Response) !void {
         }
 
         try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/echo-content")) {
+    } else if (mem.startsWith(u8, res.request.target, "/echo-content")) {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("text/plain", res.request.headers.getFirstValue("content-type").?);
 
@@ -226,7 +240,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -251,7 +265,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192 * 1024);
@@ -275,7 +289,7 @@ pub fn main() !void {
         var req = try client.request(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -301,7 +315,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -326,7 +340,7 @@ pub fn main() !void {
         var req = try client.request(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -352,7 +366,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -381,7 +395,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .{ .content_length = 14 };
 
-        try req.start();
+        try req.start(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -411,7 +425,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -440,7 +454,7 @@ pub fn main() !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.start();
+        try req.start(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -468,7 +482,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -492,7 +506,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -516,7 +530,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -540,7 +554,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         req.wait() catch |err| switch (err) {
             error.TooManyHttpRedirects => {},
             else => return err,
@@ -562,7 +576,7 @@ pub fn main() !void {
         var req = try client.request(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.start(.{});
         const result = req.wait();
 
         try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
@@ -571,7 +585,84 @@ pub fn main() !void {
     // connection has been kept alive
     try testing.expect(client.connection_pool.free_len == 1);
 
-    { // issue 16282
+    { // Client.fetch()
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("content-type", "text/plain");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
+        defer calloc.free(location);
+
+        log.info("{s}", .{location});
+        var res = try client.fetch(calloc, .{
+            .location = .{ .url = location },
+            .method = .POST,
+            .headers = h,
+            .payload = .{ .string = "Hello, World!\n" },
+        });
+        defer res.deinit();
+
+        try testing.expectEqualStrings("Hello, World!\n", res.body.?);
+    }
+
+    { // expect: 100-continue
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("expect", "100-continue");
+        try h.append("content-type", "text/plain");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-100", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.request(.POST, uri, h, .{});
+        defer req.deinit();
+
+        req.transfer_encoding = .chunked;
+
+        try req.start(.{});
+        try req.wait();
+        try testing.expectEqual(http.Status.@"continue", req.response.status);
+
+        try req.writeAll("Hello, ");
+        try req.writeAll("World!\n");
+        try req.finish();
+
+        try req.wait();
+        try testing.expectEqual(http.Status.ok, req.response.status);
+
+        const body = try req.reader().readAllAlloc(calloc, 8192);
+        defer calloc.free(body);
+
+        try testing.expectEqualStrings("Hello, World!\n", body);
+    }
+
+    { // expect: garbage
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("content-type", "text/plain");
+        try h.append("expect", "garbage");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-garbage", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.request(.POST, uri, h, .{});
+        defer req.deinit();
+
+        req.transfer_encoding = .chunked;
+
+        try req.start(.{});
+        try req.wait();
+        try testing.expectEqual(http.Status.expectation_failed, req.response.status);
+    }
+
+    { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
         defer calloc.free(location);
         const uri = try std.Uri.parse(location);

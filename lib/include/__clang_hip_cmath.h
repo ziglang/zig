@@ -171,7 +171,7 @@ __DEVICE__ __CONSTEXPR__ bool signbit(double __x) { return ::__signbit(__x); }
 // Other functions.
 __DEVICE__ __CONSTEXPR__ _Float16 fma(_Float16 __x, _Float16 __y,
                                       _Float16 __z) {
-  return __ocml_fma_f16(__x, __y, __z);
+  return __builtin_fmaf16(__x, __y, __z);
 }
 __DEVICE__ __CONSTEXPR__ _Float16 pow(_Float16 __base, int __iexp) {
   return __ocml_pown_f16(__base, __iexp);

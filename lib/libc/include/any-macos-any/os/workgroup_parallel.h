@@ -31,6 +31,7 @@
 __BEGIN_DECLS
 
 OS_WORKGROUP_ASSUME_NONNULL_BEGIN
+OS_WORKGROUP_ASSUME_ABI_SINGLE_BEGIN
 
 /*!
  * @typedef os_workgroup_parallel_t
@@ -64,9 +65,10 @@ API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
 OS_WORKGROUP_EXPORT OS_WORKGROUP_RETURNS_RETAINED
 OS_SWIFT_NAME(WorkGroupParallel.init(__name:attr:))
 os_workgroup_parallel_t _Nullable
-os_workgroup_parallel_create(const char * _Nullable name,
+os_workgroup_parallel_create(const char *OS_WORKGROUP_UNSAFE_INDEXABLE _Nullable name,
 	os_workgroup_attr_t _Nullable attr);
 
+OS_WORKGROUP_ASSUME_ABI_SINGLE_END
 OS_WORKGROUP_ASSUME_NONNULL_END
 
 __END_DECLS

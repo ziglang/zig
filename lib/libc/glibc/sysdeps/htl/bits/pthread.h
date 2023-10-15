@@ -1,5 +1,5 @@
 /* Pthread data structures.  Generic version.
-   Copyright (C) 2002-2021 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -19,7 +19,7 @@
 #ifndef _BITS_PTHREAD_H
 #define _BITS_PTHREAD_H	1
 
-typedef int __pthread_t;
+#include <bits/types/__pthread_t.h>
 
 /* Return true if __T1 and __T2 both name the same thread.  Otherwise,
    false.  */

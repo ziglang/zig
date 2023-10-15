@@ -157,6 +157,7 @@ test {
     _ = @import("behavior/decltest.zig");
     _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
+    _ = @import("behavior/destructure.zig");
     _ = @import("behavior/empty_tuple_fields.zig");
     _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
@@ -236,6 +237,7 @@ test {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/abs.zig");
 
     if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");

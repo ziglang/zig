@@ -1554,6 +1554,24 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
+    cases.add("Flexible array with typedefed flexible item, issue #16838",
+        \\#include <stdlib.h>
+        \\#include <assert.h>
+        \\typedef int MARKER[0];
+        \\typedef struct { int x; MARKER y; } Flexible;
+        \\#define SIZE 10
+        \\int main(void) {
+        \\    Flexible *flex = malloc(sizeof(Flexible) + SIZE * sizeof(int));
+        \\    for (int i = 0; i < SIZE; i++) {
+        \\        flex->y[i] = i;
+        \\    }
+        \\    for (int i = 0; i < SIZE; i++) {
+        \\        assert(flex->y[i] == i);
+        \\    }
+        \\    return 0;
+        \\}
+    , "");
+
     cases.add("enum with value that fits in c_uint but not c_int, issue #8003",
         \\#include <stdlib.h>
         \\enum my_enum {
@@ -1874,6 +1892,40 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\#if defined(__UINTPTR_MAX__) && __has_include(<unistd.h>)
         \\    uintptr_t x = (uintptr_t)main;
         \\#endif
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Closure over local in typeof",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int x = 123;
+        \\    union { typeof(x) val; } u = { x };
+        \\    if (u.val != 123) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("struct without global declaration does not conflict with local variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\int main(void) {
+        \\    int struct_foobar = 123;
+        \\    if (struct_foobar != 123) abort();
+        \\    int foobar = 456;
+        \\    if (foobar != 456) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("struct without global declaration does not conflict with global variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\static int struct_foobar = 123;
+        \\static int foobar = 456;
+        \\int main(void) {
+        \\    if (struct_foobar != 123) abort();
+        \\    if (foobar != 456) abort();
         \\    return 0;
         \\}
     , "");

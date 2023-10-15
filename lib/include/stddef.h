@@ -103,6 +103,11 @@ using ::std::nullptr_t;
 typedef typeof(nullptr) nullptr_t;
 #endif /* defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L */
 
+#if defined(__need_STDDEF_H_misc) && defined(__STDC_VERSION__) &&              \
+    __STDC_VERSION__ >= 202000L
+#define unreachable() __builtin_unreachable()
+#endif /* defined(__need_STDDEF_H_misc) && >= C23 */
+
 #if defined(__need_STDDEF_H_misc)
 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) ||              \
     (defined(__cplusplus) && __cplusplus >= 201103L)

@@ -17,7 +17,7 @@
 // converted from *src, excluding the null terminator.
 // Returns (size_t) -1 if an error occurs and sets errno.
 // If `dst` is NULL, `dst_size_bytes` is ignored and no bytes are copied to `dst`.
-_LIBCPP_FUNC_VIS
+_LIBCPP_EXPORTED_FROM_ABI
 size_t wcsnrtombs(char *__restrict dst, const wchar_t **__restrict src,
                    size_t max_source_chars, size_t dst_size_bytes,
                    mbstate_t *__restrict ps) {

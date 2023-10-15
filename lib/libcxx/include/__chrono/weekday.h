@@ -20,7 +20,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -35,7 +35,7 @@ private:
     unsigned char __wd_;
     _LIBCPP_HIDE_FROM_ABI static constexpr unsigned char __weekday_from_days(int __days) noexcept;
 public:
-  _LIBCPP_HIDE_FROM_ABI weekday() = default;
+  weekday() = default;
   _LIBCPP_HIDE_FROM_ABI inline explicit constexpr weekday(unsigned __val) noexcept : __wd_(static_cast<unsigned char>(__val == 7 ? 0 : __val)) {}
   _LIBCPP_HIDE_FROM_ABI inline constexpr          weekday(const sys_days& __sysd) noexcept
           : __wd_(__weekday_from_days(__sysd.time_since_epoch().count())) {}
@@ -68,10 +68,6 @@ unsigned char weekday::__weekday_from_days(int __days) noexcept
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator==(const weekday& __lhs, const weekday& __rhs) noexcept
 { return __lhs.c_encoding() == __rhs.c_encoding(); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const weekday& __lhs, const weekday& __rhs) noexcept
-{ return !(__lhs == __rhs); }
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator< (const weekday& __lhs, const weekday& __rhs) noexcept
@@ -126,7 +122,7 @@ private:
     chrono::weekday __wd_;
     unsigned char   __idx_;
 public:
-    _LIBCPP_HIDE_FROM_ABI weekday_indexed() = default;
+    weekday_indexed() = default;
     _LIBCPP_HIDE_FROM_ABI inline constexpr weekday_indexed(const chrono::weekday& __wdval, unsigned __idxval) noexcept
         : __wd_{__wdval}, __idx_(__idxval) {}
     _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::weekday weekday() const noexcept { return __wd_; }
@@ -137,11 +133,6 @@ public:
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator==(const weekday_indexed& __lhs, const weekday_indexed& __rhs) noexcept
 { return __lhs.weekday() == __rhs.weekday() && __lhs.index() == __rhs.index(); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const weekday_indexed& __lhs, const weekday_indexed& __rhs) noexcept
-{ return !(__lhs == __rhs); }
-
 
 class weekday_last {
 private:
@@ -156,10 +147,6 @@ public:
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator==(const weekday_last& __lhs, const weekday_last& __rhs) noexcept
 { return __lhs.weekday() == __rhs.weekday(); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const weekday_last& __lhs, const weekday_last& __rhs) noexcept
-{ return !(__lhs == __rhs); }
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
 weekday_indexed weekday::operator[](unsigned __index) const noexcept { return weekday_indexed{*this, __index}; }
@@ -180,6 +167,6 @@ inline constexpr weekday   Saturday{6};
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___CHRONO_WEEKDAY_H

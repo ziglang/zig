@@ -446,7 +446,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
+                    return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -459,7 +459,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
+                    return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
                 }
             }
         }

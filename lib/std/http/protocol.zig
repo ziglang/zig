@@ -82,7 +82,7 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = comptime @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const vector_len: comptime_int = @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
         const len = @as(u32, @intCast(bytes.len));
         var index: u32 = 0;
 
@@ -534,9 +534,9 @@ pub const HeadersParser = struct {
 
                         if (r.next_chunk_length == 0) r.done = true;
 
-                        return 0;
-                    } else {
-                        const out_avail = buffer.len;
+                        return out_index;
+                    } else if (out_index < buffer.len) {
+                        const out_avail = buffer.len - out_index;
 
                         const can_read = @as(usize, @intCast(@min(data_avail, out_avail)));
                         const nread = try conn.read(buffer[0..can_read]);
@@ -545,6 +545,8 @@ pub const HeadersParser = struct {
                         if (r.next_chunk_length == 0) r.done = true;
 
                         return nread;
+                    } else {
+                        return out_index;
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
@@ -558,6 +560,7 @@ pub const HeadersParser = struct {
                         .chunk_data => if (r.next_chunk_length == 0) {
                             if (std.mem.eql(u8, conn.peek(), "\r\n")) {
                                 r.state = .finished;
+                                r.done = true;
                             } else {
                                 // The trailer section is formatted identically to the header section.
                                 r.state = .seen_rn;

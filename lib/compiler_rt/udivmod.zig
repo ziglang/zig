@@ -21,11 +21,11 @@ fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
     var un64: T = undefined;
     var un10: T = undefined;
 
-    const s = @as(Log2Int(T), @intCast(@clz(v)));
+    const s: Log2Int(T) = @intCast(@clz(v));
     if (s > 0) {
         // Normalize divisor
         v <<= s;
-        un64 = (_u1 << s) | (_u0 >> @as(Log2Int(T), @intCast((@bitSizeOf(T) - @as(T, @intCast(s))))));
+        un64 = (_u1 << s) | (_u0 >> @intCast((@bitSizeOf(T) - @as(T, @intCast(s)))));
         un10 = _u0 << s;
     } else {
         // Avoid undefined behavior of (u0 >> @bitSizeOf(T))
@@ -101,8 +101,8 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
         return 0;
     }
 
-    var a = @as([2]HalfT, @bitCast(a_));
-    var b = @as([2]HalfT, @bitCast(b_));
+    var a: [2]HalfT = @bitCast(a_);
+    var b: [2]HalfT = @bitCast(b_);
     var q: [2]HalfT = undefined;
     var r: [2]HalfT = undefined;
 
@@ -119,16 +119,16 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
             q[lo] = divwide(HalfT, a[hi] % b[lo], a[lo], b[lo], &r[lo]);
         }
         if (maybe_rem) |rem| {
-            rem.* = @as(T, @bitCast(r));
+            rem.* = @bitCast(r);
         }
-        return @as(T, @bitCast(q));
+        return @bitCast(q);
     }
 
     // 0 <= shift <= 63
     var shift: Log2Int(T) = @clz(b[hi]) - @clz(a[hi]);
-    var af = @as(T, @bitCast(a));
+    var af: T = @bitCast(a);
     var bf = @as(T, @bitCast(b)) << shift;
-    q = @as([2]HalfT, @bitCast(@as(T, 0)));
+    q = @bitCast(@as(T, 0));
 
     for (0..shift + 1) |_| {
         q[lo] <<= 1;
@@ -138,12 +138,12 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
         //     q[lo] |= 1;
         // }
         const s = @as(SignedT, @bitCast(bf -% af -% 1)) >> (@bitSizeOf(T) - 1);
-        q[lo] |= @as(HalfT, @intCast(s & 1));
+        q[lo] |= @intCast(s & 1);
         af -= bf & @as(T, @bitCast(s));
         bf >>= 1;
     }
     if (maybe_rem) |rem| {
-        rem.* = @as(T, @bitCast(af));
+        rem.* = @bitCast(af);
     }
-    return @as(T, @bitCast(q));
+    return @bitCast(q);
 }

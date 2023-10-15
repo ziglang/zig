@@ -1,6 +1,6 @@
 /* Definitions of constants and data structure for POSIX 1003.1b-1993
    scheduling interface.
-   Copyright (C) 1996-2021 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -71,6 +71,10 @@
 # define CLONE_NEWPID	0x20000000	/* New pid namespace.  */
 # define CLONE_NEWNET	0x40000000	/* New network namespace.  */
 # define CLONE_IO	0x80000000	/* Clone I/O context.  */
+
+/* cloning flags intersect with CSIGNAL so can be used only with unshare and
+   clone3 syscalls.  */
+#define CLONE_NEWTIME	0x00000080      /* New time namespace */
 #endif
 
 #include <bits/types/struct_sched_param.h>

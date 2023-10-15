@@ -88,13 +88,19 @@ pub inline fn __builtin_log10f(val: f32) f32 {
 
 // Standard C Library bug: The absolute value of the most negative integer remains negative.
 pub inline fn __builtin_abs(val: c_int) c_int {
-    return std.math.absInt(val) catch std.math.minInt(c_int);
+    return if (val == std.math.minInt(c_int)) val else @intCast(@abs(val));
+}
+pub inline fn __builtin_labs(val: c_long) c_long {
+    return if (val == std.math.minInt(c_long)) val else @intCast(@abs(val));
+}
+pub inline fn __builtin_llabs(val: c_longlong) c_longlong {
+    return if (val == std.math.minInt(c_longlong)) val else @intCast(@abs(val));
 }
 pub inline fn __builtin_fabs(val: f64) f64 {
-    return @fabs(val);
+    return @abs(val);
 }
 pub inline fn __builtin_fabsf(val: f32) f32 {
-    return @fabs(val);
+    return @abs(val);
 }
 
 pub inline fn __builtin_floor(val: f64) f64 {
@@ -207,7 +213,7 @@ pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
 pub inline fn __builtin_nanf(tagp: []const u8) f32 {
     const parsed = std.fmt.parseUnsigned(c_ulong, tagp, 0) catch 0;
     const bits: u23 = @truncate(parsed); // single-precision float trailing significand is 23 bits
-    return @bitCast(@as(u32, bits) | std.math.qnan_u32);
+    return @bitCast(@as(u32, bits) | @as(u32, @bitCast(std.math.nan(f32))));
 }
 
 pub inline fn __builtin_huge_valf() f32 {

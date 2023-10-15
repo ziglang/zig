@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -21,7 +21,8 @@
 
 #include <sysdeps/unix/sysdep.h>
 #include <sysdeps/aarch64/sysdep.h>
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
+#include <sysdeps/unix/sysdep.h>
+#include <sysdeps/unix/sysv/linux/sysdep.h>
 
 /* Defines RTLD_PRIVATE_ERRNO and USE_DL_SYSINFO.  */
 #include <dl-sysdep.h>
@@ -164,7 +165,7 @@
 # define HAVE_CLOCK_GETTIME64_VSYSCALL	"__kernel_clock_gettime"
 # define HAVE_GETTIMEOFDAY_VSYSCALL	"__kernel_gettimeofday"
 
-# define SINGLE_THREAD_BY_GLOBAL		1
+# define HAVE_CLONE3_WRAPPER		1
 
 # undef INTERNAL_SYSCALL_RAW
 # define INTERNAL_SYSCALL_RAW(name, nr, args...)		\
@@ -234,50 +235,5 @@
 #define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
 #endif	/* __ASSEMBLER__ */
-
-/* Pointer mangling is supported for AArch64.  */
-#if (IS_IN (rtld) \
-     || (!defined SHARED && (IS_IN (libc) \
-			     || IS_IN (libpthread))))
-# ifdef __ASSEMBLER__
-/* Note, dst, src, guard, and tmp are all register numbers rather than
-   register names so they will work with both ILP32 and LP64. */
-#  define PTR_MANGLE(dst, src, guard, tmp)                                \
-  LDST_PCREL (ldr, guard, tmp, C_SYMBOL_NAME(__pointer_chk_guard_local)); \
-  PTR_MANGLE2 (dst, src, guard)
-/* Use PTR_MANGLE2 for efficiency if guard is already loaded.  */
-#  define PTR_MANGLE2(dst, src, guard)\
-  eor x##dst, x##src, x##guard
-#  define PTR_DEMANGLE(dst, src, guard, tmp)\
-  PTR_MANGLE (dst, src, guard, tmp)
-#  define PTR_DEMANGLE2(dst, src, guard)\
-  PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard_local attribute_relro attribute_hidden;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard_local)
-#  define PTR_DEMANGLE(var)     PTR_MANGLE (var)
-# endif
-#else
-# ifdef __ASSEMBLER__
-/* Note, dst, src, guard, and tmp are all register numbers rather than
-   register names so they will work with both ILP32 and LP64. */
-#  define PTR_MANGLE(dst, src, guard, tmp)                             \
-  LDST_GLOBAL (ldr, guard, tmp, C_SYMBOL_NAME(__pointer_chk_guard));   \
-  PTR_MANGLE2 (dst, src, guard)
-/* Use PTR_MANGLE2 for efficiency if guard is already loaded.  */
-#  define PTR_MANGLE2(dst, src, guard)\
-  eor x##dst, x##src, x##guard
-#  define PTR_DEMANGLE(dst, src, guard, tmp)\
-  PTR_MANGLE (dst, src, guard, tmp)
-#  define PTR_DEMANGLE2(dst, src, guard)\
-  PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard attribute_relro;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard)
-#  define PTR_DEMANGLE(var) PTR_MANGLE (var)
-# endif
-#endif
 
 #endif /* linux/aarch64/sysdep.h */

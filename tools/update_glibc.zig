@@ -30,6 +30,12 @@ const exempt_files = [_][]const u8{
     "sysdeps/pthread/pthread_atfork.c",
 };
 
+const exempt_extensions = [_][]const u8{
+    // These are the start files we use when targeting glibc <= 2.33.
+    "-2.33.S",
+    "-2.33.c",
+};
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
@@ -61,6 +67,9 @@ pub fn main() !void {
             if (mem.startsWith(u8, entry.basename, ".")) continue;
             for (exempt_files) |p| {
                 if (mem.eql(u8, entry.path, p)) continue :walk;
+            }
+            for (exempt_extensions) |ext| {
+                if (mem.endsWith(u8, entry.path, ext)) continue :walk;
             }
 
             glibc_src_dir.copyFile(entry.path, dest_dir.dir, entry.path, .{}) catch |err| {

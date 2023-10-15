@@ -3,7 +3,7 @@
 // https://tools.ietf.org/html/rfc1950#section-9
 // https://github.com/madler/zlib/blob/master/adler32.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 
 pub const Adler32 = struct {
@@ -125,4 +125,10 @@ test "adler32 very long with variation" {
     };
 
     try testing.expectEqual(@as(u32, 0x5af38d6e), std.hash.Adler32.hash(long[0..]));
+}
+
+const verify = @import("verify.zig");
+
+test "adler32 iterative" {
+    try verify.iterativeApi(Adler32);
 }

@@ -34,10 +34,11 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:20: error: incompatible types: 'i32' and 'void'
-// :2:30: note: type 'i32' here
+// :2:20: error: expected type 'i32', found 'void'
 // :8:15: error: incompatible types: 'i32' and 'void'
 // :8:25: note: type 'i32' here
 // :16:16: error: expected type 'tmp.h.T', found 'void'
 // :15:15: note: struct declared here
-// :22:9: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:13: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:25: note: type 'void' here
+// :24:13: note: type 'tmp.k.T' here

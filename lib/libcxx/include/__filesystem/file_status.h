@@ -23,9 +23,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
-_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
-
-class _LIBCPP_TYPE_VIS file_status {
+class _LIBCPP_EXPORTED_FROM_ABI file_status {
 public:
   // constructors
   _LIBCPP_INLINE_VISIBILITY
@@ -35,14 +33,14 @@ public:
       : __ft_(__ft),
         __prms_(__prms) {}
 
-  file_status(const file_status&) noexcept = default;
-  file_status(file_status&&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI file_status(const file_status&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI file_status(file_status&&) noexcept = default;
 
   _LIBCPP_INLINE_VISIBILITY
   ~file_status() {}
 
-  file_status& operator=(const file_status&) noexcept = default;
-  file_status& operator=(file_status&&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI file_status& operator=(const file_status&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI file_status& operator=(file_status&&) noexcept = default;
 
   // observers
   _LIBCPP_INLINE_VISIBILITY
@@ -58,12 +56,18 @@ public:
   _LIBCPP_INLINE_VISIBILITY
   void permissions(perms __p) noexcept { __prms_ = __p; }
 
+#  if _LIBCPP_STD_VER >= 20
+
+  _LIBCPP_HIDE_FROM_ABI friend bool operator==(const file_status& __lhs, const file_status& __rhs) noexcept {
+    return __lhs.type() == __rhs.type() && __lhs.permissions() == __rhs.permissions();
+  }
+
+#  endif
+
 private:
   file_type __ft_;
   perms __prms_;
 };
-
-_LIBCPP_AVAILABILITY_FILESYSTEM_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 

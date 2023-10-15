@@ -6,11 +6,11 @@ const mem = std.mem;
 pub fn supportsUnwinding(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .x86 => switch (target.os.tag) {
-            .linux, .netbsd, .solaris => true,
+            .linux, .netbsd, .solaris, .illumos => true,
             else => false,
         },
         .x86_64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .openbsd, .macos, .solaris => true,
+            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
             else => false,
         },
         .arm => switch (target.os.tag) {
@@ -18,7 +18,7 @@ pub fn supportsUnwinding(target: std.Target) bool {
             else => false,
         },
         .aarch64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .macos => true,
+            .linux, .netbsd, .freebsd, .macos, .ios => true,
             else => false,
         },
         else => false,
@@ -194,7 +194,7 @@ pub fn regBytes(
     const ucontext_ptr = thread_context_ptr;
     return switch (builtin.cpu.arch) {
         .x86 => switch (builtin.os.tag) {
-            .linux, .netbsd, .solaris => switch (reg_number) {
+            .linux, .netbsd, .solaris, .illumos => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
@@ -229,7 +229,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .x86_64 => switch (builtin.os.tag) {
-            .linux, .netbsd, .solaris => switch (reg_number) {
+            .linux, .solaris, .illumos => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDX]),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RCX]),
@@ -247,7 +247,10 @@ pub fn regBytes(
                 14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R14]),
                 15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R15]),
                 16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RIP]),
-                17...32 => |i| mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
+                17...32 => |i| if (builtin.os.tag.isSolarish())
+                    mem.asBytes(&ucontext_ptr.mcontext.fpregs.chip_state.xmm[i - 17])
+                else
+                    mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
                 else => error.InvalidRegister,
             },
             .freebsd => switch (reg_number) {
@@ -292,7 +295,7 @@ pub fn regBytes(
                 // TODO: Extract xmm state from sc_fpstate?
                 else => error.InvalidRegister,
             },
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.ss.rax),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.ss.rdx),
                 2 => mem.asBytes(&ucontext_ptr.mcontext.ss.rcx),
@@ -338,7 +341,7 @@ pub fn regBytes(
             else => error.UnimplementedOs,
         },
         .aarch64 => switch (builtin.os.tag) {
-            .macos => switch (reg_number) {
+            .macos, .ios => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
                 30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),

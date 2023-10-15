@@ -30,19 +30,17 @@ fn test__divxf3(a: f80, b: f80) !void {
     const x_minus_eps: f80 = @bitCast((@as(u80, @bitCast(x)) - 1) | integerBit);
 
     // Make sure result is more accurate than the adjacent floats
-    const err_x = @fabs(@mulAdd(f80, x, b, -a));
-    const err_x_plus_eps = @fabs(@mulAdd(f80, x_plus_eps, b, -a));
-    const err_x_minus_eps = @fabs(@mulAdd(f80, x_minus_eps, b, -a));
+    const err_x = @abs(@mulAdd(f80, x, b, -a));
+    const err_x_plus_eps = @abs(@mulAdd(f80, x_plus_eps, b, -a));
+    const err_x_minus_eps = @abs(@mulAdd(f80, x_minus_eps, b, -a));
 
     try testing.expect(err_x_minus_eps > err_x);
     try testing.expect(err_x_plus_eps > err_x);
 }
 
 test "divxf3" {
-    // qNaN / any = qNaN
-    try expect__divxf3_result(math.qnan_f80, 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // NaN / any = NaN
-    try expect__divxf3_result(math.nan_f80, 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
+    try expect__divxf3_result(math.nan(f80), 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // inf / any(except inf and nan) = inf
     try expect__divxf3_result(math.inf(f80), 0x1.23456789abcdefp+5, 0x7fff8000000000000000);
     // inf / inf = nan

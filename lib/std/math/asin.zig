@@ -60,7 +60,7 @@ fn asin32(x: f32) f32 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const fx = pio2 - 2 * (s + s * r32(z));
 
@@ -119,7 +119,7 @@ fn asin64(x: f64) f64 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const r = r64(z);
     var fx: f64 = undefined;

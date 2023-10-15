@@ -187,8 +187,13 @@ debug_pubtypes_atom: ?Atom.Index = null,
 /// rather than by the linker.
 synthetic_functions: std.ArrayListUnmanaged(Atom.Index) = .{},
 
+/// Map for storing anonymous declarations. Each anonymous decl maps to its Atom's index.
+anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+
+pub const Alignment = types.Alignment;
+
 pub const Segment = struct {
-    alignment: u32,
+    alignment: Alignment,
     size: u32,
     offset: u32,
     flags: u32,
@@ -1289,6 +1294,7 @@ pub fn deinit(wasm: *Wasm) void {
     }
 
     wasm.decls.deinit(gpa);
+    wasm.anon_decls.deinit(gpa);
     wasm.atom_types.deinit(gpa);
     wasm.symbols.deinit(gpa);
     wasm.symbols_free_list.deinit(gpa);
@@ -1490,7 +1496,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
-    atom.size = @as(u32, @intCast(code.len));
+    atom.size = @intCast(code.len);
     if (code.len == 0) return;
     atom.alignment = decl.getAlignment(mod);
 }
@@ -1546,17 +1552,38 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
-    // Create and initialize a new local symbol and atom
-    const atom_index = try wasm.createAtom();
     const parent_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
-    const parent_atom = wasm.getAtomPtr(parent_atom_index);
+    const parent_atom = wasm.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    try parent_atom.locals.append(wasm.base.allocator, atom_index);
     const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });
     defer wasm.base.allocator.free(name);
+
+    switch (try wasm.lowerConst(name, tv, decl.srcLoc(mod))) {
+        .ok => |atom_index| {
+            try wasm.getAtomPtr(parent_atom_index).locals.append(wasm.base.allocator, atom_index);
+            return wasm.getAtom(atom_index).getSymbolIndex().?;
+        },
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            return error.CodegenFail;
+        },
+    }
+}
+
+const LowerConstResult = union(enum) {
+    ok: Atom.Index,
+    fail: *Module.ErrorMsg,
+};
+
+fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
+    const mod = wasm.base.options.module.?;
+
+    // Create and initialize a new local symbol and atom
+    const atom_index = try wasm.createAtom();
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
 
@@ -1574,7 +1601,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
         const result = try codegen.generateSymbol(
             &wasm.base,
-            decl.srcLoc(mod),
+            src_loc,
             tv,
             &value_bytes,
             .none,
@@ -1586,17 +1613,15 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
         break :code switch (result) {
             .ok => value_bytes.items,
             .fail => |em| {
-                decl.analysis = .codegen_failure;
-                try mod.failed_decls.put(mod.gpa, decl_index, em);
-                return error.CodegenFail;
+                return .{ .fail = em };
             },
         };
     };
 
     const atom = wasm.getAtomPtr(atom_index);
-    atom.size = @as(u32, @intCast(code.len));
+    atom.size = @intCast(code.len);
     try atom.code.appendSlice(wasm.base.allocator, code);
-    return atom.sym_index;
+    return .{ .ok = atom_index };
 }
 
 /// Returns the symbol index from a symbol of which its flag is set global,
@@ -1670,6 +1695,63 @@ pub fn getDeclVAddr(
             .addend = @as(i32, @intCast(reloc_info.addend)),
         });
     }
+    // we do not know the final address at this point,
+    // as atom allocation will determine the address and relocations
+    // will calculate and rewrite this. Therefore, we simply return the symbol index
+    // that was targeted.
+    return target_symbol_index;
+}
+
+pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+    const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
+    if (gop.found_existing) {
+        return .ok;
+    }
+
+    const mod = wasm.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
+    defer wasm.base.allocator.free(name);
+
+    switch (try wasm.lowerConst(name, tv, src_loc)) {
+        .ok => |atom_index| {
+            gop.value_ptr.* = atom_index;
+            return .ok;
+        },
+        .fail => |em| return .{ .fail = em },
+    }
+}
+
+pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    const atom_index = wasm.anon_decls.get(decl_val).?;
+    const target_symbol_index = wasm.getAtom(atom_index).getSymbolIndex().?;
+
+    const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
+    const parent_atom = wasm.getAtomPtr(parent_atom_index);
+    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
+    const mod = wasm.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    if (ty.zigTypeTag(mod) == .Fn) {
+        assert(reloc_info.addend == 0); // addend not allowed for function relocations
+        // We found a function pointer, so add it to our table,
+        // as function pointers are not allowed to be stored inside the data section.
+        // They are instead stored in a function table which are called by index.
+        try wasm.addTableFunction(target_symbol_index);
+        try parent_atom.relocs.append(wasm.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
+        });
+    } else {
+        try parent_atom.relocs.append(wasm.base.allocator, .{
+            .index = target_symbol_index,
+            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
+            .addend = @as(i32, @intCast(reloc_info.addend)),
+        });
+    }
+
     // we do not know the final address at this point,
     // as atom allocation will determine the address and relocations
     // will calculate and rewrite this. Therefore, we simply return the symbol index
@@ -2050,7 +2132,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     };
 
     const segment: *Segment = &wasm.segments.items[final_index];
-    segment.alignment = @max(segment.alignment, atom.alignment);
+    segment.alignment = segment.alignment.max(atom.alignment);
 
     try wasm.appendAtomAtIndex(final_index, atom_index);
 }
@@ -2121,7 +2203,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
                     }
                 }
             }
-            offset = std.mem.alignForward(u32, offset, atom.alignment);
+            offset = @intCast(atom.alignment.forward(offset));
             atom.offset = offset;
             log.debug("Atom '{s}' allocated from 0x{x:0>8} to 0x{x:0>8} size={d}", .{
                 symbol_loc.getName(wasm),
@@ -2132,7 +2214,7 @@ fn allocateAtoms(wasm: *Wasm) !void {
             offset += atom.size;
             atom_index = atom.prev orelse break;
         }
-        segment.size = std.mem.alignForward(u32, offset, segment.alignment);
+        segment.size = @intCast(segment.alignment.forward(offset));
     }
 }
 
@@ -2351,7 +2433,7 @@ fn createSyntheticFunction(
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
-        .alignment = 1,
+        .alignment = .@"1",
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
@@ -2382,11 +2464,11 @@ pub fn createFunction(
     const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = .{
-        .size = @as(u32, @intCast(function_body.items.len)),
+        .size = @intCast(function_body.items.len),
         .offset = 0,
         .sym_index = loc.index,
         .file = null,
-        .alignment = 1,
+        .alignment = .@"1",
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
@@ -2734,8 +2816,8 @@ fn setupMemory(wasm: *Wasm) !void {
     const page_size = std.wasm.page_size; // 64kb
     // Use the user-provided stack size or else we use 1MB by default
     const stack_size = wasm.base.options.stack_size_override orelse page_size * 16;
-    const stack_alignment = 16; // wasm's stack alignment as specified by tool-convention
-    const heap_alignment = 16; // wasm's heap alignment as specified by tool-convention
+    const stack_alignment: Alignment = .@"16"; // wasm's stack alignment as specified by tool-convention
+    const heap_alignment: Alignment = .@"16"; // wasm's heap alignment as specified by tool-convention
 
     // Always place the stack at the start by default
     // unless the user specified the global-base flag
@@ -2748,7 +2830,7 @@ fn setupMemory(wasm: *Wasm) !void {
     const is_obj = wasm.base.options.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
+        memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += stack_size;
         // We always put the stack pointer global at index 0
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
@@ -2758,7 +2840,7 @@ fn setupMemory(wasm: *Wasm) !void {
     var data_seg_it = wasm.data_segments.iterator();
     while (data_seg_it.next()) |entry| {
         const segment = &wasm.segments.items[entry.value_ptr.*];
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, segment.alignment);
+        memory_ptr = segment.alignment.forward(memory_ptr);
 
         // set TLS-related symbols
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
@@ -2768,7 +2850,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment);
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnitsOptional().?);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
@@ -2795,7 +2877,7 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     if (!place_stack_first and !is_obj) {
-        memory_ptr = std.mem.alignForward(u64, memory_ptr, stack_alignment);
+        memory_ptr = stack_alignment.forward(memory_ptr);
         memory_ptr += stack_size;
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
@@ -2804,7 +2886,7 @@ fn setupMemory(wasm: *Wasm) !void {
     // We must set its virtual address so it can be used in relocations.
     if (wasm.findGlobalSymbol("__heap_base")) |loc| {
         const symbol = loc.getSymbol(wasm);
-        symbol.virtual_address = @as(u32, @intCast(mem.alignForward(u64, memory_ptr, heap_alignment)));
+        symbol.virtual_address = @intCast(heap_alignment.forward(memory_ptr));
     }
 
     // Setup the max amount of pages
@@ -2879,7 +2961,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(wasm.base.allocator, .{
-                    .alignment = 1,
+                    .alignment = .@"1",
                     .size = 0,
                     .offset = 0,
                     .flags = flags,
@@ -2954,7 +3036,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
 /// Appends a new segment with default field values
 fn appendDummySegment(wasm: *Wasm) !void {
     try wasm.segments.append(wasm.base.allocator, .{
-        .alignment = 1,
+        .alignment = .@"1",
         .size = 0,
         .offset = 0,
         .flags = 0,
@@ -3005,14 +3087,13 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 fn populateErrorNameTable(wasm: *Wasm) !void {
     const symbol_index = wasm.error_table_symbol orelse return;
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = symbol_index }).?;
-    const atom = wasm.getAtomPtr(atom_index);
 
     // Rather than creating a symbol for each individual error name,
     // we create a symbol for the entire region of error names. We then calculate
     // the pointers into the list using addends which are appended to the relocation.
     const names_atom_index = try wasm.createAtom();
     const names_atom = wasm.getAtomPtr(names_atom_index);
-    names_atom.alignment = 1;
+    names_atom.alignment = .@"1";
     const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_names");
     const names_symbol = &wasm.symbols.items[names_atom.sym_index];
     names_symbol.* = .{
@@ -3030,6 +3111,8 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
     for (mod.global_error_set.keys()) |error_name_nts| {
+        const atom = wasm.getAtomPtr(atom_index);
+
         const error_name = mod.intern_pool.stringToSlice(error_name_nts);
         const len = @as(u32, @intCast(error_name.len + 1)); // names are 0-termianted
 
@@ -3084,7 +3167,7 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
     };
 
-    atom.alignment = 1; // debug sections are always 1-byte-aligned
+    atom.alignment = .@"1"; // debug sections are always 1-byte-aligned
     return atom_index;
 }
 
@@ -3174,11 +3257,12 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const is_obj = options.output_mode == .Obj;
-    const compiler_rt_path: ?[]const u8 = if (options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_lib.?.full_object_path
-    else
-        null;
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
+        if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
+        break :blk null;
+    };
+
     const id_symlink_basename = "zld.id";
 
     var man: Cache.Manifest = undefined;
@@ -3193,7 +3277,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3293,9 +3377,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try positionals.append(c_object.status.success.object_path);
     }
 
-    if (comp.compiler_rt_lib) |lib| {
-        try positionals.append(lib.full_object_path);
-    }
+    if (comp.compiler_rt_lib) |lib| try positionals.append(lib.full_object_path);
+    if (comp.compiler_rt_obj) |obj| try positionals.append(obj.full_object_path);
 
     try wasm.parseInputFiles(positionals.items);
 
@@ -3380,9 +3463,8 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try positionals.append(c_object.status.success.object_path);
     }
 
-    if (comp.compiler_rt_lib) |lib| {
-        try positionals.append(lib.full_object_path);
-    }
+    if (comp.compiler_rt_lib) |lib| try positionals.append(lib.full_object_path);
+    if (comp.compiler_rt_obj) |obj| try positionals.append(obj.full_object_path);
 
     try wasm.parseInputFiles(positionals.items);
 
@@ -3437,6 +3519,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             // also parse atoms for a decl's locals
             for (atom.locals.items) |local_atom_index| {
                 try wasm.parseAtom(local_atom_index, .{ .data = .read_only });
+            }
+        }
+        // parse anonymous declarations
+        for (wasm.anon_decls.keys(), wasm.anon_decls.values()) |decl_val, atom_index| {
+            const ty = mod.intern_pool.typeOf(decl_val).toType();
+            if (ty.zigTypeTag(mod) == .Fn) {
+                try wasm.parseAtom(atom_index, .function);
+            } else {
+                try wasm.parseAtom(atom_index, .{ .data = .read_only });
             }
         }
 
@@ -4233,11 +4324,11 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     defer sub_prog_node.end();
 
     const is_obj = wasm.base.options.output_mode == .Obj;
-
-    const compiler_rt_path: ?[]const u8 = if (wasm.base.options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_lib.?.full_object_path
-    else
-        null;
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
+        if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
+        break :blk null;
+    };
 
     const target = wasm.base.options.target;
 
@@ -4254,7 +4345,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 9);
+        comptime assert(Compilation.link_hash_implementation_version == 10);
 
         for (wasm.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4723,12 +4814,12 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     for (wasm.segment_info.values()) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
             segment_info.name,
-            @ctz(segment_info.alignment),
+            segment_info.alignment,
             segment_info.flags,
         });
         try leb.writeULEB128(writer, @as(u32, @intCast(segment_info.name.len)));
         try writer.writeAll(segment_info.name);
-        try leb.writeULEB128(writer, @ctz(segment_info.alignment));
+        try leb.writeULEB128(writer, segment_info.alignment.toLog2Units());
         try leb.writeULEB128(writer, segment_info.flags);
     }
 

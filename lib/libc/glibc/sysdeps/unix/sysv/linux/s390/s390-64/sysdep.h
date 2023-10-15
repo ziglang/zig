@@ -1,6 +1,5 @@
 /* Assembler macros for 64 bit S/390.
-   Copyright (C) 2001-2021 Free Software Foundation, Inc.
-   Contributed by Martin Schwidefsky (schwidefsky@de.ibm.com).
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -47,7 +46,7 @@
    a large offset.  Therefore we must not anymore test for < 0, but test
    for a real error by making sure the value in gpr2 is a real error
    number.  Linus said he will make sure that no syscall returns a value
-   in -1 .. -4095 as a valid result so we can savely test with -4095.  */
+   in -1 .. -4095 as a valid result so we can safely test with -4095.  */
 
 #undef PSEUDO
 #define	PSEUDO(name, syscall_name, args)				      \
@@ -154,12 +153,8 @@
     lgr %r0,%r7;							      \
     lg %r7,160(%r15);							      \
   .endif;								      \
-  .if SYS_ify (syscall) < 256;						      \
-    svc SYS_ify (syscall);						      \
-  .else;								      \
     lghi %r1,SYS_ify (syscall);						      \
     svc 0;								      \
-  .endif;								      \
   .if args > 5;								      \
     lgr %r7,%r0;							      \
   .endif
@@ -179,28 +174,5 @@
 # define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
 #endif /* __ASSEMBLER__ */
-
-/* Pointer mangling support.  */
-#if IS_IN (rtld)
-/* We cannot use the thread descriptor because in ld.so we use setjmp
-   earlier than the descriptor is initialized.  */
-#else
-/* For the time being just use stack_guard rather than a separate
-   pointer_guard.  */
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(reg, tmpreg) \
-  ear     tmpreg,%a0;			\
-  sllg    tmpreg,tmpreg,32;		\
-  ear     tmpreg,%a1;			\
-  xg      reg,STACK_GUARD(tmpreg)
-#  define PTR_MANGLE2(reg, tmpreg) \
-  xg      reg,STACK_GUARD(tmpreg)
-#  define PTR_DEMANGLE(reg, tmpreg) PTR_MANGLE (reg, tmpreg)
-# else
-#  define PTR_MANGLE(var) \
-  (var) = (void *) ((uintptr_t) (var) ^ THREAD_GET_POINTER_GUARD ())
-#  define PTR_DEMANGLE(var)	PTR_MANGLE (var)
-# endif
-#endif
 
 #endif /* _LINUX_S390_SYSDEP_H */

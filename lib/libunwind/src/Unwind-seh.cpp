@@ -212,11 +212,20 @@ __libunwind_seh_personality(int version, _Unwind_Action state,
   ms_exc.ExceptionInformation[2] = state;
   DISPATCHER_CONTEXT *disp_ctx =
       __unw_seh_get_disp_ctx((unw_cursor_t *)context);
+  _LIBUNWIND_TRACE_UNWINDING("__libunwind_seh_personality() calling "
+                             "LanguageHandler %p(%p, %p, %p, %p)",
+                             (void *)disp_ctx->LanguageHandler, (void *)&ms_exc,
+                             (void *)disp_ctx->EstablisherFrame,
+                             (void *)disp_ctx->ContextRecord, (void *)disp_ctx);
   EXCEPTION_DISPOSITION ms_act = disp_ctx->LanguageHandler(&ms_exc,
                                                            (PVOID)disp_ctx->EstablisherFrame,
                                                            disp_ctx->ContextRecord,
                                                            disp_ctx);
+  _LIBUNWIND_TRACE_UNWINDING("__libunwind_seh_personality() LanguageHandler "
+                             "returned %d",
+                             (int)ms_act);
   switch (ms_act) {
+  case ExceptionContinueExecution: return _URC_END_OF_STACK;
   case ExceptionContinueSearch: return _URC_CONTINUE_UNWIND;
   case 4 /*ExceptionExecuteHandler*/:
     return phase2 ? _URC_INSTALL_CONTEXT : _URC_HANDLER_FOUND;
@@ -238,7 +247,7 @@ unwind_phase2_forced(unw_context_t *uc,
     // Update info about this frame.
     unw_proc_info_t frameInfo;
     if (__unw_get_proc_info(&cursor2, &frameInfo) != UNW_ESUCCESS) {
-      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_step "
+      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_get_proc_info "
                                  "failed => _URC_END_OF_STACK",
                                  (void *)exception_object);
       return _URC_FATAL_PHASE2_ERROR;
@@ -304,6 +313,12 @@ unwind_phase2_forced(unw_context_t *uc,
         // We may get control back if landing pad calls _Unwind_Resume().
         __unw_resume(&cursor2);
         break;
+      case _URC_END_OF_STACK:
+        _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
+                                   "personality returned "
+                                   "_URC_END_OF_STACK",
+                                   (void *)exception_object);
+        break;
       default:
         // Personality routine returned an unknown result code.
         _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
@@ -312,6 +327,8 @@ unwind_phase2_forced(unw_context_t *uc,
                                    (void *)exception_object, personalityResult);
         return _URC_FATAL_PHASE2_ERROR;
       }
+      if (personalityResult == _URC_END_OF_STACK)
+        break;
     }
   }
 

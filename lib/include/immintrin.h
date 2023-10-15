@@ -270,6 +270,26 @@
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__SHA512__)
+#include <sha512intrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__SM3__)
+#include <sm3intrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__SM4__)
+#include <sm4intrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AVXVNNIINT16__)
+#include <avxvnniint16intrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__RDPID__)
 /// Returns the value of the IA32_TSC_AUX MSR (0xc0000103).
 ///
@@ -284,30 +304,53 @@ _rdpid_u32(void) {
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__RDRND__)
+/// Returns a 16-bit hardware-generated random value.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDRAND </c> instruction.
+///
+/// \param __p
+///    A pointer to a 16-bit memory location to place the random value.
+/// \returns 1 if the value was successfully generated, 0 otherwise.
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand16_step(unsigned short *__p)
 {
   return (int)__builtin_ia32_rdrand16_step(__p);
 }
 
+/// Returns a 32-bit hardware-generated random value.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDRAND </c> instruction.
+///
+/// \param __p
+///    A pointer to a 32-bit memory location to place the random value.
+/// \returns 1 if the value was successfully generated, 0 otherwise.
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand32_step(unsigned int *__p)
 {
   return (int)__builtin_ia32_rdrand32_step(__p);
 }
 
+/// Returns a 64-bit hardware-generated random value.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDRAND </c> instruction.
+///
+/// \param __p
+///    A pointer to a 64-bit memory location to place the random value.
+/// \returns 1 if the value was successfully generated, 0 otherwise.
+static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
+_rdrand64_step(unsigned long long *__p)
+{
 #ifdef __x86_64__
-static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
-_rdrand64_step(unsigned long long *__p)
-{
   return (int)__builtin_ia32_rdrand64_step(__p);
-}
 #else
-// We need to emulate the functionality of 64-bit rdrand with 2 32-bit
-// rdrand instructions.
-static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
-_rdrand64_step(unsigned long long *__p)
-{
+  // We need to emulate the functionality of 64-bit rdrand with 2 32-bit
+  // rdrand instructions.
   unsigned int __lo, __hi;
   unsigned int __res_lo = __builtin_ia32_rdrand32_step(&__lo);
   unsigned int __res_hi = __builtin_ia32_rdrand32_step(&__hi);
@@ -318,55 +361,115 @@ _rdrand64_step(unsigned long long *__p)
     *__p = 0;
     return 0;
   }
-}
 #endif
+}
 #endif /* __RDRND__ */
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__FSGSBASE__)
 #ifdef __x86_64__
+/// Reads the FS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDFSBASE </c> instruction.
+///
+/// \returns The lower 32 bits of the FS base register.
 static __inline__ unsigned int __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _readfsbase_u32(void)
 {
   return __builtin_ia32_rdfsbase32();
 }
 
+/// Reads the FS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDFSBASE </c> instruction.
+///
+/// \returns The contents of the FS base register.
 static __inline__ unsigned long long __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _readfsbase_u64(void)
 {
   return __builtin_ia32_rdfsbase64();
 }
 
+/// Reads the GS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDGSBASE </c> instruction.
+///
+/// \returns The lower 32 bits of the GS base register.
 static __inline__ unsigned int __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _readgsbase_u32(void)
 {
   return __builtin_ia32_rdgsbase32();
 }
 
+/// Reads the GS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> RDGSBASE </c> instruction.
+///
+/// \returns The contents of the GS base register.
 static __inline__ unsigned long long __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _readgsbase_u64(void)
 {
   return __builtin_ia32_rdgsbase64();
 }
 
+/// Modifies the FS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> WRFSBASE </c> instruction.
+///
+/// \param __V
+///    Value to use for the lower 32 bits of the FS base register.
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writefsbase_u32(unsigned int __V)
 {
   __builtin_ia32_wrfsbase32(__V);
 }
 
+/// Modifies the FS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> WRFSBASE </c> instruction.
+///
+/// \param __V
+///    Value to use for the FS base register.
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writefsbase_u64(unsigned long long __V)
 {
   __builtin_ia32_wrfsbase64(__V);
 }
 
+/// Modifies the GS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> WRGSBASE </c> instruction.
+///
+/// \param __V
+///    Value to use for the lower 32 bits of the GS base register.
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writegsbase_u32(unsigned int __V)
 {
   __builtin_ia32_wrgsbase32(__V);
 }
 
+/// Modifies the GS base register.
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> WRFSBASE </c> instruction.
+///
+/// \param __V
+///    Value to use for GS base register.
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("fsgsbase")))
 _writegsbase_u64(unsigned long long __V)
 {
@@ -536,6 +639,11 @@ _storebe_i64(void * __P, long long __D) {
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__AMX_TILE__) || defined(__AMX_INT8__) || defined(__AMX_BF16__)
 #include <amxintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AMX_COMPLEX__)
+#include <amxcomplexintrin.h>
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \

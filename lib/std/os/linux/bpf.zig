@@ -455,8 +455,8 @@ pub const Insn = packed struct {
     };
 
     const ImmOrReg = union(Source) {
-        imm: i32,
         reg: Reg,
+        imm: i32,
     };
 
     fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
@@ -673,7 +673,7 @@ pub const Insn = packed struct {
         return ld_imm_impl2(@as(u64, @intCast(map_fd)));
     }
 
-    pub fn st(comptime size: Size, dst: Reg, off: i16, imm: i32) Insn {
+    pub fn st(size: Size, dst: Reg, off: i16, imm: i32) Insn {
         return Insn{
             .code = MEM | @intFromEnum(size) | ST,
             .dst = @intFromEnum(dst),

@@ -31,7 +31,7 @@ comptime {
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(sinf(x)));
+    return @floatCast(sinf(x));
 }
 
 pub fn sinf(x: f32) callconv(.C) f32 {
@@ -41,7 +41,7 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     const s3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
     const s4pio2: f64 = 4.0 * math.pi / 2.0; // 0x401921FB, 0x54442D18
 
-    var ix = @as(u32, @bitCast(x));
+    var ix: u32 = @bitCast(x);
     const sign = ix >> 31 != 0;
     ix &= 0x7fffffff;
 
@@ -120,12 +120,12 @@ pub fn sin(x: f64) callconv(.C) f64 {
 
 pub fn __sinx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(sinq(x)));
+    return @floatCast(sinq(x));
 }
 
 pub fn sinq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
-    return sin(@as(f64, @floatCast(x)));
+    return sin(@floatCast(x));
 }
 
 pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
@@ -180,11 +180,11 @@ test "sin64.special" {
 }
 
 test "sin32 #9901" {
-    const float = @as(f32, @bitCast(@as(u32, 0b11100011111111110000000000000000)));
+    const float: f32 = @bitCast(@as(u32, 0b11100011111111110000000000000000));
     _ = sinf(float);
 }
 
 test "sin64 #9901" {
-    const float = @as(f64, @bitCast(@as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001)));
+    const float: f64 = @bitCast(@as(u64, 0b1111111101000001000000001111110111111111100000000000000000000001));
     _ = sin(float);
 }

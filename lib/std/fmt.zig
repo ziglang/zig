@@ -1413,7 +1413,7 @@ pub fn formatInt(
     const min_int_bits = comptime @max(value_info.bits, 8);
     const MinInt = std.meta.Int(.unsigned, min_int_bits);
 
-    const abs_value = math.absCast(int_value);
+    const abs_value = @abs(int_value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
     var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
 
@@ -2255,11 +2255,11 @@ test "pointer" {
     const FnPtr = *align(1) const fn () void;
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
 
@@ -2384,22 +2384,22 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
-    try expectFmt("f64: nan", "f64: {}", .{math.nan_f64});
+    try expectFmt("f64: nan", "f64: {}", .{math.nan(f64)});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.target.cpu.arch != .arm) {
-        try expectFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
+        try expectFmt("f64: -nan", "f64: {}", .{-math.nan(f64)});
     }
     try expectFmt("f64: inf", "f64: {}", .{math.inf(f64)});
     try expectFmt("f64: -inf", "f64: {}", .{-math.inf(f64)});
 }
 
 test "float.hexadecimal.special" {
-    try expectFmt("f64: nan", "f64: {x}", .{math.nan_f64});
+    try expectFmt("f64: nan", "f64: {x}", .{math.nan(f64)});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.target.cpu.arch != .arm) {
-        try expectFmt("f64: -nan", "f64: {x}", .{-math.nan_f64});
+        try expectFmt("f64: -nan", "f64: {x}", .{-math.nan(f64)});
     }
     try expectFmt("f64: inf", "f64: {x}", .{math.inf(f64)});
     try expectFmt("f64: -inf", "f64: {x}", .{-math.inf(f64)});

@@ -26,7 +26,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -37,40 +37,40 @@ using remove_copy_result = in_out_result<_InIter, _OutIter>;
 
 namespace __remove_copy {
 
-  struct __fn {
-    template <input_iterator _InIter,
-              sentinel_for<_InIter> _Sent,
-              weakly_incrementable _OutIter,
-              class _Type,
-              class _Proj = identity>
-      requires indirectly_copyable<_InIter, _OutIter> &&
-               indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _Type*>
-    _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_result<_InIter, _OutIter>
-    operator()(_InIter __first, _Sent __last, _OutIter __result, const _Type& __value, _Proj __proj = {}) const {
-      auto __pred = [&](auto&& __val) { return __value == __val; };
-      return ranges::__remove_copy_if_impl(std::move(__first), std::move(__last), std::move(__result), __pred, __proj);
-    }
+struct __fn {
+  template <input_iterator _InIter,
+            sentinel_for<_InIter> _Sent,
+            weakly_incrementable _OutIter,
+            class _Type,
+            class _Proj = identity>
+    requires indirectly_copyable<_InIter, _OutIter> &&
+             indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _Type*>
+  _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_result<_InIter, _OutIter>
+  operator()(_InIter __first, _Sent __last, _OutIter __result, const _Type& __value, _Proj __proj = {}) const {
+    auto __pred = [&](auto&& __val) { return __value == __val; };
+    return ranges::__remove_copy_if_impl(std::move(__first), std::move(__last), std::move(__result), __pred, __proj);
+  }
 
-    template <input_range _Range, weakly_incrementable _OutIter, class _Type, class _Proj = identity>
-      requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
-               indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _Type*>
-    _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_result<borrowed_iterator_t<_Range>, _OutIter>
-    operator()(_Range&& __range, _OutIter __result, const _Type& __value, _Proj __proj = {}) const {
-      auto __pred = [&](auto&& __val) { return __value == __val; };
-      return ranges::__remove_copy_if_impl(
-          ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __proj);
-    }
-  };
+  template <input_range _Range, weakly_incrementable _OutIter, class _Type, class _Proj = identity>
+    requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
+             indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _Type*>
+  _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_result<borrowed_iterator_t<_Range>, _OutIter>
+  operator()(_Range&& __range, _OutIter __result, const _Type& __value, _Proj __proj = {}) const {
+    auto __pred = [&](auto&& __val) { return __value == __val; };
+    return ranges::__remove_copy_if_impl(
+        ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __proj);
+  }
+};
 
 } // namespace __remove_copy
 
 inline namespace __cpo {
-  inline constexpr auto remove_copy = __remove_copy::__fn{};
+inline constexpr auto remove_copy = __remove_copy::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_REMOVE_COPY_H

@@ -29,7 +29,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -52,39 +52,39 @@ __remove_copy_if_impl(_InIter __first, _Sent __last, _OutIter __result, _Pred& _
 
 namespace __remove_copy_if {
 
-  struct __fn {
-    template <input_iterator _InIter,
-              sentinel_for<_InIter> _Sent,
-              weakly_incrementable _OutIter,
-              class _Proj = identity,
-              indirect_unary_predicate<projected<_InIter, _Proj>> _Pred>
-      requires indirectly_copyable<_InIter, _OutIter>
-    _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_if_result<_InIter, _OutIter>
-    operator()(_InIter __first, _Sent __last, _OutIter __result, _Pred __pred, _Proj __proj = {}) const {
-      return ranges::__remove_copy_if_impl(std::move(__first), std::move(__last), std::move(__result), __pred, __proj);
-    }
+struct __fn {
+  template <input_iterator _InIter,
+            sentinel_for<_InIter> _Sent,
+            weakly_incrementable _OutIter,
+            class _Proj = identity,
+            indirect_unary_predicate<projected<_InIter, _Proj>> _Pred>
+    requires indirectly_copyable<_InIter, _OutIter>
+  _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_if_result<_InIter, _OutIter>
+  operator()(_InIter __first, _Sent __last, _OutIter __result, _Pred __pred, _Proj __proj = {}) const {
+    return ranges::__remove_copy_if_impl(std::move(__first), std::move(__last), std::move(__result), __pred, __proj);
+  }
 
-    template <input_range _Range,
-              weakly_incrementable _OutIter,
-              class _Proj = identity,
-              indirect_unary_predicate<projected<iterator_t<_Range>, _Proj>> _Pred>
-      requires indirectly_copyable<iterator_t<_Range>, _OutIter>
-    _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_if_result<borrowed_iterator_t<_Range>, _OutIter>
-    operator()(_Range&& __range, _OutIter __result, _Pred __pred, _Proj __proj = {}) const {
-      return ranges::__remove_copy_if_impl(
-          ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __proj);
-    }
-  };
+  template <input_range _Range,
+            weakly_incrementable _OutIter,
+            class _Proj = identity,
+            indirect_unary_predicate<projected<iterator_t<_Range>, _Proj>> _Pred>
+    requires indirectly_copyable<iterator_t<_Range>, _OutIter>
+  _LIBCPP_HIDE_FROM_ABI constexpr remove_copy_if_result<borrowed_iterator_t<_Range>, _OutIter>
+  operator()(_Range&& __range, _OutIter __result, _Pred __pred, _Proj __proj = {}) const {
+    return ranges::__remove_copy_if_impl(
+        ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __proj);
+  }
+};
 
 } // namespace __remove_copy_if
 
 inline namespace __cpo {
-  inline constexpr auto remove_copy_if = __remove_copy_if::__fn{};
+inline constexpr auto remove_copy_if = __remove_copy_if::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_REMOVE_COPY_IF_H

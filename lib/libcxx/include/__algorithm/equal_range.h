@@ -50,7 +50,7 @@ __equal_range(_Iter __first, _Sent __last, const _Tp& __value, _Compare&& __comp
     } else {
       _Iter __mp1 = __mid;
       return pair<_Iter, _Iter>(
-          std::__lower_bound_impl<_AlgPolicy>(__first, __mid, __value, __comp, __proj),
+          std::__lower_bound<_AlgPolicy>(__first, __mid, __value, __comp, __proj),
           std::__upper_bound<_AlgPolicy>(++__mp1, __end, __value, __comp, __proj));
     }
   }
@@ -75,11 +75,7 @@ equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __valu
 template <class _ForwardIterator, class _Tp>
 _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_ForwardIterator, _ForwardIterator>
 equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
-  return std::equal_range(
-      std::move(__first),
-      std::move(__last),
-      __value,
-      __less<typename iterator_traits<_ForwardIterator>::value_type, _Tp>());
+  return std::equal_range(std::move(__first), std::move(__last), __value, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

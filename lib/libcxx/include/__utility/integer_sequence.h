@@ -85,7 +85,7 @@ using __make_indices_imp =
 
 #endif
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 
 template<class _Tp, _Tp... _Ip>
 struct _LIBCPP_TEMPLATE_VIS integer_sequence
@@ -138,15 +138,15 @@ template<size_t _Np>
 template<class... _Tp>
     using index_sequence_for = make_index_sequence<sizeof...(_Tp)>;
 
-#  if _LIBCPP_STD_VER > 17
+#  if _LIBCPP_STD_VER >= 20
 // Executes __func for every element in an index_sequence.
 template <size_t... _Index, class _Function>
 _LIBCPP_HIDE_FROM_ABI constexpr void __for_each_index_sequence(index_sequence<_Index...>, _Function __func) {
     (__func.template operator()<_Index>(), ...);
 }
-#  endif // _LIBCPP_STD_VER > 17
+#  endif // _LIBCPP_STD_VER >= 20
 
-#endif // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
 

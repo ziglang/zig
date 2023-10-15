@@ -15,12 +15,12 @@ export fn b() void {
     _ = bar;
 }
 export fn c() void {
-    const baz = &@as(opaque {}, undefined);
+    const baz = &@as(O, undefined);
     const qux = .{baz.*};
     _ = qux;
 }
 export fn d() void {
-    const baz = &@as(opaque {}, undefined);
+    const baz = &@as(O, undefined);
     const qux = .{ .a = baz.* };
     _ = qux;
 }
@@ -33,7 +33,5 @@ export fn d() void {
 // :1:11: note: opaque declared here
 // :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
 // :1:11: note: opaque declared here
-// :19:18: error: opaque types have unknown size and therefore cannot be directly embedded in structs
-// :18:22: note: opaque declared here
-// :24:23: error: opaque types have unknown size and therefore cannot be directly embedded in structs
-// :23:22: note: opaque declared here
+// :19:22: error: cannot load opaque type 'tmp.O'
+// :24:28: error: cannot load opaque type 'tmp.O'

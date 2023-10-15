@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Documentation - Zig</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root {
         font-size: 1em;
@@ -36,6 +37,11 @@
         text-decoration: none;
       }
 
+      pre a {
+        text-decoration: underline;
+        color: unset;
+      }
+
       a:hover {
         text-decoration: underline;
       }
@@ -65,7 +71,6 @@
         display: flex;
         flex-direction: column;
         justify-content: center;
-        margin: 0 1rem;
 
         height: 100%;
         overflow: hidden;
@@ -86,14 +91,12 @@
       }
 
       .flex-left {
-        width: 12rem;
-        max-width: 15vw;
-        min-width: 9.5rem;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         overflow-wrap: break-word;
         flex-shrink: 0;
         flex-grow: 0;
+        margin-right: 0.5rem;
 
         z-index: 300;
       }
@@ -130,13 +133,12 @@
       }
 
       .logo {
-        width: 168px;
-        margin-right: 1rem;
+        margin: 0.5rem;
+        width: 130px; 
       }
 
       .logo > svg {
         display: block;
-        overflow: visible;
       }
 
       ul.guides-api-switch {
@@ -271,7 +273,7 @@
       .column {
         flex-basis: 0;
         flex-grow: 1;
-        min-width: 24rem;
+        min-width: min(24rem, 90%);
       }
 
       
@@ -307,8 +309,14 @@
       #searchPlaceholder {
         position: absolute;
         pointer-events: none;
-        top: 5px;
-        left: 5px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 5px;
+      }
+
+      #searchPlaceholderTextMobile {
+        display: none;
       }
 
       #dotsPopover:before {
@@ -440,7 +448,7 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        boackground-color: #f1f1f1;
+        background-color: #f1f1f1;
         display: flex;
         flex-direction: row;
       }
@@ -649,6 +657,10 @@
           color: #458;
           font-weight: bold;
       }
+      .tok-decl-ref {
+          color: #0086b3;
+          font-weight: bold;
+      }
 
       /* dark mode */
       @media (prefers-color-scheme: dark) {
@@ -723,6 +735,9 @@
         .tok-type {
             color: #68f;
         }
+        .tok-decl-ref {
+            color: lightblue;
+        }
       }
 
       @media only screen and (max-width: 750px) {
@@ -737,9 +752,6 @@
           min-width: calc(100vw - 2.8rem);
           padding-left: 1.4rem;
           padding-right: 1.4rem;
-        }
-        .logo {
-          max-width: 6.5rem;
         }
         .flex-main > .flex-filler {
           display: none;
@@ -793,6 +805,12 @@
           display: inline-block;
           min-width: calc(100% - 2.8rem);
         }
+        #searchPlaceholderText {
+          display: none;
+        }
+        #searchPlaceholderTextMobile {
+          display: inline;
+        }
       }
       .banner {
         background-color: orange;
@@ -811,7 +829,8 @@
       pre {
         --zig-keyword: #333;
         --zig-builtin: #0086b3;
-        --zig-identifier: 'black';
+        --zig-identifier: black;
+        --zig-decl-identifier: #0086b3;
         --zig-string-literal: #d14;
         --zig-type: #458;
         --zig-fn: #900;
@@ -821,13 +840,13 @@
         pre {
           --zig-keyword: #eee;
           --zig-builtin: #ff894c;
-          --zig-identifier: 'purple';
+          --zig-identifier: #bbbbbb;
+          --zig-decl-identifier: lightblue;
           --zig-string-literal: #2e5;
           --zig-type: #68f;
           --zig-fn: #e33;
         }
       }
-    
 
     .zig_keyword_addrspace,
     .zig_keyword_align,
@@ -907,6 +926,11 @@
       color: var(--zig-identifier);
       font-weight: bold;
     }
+    
+    .zig_decl_identifier {
+      color: var(--zig-decl-identifier);
+      font-weight: bold;
+    }
 
     .zig_number_literal,
     .zig_special {
@@ -933,7 +957,7 @@
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
     <div id="main" class="flex-main">
-      <div class="flex-horizontal" style="justify-content: center;padding:0.5rem;">
+      <div class="flex-horizontal" style="justify-content: center; padding: 0 0.5rem;">
         <div class="flex-left">
           <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
@@ -984,14 +1008,17 @@
             </div>
         <div class="flex-right" style="padding-top: 0.5rem;overflow:visible;">
           <div class="search-container" style="position:relative;">
-            <span id="searchPlaceholder"><!-- populated by setPrefSlashSearch --></span>
+            <div id="searchPlaceholder">
+              <span id="searchPlaceholderText"><!-- populated by setPrefSlashSearch --></span>
+              <span id="searchPlaceholderTextMobile">Search</span>
+            </div>
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
             <div id="dotsPopover">
               Use spaces instead of dots. See $resource for more info.
             </div>
           </div>
           <div id="sectNavAPI" style="margin-top: 0.5rem;"><ul id="listNavAPI" class="listNav"></ul></div>
-          <div id="sectNavGuides" class="hidden" style="margin-top:0.5rem;background-color:#333;">
+          <div id="sectNavGuides" class="hidden" style="margin-top: 0.5rem">
             <ul id="listNavGuides" class="listNav">
               <li>
                 <a href="#G;" class="active">Index</a>
@@ -1003,7 +1030,7 @@
         </div>
         </div>
       </div>
-      <div style="height:100%; overflow:hidden; margin: 0 1rem;">
+      <div style="height:100%; overflow:hidden;">
         <div id="sectSearchResults" class="docs hidden">
           <details id="searchHelp">
             <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
@@ -1066,7 +1093,7 @@
           </ul>
           <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
         </div>
-        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <div id="guidesMenu" class="sidebar">
             <h2 id="guidesMenuTitle">Table of Contents</h2>
             <div id="guideTocListEmpty" style="margin:0 1rem;"><i>No content to display.</i></div>
@@ -1074,7 +1101,7 @@
           </div>
           <div id="activeGuide" class="hidden"></div>
         </div> 
-        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;oveflow:hidden;">
+        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
           <section id="docs-scroll" class="docs">
             <p id="status">Loading...</p>
             <div id="fnProto" class="hidden">
@@ -1159,7 +1186,7 @@
               <ul id="listFnExamples" class="examples"></ul>
             </div>
             <div id="sectDocTests" class="hidden">
-              <h2>DocTests</h2>
+              <h2>Usage Examples <span style="font-size:1.1rem; cursor:pointer;" title="See `doctests` in the language reference to learn more.">&#9432;</span></h2>
               <pre id="docTestsCode"></pre>
             </div>
             <div id="sectTests" class="hidden">
@@ -1201,7 +1228,17 @@
         </div>
       </div>
     </div>
-    <script src="data.js"></script>
+    <script src="data-typeKinds.js"></script>
+    <script src="data-rootMod.js"></script>
+    <script src="data-modules.js"></script>
+    <script src="data-files.js"></script>
+    <script src="data-calls.js"></script>
+    <script src="data-types.js"></script>
+    <script src="data-decls.js"></script>
+    <script src="data-exprs.js"></script>
+    <script src="data-astNodes.js"></script>
+    <script src="data-comptimeExprs.js"></script>
+    <script src="data-guideSections.js"></script>
     <script src="commonmark.js"></script>
     <script src="ziglexer.js"></script>
     <script src="main.js"></script>

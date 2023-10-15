@@ -384,16 +384,16 @@ pub const Macros = struct {
     }
 
     fn L_SUFFIX_ReturnType(comptime number: anytype) type {
-        switch (@TypeOf(number)) {
-            comptime_int => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
-            comptime_float => return c_longdouble,
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
+            .Float, .ComptimeFloat => return c_longdouble,
             else => @compileError("Invalid value for L suffix"),
         }
     }
     pub fn L_SUFFIX(comptime number: anytype) L_SUFFIX_ReturnType(number) {
-        switch (@TypeOf(number)) {
-            comptime_int => return promoteIntLiteral(c_long, number, .decimal),
-            comptime_float => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return promoteIntLiteral(c_long, number, .decimal),
+            .Float, .ComptimeFloat => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
             else => @compileError("Invalid value for L suffix"),
         }
     }
@@ -643,4 +643,31 @@ test "CAST_OR_CALL calling" {
     try testing.expectEqual(Helper.returnsBool(-1), Macros.CAST_OR_CALL(Helper.returnsBool, @as(f32, -1)));
 
     try testing.expectEqual(Helper.identity(@as(c_uint, 100)), Macros.CAST_OR_CALL(Helper.identity, @as(c_uint, 100)));
+}
+
+test "Extended C ABI casting" {
+    if (math.maxInt(c_long) > math.maxInt(c_char)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_char, math.maxInt(c_char) - 1))) == c_long); // c_char
+    }
+    if (math.maxInt(c_long) > math.maxInt(c_short)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_short, math.maxInt(c_short) - 1))) == c_long); // c_short
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_ushort)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_ushort, math.maxInt(c_ushort) - 1))) == c_long); //c_ushort
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_int, math.maxInt(c_int) - 1))) == c_long); // c_int
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_uint)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_uint, math.maxInt(c_uint) - 1))) == c_long); // c_uint
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_uint) + 1)) == c_long); // comptime_int -> c_long
+    }
+
+    if (math.maxInt(c_longlong) > math.maxInt(c_long)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
+    }
 }

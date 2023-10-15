@@ -728,15 +728,17 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
     }
 }
 
-test "resolve" {
+test resolve {
     try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, ".");
     try testResolveWindows(&[_][]const u8{"."}, ".");
+    try testResolveWindows(&[_][]const u8{""}, ".");
 
     try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, ".");
     try testResolvePosix(&[_][]const u8{"."}, ".");
+    try testResolvePosix(&[_][]const u8{""}, ".");
 }
 
-test "resolveWindows" {
+test resolveWindows {
     try testResolveWindows(
         &[_][]const u8{ "Z:\\", "/usr/local", "lib\\zig\\std\\array_list.zig" },
         "Z:\\usr\\local\\lib\\zig\\std\\array_list.zig",
@@ -764,7 +766,7 @@ test "resolveWindows" {
     try testResolveWindows(&[_][]const u8{"a/b"}, "a\\b");
 }
 
-test "resolvePosix" {
+test resolvePosix {
     try testResolvePosix(&.{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&.{ "/a/b", "c", "//d", "e///" }, "/d/e");
     try testResolvePosix(&.{ "/a/b/c", "..", "../" }, "/a");

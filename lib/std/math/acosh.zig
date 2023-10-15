@@ -11,7 +11,7 @@ const expect = std.testing.expect;
 /// Returns the hyperbolic arc-cosine of x.
 ///
 /// Special cases:
-///  - acosh(x)   = snan if x < 1
+///  - acosh(x)   = nan if x < 1
 ///  - acosh(nan) = nan
 pub fn acosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
@@ -84,10 +84,10 @@ test "math.acosh64" {
 
 test "math.acosh32.special" {
     try expect(math.isNan(acosh32(math.nan(f32))));
-    try expect(math.isSignalNan(acosh32(0.5)));
+    try expect(math.isNan(acosh32(0.5)));
 }
 
 test "math.acosh64.special" {
     try expect(math.isNan(acosh64(math.nan(f64))));
-    try expect(math.isSignalNan(acosh64(0.5)));
+    try expect(math.isNan(acosh64(0.5)));
 }
