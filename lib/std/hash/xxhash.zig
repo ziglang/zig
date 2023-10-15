@@ -778,7 +778,7 @@ fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64)
     try expectEqual(expected, hasher.final());
 }
 
-test "xxhash.3" {
+test "xxhash3" {
     const H = XxHash3;
 
     try testExpect(H, 0, "", 0x2d06800538d394c2);
