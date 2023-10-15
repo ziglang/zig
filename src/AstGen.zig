@@ -4945,6 +4945,9 @@ fn structDeclInner(
         }
 
         if (have_value) {
+            if (is_tuple and !is_comptime) {
+                try astgen.appendErrorNode(member.ast.value_expr, "non-comptime tuple fields cannot have default values", .{});
+            }
             any_default_inits = true;
             const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = field_type } };
 

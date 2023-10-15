@@ -4484,6 +4484,16 @@ fn validateArrayInitTy(
                 return sema.fail(block, src, "expected at most {d} tuple fields; found {d}", .{
                     array_len, init_count,
                 });
+            } else if (init_count < array_len) {
+                var expected_at_least = array_len;
+                for (0..array_len) |index| {
+                    if (ty.structFieldDefaultValue(index, mod).toIntern() != .unreachable_value) expected_at_least -= 1;
+                }
+                if (init_count < expected_at_least) {
+                    return sema.fail(block, src, "expected at least {d} tuple fields; found {d}", .{
+                        expected_at_least, init_count,
+                    });
+                }
             }
             return;
         },
@@ -5193,6 +5203,16 @@ fn zirValidatePtrArrayInit(
             block_index += 1;
         }
         block.instructions.shrinkRetainingCapacity(block_index);
+
+        // Initialize missing values from comptime fields
+        if (array_len != instrs.len and array_ty.isTuple(mod)) {
+            for (instrs.len..array_len) |i| {
+                if (try array_ty.structFieldValueComptime(mod, i)) |opv| {
+                    element_vals[i] = opv.toIntern();
+                    continue;
+                }
+            }
+        }
 
         var array_val = try mod.intern(.{ .aggregate = .{
             .ty = array_ty.toIntern(),

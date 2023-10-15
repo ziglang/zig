@@ -14,6 +14,9 @@ const T = struct {
 
     const a = 1;
 };
+const T2 = struct {
+    u32 = 1,
+};
 
 // error
 // backend=stage2
@@ -24,3 +27,4 @@ const T = struct {
 // :8:5: error: tuple field has a name
 // :15:5: error: tuple declarations cannot contain declarations
 // :12:5: note: tuple field here
+// :18:11: error: non-comptime tuple fields cannot have default values
