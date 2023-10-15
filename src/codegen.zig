@@ -793,12 +793,13 @@ fn lowerDeclRef(
 
 /// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
 /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+/// * extern_got - pointer to extern variable referenced via GOT
 /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
 /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
 pub const LinkerLoad = struct {
     type: enum {
         got,
-        actual_got,
+        extern_got,
         direct,
         import,
     },
@@ -828,8 +829,8 @@ pub const GenResult = union(enum) {
         load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
-        /// TODO LOL Jakub, the king of naming...
-        load_actual_got: u32,
+        /// Pointer to extern variable via GOT.
+        load_extern_got: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -898,7 +899,7 @@ fn genDeclRef(
                 mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
             else
                 null;
-            return GenResult.mcv(.{ .load_actual_got = try elf_file.getGlobalSymbol(name, lib_name) });
+            return GenResult.mcv(.{ .load_extern_got = try elf_file.getGlobalSymbol(name, lib_name) });
         }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);

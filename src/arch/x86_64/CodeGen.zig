@@ -207,10 +207,12 @@ pub const MCValue = union(enum) {
     /// The value is a pointer to a value referenced indirectly via GOT.
     /// Payload is a symbol index.
     lea_got: u32,
-    /// TODO indirection via actual .got table
-    /// LOL Jakub, the king of naming...
-    load_actual_got: u32,
-    lea_actual_got: u32,
+    /// The value is an extern variable referenced via GOT.
+    /// Payload is a symbol index.
+    load_extern_got: u32,
+    /// The value is a pointer to an extern variable referenced via GOT.
+    /// Payload is a symbol index.
+    lea_extern_got: u32,
     /// The value is a threadlocal variable.
     /// Payload is a symbol index.
     load_tlv: u32,
@@ -299,7 +301,7 @@ pub const MCValue = union(enum) {
             .register_overflow,
             .lea_direct,
             .lea_got,
-            .lea_actual_got,
+            .lea_extern_got,
             .lea_tlv,
             .lea_frame,
             .reserved_frame,
@@ -313,7 +315,7 @@ pub const MCValue = union(enum) {
             .load_direct => |sym_index| .{ .lea_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-            .load_actual_got => |sym_index| .{ .lea_actual_got = sym_index },
+            .load_extern_got => |sym_index| .{ .lea_extern_got = sym_index },
             .load_frame => |frame_addr| .{ .lea_frame = frame_addr },
         };
     }
@@ -331,7 +333,7 @@ pub const MCValue = union(enum) {
             .indirect,
             .load_direct,
             .load_got,
-            .load_actual_got,
+            .load_extern_got,
             .load_tlv,
             .load_frame,
             .reserved_frame,
@@ -342,7 +344,7 @@ pub const MCValue = union(enum) {
             .register_offset => |reg_off| .{ .indirect = reg_off },
             .lea_direct => |sym_index| .{ .load_direct = sym_index },
             .lea_got => |sym_index| .{ .load_got = sym_index },
-            .lea_actual_got => |sym_index| .{ .load_actual_got = sym_index },
+            .lea_extern_got => |sym_index| .{ .load_extern_got = sym_index },
             .lea_tlv => |sym_index| .{ .load_tlv = sym_index },
             .lea_frame => |frame_addr| .{ .load_frame = frame_addr },
         };
@@ -366,8 +368,8 @@ pub const MCValue = union(enum) {
             .lea_direct,
             .load_got,
             .lea_got,
-            .load_actual_got,
-            .lea_actual_got,
+            .load_extern_got,
+            .lea_extern_got,
             .load_tlv,
             .lea_tlv,
             .load_frame,
@@ -402,8 +404,8 @@ pub const MCValue = union(enum) {
             .lea_direct,
             .load_got,
             .lea_got,
-            .load_actual_got,
-            .lea_actual_got,
+            .load_extern_got,
+            .lea_extern_got,
             .load_tlv,
             .lea_tlv,
             .lea_frame,
@@ -446,8 +448,8 @@ pub const MCValue = union(enum) {
             .lea_direct => |pl| try writer.print("direct:{d}", .{pl}),
             .load_got => |pl| try writer.print("[got:{d}]", .{pl}),
             .lea_got => |pl| try writer.print("got:{d}", .{pl}),
-            .load_actual_got => |pl| try writer.print("[actual_got:{d}]", .{pl}),
-            .lea_actual_got => |pl| try writer.print("actual_got:{d}", .{pl}),
+            .load_extern_got => |pl| try writer.print("[extern_got:{d}]", .{pl}),
+            .lea_extern_got => |pl| try writer.print("extern_got:{d}", .{pl}),
             .load_tlv => |pl| try writer.print("[tlv:{d}]", .{pl}),
             .lea_tlv => |pl| try writer.print("tlv:{d}", .{pl}),
             .load_frame => |pl| try writer.print("[{} + 0x{x}]", .{ pl.index, pl.off }),
@@ -475,8 +477,8 @@ const InstTracking = struct {
             .lea_direct,
             .load_got,
             .lea_got,
-            .load_actual_got,
-            .lea_actual_got,
+            .load_extern_got,
+            .lea_extern_got,
             .load_tlv,
             .lea_tlv,
             .load_frame,
@@ -536,8 +538,8 @@ const InstTracking = struct {
             .lea_direct,
             .load_got,
             .lea_got,
-            .load_actual_got,
-            .lea_actual_got,
+            .load_extern_got,
+            .lea_extern_got,
             .load_tlv,
             .lea_tlv,
             .load_frame,
@@ -573,8 +575,8 @@ const InstTracking = struct {
             .lea_direct,
             .load_got,
             .lea_got,
-            .load_actual_got,
-            .lea_actual_got,
+            .load_extern_got,
+            .lea_extern_got,
             .load_tlv,
             .lea_tlv,
             .lea_frame,
@@ -4391,7 +4393,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         .memory,
         .load_direct,
         .load_got,
-        .load_actual_got,
+        .load_extern_got,
         .load_tlv,
         => try self.genSetReg(addr_reg, Type.usize, array.address()),
         .lea_direct, .lea_tlv => unreachable,
@@ -5872,7 +5874,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerErro
         .register_offset,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         => try self.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
@@ -5880,7 +5882,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerErro
         .indirect,
         .load_direct,
         .load_got,
-        .load_actual_got,
+        .load_extern_got,
         .load_tlv,
         .load_frame,
         => {
@@ -6019,7 +6021,7 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
         .register_offset,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         => try self.genCopy(src_ty, ptr_mcv.deref(), src_mcv),
@@ -6027,7 +6029,7 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
         .indirect,
         .load_direct,
         .load_got,
-        .load_actual_got,
+        .load_extern_got,
         .load_tlv,
         .load_frame,
         => {
@@ -6449,7 +6451,7 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.FixedTag, dst_ty: Type, dst_mcv: MC
         .register_overflow,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         .reserved_frame,
@@ -6457,7 +6459,7 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.FixedTag, dst_ty: Type, dst_mcv: MC
         => unreachable, // unmodifiable destination
         .register => |dst_reg| try self.asmRegister(mir_tag, registerAlias(dst_reg, abi_size)),
         .register_pair => unreachable, // unimplemented
-        .memory, .load_got, .load_actual_got, .load_direct, .load_tlv => {
+        .memory, .load_got, .load_extern_got, .load_direct, .load_tlv => {
             const addr_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
@@ -7415,8 +7417,8 @@ fn genBinOp(
                         .lea_direct,
                         .load_got,
                         .lea_got,
-                        .load_actual_got,
-                        .lea_actual_got,
+                        .load_extern_got,
+                        .lea_extern_got,
                         .load_tlv,
                         .lea_tlv,
                         .lea_frame,
@@ -7473,8 +7475,8 @@ fn genBinOp(
                         .lea_direct,
                         .load_got,
                         .lea_got,
-                        .load_actual_got,
-                        .lea_actual_got,
+                        .load_extern_got,
+                        .lea_extern_got,
                         .load_tlv,
                         .lea_tlv,
                         .lea_frame,
@@ -8427,7 +8429,7 @@ fn genBinOpMir(
         .register_overflow,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         .reserved_frame,
@@ -8516,8 +8518,8 @@ fn genBinOpMir(
                     .lea_direct,
                     .load_got,
                     .lea_got,
-                    .load_actual_got,
-                    .lea_actual_got,
+                    .load_extern_got,
+                    .lea_extern_got,
                     .load_tlv,
                     .lea_tlv,
                     .load_frame,
@@ -8550,7 +8552,7 @@ fn genBinOpMir(
                             .register_offset,
                             .lea_direct,
                             .lea_got,
-                            .lea_actual_got,
+                            .lea_extern_got,
                             .lea_tlv,
                             .lea_frame,
                             => {
@@ -8566,7 +8568,7 @@ fn genBinOpMir(
                             .memory,
                             .load_direct,
                             .load_got,
-                            .load_actual_got,
+                            .load_extern_got,
                             .load_tlv,
                             => {
                                 const ptr_ty = try mod.singleConstPtrType(ty);
@@ -8587,13 +8589,13 @@ fn genBinOpMir(
                 }
             }
         },
-        .memory, .indirect, .load_got, .load_actual_got, .load_direct, .load_tlv, .load_frame => {
+        .memory, .indirect, .load_got, .load_extern_got, .load_direct, .load_tlv, .load_frame => {
             const OpInfo = ?struct { addr_reg: Register, addr_lock: RegisterLock };
             const limb_abi_size: u32 = @min(abi_size, 8);
 
             const dst_info: OpInfo = switch (dst_mcv) {
                 else => unreachable,
-                .memory, .load_got, .load_actual_got, .load_direct, .load_tlv => dst: {
+                .memory, .load_got, .load_extern_got, .load_direct, .load_tlv => dst: {
                     const dst_addr_reg =
                         (try self.register_manager.allocReg(null, abi.RegisterClass.gp)).to64();
                     const dst_addr_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
@@ -8627,17 +8629,17 @@ fn genBinOpMir(
                 .indirect,
                 .lea_direct,
                 .lea_got,
-                .lea_actual_got,
+                .lea_extern_got,
                 .lea_tlv,
                 .load_frame,
                 .lea_frame,
                 => null,
-                .memory, .load_got, .load_actual_got, .load_direct, .load_tlv => src: {
+                .memory, .load_got, .load_extern_got, .load_direct, .load_tlv => src: {
                     switch (resolved_src_mcv) {
                         .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr))) != null and
                             math.cast(i32, @as(i64, @bitCast(addr)) + abi_size - limb_abi_size) != null)
                             break :src null,
-                        .load_got, .load_actual_got, .load_direct, .load_tlv => {},
+                        .load_got, .load_extern_got, .load_direct, .load_tlv => {},
                         else => unreachable,
                     }
 
@@ -8680,7 +8682,7 @@ fn genBinOpMir(
                     switch (dst_mcv) {
                         .memory,
                         .load_got,
-                        .load_actual_got,
+                        .load_extern_got,
                         .load_direct,
                         .load_tlv,
                         => .{ .base = .{ .reg = dst_info.?.addr_reg }, .disp = off },
@@ -8765,8 +8767,8 @@ fn genBinOpMir(
                     .lea_direct,
                     .load_got,
                     .lea_got,
-                    .load_actual_got,
-                    .lea_actual_got,
+                    .load_extern_got,
+                    .lea_extern_got,
                     .load_tlv,
                     .lea_tlv,
                     .load_frame,
@@ -8782,7 +8784,7 @@ fn genBinOpMir(
                             .register_offset,
                             .lea_direct,
                             .lea_got,
-                            .lea_actual_got,
+                            .lea_extern_got,
                             .lea_tlv,
                             .lea_frame,
                             => switch (limb_i) {
@@ -8832,7 +8834,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
         .register_overflow,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         .reserved_frame,
@@ -8881,8 +8883,8 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .lea_direct,
                 .load_got,
                 .lea_got,
-                .load_actual_got,
-                .lea_actual_got,
+                .load_extern_got,
+                .lea_extern_got,
                 .load_tlv,
                 .lea_tlv,
                 .lea_frame,
@@ -8921,7 +8923,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
             }
         },
         .register_pair => unreachable, // unimplemented
-        .memory, .indirect, .load_direct, .load_got, .load_actual_got, .load_tlv, .load_frame => {
+        .memory, .indirect, .load_direct, .load_got, .load_extern_got, .load_tlv, .load_frame => {
             const tmp_reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
             const tmp_mcv = MCValue{ .register = tmp_reg };
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -9014,7 +9016,7 @@ fn genVarDbgInfo(
                 //} },
                 .memory => |address| .{ .memory = address },
                 .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
-                .load_actual_got => |sym_index| .{ .linker_load = .{ .type = .actual_got, .sym_index = sym_index } },
+                .load_extern_got => |sym_index| .{ .linker_load = .{ .type = .extern_got, .sym_index = sym_index } },
                 .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
                 .immediate => |x| .{ .immediate = x },
                 .undef => .undef,
@@ -9454,14 +9456,14 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                     .indirect,
                                     .lea_direct,
                                     .lea_got,
-                                    .lea_actual_got,
+                                    .lea_extern_got,
                                     .lea_tlv,
                                     .lea_frame,
                                     .reserved_frame,
                                     .air_ref,
                                     => unreachable,
                                     .register_pair, .load_frame => null,
-                                    .memory, .load_got, .load_actual_got, .load_direct, .load_tlv => dst: {
+                                    .memory, .load_got, .load_extern_got, .load_direct, .load_tlv => dst: {
                                         switch (resolved_dst_mcv) {
                                             .memory => |addr| if (math.cast(
                                                 i32,
@@ -9470,7 +9472,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                                 i32,
                                                 @as(i64, @bitCast(addr)) + abi_size - 8,
                                             ) != null) break :dst null,
-                                            .load_got, .load_actual_got, .load_direct, .load_tlv => {},
+                                            .load_got, .load_extern_got, .load_direct, .load_tlv => {},
                                             else => unreachable,
                                         }
 
@@ -9513,14 +9515,14 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                     .indirect,
                                     .lea_direct,
                                     .lea_got,
-                                    .lea_actual_got,
+                                    .lea_extern_got,
                                     .lea_tlv,
                                     .lea_frame,
                                     .reserved_frame,
                                     .air_ref,
                                     => unreachable,
                                     .register_pair, .load_frame => null,
-                                    .memory, .load_got, .load_actual_got, .load_direct, .load_tlv => src: {
+                                    .memory, .load_got, .load_extern_got, .load_direct, .load_tlv => src: {
                                         switch (resolved_src_mcv) {
                                             .memory => |addr| if (math.cast(
                                                 i32,
@@ -9529,7 +9531,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                                 i32,
                                                 @as(i64, @bitCast(addr)) + abi_size - 8,
                                             ) != null) break :src null,
-                                            .load_got, .load_actual_got, .load_direct, .load_tlv => {},
+                                            .load_got, .load_extern_got, .load_direct, .load_tlv => {},
                                             else => unreachable,
                                         }
 
@@ -9948,7 +9950,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .register_overflow,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         .reserved_frame,
@@ -9975,7 +9977,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
 
         .memory,
         .load_got,
-        .load_actual_got,
+        .load_extern_got,
         .load_direct,
         .load_tlv,
         => {
@@ -10533,7 +10535,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
                     break :arg input_mcv,
                 .indirect, .load_frame => break :arg input_mcv,
-                .load_direct, .load_got, .load_actual_got, .load_tlv => {},
+                .load_direct, .load_got, .load_extern_got, .load_tlv => {},
                 else => {
                     const temp_mcv = try self.allocTempRegOrMem(ty, false);
                     try self.genCopy(ty, temp_mcv, input_mcv);
@@ -11194,7 +11196,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
         .register_overflow,
         .lea_direct,
         .lea_got,
-        .lea_actual_got,
+        .lea_extern_got,
         .lea_tlv,
         .lea_frame,
         .reserved_frame,
@@ -11246,11 +11248,11 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
             }
         },
         .indirect => |reg_off| try self.genSetMem(.{ .reg = reg_off.reg }, reg_off.off, ty, src_mcv),
-        .memory, .load_direct, .load_got, .load_actual_got, .load_tlv => {
+        .memory, .load_direct, .load_got, .load_extern_got, .load_tlv => {
             switch (dst_mcv) {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
                     return self.genSetMem(.{ .reg = .ds }, small_addr, ty, src_mcv),
-                .load_direct, .load_got, .load_actual_got, .load_tlv => {},
+                .load_direct, .load_got, .load_extern_got, .load_tlv => {},
                 else => unreachable,
             }
 
@@ -11412,7 +11414,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 else => unreachable,
             },
         )),
-        .memory, .load_direct, .load_got, .load_actual_got, .load_tlv => {
+        .memory, .load_direct, .load_got, .load_extern_got, .load_tlv => {
             switch (src_mcv) {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
                     return (try self.moveStrategy(
@@ -11440,7 +11442,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     },
                     .Float, .Vector => {},
                 },
-                .load_got, .load_actual_got, .load_tlv => {},
+                .load_got, .load_extern_got, .load_tlv => {},
                 else => unreachable,
             }
 
@@ -11454,18 +11456,18 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .{ .reg = addr_reg } }),
             );
         },
-        .lea_direct, .lea_got, .lea_actual_got => |sym_index| {
+        .lea_direct, .lea_got, .lea_extern_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
             _ = try self.addInst(.{
                 .tag = switch (src_mcv) {
                     .lea_direct => .lea,
-                    .lea_got, .lea_actual_got => .mov,
+                    .lea_got, .lea_extern_got => .mov,
                     else => unreachable,
                 },
                 .ops = switch (src_mcv) {
                     .lea_direct => .direct_reloc,
                     .lea_got => .got_reloc,
-                    .lea_actual_got => .actual_got_reloc,
+                    .lea_extern_got => .extern_got_reloc,
                     else => unreachable,
                 },
                 .data = .{ .rx = .{
@@ -11601,8 +11603,8 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
         .lea_direct,
         .load_got,
         .lea_got,
-        .load_actual_got,
-        .lea_actual_got,
+        .load_extern_got,
+        .lea_extern_got,
         .load_tlv,
         .lea_tlv,
         .load_frame,
@@ -13608,7 +13610,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
-            .load_actual_got => |sym_index| .{ .lea_actual_got = sym_index },
+            .load_extern_got => |sym_index| .{ .lea_extern_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
         },
         .fail => |msg| {
