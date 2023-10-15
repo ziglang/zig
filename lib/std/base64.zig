@@ -180,8 +180,8 @@ pub const Base64Decoder = struct {
     }
 
     /// dest.len must be what you get from ::calcSize.
-    /// invalid characters result in error.InvalidCharacter.
-    /// invalid padding results in error.InvalidPadding.
+    /// Invalid characters result in `error.InvalidCharacter`.
+    /// Invalid padding results in `error.InvalidPadding`.
     pub fn decode(decoder: *const Base64Decoder, dest: []u8, source: []const u8) Error!void {
         if (decoder.pad_char != null and source.len % 4 != 0) return error.InvalidPadding;
         var acc: u12 = 0;
@@ -240,7 +240,7 @@ pub const Base64DecoderWithIgnore = struct {
         return result;
     }
 
-    /// Return the maximum possible decoded size for a given input length - The actual length may be less if the input includes padding
+    /// Return the maximum possible decoded size for a given input length - The actual length may be less if the input includes padding.
     /// `InvalidPadding` is returned if the input length is not valid.
     pub fn calcSizeUpperBound(decoder_with_ignore: *const Base64DecoderWithIgnore, source_len: usize) Error!usize {
         var result = source_len / 4 * 3;
