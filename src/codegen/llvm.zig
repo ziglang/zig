@@ -3049,6 +3049,7 @@ pub const Object = struct {
         o: *Object,
         decl_val: InternPool.Index,
         llvm_addr_space: Builder.AddrSpace,
+        alignment: InternPool.Alignment,
     ) Error!Builder.Variable.Index {
         // TODO: Add address space to the anon_decl_map
         const gop = try o.anon_decl_map.getOrPut(o.gpa, decl_val);
@@ -3068,6 +3069,8 @@ pub const Object = struct {
         try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+        if (alignment != .none)
+            variable_index.setAlignment(alignment.toLlvm(), &o.builder);
         return variable_index;
     }
 
@@ -4415,7 +4418,8 @@ pub const Object = struct {
 
         const addr_space = target_util.defaultAddressSpace(target, .global_constant);
         const llvm_addr_space = toLlvmAddressSpace(addr_space, target);
-        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space)).ptrConst(&o.builder).global;
+        const alignment = ptr_ty.ptrAlignment(mod);
+        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             .unneeded,

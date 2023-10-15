@@ -3657,9 +3657,10 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const elem_ty = ptr_info.child.toType();
 
     if (try sema.resolveComptimeKnownAllocValue(block, alloc, null)) |val| {
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        const new_mut_ptr = try sema.analyzeDeclRef(try anon_decl.finish(elem_ty, val.toValue(), ptr_info.flags.alignment));
+        const new_mut_ptr = Air.internedToRef((try mod.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .anon_decl = val },
+        } })));
         return sema.makePtrConst(block, new_mut_ptr);
     }
 
