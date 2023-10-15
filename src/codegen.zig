@@ -798,6 +798,7 @@ fn lowerDeclRef(
 pub const LinkerLoad = struct {
     type: enum {
         got,
+        actual_got,
         direct,
         import,
     },
@@ -827,6 +828,8 @@ pub const GenResult = union(enum) {
         load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
+        /// TODO LOL Jakub, the king of naming...
+        load_actual_got: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -885,8 +888,15 @@ fn genDeclRef(
     try mod.markDeclAlive(decl);
 
     const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
+    const is_extern = decl.isExtern(mod);
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
+        if (is_extern) {
+            const variable = decl.getOwnedVariable(mod).?;
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+            return GenResult.mcv(.{ .load_actual_got = try elf_file.getGlobalSymbol(name, lib_name) });
+        }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);

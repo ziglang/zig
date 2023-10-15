@@ -4012,6 +4012,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .got => .load_memory_ptr_got,
                                     .direct => .load_memory_ptr_direct,
                                     .import => unreachable,
+                                    .actual_got => unreachable,
                                 };
                                 const atom_index = switch (self.bin_file.tag) {
                                     .macho => blk: {
@@ -5531,6 +5532,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
+                            .actual_got => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
@@ -5652,6 +5654,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .got => .load_memory_got,
                 .direct => .load_memory_direct,
                 .import => .load_memory_import,
+                .actual_got => unreachable,
             };
             const atom_index = switch (self.bin_file.tag) {
                 .macho => blk: {
@@ -5849,6 +5852,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
+                            .actual_got => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
@@ -6176,7 +6180,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_tlv => unreachable, // TODO
+            .load_actual_got, .load_tlv => unreachable, // TODO
         },
         .fail => |msg| {
             self.err_msg = msg;

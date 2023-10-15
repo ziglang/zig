@@ -783,6 +783,8 @@ pub const Inst = struct {
         /// Linker relocation - GOT indirection.
         /// Uses `rx` payload with extra data of type `Reloc`.
         got_reloc,
+        /// TODO
+        actual_got_reloc,
         /// Linker relocation - direct reference.
         /// Uses `rx` payload with extra data of type `Reloc`.
         direct_reloc,

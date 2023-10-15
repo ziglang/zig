@@ -1389,6 +1389,7 @@ pub fn commitDeclState(
                     .prev_vaddr = 0,
                 });
             },
+            .elf => {}, // TODO
             else => unreachable,
         }
     }

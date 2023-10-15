@@ -3196,12 +3196,16 @@ pub fn updateDecl(
     const decl = mod.declPtr(decl_index);
 
     if (decl.val.getExternFunc(mod)) |_| {
-        return; // TODO Should we do more when front-end analyzed extern decl?
+        return;
     }
-    if (decl.val.getVariable(mod)) |variable| {
-        if (variable.is_extern) {
-            return; // TODO Should we do more when front-end analyzed extern decl?
-        }
+
+    if (decl.isExtern(mod)) {
+        // Extern variable gets a .got entry only.
+        const variable = decl.getOwnedVariable(mod).?;
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        _ = try self.getGlobalSymbol(name, lib_name);
+        return;
     }
 
     const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
