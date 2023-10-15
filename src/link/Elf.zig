@@ -770,6 +770,7 @@ pub fn initMetadata(self: *Elf) !void {
         self.zig_rodata_section_index = try self.allocateAllocSection(.{
             .name = ".zig.rodata",
             .phdr_index = self.phdr_zig_load_ro_index.?,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE, // TODO rename this section to .data.rel.ro
         });
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_rodata_section_index.?, .{});
     }
