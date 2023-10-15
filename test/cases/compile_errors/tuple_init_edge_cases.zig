@@ -45,12 +45,6 @@ pub export fn entry5() void {
     var b = T{ .@"0" = 123, .@"2" = 123, .@"1" = 123 };
     _ = b;
 }
-pub export fn entry6() void {
-    var a: u32 = 2;
-    const T = @TypeOf(.{ a, a, 123 });
-    var b = T{2};
-    _ = b;
-}
 
 // error
 // backend=stage2
@@ -60,4 +54,3 @@ pub export fn entry6() void {
 // :23:14: error: missing tuple field with index 1
 // :39:14: error: expected at most 2 tuple fields; found 3
 // :45:30: error: index '2' out of bounds of tuple 'struct{comptime comptime_int = 123, u32}'
-// :51:14: error: expected at least 2 tuple fields; found 1

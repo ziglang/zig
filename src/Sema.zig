@@ -4484,16 +4484,6 @@ fn validateArrayInitTy(
                 return sema.fail(block, src, "expected at most {d} tuple fields; found {d}", .{
                     array_len, init_count,
                 });
-            } else if (init_count < array_len) {
-                var expected_at_least = array_len;
-                for (0..array_len) |index| {
-                    if (ty.structFieldDefaultValue(index, mod).toIntern() != .unreachable_value) expected_at_least -= 1;
-                }
-                if (init_count < expected_at_least) {
-                    return sema.fail(block, src, "expected at least {d} tuple fields; found {d}", .{
-                        expected_at_least, init_count,
-                    });
-                }
             }
             return;
         },
