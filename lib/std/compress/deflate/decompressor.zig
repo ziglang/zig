@@ -884,6 +884,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             s.inner_reader = new_reader;
             s.step = nextBlock;
             s.err = null;
+            s.nb = 0;
 
             s.dict.deinit();
             try s.dict.init(s.allocator, max_match_offset, new_dict);
