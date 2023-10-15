@@ -736,16 +736,13 @@ pub fn initMetadata(self: *Elf) !void {
 
     if (self.phdr_zig_load_zerofill_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_zig_load_zerofill_index = try self.allocateSegment(.{
+        self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
             .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
-            .memsz = 0,
-            .filesz = 0,
-            .alignment = alignment,
+            .memsz = 1024,
+            .@"align" = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
-        const phdr = &self.phdrs.items[self.phdr_zig_load_zerofill_index.?];
-        phdr.p_offset = self.phdrs.items[self.phdr_zig_load_rw_index.?].p_offset; // .bss overlaps .data
-        phdr.p_memsz = 1024;
     }
 
     if (self.zig_text_section_index == null) {
@@ -1588,16 +1585,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zig_module_index) |index| {
-        // .bss.zig always overlaps .data.zig in file offset, but is zero-sized in file so it doesn't
-        // get mapped by the loader
-        if (self.zig_data_section_index) |data_shndx| blk: {
-            const bss_shndx = self.zig_bss_section_index orelse break :blk;
-            const data_phndx = self.phdr_to_shdr_table.get(data_shndx).?;
-            const bss_phndx = self.phdr_to_shdr_table.get(bss_shndx).?;
-            self.shdrs.items[bss_shndx].sh_offset = self.shdrs.items[data_shndx].sh_offset;
-            self.phdrs.items[bss_phndx].p_offset = self.phdrs.items[data_phndx].p_offset;
-        }
-
         const zig_module = self.file(index).?.zig_module;
         for (zig_module.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
