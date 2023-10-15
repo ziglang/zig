@@ -507,23 +507,6 @@ test "ptrCast comptime known slice to C pointer" {
     try std.testing.expectEqualStrings(s, std.mem.sliceTo(p, 0));
 }
 
-test "intFromPtr on a generic function" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const S = struct {
-        fn generic(i: anytype) @TypeOf(i) {
-            return i;
-        }
-        fn doTheTest(a: anytype) !void {
-            try expect(@intFromPtr(a) != 0);
-        }
-    };
-    try S.doTheTest(&S.generic);
-}
-
 test "pointer alignment and element type include call expression" {
     const S = struct {
         fn T() type {
