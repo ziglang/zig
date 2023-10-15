@@ -1560,7 +1560,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.initSpecialPhdrs();
-    try self.sortSections();
+    try self.sortShdrs();
     for (self.objects.items) |index| {
         try self.file(index).?.object.addAtomsToOutputSections(self);
     }
@@ -4146,38 +4146,28 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
             index.* = backlinks[index.*];
         }
     }
+
+    {
+        var it = self.phdr_to_shdr_table.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.* = backlinks[entry.value_ptr.*];
+        }
+    }
 }
 
-fn sectionRank(self: *Elf, shndx: u16) u8 {
+fn shdrRank(self: *Elf, shndx: u16) u8 {
     const shdr = self.shdrs.items[shndx];
     const name = self.shstrtab.getAssumeExists(shdr.sh_name);
     const flags = shdr.sh_flags;
 
-    if (self.isZigSection(shndx)) {
-        switch (shdr.sh_type) {
-            elf.SHT_PROGBITS => {
-                assert(flags & elf.SHF_ALLOC != 0);
-                if (flags & elf.SHF_EXECINSTR != 0) {
-                    return 0x2;
-                } else if (flags & elf.SHF_WRITE != 0) {
-                    return 0x3;
-                } else {
-                    return 0x1;
-                }
-            },
-            elf.SHT_NOBITS => return 0xf,
-            else => unreachable,
-        }
-    }
-
     switch (shdr.sh_type) {
-        elf.SHT_NULL => return 0x0,
-        elf.SHT_DYNSYM => return 0x12,
-        elf.SHT_HASH => return 0x13,
-        elf.SHT_GNU_HASH => return 0x13,
-        elf.SHT_GNU_VERSYM => return 0x14,
-        elf.SHT_GNU_VERDEF => return 0x14,
-        elf.SHT_GNU_VERNEED => return 0x14,
+        elf.SHT_NULL => return 0,
+        elf.SHT_DYNSYM => return 2,
+        elf.SHT_HASH => return 3,
+        elf.SHT_GNU_HASH => return 3,
+        elf.SHT_GNU_VERSYM => return 4,
+        elf.SHT_GNU_VERDEF => return 4,
+        elf.SHT_GNU_VERNEED => return 4,
 
         elf.SHT_PREINIT_ARRAY,
         elf.SHT_INIT_ARRAY,
@@ -4186,7 +4176,7 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
 
         elf.SHT_DYNAMIC => return 0xf3,
 
-        elf.SHT_RELA => return 0x1f,
+        elf.SHT_RELA => return 0xf,
 
         elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
             if (flags & elf.SHF_EXECINSTR != 0) {
@@ -4194,7 +4184,7 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
             } else if (flags & elf.SHF_WRITE != 0) {
                 return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6;
             } else if (mem.eql(u8, name, ".interp")) {
-                return 0x11;
+                return 1;
             } else {
                 return 0xf0;
             }
@@ -4208,17 +4198,17 @@ fn sectionRank(self: *Elf, shndx: u16) u8 {
 
         elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf5 else 0xf7,
         elf.SHT_SYMTAB => return 0xfa,
-        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x14 else 0xfb,
+        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x4 else 0xfb,
         else => return 0xff,
     }
 }
 
-fn sortSections(self: *Elf) !void {
+fn sortShdrs(self: *Elf) !void {
     const Entry = struct {
         shndx: u16,
 
         pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
-            return elf_file.sectionRank(lhs.shndx) < elf_file.sectionRank(rhs.shndx);
+            return elf_file.shdrRank(lhs.shndx) < elf_file.shdrRank(rhs.shndx);
         }
     };
 
@@ -4326,6 +4316,20 @@ fn sortSections(self: *Elf) !void {
         const shdr = &self.shdrs.items[index];
         shdr.sh_link = self.dynsymtab_section_index.?;
         shdr.sh_info = self.plt_section_index.?;
+    }
+
+    {
+        var phdr_to_shdr_table = try self.phdr_to_shdr_table.clone(gpa);
+        defer phdr_to_shdr_table.deinit(gpa);
+
+        self.phdr_to_shdr_table.clearRetainingCapacity();
+
+        var it = phdr_to_shdr_table.iterator();
+        while (it.next()) |entry| {
+            const shndx = entry.key_ptr.*;
+            const phndx = entry.value_ptr.*;
+            self.phdr_to_shdr_table.putAssumeCapacityNoClobber(backlinks[shndx], phndx);
+        }
     }
 
     if (self.zig_module_index) |index| {
@@ -4484,15 +4488,19 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
 
 /// Calculates how many segments (PT_LOAD progam headers) are required
 /// to cover the set of sections.
+/// We permit a maximum of 3**2 number of segments.
 fn calcNumberOfSegments(self: *Elf) usize {
-    var count: usize = 0;
-    var flags: u64 = 0;
+    var covers: [9]bool = [_]bool{false} ** 9;
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (self.isZigSection(@intCast(shndx))) continue;
-        if (flags != shdrToPhdrFlags(shdr.sh_flags)) count += 1;
-        flags = shdrToPhdrFlags(shdr.sh_flags);
+        const flags = shdrToPhdrFlags(shdr.sh_flags);
+        covers[flags - 1] = true;
+    }
+    var count: usize = 0;
+    for (covers) |cover| {
+        if (cover) count += 1;
     }
     return count;
 }
@@ -4564,34 +4572,22 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // virtual and file offsets. However, the simple one will do for one
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
+    const Cover = std.ArrayList(u16);
     const gpa = self.base.allocator;
-    const nphdrs = self.calcNumberOfSegments();
-    var covers = try gpa.alloc(struct { start: u16, len: u16 }, nphdrs);
-    defer gpa.free(covers);
+    var covers: [9]Cover = undefined;
+    for (&covers) |*cover| {
+        cover.* = Cover.init(gpa);
+    }
+    defer for (&covers) |*cover| {
+        cover.deinit();
+    };
 
-    var shndx = for (self.shdrs.items, 0..) |shdr, in| {
+    for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (self.isZigSection(@intCast(in))) continue;
-        break @as(u16, @intCast(in));
-    } else @as(u16, @intCast(self.shdrs.items.len));
-
-    for (covers) |*cover| {
-        cover.* = .{ .start = shndx, .len = 0 };
-        var flags = shdrToPhdrFlags(self.shdrs.items[shndx].sh_flags);
-
-        while (shndx < self.shdrs.items.len) : (shndx += 1) {
-            const shdr = self.shdrs.items[shndx];
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) break;
-            if (shdrToPhdrFlags(shdr.sh_flags) != flags) {
-                cover.len = shndx - cover.start;
-                break;
-            }
-        }
-    }
-
-    if (nphdrs > 0) {
-        covers[nphdrs - 1].len = shndx - covers[nphdrs - 1].start;
+        if (self.isZigSection(@intCast(shndx))) continue;
+        const flags = shdrToPhdrFlags(shdr.sh_flags);
+        try covers[flags - 1].append(@intCast(shndx));
     }
 
     // Now we can proceed with allocating the sections in virtual memory.
@@ -4603,10 +4599,11 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     var addr = phdr_table.p_vaddr + phdr_table.p_memsz;
 
     for (covers) |cover| {
-        const slice = self.shdrs.items[cover.start..][0..cover.len];
+        if (cover.items.len == 0) continue;
 
         var @"align": u64 = self.page_size;
-        for (slice) |shdr| {
+        for (cover.items) |shndx| {
+            const shdr = self.shdrs.items[shndx];
             if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) continue;
             @"align" = @max(@"align", shdr.sh_addralign);
         }
@@ -4616,8 +4613,9 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         var memsz: u64 = 0;
         var filesz: u64 = 0;
         var i: usize = 0;
-        while (i < cover.len) : (i += 1) {
-            const shdr = &slice[i];
+        while (i < cover.items.len) : (i += 1) {
+            const shndx = cover.items[i];
+            const shdr = &self.shdrs.items[shndx];
             if (shdr.sh_type == elf.SHT_NOBITS and shdr.sh_flags & elf.SHF_TLS != 0) {
                 // .tbss is a little special as it's used only by the loader meaning it doesn't
                 // need to be actually mmap'ed at runtime. We still need to correctly increment
@@ -4632,19 +4630,20 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
                 // .data 0x10
                 // ...
                 var tbss_addr = addr;
-                while (i < cover.len and
-                    slice[i].sh_type == elf.SHT_NOBITS and
-                    slice[i].sh_flags & elf.SHF_TLS != 0) : (i += 1)
+                while (i < cover.items.len and
+                    self.shdrs.items[cover.items[i]].sh_type == elf.SHT_NOBITS and
+                    self.shdrs.items[cover.items[i]].sh_flags & elf.SHF_TLS != 0) : (i += 1)
                 {
-                    const tbss_shdr = &slice[i];
-                    tbss_addr = alignment.@"align"(cover.start + i, tbss_shdr.sh_addralign, tbss_addr);
+                    const tbss_shndx = cover.items[i];
+                    const tbss_shdr = &self.shdrs.items[tbss_shndx];
+                    tbss_addr = alignment.@"align"(tbss_shndx, tbss_shdr.sh_addralign, tbss_addr);
                     tbss_shdr.sh_addr = tbss_addr;
                     tbss_addr += tbss_shdr.sh_size;
                 }
                 i -= 1;
                 continue;
             }
-            const next = alignment.@"align"(cover.start + i, shdr.sh_addralign, addr);
+            const next = alignment.@"align"(shndx, shdr.sh_addralign, addr);
             const padding = next - addr;
             addr = next;
             shdr.sh_addr = addr;
@@ -4655,23 +4654,25 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
             addr += shdr.sh_size;
         }
 
+        const first = self.shdrs.items[cover.items[0]];
         var off = self.findFreeSpace(filesz, @"align");
         const phndx = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .offset = off,
-            .addr = slice[0].sh_addr,
+            .addr = first.sh_addr,
             .memsz = memsz,
             .filesz = filesz,
             .@"align" = @"align",
-            .flags = shdrToPhdrFlags(slice[0].sh_flags),
+            .flags = shdrToPhdrFlags(first.sh_flags),
         });
 
-        for (slice, 0..) |*shdr, ii| {
+        for (cover.items) |shndx| {
+            const shdr = &self.shdrs.items[shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            off = alignment.@"align"(cover.start + ii, shdr.sh_addralign, off);
+            off = alignment.@"align"(shndx, shdr.sh_addralign, off);
             shdr.sh_offset = off;
             off += shdr.sh_size;
-            try self.phdr_to_shdr_table.putNoClobber(gpa, @intCast(ii + cover.start), phndx);
+            try self.phdr_to_shdr_table.putNoClobber(gpa, shndx, phndx);
         }
 
         addr += self.page_size;
