@@ -89,7 +89,7 @@ pub const ArenaAllocator = struct {
     /// functional in that case, all memory is released. Future allocations just might
     /// be slower.
     ///
-    /// NOTE: If `mode` is `free_mode`, the function will always return `true`.
+    /// NOTE: If `mode` is `free_all`, the function will always return `true`.
     pub fn reset(self: *ArenaAllocator, mode: ResetMode) bool {
         // Some words on the implementation:
         // The reset function can be implemented with two basic approaches:
