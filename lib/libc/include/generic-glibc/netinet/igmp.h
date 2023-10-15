@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -110,7 +110,7 @@ struct igmp {
 #define IGMP_v2_ROUTER		2
 
 /*
- * The following four defininitions are for backwards compatibility.
+ * The following four definitions are for backwards compatibility.
  * They should be removed as soon as all applications are updated to
  * use the new constant names.
  */

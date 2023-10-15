@@ -81,3 +81,32 @@ pub fn isNonAsciiDigit(c: u21) bool {
         else => false,
     };
 }
+
+/// Used for generic colored errors/warnings/notes, more context-specific error messages
+/// are handled elsewhere.
+pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: enum { err, warning, note }, comptime format: []const u8, args: anytype) !void {
+    switch (msg_type) {
+        .err => {
+            try config.setColor(writer, .bold);
+            try config.setColor(writer, .red);
+            try writer.writeAll("error: ");
+        },
+        .warning => {
+            try config.setColor(writer, .bold);
+            try config.setColor(writer, .yellow);
+            try writer.writeAll("warning: ");
+        },
+        .note => {
+            try config.setColor(writer, .reset);
+            try config.setColor(writer, .cyan);
+            try writer.writeAll("note: ");
+        },
+    }
+    try config.setColor(writer, .reset);
+    if (msg_type == .err) {
+        try config.setColor(writer, .bold);
+    }
+    try writer.print(format, args);
+    try writer.writeByte('\n');
+    try config.setColor(writer, .reset);
+}

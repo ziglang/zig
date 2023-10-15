@@ -6456,23 +6456,6 @@ fn forExpr(
     const node_data = tree.nodes.items(.data);
     const gpa = astgen.gpa;
 
-    // TODO this can be deleted after zig 0.11.0 is released because it
-    // will be caught in the parser.
-    if (for_full.isOldSyntax(token_tags)) {
-        return astgen.failTokNotes(
-            for_full.payload_token + 2,
-            "extra capture in for loop",
-            .{},
-            &[_]u32{
-                try astgen.errNoteTok(
-                    for_full.payload_token + 2,
-                    "run 'zig fmt' to upgrade your code automatically",
-                    .{},
-                ),
-            },
-        );
-    }
-
     // For counters, this is the start value; for indexables, this is the base
     // pointer that can be used with elem_ptr and similar instructions.
     // Special value `none` means that this is a counter and its start value is

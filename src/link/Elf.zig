@@ -929,15 +929,15 @@ pub fn populateMissingMetadata(self: *Elf) !void {
 
     if (self.base.options.module) |module| {
         if (self.zig_module_index == null and !self.base.options.use_llvm) {
-            const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+            const index: File.Index = @intCast(try self.files.addOne(gpa));
             self.files.set(index, .{ .zig_module = .{
                 .index = index,
-                .path = module.main_pkg.root_src_path,
+                .path = module.main_mod.root_src_path,
             } });
             self.zig_module_index = index;
             const zig_module = self.file(index).?.zig_module;
 
-            const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_pkg.root_src_path));
+            const name_off = try self.strtab.insert(gpa, std.fs.path.stem(module.main_mod.root_src_path));
             const symbol_index = try self.addSymbol();
             try zig_module.local_symbols.append(gpa, symbol_index);
             const symbol_ptr = self.symbol(symbol_index);

@@ -1,5 +1,5 @@
 /* Memory-mapping-related declarations/definitions, not architecture-specific.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -31,6 +31,10 @@
 #  define MFD_CLOEXEC 1U
 #  define MFD_ALLOW_SEALING 2U
 #  define MFD_HUGETLB 4U
+# endif
+# ifndef MFD_NOEXEC_SEAL
+#  define MFD_NOEXEC_SEAL 8U
+#  define MFD_EXEC 0x10U
 # endif
 
 /* Flags for mlock2.  */

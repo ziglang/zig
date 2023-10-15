@@ -528,7 +528,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/Package.zig"
-    "${CMAKE_SOURCE_DIR}/src/Package/hash.zig"
+    "${CMAKE_SOURCE_DIR}/src/Package/Fetch.zig"
     "${CMAKE_SOURCE_DIR}/src/RangeSet.zig"
     "${CMAKE_SOURCE_DIR}/src/Sema.zig"
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"

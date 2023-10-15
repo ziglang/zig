@@ -55,10 +55,10 @@ comp: *Compilation,
 /// Where build artifacts and incremental compilation metadata serialization go.
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource.
-root_pkg: *Package,
-/// Normally, `main_pkg` and `root_pkg` are the same. The exception is `zig test`, in which
-/// `root_pkg` is the test runner, and `main_pkg` is the user's source file which has the tests.
-main_pkg: *Package,
+root_mod: *Package.Module,
+/// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
+/// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
+main_mod: *Package.Module,
 sema_prog_node: std.Progress.Node = undefined,
 
 /// Used by AstGen worker to load and store ZIR cache.
@@ -973,8 +973,8 @@ pub const File = struct {
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
     zir: Zir,
-    /// Package that this file is a part of, managed externally.
-    pkg: *Package,
+    /// Module that this file is a part of, managed externally.
+    mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
@@ -998,8 +998,8 @@ pub const File = struct {
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
         import: SrcLoc,
-        /// The file is the root of a package.
-        root: *Package,
+        /// The file is the root of a module.
+        root: *Package.Module,
     };
 
     pub fn unload(file: *File, gpa: Allocator) void {
@@ -1058,14 +1058,9 @@ pub const File = struct {
             .stat = file.stat,
         };
 
-        const root_dir_path = file.pkg.root_src_directory.path orelse ".";
-        log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
-            root_dir_path, file.sub_file_path,
-        });
-
         // Keep track of inode, file size, mtime, hash so we can detect which files
         // have been modified when an incremental update is requested.
-        var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+        var f = try file.mod.root.openFile(file.sub_file_path, .{});
         defer f.close();
 
         const stat = try f.stat();
@@ -1134,14 +1129,12 @@ pub const File = struct {
         return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start);
     }
 
-    /// Returns the full path to this file relative to its package.
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {
-        return file.pkg.root_src_directory.join(ally, &[_][]const u8{file.sub_file_path});
+        return file.mod.root.joinString(ally, file.sub_file_path);
     }
 
-    /// Returns the full path to this file relative to its package.
     pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
-        return file.pkg.root_src_directory.joinZ(ally, &[_][]const u8{file.sub_file_path});
+        return file.mod.root.joinStringZ(ally, file.sub_file_path);
     }
 
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -1181,10 +1174,10 @@ pub const File = struct {
         }
 
         const pkg = switch (ref) {
-            .import => |loc| loc.file_scope.pkg,
+            .import => |loc| loc.file_scope.mod,
             .root => |pkg| pkg,
         };
-        if (pkg != file.pkg) file.multi_pkg = true;
+        if (pkg != file.mod) file.multi_pkg = true;
     }
 
     /// Mark this file and every file referenced by it as multi_pkg and report an
@@ -1226,7 +1219,7 @@ pub const EmbedFile = struct {
     bytes: [:0]const u8,
     stat: Cache.File.Stat,
     /// Package that this file is a part of, managed externally.
-    pkg: *Package,
+    mod: *Package.Module,
     /// The Decl that was created from the `@embedFile` to own this resource.
     /// This is how zig knows what other Decl objects to invalidate if the file
     /// changes on disk.
@@ -2542,28 +2535,6 @@ pub fn deinit(mod: *Module) void {
     }
 
     mod.deletion_set.deinit(gpa);
-
-    // The callsite of `Compilation.create` owns the `main_pkg`, however
-    // Module owns the builtin and std packages that it adds.
-    if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
-        gpa.free(kv.key);
-        kv.value.destroy(gpa);
-    }
-    if (mod.main_pkg.table.fetchRemove("std")) |kv| {
-        gpa.free(kv.key);
-        // It's possible for main_pkg to be std when running 'zig test'! In this case, we must not
-        // destroy it, since it would lead to a double-free.
-        if (kv.value != mod.main_pkg) {
-            kv.value.destroy(gpa);
-        }
-    }
-    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
-        gpa.free(kv.key);
-    }
-    if (mod.root_pkg != mod.main_pkg) {
-        mod.root_pkg.destroy(gpa);
-    }
-
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
@@ -2710,18 +2681,19 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const gpa = mod.gpa;
 
     // In any case we need to examine the stat of the file to determine the course of action.
-    var source_file = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+    var source_file = try file.mod.root.openFile(file.sub_file_path, .{});
     defer source_file.close();
 
     const stat = try source_file.stat();
 
-    const want_local_cache = file.pkg == mod.main_pkg;
+    const want_local_cache = file.mod == mod.main_mod;
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
         path_hash.add(builtin.zig_backend);
         if (!want_local_cache) {
-            path_hash.addOptionalBytes(file.pkg.root_src_directory.path);
+            path_hash.addOptionalBytes(file.mod.root.root_dir.path);
+            path_hash.addBytes(file.mod.root.sub_path);
         }
         path_hash.addBytes(file.sub_file_path);
         break :hash path_hash.final();
@@ -2946,10 +2918,8 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
-        const pkg_path = file.pkg.root_src_directory.path orelse ".";
-        const cache_path = cache_directory.path orelse ".";
-        log.warn("unable to write cached ZIR code for {s}/{s} to {s}/{s}: {s}", .{
-            pkg_path, file.sub_file_path, cache_path, &digest, @errorName(err),
+        log.warn("unable to write cached ZIR code for {}{s} to {}{s}: {s}", .{
+            file.mod.root, file.sub_file_path, cache_directory, &digest, @errorName(err),
         });
     };
 
@@ -3154,37 +3124,27 @@ pub fn populateBuiltinFile(mod: *Module) !void {
     defer tracy.end();
 
     const comp = mod.comp;
-    const pkg_and_file = blk: {
+    const builtin_mod, const file = blk: {
         comp.mutex.lock();
         defer comp.mutex.unlock();
 
-        const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-        const result = try mod.importPkg(builtin_pkg);
-        break :blk .{
-            .file = result.file,
-            .pkg = builtin_pkg,
-        };
+        const builtin_mod = mod.main_mod.deps.get("builtin").?;
+        const result = try mod.importPkg(builtin_mod);
+        break :blk .{ builtin_mod, result.file };
     };
-    const file = pkg_and_file.file;
-    const builtin_pkg = pkg_and_file.pkg;
     const gpa = mod.gpa;
     file.source = try comp.generateBuiltinZigSource(gpa);
     file.source_loaded = true;
 
-    if (builtin_pkg.root_src_directory.handle.statFile(builtin_pkg.root_src_path)) |stat| {
+    if (builtin_mod.root.statFile(builtin_mod.root_src_path)) |stat| {
         if (stat.size != file.source.len) {
-            const full_path = try builtin_pkg.root_src_directory.join(gpa, &.{
-                builtin_pkg.root_src_path,
-            });
-            defer gpa.free(full_path);
-
             log.warn(
-                "the cached file '{s}' had the wrong size. Expected {d}, found {d}. " ++
+                "the cached file '{}{s}' had the wrong size. Expected {d}, found {d}. " ++
                     "Overwriting with correct file contents now",
-                .{ full_path, file.source.len, stat.size },
+                .{ builtin_mod.root, builtin_mod.root_src_path, file.source.len, stat.size },
             );
 
-            try writeBuiltinFile(file, builtin_pkg);
+            try writeBuiltinFile(file, builtin_mod);
         } else {
             file.stat = .{
                 .size = stat.size,
@@ -3198,7 +3158,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         error.PipeBusy => unreachable, // it's not a pipe
         error.WouldBlock => unreachable, // not asking for non-blocking I/O
 
-        error.FileNotFound => try writeBuiltinFile(file, builtin_pkg),
+        error.FileNotFound => try writeBuiltinFile(file, builtin_mod),
 
         else => |e| return e,
     }
@@ -3212,8 +3172,8 @@ pub fn populateBuiltinFile(mod: *Module) !void {
     file.status = .success_zir;
 }
 
-fn writeBuiltinFile(file: *File, builtin_pkg: *Package) !void {
-    var af = try builtin_pkg.root_src_directory.handle.atomicFile(builtin_pkg.root_src_path, .{});
+fn writeBuiltinFile(file: *File, builtin_mod: *Package.Module) !void {
+    var af = try builtin_mod.root.atomicFile(builtin_mod.root_src_path, .{});
     defer af.deinit();
     try af.file.writeAll(file.source);
     try af.finish();
@@ -3609,7 +3569,8 @@ pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
     }
 }
 
-pub fn semaPkg(mod: *Module, pkg: *Package) !void {
+/// https://github.com/ziglang/zig/issues/14307
+pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
     return mod.semaFile(file);
 }
@@ -3711,13 +3672,11 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             return error.AnalysisFail;
         };
 
-        const resolved_path = std.fs.path.resolve(
-            gpa,
-            if (file.pkg.root_src_directory.path) |pkg_path|
-                &[_][]const u8{ pkg_path, file.sub_file_path }
-            else
-                &[_][]const u8{file.sub_file_path},
-        ) catch |err| {
+        const resolved_path = std.fs.path.resolve(gpa, &.{
+            file.mod.root.root_dir.path orelse ".",
+            file.mod.root.sub_path,
+            file.sub_file_path,
+        }) catch |err| {
             try reportRetryableFileError(mod, file, "unable to resolve path: {s}", .{@errorName(err)});
             return error.AnalysisFail;
         };
@@ -3748,8 +3707,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     // TODO: figure out how this works under incremental changes to builtin.zig!
     const builtin_type_target_index: InternPool.Index = blk: {
-        const std_mod = mod.main_pkg.table.get("std").?;
-        if (decl.getFileScope(mod).pkg != std_mod) break :blk .none;
+        const std_mod = mod.main_mod.deps.get("std").?;
+        if (decl.getFileScope(mod).mod != std_mod) break :blk .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
         const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
@@ -4042,14 +4001,17 @@ pub const ImportFileResult = struct {
     is_pkg: bool,
 };
 
-pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
+/// https://github.com/ziglang/zig/issues/14307
+pub fn importPkg(mod: *Module, pkg: *Package.Module) !ImportFileResult {
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
     // an import refers to the same as another, despite different relative paths
     // or differently mapped package names.
-    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
-        pkg.root_src_directory.path orelse ".", pkg.root_src_path,
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        pkg.root.root_dir.path orelse ".",
+        pkg.root.sub_path,
+        pkg.root_src_path,
     });
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
@@ -4083,7 +4045,7 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
-        .pkg = pkg,
+        .mod = pkg,
         .root_decl = .none,
     };
     try new_file.addReference(mod.*, .{ .root = pkg });
@@ -4100,29 +4062,33 @@ pub fn importFile(
     import_string: []const u8,
 ) !ImportFileResult {
     if (std.mem.eql(u8, import_string, "std")) {
-        return mod.importPkg(mod.main_pkg.table.get("std").?);
+        return mod.importPkg(mod.main_mod.deps.get("std").?);
     }
     if (std.mem.eql(u8, import_string, "builtin")) {
-        return mod.importPkg(mod.main_pkg.table.get("builtin").?);
+        return mod.importPkg(mod.main_mod.deps.get("builtin").?);
     }
     if (std.mem.eql(u8, import_string, "root")) {
-        return mod.importPkg(mod.root_pkg);
+        return mod.importPkg(mod.root_mod);
     }
-    if (cur_file.pkg.table.get(import_string)) |pkg| {
+    if (cur_file.mod.deps.get(import_string)) |pkg| {
         return mod.importPkg(pkg);
     }
     if (!mem.endsWith(u8, import_string, ".zig")) {
-        return error.PackageNotFound;
+        return error.ModuleNotFound;
     }
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
     // an import refers to the same as another, despite different relative paths
     // or differently mapped package names.
-    const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
-    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
-        cur_pkg_dir_path, cur_file.sub_file_path, "..", import_string,
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        cur_file.mod.root.root_dir.path orelse ".",
+        cur_file.mod.root.sub_path,
+        cur_file.sub_file_path,
+        "..",
+        import_string,
     });
+
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
@@ -4137,7 +4103,10 @@ pub fn importFile(
     const new_file = try gpa.create(File);
     errdefer gpa.destroy(new_file);
 
-    const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+    const resolved_root_path = try std.fs.path.resolve(gpa, &.{
+        cur_file.mod.root.root_dir.path orelse ".",
+        cur_file.mod.root.sub_path,
+    });
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
@@ -4151,7 +4120,7 @@ pub fn importFile(
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
-        return error.ImportOutsidePkgPath;
+        return error.ImportOutsideModulePath;
     };
     errdefer gpa.free(sub_file_path);
 
@@ -4171,7 +4140,7 @@ pub fn importFile(
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
-        .pkg = cur_file.pkg,
+        .mod = cur_file.mod,
         .root_decl = .none,
     };
     return ImportFileResult{
@@ -4184,9 +4153,11 @@ pub fn importFile(
 pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*EmbedFile {
     const gpa = mod.gpa;
 
-    if (cur_file.pkg.table.get(import_string)) |pkg| {
-        const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
-            pkg.root_src_directory.path orelse ".", pkg.root_src_path,
+    if (cur_file.mod.deps.get(import_string)) |pkg| {
+        const resolved_path = try std.fs.path.resolve(gpa, &.{
+            pkg.root.root_dir.path orelse ".",
+            pkg.root.sub_path,
+            pkg.root_src_path,
         });
         var keep_resolved_path = false;
         defer if (!keep_resolved_path) gpa.free(resolved_path);
@@ -4203,10 +4174,14 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
 
     // The resolved path is used as the key in the table, to detect if a file
     // refers to the same as another, despite different relative paths.
-    const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
-    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
-        cur_pkg_dir_path, cur_file.sub_file_path, "..", import_string,
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        cur_file.mod.root.root_dir.path orelse ".",
+        cur_file.mod.root.sub_path,
+        cur_file.sub_file_path,
+        "..",
+        import_string,
     });
+
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
@@ -4214,7 +4189,10 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
     errdefer assert(mod.embed_table.remove(resolved_path));
     if (gop.found_existing) return gop.value_ptr.*;
 
-    const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+    const resolved_root_path = try std.fs.path.resolve(gpa, &.{
+        cur_file.mod.root.root_dir.path orelse ".",
+        cur_file.mod.root.sub_path,
+    });
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
@@ -4228,16 +4206,17 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
         {
             break :p try gpa.dupe(u8, resolved_path);
         }
-        return error.ImportOutsidePkgPath;
+        return error.ImportOutsideModulePath;
     };
     errdefer gpa.free(sub_file_path);
 
-    return newEmbedFile(mod, cur_file.pkg, sub_file_path, resolved_path, &keep_resolved_path, gop);
+    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, &keep_resolved_path, gop);
 }
 
+/// https://github.com/ziglang/zig/issues/14307
 fn newEmbedFile(
     mod: *Module,
-    pkg: *Package,
+    pkg: *Package.Module,
     sub_file_path: []const u8,
     resolved_path: []const u8,
     keep_resolved_path: *bool,
@@ -4248,7 +4227,7 @@ fn newEmbedFile(
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);
 
-    var file = try pkg.root_src_directory.handle.openFile(sub_file_path, .{});
+    var file = try pkg.root.openFile(sub_file_path, .{});
     defer file.close();
 
     const actual_stat = try file.stat();
@@ -4275,14 +4254,14 @@ fn newEmbedFile(
         .sub_file_path = sub_file_path,
         .bytes = bytes,
         .stat = stat,
-        .pkg = pkg,
+        .mod = pkg,
         .owner_decl = undefined, // Set by Sema immediately after this function returns.
     };
     return new_file;
 }
 
 pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
-    var file = try embed_file.pkg.root_src_directory.handle.openFile(embed_file.sub_file_path, .{});
+    var file = try embed_file.mod.root.openFile(embed_file.sub_file_path, .{});
     defer file.close();
 
     const stat = try file.stat();
@@ -4455,21 +4434,21 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         gop.key_ptr.* = new_decl_index;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
-        const decl_pkg = namespace.file_scope.pkg;
+        const decl_mod = namespace.file_scope.mod;
         const want_analysis = is_exported or switch (decl_name_index) {
             0 => true, // comptime or usingnamespace decl
             1 => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_mod != mod.main_mod) break :blk false;
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) break :blk false;
+                if (decl_mod != mod.main_mod) break :blk false;
                 if (comp.test_filter) |test_filter| {
                     if (mem.indexOf(u8, ip.stringToSlice(decl_name), test_filter) == null) {
                         break :blk false;
@@ -5596,8 +5575,8 @@ pub fn populateTestFunctions(
 ) !void {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-    const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
+    const builtin_mod = mod.main_mod.deps.get("builtin").?;
+    const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
     const test_functions_str = try ip.getOrPutString(gpa, "test_functions");

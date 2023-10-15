@@ -1,5 +1,5 @@
 /* Syscall definitions, Linux PowerPC generic version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -207,38 +207,6 @@
 #define ASM_INPUT_5 ASM_INPUT_4, "5" (r7)
 #define ASM_INPUT_6 ASM_INPUT_5, "6" (r8)
 
-
-/* Pointer mangling support.  */
-#if IS_IN (rtld)
-/* We cannot use the thread descriptor because in ld.so we use setjmp
-   earlier than the descriptor is initialized.  */
-#else
-# ifdef __ASSEMBLER__
-#  if defined(__PPC64__) || defined(__powerpc64__)
-#   define LOAD  ld
-#   define TPREG r13
-#  else
-#   define LOAD  lwz
-#   define TPREG r2
-#  endif
-#  define PTR_MANGLE(reg, tmpreg) \
-	LOAD	tmpreg,POINTER_GUARD(TPREG); \
-	xor	reg,tmpreg,reg
-#  define PTR_MANGLE2(reg, tmpreg) \
-	xor	reg,tmpreg,reg
-#  define PTR_MANGLE3(destreg, reg, tmpreg) \
-	LOAD	tmpreg,POINTER_GUARD(TPREG); \
-	xor	destreg,tmpreg,reg
-#  define PTR_DEMANGLE(reg, tmpreg) PTR_MANGLE (reg, tmpreg)
-#  define PTR_DEMANGLE2(reg, tmpreg) PTR_MANGLE2 (reg, tmpreg)
-#  define PTR_DEMANGLE3(destreg, reg, tmpreg) PTR_MANGLE3 (destreg, reg, tmpreg)
-# else
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ THREAD_GET_POINTER_GUARD ())
-#  define PTR_DEMANGLE(var)	PTR_MANGLE (var)
-# endif
-#endif
-
 /* List of system calls which are supported as vsyscalls.  */
 #define VDSO_NAME  "LINUX_2.6.15"
 #define VDSO_HASH  123718565
@@ -246,6 +214,7 @@
 #if defined(__PPC64__) || defined(__powerpc64__)
 #define HAVE_CLOCK_GETRES64_VSYSCALL	"__kernel_clock_getres"
 #define HAVE_CLOCK_GETTIME64_VSYSCALL	"__kernel_clock_gettime"
+#define HAVE_CLONE3_WRAPPER		1
 #else
 #define HAVE_CLOCK_GETRES_VSYSCALL	"__kernel_clock_getres"
 #define HAVE_CLOCK_GETTIME_VSYSCALL	"__kernel_clock_gettime"
@@ -254,12 +223,5 @@
 #define HAVE_TIME_VSYSCALL		"__kernel_time"
 #define HAVE_GETTIMEOFDAY_VSYSCALL      "__kernel_gettimeofday"
 #define HAVE_GET_TBFREQ                 "__kernel_get_tbfreq"
-
-#if defined(__PPC64__) || defined(__powerpc64__)
-# define HAVE_SIGTRAMP_RT64		"__kernel_sigtramp_rt64"
-#else
-# define HAVE_SIGTRAMP_32		"__kernel_sigtramp32"
-# define HAVE_SIGTRAMP_RT32		"__kernel_sigtramp_rt32"
-#endif
 
 #endif /* _LINUX_POWERPC_SYSDEP_H  */

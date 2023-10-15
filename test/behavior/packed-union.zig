@@ -85,3 +85,31 @@ test "flags in packed union at offset" {
     try expectEqual(false, test_bits.adv_flags.adv.flags.enable_1);
     try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
 }
+
+test "packed union in packed struct" {
+    // Originally reported at https://github.com/ziglang/zig/issues/16581
+
+    const ReadRequest = packed struct { key: i32 };
+    const RequestType = enum {
+        read,
+        insert,
+    };
+    const RequestUnion = packed union {
+        read: ReadRequest,
+    };
+
+    const Request = packed struct {
+        active_type: RequestType,
+        request: RequestUnion,
+        const Self = @This();
+
+        fn init(read: ReadRequest) Self {
+            return .{
+                .active_type = .read,
+                .request = RequestUnion{ .read = read },
+            };
+        }
+    };
+
+    try std.testing.expectEqual(RequestType.read, Request.init(.{ .key = 3 }).active_type);
+}

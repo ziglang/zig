@@ -1262,17 +1262,6 @@ fn renderFor(gpa: Allocator, ais: *Ais, tree: Ast, for_node: Ast.full.For, space
     const lparen = for_node.ast.for_token + 1;
     try renderParamList(gpa, ais, tree, lparen, for_node.ast.inputs, .space);
 
-    // TODO remove this after zig 0.11.0
-    if (for_node.isOldSyntax(token_tags)) {
-        // old: for (a) |b, c| {}
-        // new: for (a, 0..) |b, c| {}
-        const array_list = ais.underlying_writer.context; // abstractions? who needs 'em!
-        if (mem.endsWith(u8, array_list.items, ") ")) {
-            array_list.items.len -= 2;
-            try array_list.appendSlice(", 0..) ");
-        }
-    }
-
     var cur = for_node.payload_token;
     const pipe = std.mem.indexOfScalarPos(std.zig.Token.Tag, token_tags, cur, .pipe).?;
     if (token_tags[pipe - 1] == .comma) {

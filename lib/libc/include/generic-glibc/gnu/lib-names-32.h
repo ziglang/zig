@@ -3,8 +3,7 @@
 # error "Never use <gnu/lib-names-32.h> directly; include <gnu/lib-names.h> instead."
 #endif
 
-#define LD_LINUX_SO                     "ld-linux.so.2"
-#define LD_SO                           "ld-linux.so.2"
+#define LD_SO                           "ld.so.1"
 #define LIBANL_SO                       "libanl.so.1"
 #define LIBBROKENLOCALE_SO              "libBrokenLocale.so.1"
 #define LIBCRYPT_SO                     "libcrypt.so.1"
@@ -21,8 +20,6 @@
 #define LIBNSS_FILES_SO                 "libnss_files.so.2"
 #define LIBNSS_HESIOD_SO                "libnss_hesiod.so.2"
 #define LIBNSS_LDAP_SO                  "libnss_ldap.so.2"
-#define LIBNSS_TEST1_SO                 "libnss_test1.so.2"
-#define LIBNSS_TEST2_SO                 "libnss_test2.so.2"
 #define LIBPTHREAD_SO                   "libpthread.so.0"
 #define LIBRESOLV_SO                    "libresolv.so.2"
 #define LIBRT_SO                        "librt.so.1"

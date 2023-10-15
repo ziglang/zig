@@ -3,6 +3,8 @@ pub const Options = struct {
     strip_components: u32 = 0,
     /// How to handle the "mode" property of files from within the tar file.
     mode_mode: ModeMode = .executable_bit_only,
+    /// Prevents creation of empty directories.
+    exclude_empty_directories: bool = false,
     /// Provide this to receive detailed error messages.
     /// When this is provided, some errors which would otherwise be returned immediately
     /// will instead be added to this structure. The API user must check the errors
@@ -29,6 +31,10 @@ pub const Options = struct {
                 file_name: []const u8,
                 link_name: []const u8,
             },
+            unable_to_create_file: struct {
+                code: anyerror,
+                file_name: []const u8,
+            },
             unsupported_file_type: struct {
                 file_name: []const u8,
                 file_type: Header.FileType,
@@ -41,6 +47,9 @@ pub const Options = struct {
                     .unable_to_create_sym_link => |info| {
                         d.allocator.free(info.file_name);
                         d.allocator.free(info.link_name);
+                    },
+                    .unable_to_create_file => |info| {
+                        d.allocator.free(info.file_name);
                     },
                     .unsupported_file_type => |info| {
                         d.allocator.free(info.file_name);
@@ -201,7 +210,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         switch (header.fileType()) {
             .directory => {
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
-                if (file_name.len != 0) {
+                if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
@@ -209,18 +218,34 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 if (file_size == 0 and unstripped_file_name.len == 0) return;
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
 
-                if (std.fs.path.dirname(file_name)) |dir_name| {
-                    try dir.makePath(dir_name);
-                }
-                var file = try dir.createFile(file_name, .{});
-                defer file.close();
+                var file = dir.createFile(file_name, .{}) catch |err| switch (err) {
+                    error.FileNotFound => again: {
+                        const code = code: {
+                            if (std.fs.path.dirname(file_name)) |dir_name| {
+                                dir.makePath(dir_name) catch |code| break :code code;
+                                break :again dir.createFile(file_name, .{}) catch |code| {
+                                    break :code code;
+                                };
+                            }
+                            break :code err;
+                        };
+                        const d = options.diagnostics orelse return error.UnableToCreateFile;
+                        try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
+                            .code = code,
+                            .file_name = try d.allocator.dupe(u8, file_name),
+                        } });
+                        break :again null;
+                    },
+                    else => |e| return e,
+                };
+                defer if (file) |f| f.close();
 
                 var file_off: usize = 0;
                 while (true) {
                     const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
                     if (temp.len == 0) return error.UnexpectedEndOfStream;
                     const slice = temp[0..@intCast(@min(file_size - file_off, temp.len))];
-                    try file.writeAll(slice);
+                    if (file) |f| try f.writeAll(slice);
 
                     file_off += slice.len;
                     buffer.advance(slice.len);
@@ -273,13 +298,26 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             },
             .hard_link => return error.TarUnsupportedFileType,
             .symbolic_link => {
+                // The file system path of the symbolic link.
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                // The data inside the symbolic link.
                 const link_name = header.linkName();
 
-                dir.symLink(link_name, file_name, .{}) catch |err| {
+                dir.symLink(link_name, file_name, .{}) catch |err| again: {
+                    const code = code: {
+                        if (err == error.FileNotFound) {
+                            if (std.fs.path.dirname(file_name)) |dir_name| {
+                                dir.makePath(dir_name) catch |code| break :code code;
+                                break :again dir.symLink(link_name, file_name, .{}) catch |code| {
+                                    break :code code;
+                                };
+                            }
+                        }
+                        break :code err;
+                    };
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
-                        .code = err,
+                        .code = code,
                         .file_name = try d.allocator.dupe(u8, file_name),
                         .link_name = try d.allocator.dupe(u8, link_name),
                     } });

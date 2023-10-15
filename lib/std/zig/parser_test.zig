@@ -1,23 +1,3 @@
-// TODO: remove this after zig 0.11.0 is released
-test "zig fmt: transform old for loop syntax to new" {
-    try testTransform(
-        \\fn foo() void {
-        \\    for (a) |b, i| {
-        \\        _ = b; _ = i;
-        \\    }
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    for (a, 0..) |b, i| {
-        \\        _ = b;
-        \\        _ = i;
-        \\    }
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
@@ -2109,14 +2089,14 @@ test "zig fmt: multiline string parameter in fn call with trailing comma" {
     try testCanonical(
         \\fn foo() void {
         \\    try stdout.print(
-        \\        \\ZIG_CMAKE_BINARY_DIR {}
-        \\        \\ZIG_C_HEADER_FILES   {}
-        \\        \\ZIG_DIA_GUIDS_LIB    {}
+        \\        \\ZIG_CMAKE_BINARY_DIR {s}
+        \\        \\ZIG_C_HEADER_FILES   {s}
+        \\        \\ZIG_DIA_GUIDS_LIB    {s}
         \\        \\
         \\    ,
-        \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
-        \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
-        \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        \\        std.mem.sliceTo(c.ZIG_CMAKE_BINARY_DIR, 0),
+        \\        std.mem.sliceTo(c.ZIG_CXX_COMPILER, 0),
+        \\        std.mem.sliceTo(c.ZIG_DIA_GUIDS_LIB, 0),
         \\    );
         \\}
         \\

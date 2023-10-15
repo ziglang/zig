@@ -1,5 +1,5 @@
 /* Posix threads.  Hurd version.
-   Copyright (C) 2000-2021 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -623,7 +623,7 @@ extern int pthread_rwlockattr_getpshared (const pthread_rwlockattr_t *__restrict
 					  int *__restrict __pshared)
 	__THROW __nonnull ((1, 2));
 
-/* Set the value of the process shared atrribute in *ATTR to
+/* Set the value of the process shared attribute in *ATTR to
    PSHARED.  */
 extern int pthread_rwlockattr_setpshared (pthread_rwlockattr_t *__attr,
 					  int __pshared)
@@ -645,7 +645,7 @@ extern int pthread_rwlockattr_setkind_np (pthread_rwlockattr_t *__attr,
 # include <bits/types/struct___pthread_rwlock.h>
 
 # define PTHREAD_RWLOCK_INITIALIZER __PTHREAD_RWLOCK_INITIALIZER
-/* Create a rwlock object with attributes given by ATTR and strore the
+/* Create a rwlock object with attributes given by ATTR and store the
    result in *RWLOCK.  */
 extern int pthread_rwlock_init (pthread_rwlock_t *__restrict __rwlock,
 				const pthread_rwlockattr_t *__restrict __attr)
@@ -709,7 +709,7 @@ extern int pthread_rwlock_unlock (pthread_rwlock_t *__rwlock)
 
 
 
-/* Cancelation.  */
+/* Cancellation.  */
 
 /* Register a cleanup handler.  */
 extern void pthread_cleanup_push (void (*__routine) (void *), void *__arg);
@@ -769,7 +769,7 @@ extern int pthread_barrierattr_getpshared (const pthread_barrierattr_t *__restri
 					   int *__restrict __pshared)
 	__THROW __nonnull ((1, 2));
 
-/* Set the value of the process shared atrribute in *ATTR to
+/* Set the value of the process shared attribute in *ATTR to
    PSHARED.  */
 extern int pthread_barrierattr_setpshared (pthread_barrierattr_t *__attr,
 					   int __pshared)
@@ -878,12 +878,12 @@ extern int pthread_getcpuclockid (pthread_t __thr, __clockid_t *__clock)
 
 /* Scheduling.  */
 
-/* Return thread THREAD's scheduling paramters.  */
+/* Return thread THREAD's scheduling parameters.  */
 extern int pthread_getschedparam (pthread_t __thr, int *__restrict __policy,
 				  struct sched_param *__restrict __param)
 	__THROW __nonnull ((2, 3));
 
-/* Set thread THREAD's scheduling paramters.  */
+/* Set thread THREAD's scheduling parameters.  */
 extern int pthread_setschedparam (pthread_t __thr, int __policy,
 				  const struct sched_param *__param)
 	__THROW __nonnull ((3));

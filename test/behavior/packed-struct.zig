@@ -991,7 +991,7 @@ test "bitcast back and forth" {
 
 test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
     // Originally reported at https://github.com/ziglang/zig/issues/14200
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .arm) return error.SkipZigTest;
+
     const S = struct {
         ps: packed struct { x: i2, y: i2 },
 
@@ -1035,4 +1035,33 @@ test "modify nested packed struct aligned field" {
     try std.testing.expectEqual(@as(u4, 4), opts.pretty_print.num_spaces);
     try std.testing.expectEqual(@as(u8, 1), opts.pretty_print.indent);
     try std.testing.expect(!opts.baz);
+}
+
+test "assigning packed struct inside another packed struct" {
+    // Originally reported at https://github.com/ziglang/zig/issues/9674
+
+    const S = struct {
+        const Inner = packed struct {
+            bits: u3,
+            more_bits: u6,
+        };
+
+        const Outer = packed struct {
+            padding: u5,
+            inner: Inner,
+        };
+        fn t(inner: Inner) void {
+            r.inner = inner;
+        }
+
+        var mem: Outer = undefined;
+        var r: *volatile Outer = &mem;
+    };
+
+    const val = S.Inner{ .bits = 1, .more_bits = 11 };
+    S.mem.padding = 0;
+    S.t(val);
+
+    try expectEqual(val, S.mem.inner);
+    try expect(S.mem.padding == 0);
 }

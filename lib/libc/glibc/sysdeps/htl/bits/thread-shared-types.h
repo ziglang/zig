@@ -1,5 +1,5 @@
 /* Common threading primitives definitions for both POSIX and C11.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -21,9 +21,9 @@
 
 #include <bits/pthreadtypes-arch.h>
 #include <bits/types/struct___pthread_once.h>
+#include <bits/types/__thrd_t.h>
 
 typedef int __tss_t;
-typedef int __thrd_t;
 
 typedef union
 {

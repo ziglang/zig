@@ -5,4 +5,4 @@ export fn a() usize {
 // error
 // target=native
 //
-// :2:20: error: import of file outside package path: '../../above.zig'
+// :2:20: error: import of file outside module path: '../../above.zig'

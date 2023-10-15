@@ -3,6 +3,10 @@
 
 #ifndef _ISOMAC
 /* Now define the internal interfaces.  */
+
+#include <bits/select-decl.h>
+libc_hidden_proto (__fdelt_chk)
+
 # if __TIMESIZE == 64
 #  define __pselect64 __pselect
 #  define __select64  __select

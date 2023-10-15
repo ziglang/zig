@@ -1,5 +1,5 @@
 /* Perform binary search - inline version.
-   Copyright (C) 1991-2021 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -29,14 +29,23 @@ bsearch (const void *__key, const void *__base, size_t __nmemb, size_t __size,
   while (__l < __u)
     {
       __idx = (__l + __u) / 2;
-      __p = (void *) (((const char *) __base) + (__idx * __size));
+      __p = (const void *) (((const char *) __base) + (__idx * __size));
       __comparison = (*__compar) (__key, __p);
       if (__comparison < 0)
 	__u = __idx;
       else if (__comparison > 0)
 	__l = __idx + 1;
       else
-	return (void *) __p;
+	{
+#if __GNUC_PREREQ(4, 6)
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wcast-qual"
+#endif
+	  return (void *) __p;
+#if __GNUC_PREREQ(4, 6)
+# pragma GCC diagnostic pop
+#endif
+	}
     }
 
   return NULL;

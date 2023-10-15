@@ -46,7 +46,7 @@ pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
     }
 }
 
-test "getCwdAlloc" {
+test getCwdAlloc {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const cwd = try getCwdAlloc(testing.allocator);

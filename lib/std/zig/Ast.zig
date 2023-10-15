@@ -432,7 +432,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("use 'var' or 'const' to declare variable");
         },
         .extra_for_capture => {
-            return stream.writeAll("excess for captures");
+            return stream.writeAll("extra capture in for loop");
         },
         .for_input_not_captured => {
             return stream.writeAll("for input is not captured");
@@ -2541,18 +2541,6 @@ pub const full = struct {
             then_expr: Node.Index,
             else_expr: Node.Index,
         };
-
-        /// TODO: remove this after zig 0.11.0 is tagged.
-        pub fn isOldSyntax(f: For, token_tags: []const Token.Tag) bool {
-            if (f.ast.inputs.len != 1) return false;
-            if (token_tags[f.payload_token + 1] == .comma) return true;
-            if (token_tags[f.payload_token] == .asterisk and
-                token_tags[f.payload_token + 2] == .comma)
-            {
-                return true;
-            }
-            return false;
-        }
     };
 
     pub const ContainerField = struct {

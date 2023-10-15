@@ -68,7 +68,7 @@ c_std: std.Build.CStd,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
 /// Set via options; intended to be read-only after that.
-main_pkg_path: ?LazyPath,
+main_mod_path: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filter: ?[]const u8,
 test_evented_io: bool = false,
@@ -216,7 +216,9 @@ generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
 
 pub const CSourceFiles = struct {
-    /// Relative to the build root.
+    dependency: ?*std.Build.Dependency,
+    /// If `dependency` is not null relative to it,
+    /// else relative to the build root.
     files: []const []const u8,
     flags: []const []const u8,
 };
@@ -316,6 +318,9 @@ pub const Options = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -480,7 +485,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
-        .main_pkg_path = null,
+        .main_mod_path = null,
         .exec_cmd_args = null,
         .filter = options.filter,
         .test_runner = options.test_runner,
@@ -515,8 +520,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         lp.addStepDependencies(&self.step);
     }
 
-    if (options.main_pkg_path) |lp| {
-        self.main_pkg_path = lp.dupe(self.step.owner);
+    if (options.main_mod_path orelse options.main_pkg_path) |lp| {
+        self.main_mod_path = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
     }
 
@@ -921,15 +926,23 @@ pub fn linkSystemLibrary2(
     }) catch @panic("OOM");
 }
 
+pub const AddCSourceFilesOptions = struct {
+    /// When provided, `files` are relative to `dependency` rather than the package that owns the `Compile` step.
+    dependency: ?*std.Build.Dependency = null,
+    files: []const []const u8,
+    flags: []const []const u8 = &.{},
+};
+
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
-pub fn addCSourceFiles(self: *Compile, files: []const []const u8, flags: []const []const u8) void {
+pub fn addCSourceFiles(self: *Compile, options: AddCSourceFilesOptions) void {
     const b = self.step.owner;
     const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
 
-    const files_copy = b.dupeStrings(files);
-    const flags_copy = b.dupeStrings(flags);
+    const files_copy = b.dupeStrings(options.files);
+    const flags_copy = b.dupeStrings(options.flags);
 
     c_source_files.* = .{
+        .dependency = options.dependency,
         .files = files_copy,
         .flags = flags_copy,
     };
@@ -1281,7 +1294,7 @@ fn appendModuleArgs(
             const name = kv.value_ptr.*;
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
-            const src = mod.builder.pathFromRoot(mod.source_file.getPath(mod.builder));
+            const src = mod.source_file.getPath(mod.builder);
             try zig_args.append("--mod");
             try zig_args.append(try std.fmt.allocPrint(b.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
         }
@@ -1549,8 +1562,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append("--");
                     prev_has_cflags = true;
                 }
-                for (c_source_files.files) |file| {
-                    try zig_args.append(b.pathFromRoot(file));
+                if (c_source_files.dependency) |dep| {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(dep.builder.pathFromRoot(file));
+                    }
+                } else {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(b.pathFromRoot(file));
+                    }
                 }
             },
 
@@ -1998,8 +2017,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(dir.getPath(b));
     }
 
-    if (self.main_pkg_path) |dir| {
-        try zig_args.append("--main-pkg-path");
+    if (self.main_mod_path) |dir| {
+        try zig_args.append("--main-mod-path");
         try zig_args.append(dir.getPath(b));
     }
 

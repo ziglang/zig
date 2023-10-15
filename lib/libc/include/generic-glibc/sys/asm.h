@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -198,7 +198,7 @@ symbol		=	value
 		TEXT(msg)
 
 /*
- * Print formated string
+ * Print formatted string
  */
 #define PRINT(string)                                   \
 		.set	push;				\

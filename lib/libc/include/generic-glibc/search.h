@@ -1,5 +1,5 @@
 /* Declarations for System V style searching functions.
-   Copyright (C) 1995-2021 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -78,7 +78,7 @@ struct _ENTRY;
 
 /* Family of hash table handling functions.  The functions also
    have reentrant counterparts ending with _r.  The non-reentrant
-   functions all work on a signle internal hashing table.  */
+   functions all work on a single internal hashing table.  */
 
 /* Search for entry matching ITEM.key in internal hash table.  If
    ACTION is `FIND' return found entry or signal error by returning

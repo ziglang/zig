@@ -1,5 +1,5 @@
 /* Redirections for error.h functions for -mlong-double-64.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -20,5 +20,50 @@
 # error "Never include <bits/error-ldbl.h> directly; use <error.h> instead."
 #endif
 
+#if defined __extern_always_inline && defined __va_arg_pack
+extern void __REDIRECT_LDBL (__error_alias, (int __status, int __errnum,
+			     const char *__format, ...), error)
+  __attribute__ ((__format__ (__printf__, 3, 4)));
+extern void __REDIRECT_LDBL (__error_noreturn, (int __status, int __errnum,
+			     const char *__format, ...), error)
+  __attribute__ ((__noreturn__, __format__ (__printf__, 3, 4)));
+
+
+/* If we know the function will never return make sure the compiler
+   realizes that, too.  */
+__extern_always_inline void
+error (int __status, int __errnum, const char *__format, ...)
+{
+  if (__builtin_constant_p (__status) && __status != 0)
+    __error_noreturn (__status, __errnum, __format, __va_arg_pack ());
+  else
+    __error_alias (__status, __errnum, __format, __va_arg_pack ());
+}
+
+
+extern void __REDIRECT_LDBL (__error_at_line_alias, (int __status, int __errnum,
+			     const char *__fname, unsigned int __line,
+			     const char *__format, ...), error_at_line)
+  __attribute__ ((__format__ (__printf__, 5, 6)));
+extern void __REDIRECT_LDBL (__error_at_line_noreturn, (int __status, int __errnum,
+			     const char *__fname, unsigned int __line,
+			     const char *__format, ...), error_at_line)
+  __attribute__ ((__noreturn__, __format__ (__printf__, 5, 6)));
+
+
+/* If we know the function will never return make sure the compiler
+   realizes that, too.  */
+__extern_always_inline void
+error_at_line (int __status, int __errnum, const char *__fname,
+	       unsigned int __line, const char *__format, ...)
+{
+  if (__builtin_constant_p (__status) && __status != 0)
+    __error_at_line_noreturn (__status, __errnum, __fname, __line, __format,
+			      __va_arg_pack ());
+  else
+    __error_at_line_alias (__status, __errnum, __fname, __line,
+			   __format, __va_arg_pack ());
+}
+#endif
 __LDBL_REDIR_DECL (error)
 __LDBL_REDIR_DECL (error_at_line)

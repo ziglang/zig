@@ -771,21 +771,25 @@ pub const Type = struct {
         return hasRuntimeBitsAdvanced(ty, mod, true, .eager) catch unreachable;
     }
 
+    pub fn fnHasRuntimeBits(ty: Type, mod: *Module) bool {
+        return ty.fnHasRuntimeBitsAdvanced(mod, null) catch unreachable;
+    }
+
+    /// Determines whether a function type has runtime bits, i.e. whether a
+    /// function with this type can exist at runtime.
+    /// Asserts that `ty` is a function type.
+    /// If `opt_sema` is not provided, asserts that the return type is sufficiently resolved.
+    pub fn fnHasRuntimeBitsAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) Module.CompileError!bool {
+        const fn_info = mod.typeToFunc(ty).?;
+        if (fn_info.is_generic) return false;
+        if (fn_info.is_var_args) return true;
+        if (fn_info.cc == .Inline) return false;
+        return !try fn_info.return_type.toType().comptimeOnlyAdvanced(mod, opt_sema);
+    }
+
     pub fn isFnOrHasRuntimeBits(ty: Type, mod: *Module) bool {
         switch (ty.zigTypeTag(mod)) {
-            .Fn => {
-                const fn_info = mod.typeToFunc(ty).?;
-                if (fn_info.is_generic) return false;
-                if (fn_info.is_var_args) return true;
-                switch (fn_info.cc) {
-                    // If there was a comptime calling convention,
-                    // it should also return false here.
-                    .Inline => return false,
-                    else => {},
-                }
-                if (fn_info.return_type.toType().comptimeOnly(mod)) return false;
-                return true;
-            },
+            .Fn => return ty.fnHasRuntimeBits(mod),
             else => return ty.hasRuntimeBits(mod),
         }
     }
@@ -2575,9 +2579,14 @@ pub const Type = struct {
 
     /// During semantic analysis, instead call `Sema.typeRequiresComptime` which
     /// resolves field types rather than asserting they are already resolved.
-    /// TODO merge these implementations together with the "advanced" pattern seen
-    /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *Module) bool {
+        return ty.comptimeOnlyAdvanced(mod, null) catch unreachable;
+    }
+
+    /// `generic_poison` will return false.
+    /// May return false negatives when structs and unions are having their field types resolved.
+    /// If `opt_sema` is not provided, asserts that the type is sufficiently resolved.
+    pub fn comptimeOnlyAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) Module.CompileError!bool {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .empty_struct_type => false,
@@ -2587,19 +2596,19 @@ pub const Type = struct {
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
                     switch (child_ty.zigTypeTag(mod)) {
-                        .Fn => return !child_ty.isFnOrHasRuntimeBits(mod),
+                        .Fn => return !try child_ty.fnHasRuntimeBitsAdvanced(mod, opt_sema),
                         .Opaque => return false,
-                        else => return child_ty.comptimeOnly(mod),
+                        else => return child_ty.comptimeOnlyAdvanced(mod, opt_sema),
                     }
                 },
                 .anyframe_type => |child| {
                     if (child == .none) return false;
-                    return child.toType().comptimeOnly(mod);
+                    return child.toType().comptimeOnlyAdvanced(mod, opt_sema);
                 },
-                .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
-                .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
-                .opt_type => |child| child.toType().comptimeOnly(mod),
-                .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
+                .array_type => |array_type| return array_type.child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .vector_type => |vector_type| return vector_type.child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .opt_type => |child| return child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .error_union_type => |error_union_type| return error_union_type.payload_type.toType().comptimeOnlyAdvanced(mod, opt_sema),
 
                 .error_set_type,
                 .inferred_error_set_type,
@@ -2662,39 +2671,80 @@ pub const Type = struct {
 
                     // A struct with no fields is not comptime-only.
                     return switch (struct_type.flagsPtr(ip).requires_comptime) {
-                        // Return false to avoid incorrect dependency loops.
-                        // This will be handled correctly once merged with
-                        // `Sema.typeRequiresComptime`.
-                        .wip, .unknown => false,
-                        .no => false,
+                        .no, .wip => false,
                         .yes => true,
+                        .unknown => {
+                            // The type is not resolved; assert that we have a Sema.
+                            const sema = opt_sema.?;
+
+                            if (struct_type.flagsPtr(ip).field_types_wip)
+                                return false;
+
+                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
+
+                            struct_type.flagsPtr(ip).requires_comptime = .wip;
+                            errdefer struct_type.flagsPtr(ip).requires_comptime = .unknown;
+
+                            for (0..struct_type.field_types.len) |i_usize| {
+                                const i: u32 = @intCast(i_usize);
+                                if (struct_type.fieldIsComptime(ip, i)) continue;
+                                const field_ty = struct_type.field_types.get(ip)[i];
+                                if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
+                                    // Note that this does not cause the layout to
+                                    // be considered resolved. Comptime-only types
+                                    // still maintain a layout of their
+                                    // runtime-known fields.
+                                    struct_type.flagsPtr(ip).requires_comptime = .yes;
+                                    return true;
+                                }
+                            }
+
+                            struct_type.flagsPtr(ip).requires_comptime = .no;
+                            return false;
+                        },
                     };
                 },
 
                 .anon_struct_type => |tuple| {
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         const have_comptime_val = val != .none;
-                        if (!have_comptime_val and field_ty.toType().comptimeOnly(mod)) return true;
+                        if (!have_comptime_val and try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) return true;
                     }
                     return false;
                 },
 
-                .union_type => |union_type| {
-                    switch (union_type.flagsPtr(ip).requires_comptime) {
-                        .wip, .unknown => {
-                            // Return false to avoid incorrect dependency loops.
-                            // This will be handled correctly once merged with
-                            // `Sema.typeRequiresComptime`.
+                .union_type => |union_type| switch (union_type.flagsPtr(ip).requires_comptime) {
+                    .no, .wip => false,
+                    .yes => true,
+                    .unknown => {
+                        // The type is not resolved; assert that we have a Sema.
+                        const sema = opt_sema.?;
+
+                        if (union_type.flagsPtr(ip).status == .field_types_wip)
                             return false;
-                        },
-                        .no => return false,
-                        .yes => return true,
-                    }
+
+                        try sema.resolveTypeFieldsUnion(ty, union_type);
+                        const union_obj = ip.loadUnionType(union_type);
+
+                        union_obj.flagsPtr(ip).requires_comptime = .wip;
+                        errdefer union_obj.flagsPtr(ip).requires_comptime = .unknown;
+
+                        for (0..union_obj.field_types.len) |field_idx| {
+                            const field_ty = union_obj.field_types.get(ip)[field_idx];
+                            if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
+                                union_obj.flagsPtr(ip).requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+
+                        union_obj.flagsPtr(ip).requires_comptime = .no;
+                        return false;
+                    },
                 },
 
                 .opaque_type => false,
 
-                .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
+                .enum_type => |enum_type| return enum_type.tag_ty.toType().comptimeOnlyAdvanced(mod, opt_sema),
 
                 // values, not types
                 .undef,

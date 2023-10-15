@@ -1,6 +1,6 @@
 /* Constants and data structures for x86 CPU features.
    This file is part of the GNU C Library.
-   Copyright (C) 2008-2020 Free Software Foundation, Inc.
+   Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -181,13 +181,13 @@ enum
   x86_cpu_AVX512_BITALG		= x86_cpu_index_7_ecx + 12,
   x86_cpu_INDEX_7_ECX_13	= x86_cpu_index_7_ecx + 13,
   x86_cpu_AVX512_VPOPCNTDQ	= x86_cpu_index_7_ecx + 14,
-  x86_cpu_INDEX_7_ECX_1		= x86_cpu_index_7_ecx + 15,
-  x86_cpu_INDEX_7_ECX_16	= x86_cpu_index_7_ecx + 16,
+  x86_cpu_INDEX_7_ECX_15	= x86_cpu_index_7_ecx + 15,
+  x86_cpu_LA57			= x86_cpu_index_7_ecx + 16,
 /* Note: Bits 17-21: The value of MAWAU used by the BNDLDX and BNDSTX
    instructions in 64-bit mode.  */
   x86_cpu_RDPID			= x86_cpu_index_7_ecx + 22,
   x86_cpu_KL			= x86_cpu_index_7_ecx + 23,
-  x86_cpu_INDEX_7_ECX_24	= x86_cpu_index_7_ecx + 24,
+  x86_cpu_BUS_LOCK_DETECT	= x86_cpu_index_7_ecx + 24,
   x86_cpu_CLDEMOTE		= x86_cpu_index_7_ecx + 25,
   x86_cpu_INDEX_7_ECX_26	= x86_cpu_index_7_ecx + 26,
   x86_cpu_MOVDIRI		= x86_cpu_index_7_ecx + 27,
@@ -201,7 +201,7 @@ enum
        + cpuid_register_index_edx * 8 * sizeof (unsigned int)),
 
   x86_cpu_INDEX_7_EDX_0		= x86_cpu_index_7_edx,
-  x86_cpu_INDEX_7_EDX_1		= x86_cpu_index_7_edx + 1,
+  x86_cpu_SGX_KEYS		= x86_cpu_index_7_edx + 1,
   x86_cpu_AVX512_4VNNIW		= x86_cpu_index_7_edx + 2,
   x86_cpu_AVX512_4FMAPS		= x86_cpu_index_7_edx + 3,
   x86_cpu_FSRM			= x86_cpu_index_7_edx + 4,
@@ -213,13 +213,13 @@ enum
   x86_cpu_MD_CLEAR		= x86_cpu_index_7_edx + 10,
   x86_cpu_RTM_ALWAYS_ABORT	= x86_cpu_index_7_edx + 11,
   x86_cpu_INDEX_7_EDX_12	= x86_cpu_index_7_edx + 12,
-  x86_cpu_INDEX_7_EDX_13	= x86_cpu_index_7_edx + 13,
+  x86_cpu_RTM_FORCE_ABORT	= x86_cpu_index_7_edx + 13,
   x86_cpu_SERIALIZE		= x86_cpu_index_7_edx + 14,
   x86_cpu_HYBRID		= x86_cpu_index_7_edx + 15,
   x86_cpu_TSXLDTRK		= x86_cpu_index_7_edx + 16,
   x86_cpu_INDEX_7_EDX_17	= x86_cpu_index_7_edx + 17,
   x86_cpu_PCONFIG		= x86_cpu_index_7_edx + 18,
-  x86_cpu_INDEX_7_EDX_19	= x86_cpu_index_7_edx + 19,
+  x86_cpu_LBR			= x86_cpu_index_7_edx + 19,
   x86_cpu_IBT			= x86_cpu_index_7_edx + 20,
   x86_cpu_INDEX_7_EDX_21	= x86_cpu_index_7_edx + 21,
   x86_cpu_AMX_BF16		= x86_cpu_index_7_edx + 22,
@@ -288,13 +288,31 @@ enum
     = (CPUID_INDEX_7_ECX_1 * 8 * 4 * sizeof (unsigned int)
        + cpuid_register_index_eax * 8 * sizeof (unsigned int)),
 
+  x86_cpu_RAO_INT		= x86_cpu_index_7_ecx_1_eax + 3,
   x86_cpu_AVX_VNNI		= x86_cpu_index_7_ecx_1_eax + 4,
   x86_cpu_AVX512_BF16		= x86_cpu_index_7_ecx_1_eax + 5,
+  x86_cpu_LASS			= x86_cpu_index_7_ecx_1_eax + 6,
+  x86_cpu_CMPCCXADD		= x86_cpu_index_7_ecx_1_eax + 7,
+  x86_cpu_ArchPerfmonExt	= x86_cpu_index_7_ecx_1_eax + 8,
   x86_cpu_FZLRM			= x86_cpu_index_7_ecx_1_eax + 10,
   x86_cpu_FSRS			= x86_cpu_index_7_ecx_1_eax + 11,
   x86_cpu_FSRCS			= x86_cpu_index_7_ecx_1_eax + 12,
+  x86_cpu_WRMSRNS		= x86_cpu_index_7_ecx_1_eax + 19,
+  x86_cpu_AMX_FP16		= x86_cpu_index_7_ecx_1_eax + 21,
   x86_cpu_HRESET		= x86_cpu_index_7_ecx_1_eax + 22,
+  x86_cpu_AVX_IFMA		= x86_cpu_index_7_ecx_1_eax + 23,
   x86_cpu_LAM			= x86_cpu_index_7_ecx_1_eax + 26,
+  x86_cpu_MSRLIST		= x86_cpu_index_7_ecx_1_eax + 27,
+
+  x86_cpu_index_7_ecx_1_edx
+    = (CPUID_INDEX_7_ECX_1 * 8 * 4 * sizeof (unsigned int)
+       + cpuid_register_index_edx * 8 * sizeof (unsigned int)),
+
+  x86_cpu_AVX_VNNI_INT8		= x86_cpu_index_7_ecx_1_edx + 4,
+  x86_cpu_AVX_NE_CONVERT	= x86_cpu_index_7_ecx_1_edx + 5,
+  x86_cpu_AMX_COMPLEX		= x86_cpu_index_7_ecx_1_edx + 8,
+  x86_cpu_PREFETCHI		= x86_cpu_index_7_ecx_1_edx + 14,
+  x86_cpu_APX_F			= x86_cpu_index_7_ecx_1_edx + 21,
 
   x86_cpu_index_19_ebx
     = (CPUID_INDEX_19 * 8 * 4 * sizeof (unsigned int)
