@@ -3927,20 +3927,9 @@ fn initSpecialPhdrs(self: *Elf) !void {
         .@"align" = 1,
     });
 
-    const has_tls = has_tls: {
-        if (self.base.options.link_libc and self.isStatic()) {
-            // Even if we don't emit any TLS data, linking against musl-libc without
-            // empty TLS phdr leads to a bizarre segfault in `__copy_tls` function.
-            // So far I haven't been able to work out why that is, but adding an empty
-            // TLS phdr seems to fix it, so let's go with it for now.
-            // TODO try to investigate more
-            break :has_tls true;
-        }
-        for (self.shdrs.items) |shdr| {
-            if (shdr.sh_flags & elf.SHF_TLS != 0) break :has_tls true;
-        }
-        break :has_tls false;
-    };
+    const has_tls = for (self.shdrs.items) |shdr| {
+        if (shdr.sh_flags & elf.SHF_TLS != 0) break true;
+    } else false;
     if (has_tls) {
         self.phdr_tls_index = try self.addPhdr(.{
             .type = elf.PT_TLS,
@@ -4076,24 +4065,16 @@ fn setHashSections(self: *Elf) !void {
     }
 }
 
-fn phdrRank(self: *Elf, phndx: u16) u8 {
-    const phdr = self.phdrs.items[phndx];
-    const flags = phdr.p_flags;
+fn phdrRank(phdr: elf.Elf64_Phdr) u8 {
     switch (phdr.p_type) {
         elf.PT_NULL => return 0,
         elf.PT_PHDR => return 1,
         elf.PT_INTERP => return 2,
-        elf.PT_LOAD => if (flags & elf.PF_X != 0) {
-            return 4;
-        } else if (flags & elf.PF_W != 0) {
-            return 5;
-        } else {
-            return 3;
-        },
-        elf.PT_DYNAMIC, elf.PT_TLS => return 6,
-        elf.PT_GNU_EH_FRAME => return 7,
-        elf.PT_GNU_STACK => return 8,
-        else => return 0xf,
+        elf.PT_LOAD => return 3,
+        elf.PT_DYNAMIC, elf.PT_TLS => return 4,
+        elf.PT_GNU_EH_FRAME => return 5,
+        elf.PT_GNU_STACK => return 6,
+        else => return 7,
     }
 }
 
@@ -4102,7 +4083,12 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
         phndx: u16,
 
         pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
-            return elf_file.phdrRank(lhs.phndx) < elf_file.phdrRank(rhs.phndx);
+            const lhs_phdr = elf_file.phdrs.items[lhs.phndx];
+            const rhs_phdr = elf_file.phdrs.items[rhs.phndx];
+            const lhs_rank = phdrRank(lhs_phdr);
+            const rhs_rank = phdrRank(rhs_phdr);
+            if (lhs_rank == rhs_rank) return lhs_phdr.p_vaddr < rhs_phdr.p_vaddr;
+            return lhs_rank < rhs_rank;
         }
     };
 
@@ -4674,7 +4660,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
             try self.phdr_to_shdr_table.putNoClobber(gpa, shndx, phndx);
         }
 
-        addr += self.page_size;
+        addr = mem.alignForward(u64, addr, self.page_size);
     }
 }
 
