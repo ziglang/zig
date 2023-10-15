@@ -1653,6 +1653,9 @@ fn buildOutputType(
                         } else root_src_file = arg;
                     },
                     .def, .unknown => {
+                        if (std.ascii.eqlIgnoreCase(".xml", std.fs.path.extension(arg))) {
+                            std.log.warn("embedded manifest files must have the extension '.manifest'", .{});
+                        }
                         fatal("unrecognized file extension of parameter '{s}'", .{arg});
                     },
                 }
