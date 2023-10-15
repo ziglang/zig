@@ -19765,15 +19765,39 @@ fn zirArrayInit(
     const is_tuple = array_ty.zigTypeTag(mod) == .Struct;
     const sentinel_val = array_ty.sentinel(mod);
 
-    const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len - 1 + @intFromBool(sentinel_val != null));
+    var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+
+    const final_len = try sema.usizeCast(block, src, array_ty.arrayLenIncludingSentinel(mod));
+    const resolved_args = try gpa.alloc(Air.Inst.Ref, final_len);
     defer gpa.free(resolved_args);
-    for (args[1..], 0..) |arg, i| {
+    for (resolved_args, 0..) |*dest, i| {
+        // Less inits than needed.
+        if (i + 2 > args.len) if (is_tuple) {
+            const default_val = array_ty.structFieldDefaultValue(i, mod).toIntern();
+            if (default_val == .unreachable_value) {
+                const template = "missing tuple field with index {d}";
+                if (root_msg) |msg| {
+                    try sema.errNote(block, src, msg, template, .{i});
+                } else {
+                    root_msg = try sema.errMsg(block, src, template, .{i});
+                }
+            } else {
+                dest.* = Air.internedToRef(default_val);
+            }
+            continue;
+        } else {
+            dest.* = Air.internedToRef(sentinel_val.?.toIntern());
+            break;
+        };
+
+        const arg = args[i + 1];
         const resolved_arg = try sema.resolveInst(arg);
         const elem_ty = if (is_tuple)
             array_ty.structFieldType(i, mod)
         else
             array_ty.elemType2(mod);
-        resolved_args[i] = sema.coerce(block, elem_ty, resolved_arg, .unneeded) catch |err| switch (err) {
+        dest.* = sema.coerce(block, elem_ty, resolved_arg, .unneeded) catch |err| switch (err) {
             error.NeededSourceLocation => {
                 const decl = mod.declPtr(block.src_decl);
                 const elem_src = mod.initSrc(src.node_offset.x, decl, i);
@@ -19783,7 +19807,7 @@ fn zirArrayInit(
             else => return err,
         };
         if (is_tuple) if (try array_ty.structFieldValueComptime(mod, i)) |field_val| {
-            const init_val = try sema.resolveMaybeUndefVal(resolved_args[i]) orelse {
+            const init_val = try sema.resolveMaybeUndefVal(dest.*) orelse {
                 const decl = mod.declPtr(block.src_decl);
                 const elem_src = mod.initSrc(src.node_offset.x, decl, i);
                 return sema.failWithNeededComptime(block, elem_src, .{
@@ -19798,8 +19822,10 @@ fn zirArrayInit(
         };
     }
 
-    if (sentinel_val) |some| {
-        resolved_args[resolved_args.len - 1] = Air.internedToRef(some.toIntern());
+    if (root_msg) |msg| {
+        try sema.addDeclaredHereNote(msg, array_ty);
+        root_msg = null;
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     const opt_runtime_index: ?u32 = for (resolved_args, 0..) |arg, i| {
@@ -19810,7 +19836,7 @@ fn zirArrayInit(
     const runtime_index = opt_runtime_index orelse {
         const elem_vals = try sema.arena.alloc(InternPool.Index, resolved_args.len);
         for (elem_vals, resolved_args, 0..) |*val, arg, i| {
-            const elem_ty = if (array_ty.zigTypeTag(mod) == .Struct)
+            const elem_ty = if (is_tuple)
                 array_ty.structFieldType(i, mod)
             else
                 array_ty.elemType2(mod);
@@ -19845,7 +19871,7 @@ fn zirArrayInit(
         const alloc = try block.addTy(.alloc, alloc_ty);
         const base_ptr = try sema.optEuBasePtrInit(block, alloc, src);
 
-        if (array_ty.isTuple(mod)) {
+        if (is_tuple) {
             for (resolved_args, 0..) |arg, i| {
                 const elem_ptr_ty = try sema.ptrType(.{
                     .child = array_ty.structFieldType(i, mod).toIntern(),
