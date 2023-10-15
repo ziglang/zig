@@ -3927,13 +3927,25 @@ fn initSpecialPhdrs(self: *Elf) !void {
         .@"align" = 1,
     });
 
-    const has_tls = for (self.shdrs.items) |shdr| {
-        if (shdr.sh_flags & elf.SHF_TLS != 0) break true;
-    } else false;
+    const has_tls = has_tls: {
+        if (self.base.options.link_libc and self.isStatic()) {
+            // Even if we don't emit any TLS data, linking against musl-libc without
+            // empty TLS phdr leads to a bizarre segfault in `__copy_tls` function.
+            // So far I haven't been able to work out why that is, but adding an empty
+            // TLS phdr seems to fix it, so let's go with it for now.
+            // TODO try to investigate more
+            break :has_tls true;
+        }
+        for (self.shdrs.items) |shdr| {
+            if (shdr.sh_flags & elf.SHF_TLS != 0) break :has_tls true;
+        }
+        break :has_tls false;
+    };
     if (has_tls) {
         self.phdr_tls_index = try self.addPhdr(.{
             .type = elf.PT_TLS,
             .flags = elf.PF_R,
+            .@"align" = 1,
         });
     }
 }
