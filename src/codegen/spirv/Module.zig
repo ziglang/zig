@@ -415,6 +415,18 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         0, // Schema (currently reserved for future use)
     };
 
+    var source = Section{};
+    defer source.deinit(self.gpa);
+    try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
+        .source_language = .Unknown,
+        .version = 0,
+        // We cannot emit these because the Khronos translator does not parse this instruction
+        // correctly.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2188
+        .file = null,
+        .source = null,
+    });
+
     // Note: needs to be kept in order according to section 2.3!
     const buffers = &[_][]const Word{
         &header,
@@ -422,6 +434,7 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.extensions.toWords(),
         entry_points.toWords(),
         self.sections.execution_modes.toWords(),
+        source.toWords(),
         self.sections.debug_strings.toWords(),
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
@@ -466,13 +479,6 @@ pub fn resolveSourceFileName(self: *Module, path: []const u8) !IdRef {
         try self.sections.debug_strings.emit(self.gpa, .OpString, .{
             .id_result = file_result_id,
             .string = path,
-        });
-
-        try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
-            .source_language = .Unknown, // TODO: Register Zig source language.
-            .version = 0, // TODO: Zig version as u32?
-            .file = file_result_id,
-            .source = null, // TODO: Store actual source also?
         });
     }
 
