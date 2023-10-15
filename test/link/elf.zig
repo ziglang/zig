@@ -18,7 +18,9 @@ pub fn build(b: *Build) void {
     };
 
     // Exercise linker with self-hosted backend (no LLVM)
-    // elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
+    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
+    elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = glibc_target }));
+    elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = musl_target }));
 
     // Exercise linker with LLVM backend
     // musl tests
@@ -1219,6 +1221,70 @@ fn testImageBase(b: *Build, opts: Options) *Step {
         check.checkComputeCompare("addr", .{ .op = .gte, .value = .{ .literal = 0xffffffff8000000 } });
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testImportingDataDynamic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "importing-data-dynamic", opts);
+
+    const dso = addSharedLibrary(b, "a", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = true,
+    });
+    addCSourceBytes(dso, "int foo = 42;", &.{});
+
+    const main = addExecutable(b, "main", opts);
+    addZigSourceBytes(main,
+        \\extern var foo: i32;
+        \\pub fn main() void {
+        \\    @import("std").debug.print("{d}\n", .{foo});
+        \\}
+    );
+    main.pie = true;
+    main.strip = true; // TODO temp hack
+    main.linkLibrary(dso);
+    main.linkLibC();
+
+    const run = addRunArtifact(main);
+    run.expectStdErrEqual("42\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testImportingDataStatic(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "importing-data-static", opts);
+
+    const obj = addObject(b, "a", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = true,
+    });
+    addCSourceBytes(obj, "int foo = 42;", &.{});
+
+    const lib = addStaticLibrary(b, "a", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = true,
+    });
+    lib.addObject(obj);
+
+    const main = addExecutable(b, "main", opts);
+    addZigSourceBytes(main,
+        \\extern var foo: i32;
+        \\pub fn main() void {
+        \\    @import("std").debug.print("{d}\n", .{foo});
+        \\}
+    );
+    main.strip = true; // TODO temp hack
+    main.linkLibrary(lib);
+    main.linkLibC();
+
+    const run = addRunArtifact(main);
+    run.expectStdErrEqual("42\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
