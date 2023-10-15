@@ -4597,7 +4597,6 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         for (slice, 0..) |*shdr, ii| {
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             off = alignment.@"align"(cover.start + ii, shdr.sh_addralign, off);
-            // off = mem.alignForward(u64, off, shdr.sh_addralign);
             shdr.sh_offset = off;
             off += shdr.sh_size;
             try self.phdr_to_shdr_table.putNoClobber(gpa, @intCast(ii + cover.start), phndx);

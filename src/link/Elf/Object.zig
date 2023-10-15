@@ -214,8 +214,6 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
                 break :blk prefix;
             }
         }
-        if (std.mem.eql(u8, name, ".tcommon")) break :blk ".tbss";
-        if (std.mem.eql(u8, name, ".common")) break :blk ".bss";
         break :blk name;
     };
     const @"type" = switch (shdr.sh_type) {

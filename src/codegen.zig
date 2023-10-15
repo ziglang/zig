@@ -892,9 +892,12 @@ fn genDeclRef(
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         if (is_extern) {
-            const variable = decl.getOwnedVariable(mod).?;
             const name = mod.intern_pool.stringToSlice(decl.name);
-            const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+            // TODO audit this
+            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
+                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            else
+                null;
             return GenResult.mcv(.{ .load_actual_got = try elf_file.getGlobalSymbol(name, lib_name) });
         }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
