@@ -129,7 +129,7 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
 pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 
 /// Parses the URI or returns an error. This function is not compliant, but is required to parse
-/// some forms of URIs in the wild. Such as HTTP Location headers.
+/// some forms of URIs in the wild, such as HTTP Location headers.
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
