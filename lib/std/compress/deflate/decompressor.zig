@@ -920,7 +920,6 @@ test "confirm decompressor resets" {
         const buf = try decomp.reader().readAllAlloc(std.testing.allocator, 1024 * 100);
         defer std.testing.allocator.free(buf);
 
-        std.log.debug("{}", .{std.fmt.fmtSliceHexLower(buf)});
         if (decomp.close()) |err| {
             return err;
         }
