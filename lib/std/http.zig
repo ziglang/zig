@@ -14,7 +14,9 @@ pub const Version = enum {
 };
 
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
+///
 /// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
+///
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
 pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is supported by the C backend, and therefore cannot pass CI
     GET = parse("GET"),
@@ -68,7 +70,9 @@ pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is s
     }
 
     /// An HTTP method is safe if it doesn't alter the state of the server.
+    ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/Safe/HTTP
+    ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.1
     pub fn safe(self: Method) bool {
         return switch (self) {
@@ -79,7 +83,9 @@ pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is s
     }
 
     /// An HTTP method is idempotent if an identical request can be made once or several times in a row with the same effect while leaving the server in the same state.
+    ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/Idempotent
+    ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.2
     pub fn idempotent(self: Method) bool {
         return switch (self) {
@@ -90,7 +96,9 @@ pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is s
     }
 
     /// A cacheable response is an HTTP response that can be cached, that is stored to be retrieved and used later, saving a new request to the server.
+    ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/cacheable
+    ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.3
     pub fn cacheable(self: Method) bool {
         return switch (self) {
