@@ -204,7 +204,7 @@ pub const AtomicFile = struct {
         }
     }
 
-    /// always call deinit, even after successful finish()
+    /// Always call deinit, even after a successful finish().
     pub fn deinit(self: *AtomicFile) void {
         if (self.file_open) {
             self.file.close();
