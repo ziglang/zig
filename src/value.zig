@@ -701,15 +701,20 @@ pub const Value = struct {
                 }
             },
             .ErrorSet => {
-                // TODO revisit this when we have the concept of the error tag type
-                const Int = u16;
+                const bits = mod.errorSetBits();
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
+
                 const name = switch (ip.indexToKey(val.toIntern())) {
                     .err => |err| err.name,
                     .error_union => |error_union| error_union.val.err_name,
                     else => unreachable,
                 };
-                const int = @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(name).?));
-                std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @as(Int, @intCast(int)), endian);
+                var bigint_buffer: BigIntSpace = undefined;
+                const bigint = BigIntMutable.init(
+                    &bigint_buffer.limbs,
+                    mod.global_error_set.getIndex(name).?,
+                ).toConst();
+                bigint.writeTwosComplement(buffer[0..byte_count], endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
@@ -987,10 +992,12 @@ pub const Value = struct {
                 }
             },
             .ErrorSet => {
-                // TODO revisit this when we have the concept of the error tag type
-                const Int = u16;
-                const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], endian);
-                const name = mod.global_error_set.keys()[@as(usize, @intCast(int))];
+                const bits = mod.errorSetBits();
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
+                const int = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
+                const index = (int << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
+                const name = mod.global_error_set.keys()[@intCast(index)];
+
                 return (try mod.intern(.{ .err = .{
                     .ty = ty.toIntern(),
                     .name = name,

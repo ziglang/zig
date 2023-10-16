@@ -153,7 +153,6 @@ test "generic fn with implicit cast" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(getFirstByte(u8, &[_]u8{13}) == 13);
     try expect(getFirstByte(u16, &[_]u16{
@@ -280,7 +279,6 @@ test "generic function instantiation turns into comptime call" {
 
 test "generic function with void and comptime parameter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct { x: i32 };
     const namespace = struct {
@@ -315,7 +313,6 @@ test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
@@ -433,7 +430,6 @@ test "generic function passed as comptime argument" {
 
 test "return type of generic function is function pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn b(comptime T: type) ?*const fn () error{}!T {

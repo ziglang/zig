@@ -635,6 +635,12 @@ pub const ExecutableOptions = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
 
     /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
@@ -656,6 +662,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
         .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
+        .win32_manifest = options.win32_manifest,
     });
 }
 
@@ -706,6 +713,12 @@ pub const SharedLibraryOptions = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
 
     /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
@@ -727,6 +740,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
         .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
+        .win32_manifest = options.win32_manifest,
     });
 }
 

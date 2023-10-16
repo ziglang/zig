@@ -420,6 +420,7 @@ const usage_build_generic =
     \\  --deps [dep],[dep],...    Set dependency names for the root package
     \\      dep:  [[import=]name]
     \\  --main-mod-path           Set the directory of the root module
+    \\  --error-limit [num]       Set the maximum amount of distinct error values
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fPIE                     Force-enable Position Independent Executable
@@ -921,6 +922,8 @@ fn buildOutputType(
     var error_tracing: ?bool = null;
     var pdb_out_path: ?[]const u8 = null;
     var dwarf_format: ?std.dwarf.Format = null;
+    var error_limit: ?Module.ErrorInt = null;
+
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
     // CPU features.
@@ -938,6 +941,7 @@ fn buildOutputType(
     var rc_source_files = std.ArrayList(Compilation.RcSourceFile).init(arena);
     var rc_includes: Compilation.RcIncludes = .any;
     var res_files = std.ArrayList(Compilation.LinkObject).init(arena);
+    var manifest_file: ?[]const u8 = null;
     var link_objects = std.ArrayList(Compilation.LinkObject).init(arena);
     var framework_dirs = std.ArrayList([]const u8).init(arena);
     var frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{};
@@ -1049,6 +1053,11 @@ fn buildOutputType(
                         root_deps_str = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--main-mod-path")) {
                         main_mod_path = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--error-limit")) {
+                        const next_arg = args_iter.nextOrFatal();
+                        error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
+                            fatal("unable to parse error limit '{s}': {s}", .{ next_arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -1627,6 +1636,11 @@ fn buildOutputType(
                     Compilation.classifyFileExt(arg)) {
                     .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
                     .res => try res_files.append(.{ .path = arg }),
+                    .manifest => {
+                        if (manifest_file) |other| {
+                            fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
+                        } else manifest_file = arg;
+                    },
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
@@ -1647,6 +1661,9 @@ fn buildOutputType(
                         } else root_src_file = arg;
                     },
                     .def, .unknown => {
+                        if (std.ascii.eqlIgnoreCase(".xml", std.fs.path.extension(arg))) {
+                            std.log.warn("embedded manifest files must have the extension '.manifest'", .{});
+                        }
                         fatal("unrecognized file extension of parameter '{s}'", .{arg});
                     },
                 }
@@ -1734,6 +1751,11 @@ fn buildOutputType(
                             .path = it.only_arg,
                             .must_link = must_link,
                         }),
+                        .manifest => {
+                            if (manifest_file) |other| {
+                                fatal("only one manifest file can be specified, found '{s}' after previously specified manifest '{s}'", .{ it.only_arg, other });
+                            } else manifest_file = it.only_arg;
+                        },
                         .def => {
                             linker_module_definition_file = it.only_arg;
                         },
@@ -2601,6 +2623,9 @@ fn buildOutputType(
             try link_objects.append(res_file);
         }
     } else {
+        if (manifest_file != null) {
+            fatal("manifest file is not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
         if (rc_source_files.items.len != 0) {
             fatal("rc files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
         }
@@ -3418,6 +3443,7 @@ fn buildOutputType(
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,
         .rc_source_files = rc_source_files.items,
+        .manifest_file = manifest_file,
         .rc_includes = rc_includes,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
@@ -3538,6 +3564,7 @@ fn buildOutputType(
         .reference_trace = reference_trace,
         .error_tracing = error_tracing,
         .pdb_out_path = pdb_out_path,
+        .error_limit = error_limit,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

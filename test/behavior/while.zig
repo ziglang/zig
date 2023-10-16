@@ -172,7 +172,6 @@ test "while with optional as condition with else" {
 
 test "while with error union condition" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;

@@ -21,11 +21,15 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
-fn print(comptime fmt: []const u8, args: anytype) void {
-    // Disable printing in tests for simple backends.
-    if (builtin.zig_backend == .stage2_spirv64) return;
+// Disable printing in tests for simple backends.
+pub const backend_can_print = builtin.zig_backend != .stage2_spirv64;
 
-    std.debug.print(fmt, args);
+fn print(comptime fmt: []const u8, args: anytype) void {
+    if (@inComptime()) {
+        @compileError(std.fmt.comptimePrint(fmt, args));
+    } else if (backend_can_print) {
+        std.debug.print(fmt, args);
+    }
 }
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
@@ -299,6 +303,10 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         }
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
+
+    if (!backend_can_print) {
+        return error.TestExpectedEqual;
+    }
 
     print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 

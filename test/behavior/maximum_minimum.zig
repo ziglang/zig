@@ -9,14 +9,16 @@ test "@max" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 10;
             var y: f32 = 0.68;
+            var nan: f32 = std.math.nan(f32);
             try expect(@as(i32, 10) == @max(@as(i32, -3), x));
             try expect(@as(f32, 3.2) == @max(@as(f32, 3.2), y));
+            try expect(y == @max(nan, y));
+            try expect(y == @max(y, nan));
         }
     };
     try S.doTheTest();
@@ -58,14 +60,16 @@ test "@min" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 10;
             var y: f32 = 0.68;
+            var nan: f32 = std.math.nan(f32);
             try expect(@as(i32, -3) == @min(@as(i32, -3), x));
             try expect(@as(f32, 0.68) == @min(@as(f32, 3.2), y));
+            try expect(y == @min(nan, y));
+            try expect(y == @min(y, nan));
         }
     };
     try S.doTheTest();
@@ -119,6 +123,12 @@ test "@min/max for floats" {
             try expectEqual(x, @min(y, x));
             try expectEqual(y, @max(x, y));
             try expectEqual(y, @max(y, x));
+
+            if (T != comptime_float) {
+                var nan: T = std.math.nan(T);
+                try expectEqual(y, @max(nan, y));
+                try expectEqual(y, @max(y, nan));
+            }
         }
     };
 
@@ -137,8 +147,6 @@ test "@min/@max on lazy values" {
 }
 
 test "@min/@max more than two arguments" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const x: u32 = 30;
     const y: u32 = 10;
     const z: u32 = 20;
@@ -151,7 +159,6 @@ test "@min/@max more than two vector arguments" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const x: @Vector(2, u32) = .{ 3, 2 };
     const y: @Vector(2, u32) = .{ 4, 1 };
@@ -164,7 +171,6 @@ test "@min/@max notices bounds" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u16 = 20;
     const y = 30;
@@ -214,7 +220,6 @@ test "@min/@max notices bounds from types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u16 = 123;
     var y: u32 = 456;
@@ -295,8 +300,6 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
 }
 
 test "@min/@max of signed and unsigned runtime integers" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: i32 = -1;
     var y: u31 = 1;
 

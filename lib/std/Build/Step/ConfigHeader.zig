@@ -59,15 +59,18 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     var include_path: []const u8 = "config.h";
 
-    if (options.style.getPath()) |s| switch (s) {
-        .path => |p| {
-            const basename = std.fs.path.basename(p);
-            if (std.mem.endsWith(u8, basename, ".h.in")) {
-                include_path = basename[0 .. basename.len - 3];
-            }
-        },
-        else => {},
-    };
+    if (options.style.getPath()) |s| default_include_path: {
+        const sub_path = switch (s) {
+            .path => |path| path,
+            .generated => break :default_include_path,
+            .cwd_relative => |sub_path| sub_path,
+            .dependency => |dependency| dependency.sub_path,
+        };
+        const basename = std.fs.path.basename(sub_path);
+        if (std.mem.endsWith(u8, basename, ".h.in")) {
+            include_path = basename[0 .. basename.len - 3];
+        }
+    }
 
     if (options.include_path) |p| {
         include_path = p;
@@ -181,6 +184,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // random bytes when ConfigHeader implementation is modified in a
     // non-backwards-compatible way.
     man.hash.add(@as(u32, 0xdef08d23));
+    man.hash.addBytes(self.include_path);
+    man.hash.addOptionalBytes(self.include_guard_override);
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
