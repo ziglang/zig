@@ -12,7 +12,7 @@ tokens: TokenList.Slice,
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
-mode: Mode,
+mode: Mode = .zig,
 
 errors: []const Error,
 
