@@ -2007,6 +2007,7 @@ const DeclGen = struct {
             .array_to_slice => try self.airArrayToSlice(inst),
             .slice          => try self.airSlice(inst),
             .aggregate_init => try self.airAggregateInit(inst),
+            .memcpy         => return self.airMemcpy(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
@@ -2016,7 +2017,7 @@ const DeclGen = struct {
             .ptr_elem_val   => try self.airPtrElemVal(inst),
             .array_elem_val => try self.airArrayElemVal(inst),
 
-            .set_union_tag => return try self.airSetUnionTag(inst),
+            .set_union_tag => return self.airSetUnionTag(inst),
             .get_union_tag => try self.airGetUnionTag(inst),
             .union_init => try self.airUnionInit(inst),
 
@@ -3148,6 +3149,46 @@ const DeclGen = struct {
             },
             else => unreachable,
         }
+    }
+
+    fn sliceOrArrayLen(self: *DeclGen, operand_id: IdRef, ty: Type) !IdRef {
+        const mod = self.module;
+        switch (ty.ptrSize(mod)) {
+            .Slice => return self.extractField(Type.usize, operand_id, 1),
+            .One => {
+                const array_ty = ty.childType(mod);
+                const elem_ty = array_ty.childType(mod);
+                const abi_size = elem_ty.abiSize(mod);
+                const usize_ty_ref = try self.resolveType(Type.usize, .direct);
+                return self.spv.constInt(usize_ty_ref, array_ty.arrayLenIncludingSentinel(mod) * abi_size);
+            },
+            .Many, .C => unreachable,
+        }
+    }
+
+    fn sliceOrArrayPtr(self: *DeclGen, operand_id: IdRef, ty: Type) !IdRef {
+        const mod = self.module;
+        if (ty.isSlice(mod)) {
+            const ptr_ty = ty.slicePtrFieldType(mod);
+            return self.extractField(ptr_ty, operand_id, 0);
+        }
+        return operand_id;
+    }
+
+    fn airMemcpy(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const dest_slice = try self.resolve(bin_op.lhs);
+        const src_slice = try self.resolve(bin_op.rhs);
+        const dest_ty = self.typeOf(bin_op.lhs);
+        const src_ty = self.typeOf(bin_op.rhs);
+        const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ty);
+        const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ty);
+        const len = try self.sliceOrArrayLen(dest_slice, dest_ty);
+        try self.func.body.emit(self.spv.gpa, .OpCopyMemorySized, .{
+            .target = dest_ptr,
+            .source = src_ptr,
+            .size = len,
+        });
     }
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
