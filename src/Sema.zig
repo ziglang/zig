@@ -25277,7 +25277,7 @@ fn zirBuiltinExtern(
     if (!ty.isPtrAtRuntime(mod)) {
         return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
-    if (!try sema.validateExternType(ty.childType(mod), .other)) {
+    if (!try sema.validateExternType(ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
@@ -25618,7 +25618,12 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty)),
+        .Pointer => {
+            if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
+                return ty.isConstPtr(mod) and try sema.validateExternType(ty.childType(mod), .other);
+            }
+            return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty));
+        },
         .Int => switch (ty.intInfo(mod).bits) {
             0, 8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -25687,8 +25692,13 @@ fn explainWhyTypeIsNotExtern(
                 try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
             } else {
                 const pointee_ty = ty.childType(mod);
-                try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
-                try sema.explainWhyTypeIsComptime(msg, src_loc, pointee_ty);
+                if (!ty.isConstPtr(mod) and pointee_ty.zigTypeTag(mod) == .Fn) {
+                    try mod.errNoteNonLazy(src_loc, msg, "pointer to extern function must be 'const'", .{});
+                } else if (try sema.typeRequiresComptime(ty)) {
+                    try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
+                    try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
+                }
+                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, position);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
