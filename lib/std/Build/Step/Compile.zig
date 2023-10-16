@@ -98,6 +98,10 @@ vcpkg_bin_path: ?[]const u8 = null,
 ///  none: Do not use any autodetected include paths.
 rc_includes: enum { any, msvc, gnu, none } = .any,
 
+/// (Windows) .manifest file to embed in the compilation
+/// Set via options; intended to be read-only after that.
+win32_manifest: ?LazyPath = null,
+
 installed_path: ?[]const u8,
 
 /// Base address for an executable image.
@@ -319,6 +323,12 @@ pub const Options = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
 
     /// deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
@@ -523,6 +533,15 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     if (options.main_mod_path orelse options.main_pkg_path) |lp| {
         self.main_mod_path = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
+    }
+
+    // Only the PE/COFF format has a Resource Table which is where the manifest
+    // gets embedded, so for any other target the manifest file is just ignored.
+    if (self.target.getObjectFormat() == .coff) {
+        if (options.win32_manifest) |lp| {
+            self.win32_manifest = lp.dupe(self.step.owner);
+            lp.addStepDependencies(&self.step);
+        }
     }
 
     if (self.kind == .lib) {
@@ -957,6 +976,9 @@ pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
     source.file.addStepDependencies(&self.step);
 }
 
+/// Resource files must have the extension `.rc`.
+/// Can be called regardless of target. The .rc file will be ignored
+/// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(self: *Compile, source: RcSourceFile) void {
     // Only the PE/COFF format has a Resource Table, so for any other target
     // the resource file is just ignored.
@@ -1591,6 +1613,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append(rc_source_file.file.getPath(b));
             },
         }
+    }
+
+    if (self.win32_manifest) |manifest_file| {
+        try zig_args.append(manifest_file.getPath(b));
     }
 
     if (transitive_deps.is_linking_libcpp) {
