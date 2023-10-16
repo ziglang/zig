@@ -1851,8 +1851,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     // not including the initial length itself.
     // We have to come back and write it later after we know the size.
     const after_init_len = di_buf.items.len + init_len_size;
-    // +1 for the final 0 that ends the compilation unit children.
-    const dbg_info_end = self.getDebugInfoEnd().? + 1;
+    const dbg_info_end = self.getDebugInfoEnd().?;
     const init_len = dbg_info_end - after_init_len;
     if (self.bin_file.tag == .macho) {
         mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(init_len)));
@@ -2501,7 +2500,7 @@ fn getDebugInfoOff(self: Dwarf) ?u32 {
 fn getDebugInfoEnd(self: Dwarf) ?u32 {
     const last_index = self.di_atom_last_index orelse return null;
     const last = self.getAtom(.di_atom, last_index);
-    return last.off + last.len;
+    return last.off + last.len + 1;
 }
 
 fn getDebugLineProgramOff(self: Dwarf) ?u32 {

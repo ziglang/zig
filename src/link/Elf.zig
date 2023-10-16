@@ -108,11 +108,20 @@ zig_rodata_section_index: ?u16 = null,
 zig_data_section_index: ?u16 = null,
 zig_bss_section_index: ?u16 = null,
 zig_got_section_index: ?u16 = null,
+
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
 debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
+
+/// Size contribution of Zig's metadata to each debug section.
+/// Used to track start of metadata from input object files.
+debug_info_section_zig_size: u64 = 0,
+debug_abbrev_section_zig_size: u64 = 0,
+debug_str_section_zig_size: u64 = 0,
+debug_aranges_section_zig_size: u64 = 0,
+debug_line_section_zig_size: u64 = 0,
 
 copy_rel_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
@@ -924,7 +933,7 @@ pub fn growNonAllocSection(
         shdr.sh_offset = new_offset;
     }
 
-    shdr.sh_size = needed_size; // anticipating adding the global symbols later
+    shdr.sh_size = needed_size;
 
     self.markDirty(shdr_index);
 }
@@ -1522,8 +1531,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
 
         if (self.debug_info_header_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
             const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
             const low_pc = text_phdr.p_vaddr;
             const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
@@ -1532,8 +1539,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
 
         if (self.debug_aranges_section_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
             const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
             try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
             self.debug_aranges_section_dirty = false;
@@ -1552,6 +1557,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 self.debug_strtab_dirty = false;
             }
         }
+
+        self.saveDebugSectionsSizes();
     }
 
     // Generate and emit non-incremental sections.
@@ -4345,6 +4352,24 @@ fn sortShdrs(self: *Elf) !void {
     }
 }
 
+fn saveDebugSectionsSizes(self: *Elf) void {
+    if (self.debug_info_section_index) |shndx| {
+        self.debug_info_section_zig_size = self.shdrs.items[shndx].sh_size;
+    }
+    if (self.debug_abbrev_section_index) |shndx| {
+        self.debug_abbrev_section_zig_size = self.shdrs.items[shndx].sh_size;
+    }
+    if (self.debug_str_section_index) |shndx| {
+        self.debug_str_section_zig_size = self.shdrs.items[shndx].sh_size;
+    }
+    if (self.debug_aranges_section_index) |shndx| {
+        self.debug_aranges_section_zig_size = self.shdrs.items[shndx].sh_size;
+    }
+    if (self.debug_line_section_index) |shndx| {
+        self.debug_line_section_zig_size = self.shdrs.items[shndx].sh_size;
+    }
+}
+
 fn updateSectionSizes(self: *Elf) !void {
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         if (atom_list.items.len == 0) continue;
@@ -4675,18 +4700,31 @@ fn allocateNonAllocSections(self: *Elf) !void {
             const new_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
 
             if (self.isDebugSection(@intCast(shndx))) {
+                log.debug("moving {s} from 0x{x} to 0x{x}", .{
+                    self.shstrtab.getAssumeExists(shdr.sh_name),
+                    shdr.sh_offset,
+                    new_offset,
+                });
+                const existing_size = blk: {
+                    if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
+                    if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
+                    if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
+                    if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
+                    if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+                    unreachable;
+                };
                 const amt = try self.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     self.base.file.?,
                     new_offset,
-                    needed_size, // TODO this will copy too much but ah well
+                    existing_size,
                 );
-                if (amt != needed_size) return error.InputOutput;
+                if (amt != existing_size) return error.InputOutput;
             }
 
             shdr.sh_offset = new_offset;
+            shdr.sh_size = needed_size;
         }
-        shdr.sh_size = needed_size;
     }
 }
 
@@ -4771,7 +4809,19 @@ fn writeAtoms(self: *Elf) !void {
 
         log.debug("writing atoms in '{s}' section", .{self.shstrtab.getAssumeExists(shdr.sh_name)});
 
-        const buffer = try gpa.alloc(u8, shdr.sh_size);
+        // TODO really, really handle debug section separately
+        const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
+            if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
+            if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
+            if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
+            if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
+            if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+            unreachable;
+        } else 0;
+        const sh_offset = shdr.sh_offset + base_offset;
+        const sh_size = shdr.sh_size - base_offset;
+
+        const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
             shdr.sh_flags & elf.SHF_EXECINSTR != 0)
@@ -4785,9 +4835,9 @@ fn writeAtoms(self: *Elf) !void {
             assert(atom_ptr.flags.alive);
 
             const object = atom_ptr.file(self).?.object;
-            const offset = atom_ptr.value - shdr.sh_addr;
+            const offset = atom_ptr.value - shdr.sh_addr - base_offset;
 
-            log.debug("writing atom({d}) at 0x{x}", .{ atom_index, shdr.sh_offset + offset });
+            log.debug("writing atom({d}) at 0x{x}", .{ atom_index, sh_offset + offset });
 
             // TODO decompress directly into provided buffer
             const out_code = buffer[offset..][0..atom_ptr.size];
@@ -4808,7 +4858,7 @@ fn writeAtoms(self: *Elf) !void {
             }
         }
 
-        try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
+        try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
     try self.reportUndefined(&undefs);
