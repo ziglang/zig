@@ -859,7 +859,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
                     const S_ = @as(i64, @intCast(target.tlsDescAddress(elf_file)));
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
                 } else {
-                    try x86_64.relaxGotPcTlsDesc(code[rel.r_offset - 3 ..]);
+                    try x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]);
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
                 }
             },

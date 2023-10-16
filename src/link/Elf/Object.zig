@@ -592,13 +592,14 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         if (is_tls) sh_flags |= elf.SHF_TLS;
         const shndx = @as(u16, @intCast(self.shdrs.items.len));
         const shdr = try self.shdrs.addOne(gpa);
+        const sh_size = math.cast(usize, this_sym.st_size) orelse return error.Overflow;
         shdr.* = .{
             .sh_name = try self.strings.insert(gpa, name),
             .sh_type = elf.SHT_NOBITS,
             .sh_flags = sh_flags,
             .sh_addr = 0,
             .sh_offset = 0,
-            .sh_size = this_sym.st_size,
+            .sh_size = sh_size,
             .sh_link = 0,
             .sh_info = 0,
             .sh_addralign = alignment,

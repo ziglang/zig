@@ -4813,7 +4813,7 @@ fn writeAtoms(self: *Elf) !void {
             unreachable;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
-        const sh_size = shdr.sh_size - base_offset;
+        const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
 
         const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
@@ -4829,12 +4829,14 @@ fn writeAtoms(self: *Elf) !void {
             assert(atom_ptr.flags.alive);
 
             const object = atom_ptr.file(self).?.object;
-            const offset = atom_ptr.value - shdr.sh_addr - base_offset;
+            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
+                return error.Overflow;
+            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
             log.debug("writing atom({d}) at 0x{x}", .{ atom_index, sh_offset + offset });
 
             // TODO decompress directly into provided buffer
-            const out_code = buffer[offset..][0..atom_ptr.size];
+            const out_code = buffer[offset..][0..size];
             const in_code = try object.codeDecompressAlloc(self, atom_index);
             defer gpa.free(in_code);
             @memcpy(out_code, in_code);
@@ -4924,7 +4926,8 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.interp_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try gpa.alloc(u8, shdr.sh_size);
+        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        var buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         const dylinker = self.base.options.dynamic_linker.?;
         @memcpy(buffer[0..dylinker.len], dylinker);
@@ -4981,7 +4984,8 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.eh_frame_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, shdr.sh_size);
+        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrame(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
@@ -4989,7 +4993,8 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.eh_frame_hdr_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, shdr.sh_size);
+        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrameHdr(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);

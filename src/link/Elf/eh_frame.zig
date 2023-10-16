@@ -1,7 +1,7 @@
 pub const Fde = struct {
     /// Includes 4byte size cell.
-    offset: u64,
-    size: u64,
+    offset: usize,
+    size: usize,
     cie_index: u32,
     rel_index: u32 = 0,
     rel_num: u32 = 0,
@@ -36,7 +36,7 @@ pub const Fde = struct {
         return std.mem.readIntLittle(u32, fde_data[4..8]);
     }
 
-    pub fn calcSize(fde: Fde) u64 {
+    pub fn calcSize(fde: Fde) usize {
         return fde.size + 4;
     }
 
@@ -102,8 +102,8 @@ pub const Fde = struct {
 
 pub const Cie = struct {
     /// Includes 4byte size cell.
-    offset: u64,
-    size: u64,
+    offset: usize,
+    size: usize,
     rel_index: u32 = 0,
     rel_num: u32 = 0,
     rel_section_index: u32 = 0,
@@ -127,7 +127,7 @@ pub const Cie = struct {
         return contents[cie.offset..][0..cie.calcSize()];
     }
 
-    pub fn calcSize(cie: Cie) u64 {
+    pub fn calcSize(cie: Cie) usize {
         return cie.size + 4;
     }
 
@@ -203,12 +203,12 @@ pub const Cie = struct {
 
 pub const Iterator = struct {
     data: []const u8,
-    pos: u64 = 0,
+    pos: usize = 0,
 
     pub const Record = struct {
         tag: enum { fde, cie },
-        offset: u64,
-        size: u64,
+        offset: usize,
+        size: usize,
     };
 
     pub fn next(it: *Iterator) !?Record {
@@ -233,7 +233,7 @@ pub const Iterator = struct {
 };
 
 pub fn calcEhFrameSize(elf_file: *Elf) !usize {
-    var offset: u64 = 0;
+    var offset: usize = 0;
 
     var cies = std.ArrayList(Cie).init(elf_file.base.allocator);
     defer cies.deinit();
@@ -283,7 +283,7 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
 }
 
 fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file: *Elf, contents: []u8) !void {
-    const offset = rel.r_offset - rec.offset;
+    const offset = std.math.cast(usize, rel.r_offset - rec.offset) orelse return error.Overflow;
     const P = @as(i64, @intCast(rec.address(elf_file) + offset));
     const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
     const A = rel.r_addend;
@@ -414,7 +414,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     try writer.writeAll(std.mem.sliceAsBytes(entries.items));
 }
 
-const eh_frame_hdr_header_size: u64 = 12;
+const eh_frame_hdr_header_size: usize = 12;
 
 const EH_PE = struct {
     pub const absptr = 0x00;

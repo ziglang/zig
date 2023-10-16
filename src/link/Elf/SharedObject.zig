@@ -47,11 +47,12 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     const reader = stream.reader();
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
+    const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
 
     var dynsym_index: ?u16 = null;
     const shdrs = @as(
         [*]align(1) const elf.Elf64_Shdr,
-        @ptrCast(self.data.ptr + self.header.?.e_shoff),
+        @ptrCast(self.data.ptr + shoff),
     )[0..self.header.?.e_shnum];
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
