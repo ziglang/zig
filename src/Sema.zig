@@ -8441,7 +8441,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
         const zero_val = Air.internedToRef((try mod.intValue(Type.err_int, 0)).toIntern());
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
-        const ok = try block.addBinOp(.bit_and, is_lt_len, is_non_zero);
+        const ok = try block.addBinOp(.bool_and, is_lt_len, is_non_zero);
         try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
     }
     return block.addInst(.{
@@ -21903,7 +21903,7 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
             } else {
                 // Error must be in destination set or zero.
                 const has_value = try block.addTyOp(.error_set_has_value, dest_ty, err_code);
-                const ok = try block.addBinOp(.bit_or, has_value, is_zero);
+                const ok = try block.addBinOp(.bool_or, has_value, is_zero);
                 try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
             }
         } else {
@@ -22268,7 +22268,7 @@ fn ptrCastFull(
         const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
+            break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
         try sema.addSafetyCheck(block, src, ok, .cast_to_null);
     }
@@ -22285,7 +22285,7 @@ fn ptrCastFull(
         const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
+            break :ok try block.addBinOp(.bool_or, len_zero, is_aligned);
         } else is_aligned;
         try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
     }
@@ -24633,7 +24633,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const dest_plus_len = try sema.analyzePtrArithmetic(block, src, raw_dest_ptr, len, .ptr_add, dest_src, src);
         const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
         const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
-        const ok = try block.addBinOp(.bit_or, ok1, ok2);
+        const ok = try block.addBinOp(.bool_or, ok1, ok2);
         try sema.addSafetyCheck(block, src, ok, .memcpy_alias);
     }
 
@@ -30985,7 +30985,7 @@ fn coerceCompatiblePtrs(
         const ok = if (inst_ty.isSlice(mod)) ok: {
             const len = try sema.analyzeSliceLen(block, inst_src, inst);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
+            break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
         try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
     }
