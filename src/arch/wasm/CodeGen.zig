@@ -6253,8 +6253,10 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
 }
 
-fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: enum { max, min }) InnerError!void {
+fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
+    assert(op == .max or op == .min);
     const mod = func.bin_file.base.options.module.?;
+    const target = mod.getTarget();
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
 
     const ty = func.typeOfIndex(inst);
@@ -6269,13 +6271,25 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: enum { max, min }) InnerE
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
 
-    // operands to select from
-    try func.lowerToStack(lhs);
-    try func.lowerToStack(rhs);
-    _ = try func.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
+    if (ty.zigTypeTag(mod) == .Float) {
+        var fn_name_buf: [64]u8 = undefined;
+        const float_bits = ty.floatBits(target);
+        const fn_name = std.fmt.bufPrint(&fn_name_buf, "{s}f{s}{s}", .{
+            target_util.libcFloatPrefix(float_bits),
+            @tagName(op),
+            target_util.libcFloatSuffix(float_bits),
+        }) catch unreachable;
+        const result = try func.callIntrinsic(fn_name, &.{ ty.ip_index, ty.ip_index }, ty, &.{ lhs, rhs });
+        try func.lowerToStack(result);
+    } else {
+        // operands to select from
+        try func.lowerToStack(lhs);
+        try func.lowerToStack(rhs);
+        _ = try func.cmp(lhs, rhs, ty, if (op == .max) .gt else .lt);
 
-    // based on the result from comparison, return operand 0 or 1.
-    try func.addTag(.select);
+        // based on the result from comparison, return operand 0 or 1.
+        try func.addTag(.select);
+    }
 
     // store result in local
     const result_ty = if (isByRef(ty, mod)) Type.u32 else ty;

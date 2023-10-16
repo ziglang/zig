@@ -10,8 +10,6 @@ const Mixin = struct {
 };
 
 test "container member access usingnamespace decls" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var foo = Foo{};
     foo.two();
 }

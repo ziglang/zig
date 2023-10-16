@@ -134,8 +134,6 @@ test "invoke static method in global scope" {
 const empty_global_instance = StructWithNoFields{};
 
 test "return empty struct instance" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     _ = returnEmptyStructInstance();
 }
 fn returnEmptyStructInstance() StructWithNoFields {
@@ -311,7 +309,6 @@ test "struct point to self" {
 test "void struct fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const foo = VoidStructFieldsFoo{
         .a = void{},
@@ -329,7 +326,6 @@ const VoidStructFieldsFoo = struct {
 
 test "return empty struct from fn" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     _ = testReturnEmptyStructFromFn();
 }
@@ -340,7 +336,6 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 
 test "pass slice of empty struct to fn" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
@@ -889,8 +884,6 @@ test "anonymous struct literal syntax" {
 }
 
 test "fully anonymous struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             try dump(.{
@@ -913,8 +906,6 @@ test "fully anonymous struct" {
 }
 
 test "fully anonymous list literal" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
@@ -960,7 +951,6 @@ test "tuple element initialized with fn call" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1229,7 +1219,6 @@ test "typed init through error unions and optionals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1550,7 +1539,6 @@ test "no dependency loop on optional field wrapped in generic function" {
 test "optional field init with tuple" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: ?struct { b: u32 },
@@ -1652,7 +1640,6 @@ test "struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1683,7 +1670,6 @@ test "extern struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1721,8 +1707,6 @@ test "extern struct field pointer has correct alignment" {
 }
 
 test "packed struct field in anonymous struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const T = packed struct {
         f1: bool = false,
     };

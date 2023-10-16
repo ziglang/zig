@@ -88,6 +88,7 @@ test "flags in packed union at offset" {
 
 test "packed union in packed struct" {
     // Originally reported at https://github.com/ziglang/zig/issues/16581
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const ReadRequest = packed struct { key: i32 };
     const RequestType = enum {

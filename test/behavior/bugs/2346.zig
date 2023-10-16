@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 test "fixed" {
     const a: *void = undefined;
     const b: *[1]void = a;
