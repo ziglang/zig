@@ -140,6 +140,7 @@ fn testAbsSymbols(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -764,6 +765,7 @@ fn testFuncAddress(b: *Build, opts: Options) *Step {
     exe.pie = false;
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -940,6 +942,7 @@ fn testIFuncDlopen(b: *Build, opts: Options) *Step {
     exe.pie = false;
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -1469,6 +1472,7 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
