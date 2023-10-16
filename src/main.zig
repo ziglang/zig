@@ -6956,9 +6956,9 @@ fn accessFrameworkPath(
 ) !bool {
     const sep = fs.path.sep_str;
 
-    for (&[_][]const u8{ "tbd", "dylib" }) |ext| {
+    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}.{s}", .{
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
             framework_dir_path,
             framework_name,
             framework_name,
