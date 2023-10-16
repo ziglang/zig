@@ -1329,7 +1329,7 @@ fn computeHash(
             const hashed_file = try arena.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
-                .normalized_path = try normalizePath(arena, fs_path),
+                .normalized_path = try normalizePathAlloc(arena, fs_path),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
@@ -1429,6 +1429,12 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         },
         .sym_link => {
             const link_name = try dir.readLink(hashed_file.fs_path, &buf);
+            if (fs.path.sep != canonical_sep) {
+                // Package hashes are intended to be consistent across
+                // platforms which means we must normalize path separators
+                // inside symlinks.
+                normalizePath(link_name);
+            }
             hasher.update(link_name);
         },
     }
@@ -1484,20 +1490,18 @@ const HashedFile = struct {
 
 /// Make a file system path identical independently of operating system path inconsistencies.
 /// This converts backslashes into forward slashes.
-fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
-    const canonical_sep = '/';
-
-    if (fs.path.sep == canonical_sep)
-        return fs_path;
-
+fn normalizePathAlloc(arena: Allocator, fs_path: []const u8) ![]const u8 {
+    if (fs.path.sep == canonical_sep) return fs_path;
     const normalized = try arena.dupe(u8, fs_path);
-    for (normalized) |*byte| {
-        switch (byte.*) {
-            fs.path.sep => byte.* = canonical_sep,
-            else => continue,
-        }
-    }
+    normalizePath(normalized);
     return normalized;
+}
+
+const canonical_sep = fs.path.sep_posix;
+
+fn normalizePath(bytes: []u8) void {
+    assert(fs.path.sep != canonical_sep);
+    std.mem.replaceScalar(u8, bytes, fs.path.sep, canonical_sep);
 }
 
 const Filter = struct {
