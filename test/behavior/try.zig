@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 test "try on error union" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try tryOnErrorUnionImpl();
     try comptime tryOnErrorUnionImpl();
@@ -40,8 +39,6 @@ fn failIfTrue(ok: bool) anyerror!void {
 }
 
 test "try then not executed with assignment" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     if (failIfTrue(true)) {
         unreachable;
     } else |err| {

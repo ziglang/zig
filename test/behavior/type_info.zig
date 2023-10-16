@@ -565,7 +565,6 @@ test "value from struct @typeInfo default_value can be loaded at comptime" {
 test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         pub const x = 5;

@@ -22,8 +22,6 @@ fn zero() u0 {
     return 0;
 }
 test "integer widening u0 to u8" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const a: u8 = zero();
     try expect(a == 0);
 }
