@@ -1627,12 +1627,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try self.writeHeader();
     }
 
-    // Dump the state for easy debugging.
-    // State can be dumped via `--debug-log link_state`.
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
-    }
-
     // The point of flush() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,

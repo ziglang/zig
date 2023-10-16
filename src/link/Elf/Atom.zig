@@ -757,7 +757,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
         // Address of the dynamic thread pointer.
         const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})\n", .{
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
             fmtRelocType(r_type),
             r_offset,
             P,
