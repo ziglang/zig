@@ -1431,6 +1431,11 @@ test "walker without fully iterating" {
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/17134
+        return error.SkipZigTest;
+    }
+
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const subdir_path = try ctx.transformPath("./subdir");
