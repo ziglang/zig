@@ -241,6 +241,9 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
 
+    const is_obj = options.output_mode == .Obj;
+    const is_obj_or_ar = is_obj or (options.output_mode == .Lib and options.link_mode == .Static);
+
     if (options.use_llvm) {
         const use_lld = build_options.have_llvm and self.base.options.use_lld;
         if (use_lld) return self;
@@ -249,6 +252,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
                 sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
             });
+        }
+        if (is_obj) {
+            // TODO until we implement -r option, we don't want to open a file at this stage.
+            return self;
         }
     }
     errdefer if (self.base.intermediary_basename) |path| allocator.free(path);
@@ -273,11 +280,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     // There must always be a null shdr in index 0
     _ = try self.addSection(.{ .name = "" });
 
-    const is_obj_or_ar = switch (options.output_mode) {
-        .Obj => true,
-        .Lib => options.link_mode == .Static,
-        else => false,
-    };
     if (!is_obj_or_ar) {
         try self.dynstrtab.buffer.append(allocator, 0);
 
@@ -1006,6 +1008,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.base.options.output_mode == .Obj and self.zig_module_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
+        assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0) {
                 break :blk self.base.options.objects[0].path;
