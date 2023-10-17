@@ -3440,8 +3440,7 @@ pub fn updateDeclExports(
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    const decl_sym = self.symbol(decl_sym_index);
-    const decl_esym = zig_module.local_esyms.items[decl_sym.esym_index];
+    const decl_esym = zig_module.local_esyms.items[self.symbol(decl_sym_index).esym_index];
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -3484,7 +3483,7 @@ pub fn updateDeclExports(
             break :blk sym_index;
         };
         const esym = &zig_module.global_esyms.items[sym_index & 0x0fffffff];
-        esym.st_value = decl_sym.value;
+        esym.st_value = self.symbol(decl_sym_index).value;
         esym.st_shndx = decl_esym.st_shndx;
         esym.st_info = (stb_bits << 4) | stt_bits;
         esym.st_name = name_off;
