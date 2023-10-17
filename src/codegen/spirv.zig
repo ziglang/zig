@@ -950,7 +950,12 @@ const DeclGen = struct {
                 });
                 return result_id;
             },
-            .field => unreachable, // TODO
+            .field => |field| {
+                const base_ptr_ty = mod.intern_pool.typeOf(field.base).toType();
+                const base_ptr = try self.constantPtr(base_ptr_ty, field.base.toValue());
+                const field_index: u32 = @intCast(field.index);
+                return try self.structFieldPtr(ptr_ty, base_ptr_ty, base_ptr, field_index);
+            },
         }
     }
 
@@ -2021,6 +2026,7 @@ const DeclGen = struct {
             .union_init => try self.airUnionInit(inst),
 
             .struct_field_val => try self.airStructFieldVal(inst),
+            .field_parent_ptr => try self.airFieldParentPtr(inst),
 
             .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
             .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -2918,13 +2924,8 @@ const DeclGen = struct {
         return result_id;
     }
 
-    fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
-        const operand_id = try self.resolve(un_op);
+    fn intFromPtr(self: *DeclGen, operand_id: IdRef) !IdRef {
         const result_type_id = try self.resolveTypeId(Type.usize);
-
         const result_id = self.spv.allocId();
         try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
             .id_result_type = result_type_id,
@@ -2932,6 +2933,14 @@ const DeclGen = struct {
             .pointer = operand_id,
         });
         return result_id;
+    }
+
+    fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand_id = try self.resolve(un_op);
+        return try self.intFromPtr(operand_id);
     }
 
     fn airFloatFromInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3474,13 +3483,44 @@ const DeclGen = struct {
         }
     }
 
+    fn airFieldParentPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+
+        const parent_ty = self.air.getRefType(ty_pl.ty).childType(mod);
+        const res_ty = try self.resolveType(self.air.getRefType(ty_pl.ty), .indirect);
+        const usize_ty = Type.usize;
+        const usize_ty_ref = try self.resolveType(usize_ty, .direct);
+
+        const field_ptr = try self.resolve(extra.field_ptr);
+        const field_ptr_int = try self.intFromPtr(field_ptr);
+        const field_offset = parent_ty.structFieldOffset(extra.field_index, mod);
+
+        const base_ptr_int = base_ptr_int: {
+            if (field_offset == 0) break :base_ptr_int field_ptr_int;
+
+            const field_offset_id = try self.constInt(usize_ty_ref, field_offset);
+            break :base_ptr_int try self.binOpSimple(usize_ty, field_ptr_int, field_offset_id, .OpISub);
+        };
+
+        const base_ptr = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+            .id_result_type = self.spv.resultId(res_ty),
+            .id_result = base_ptr,
+            .integer_value = base_ptr_int,
+        });
+
+        return base_ptr;
+    }
+
     fn structFieldPtr(
         self: *DeclGen,
         result_ptr_ty: Type,
         object_ptr_ty: Type,
         object_ptr: IdRef,
         field_index: u32,
-    ) !?IdRef {
+    ) !IdRef {
         const result_ty_ref = try self.resolveType(result_ptr_ty, .direct);
 
         const mod = self.module;
