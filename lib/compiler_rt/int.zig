@@ -74,27 +74,6 @@ pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
     return d;
 }
 
-test "test_divmoddi4" {
-    const cases = [_][4]i64{
-        [_]i64{ 0, 1, 0, 0 },
-        [_]i64{ 0, -1, 0, 0 },
-        [_]i64{ 2, 1, 2, 0 },
-        [_]i64{ 2, -1, -2, 0 },
-        [_]i64{ -2, 1, -2, 0 },
-        [_]i64{ -2, -1, 2, 0 },
-        [_]i64{ 7, 5, 1, 2 },
-        [_]i64{ -7, 5, -1, -2 },
-        [_]i64{ 19, 5, 3, 4 },
-        [_]i64{ 19, -5, -3, 4 },
-        [_]i64{ @bitCast(@as(u64, 0x8000000000000000)), 8, @bitCast(@as(u64, 0xf000000000000000)), 0 },
-        [_]i64{ @bitCast(@as(u64, 0x8000000000000007)), 8, @bitCast(@as(u64, 0xf000000000000001)), -1 },
-    };
-
-    for (cases) |case| {
-        try test_one_divmoddi4(case[0], case[1], case[2], case[3]);
-    }
-}
-
 fn test_one_divmoddi4(a: i64, b: i64, expected_q: i64, expected_r: i64) !void {
     var r: i64 = undefined;
     const q: i64 = __divmoddi4(a, b, &r);
