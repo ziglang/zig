@@ -413,6 +413,7 @@ test "division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
@@ -467,6 +468,9 @@ fn testDivision() !void {
     try expect(mod(i32, 10, -12) == -2);
     try expect(mod(i32, -14, -12) == -2);
     try expect(mod(i32, -2, -12) == -2);
+
+    try expect(divTrunc(i20, 20, -5) == -4);
+    try expect(divTrunc(i20, -20, -4) == 5);
 
     comptime {
         try expect(
@@ -1116,6 +1120,8 @@ test "@shlWithOverflow" {
 }
 
 test "overflow arithmetic with u0 values" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     {
         var a: u0 = 0;
         const ov = @addWithOverflow(a, 0);
@@ -1284,8 +1290,6 @@ fn testShrExact(x: u8) !void {
 }
 
 test "shift left/right on u0 operand" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: u0 = 0;
@@ -1562,7 +1566,6 @@ test "vector comparison" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

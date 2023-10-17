@@ -766,7 +766,9 @@ pub fn CreateSymbolicLink(
                 //       it will still resolve the path relative to the root of
                 //       the C:\ drive.
                 .rooted => break :target_path target_path,
-                else => {},
+                // Keep relative paths relative, but anything else needs to get NT-prefixed.
+                else => if (!std.fs.path.isAbsoluteWindowsWTF16(target_path))
+                    break :target_path target_path,
             },
             // Already an NT path, no need to do anything to it
             .nt => break :target_path target_path,

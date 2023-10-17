@@ -160,6 +160,23 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     try testing.expectEqualStrings(target_path, given);
 }
 
+test "relative symlink to parent directory" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var subdir = try tmp.dir.makeOpenPath("subdir", .{});
+    defer subdir.close();
+
+    const expected_link_name = ".." ++ std.fs.path.sep_str ++ "b.txt";
+
+    try subdir.symLink(expected_link_name, "a.txt", .{});
+
+    var buf: [1000]u8 = undefined;
+    const link_name = try subdir.readLink("a.txt", &buf);
+
+    try testing.expectEqualStrings(expected_link_name, link_name);
+}
+
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1430,6 +1447,11 @@ test "walker without fully iterating" {
 
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/17134
+        return error.SkipZigTest;
+    }
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
