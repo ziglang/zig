@@ -3936,6 +3936,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     man.hash.addBytes(c_src);
+    man.hash.add(comp.c_frontend);
 
     // If the previous invocation resulted in clang errors, we will see a hit
     // here with 0 files in the manifest, in which case it is actually a miss.

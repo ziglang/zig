@@ -681,11 +681,11 @@ pub fn lowerToBuildSteps(
         }
     }
 
-    for (self.translate.items) |*case| switch (case.kind) {
+    for (self.translate.items) |case| switch (case.kind) {
         .run => |output| {
             const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
             if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) return;
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
             if (!std.process.can_spawn) {
                 std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
@@ -723,7 +723,7 @@ pub fn lowerToBuildSteps(
         .translate => |output| {
             const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
             if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) return;
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
 
             const write_src = b.addWriteFiles();
