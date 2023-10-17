@@ -9894,7 +9894,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const pointee_ty = ptr_ty.childType(mod);
     if (try sema.typeRequiresComptime(ptr_ty)) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, ptr_src, "cannot accept pointer to comptime-only type '{}'", .{pointee_ty.fmt(mod)});
+            const msg = try sema.errMsg(block, ptr_src, "comptime-only type '{}' has no pointer address", .{pointee_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = mod.declPtr(block.src_decl);
             try sema.explainWhyTypeIsComptime(msg, ptr_src.toSrcLoc(src_decl, mod), pointee_ty);

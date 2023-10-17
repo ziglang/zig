@@ -8,4 +8,4 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:23: error: cannot accept pointer to comptime-only type 'comptime_int'
+// :2:23: error: "comptime-only type 'comptime_int' has no pointer address
