@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 test "@fieldParentPtr non-first field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testParentFieldPtr(&foo.c);
     try comptime testParentFieldPtr(&foo.c);
@@ -13,7 +12,6 @@ test "@fieldParentPtr non-first field" {
 test "@fieldParentPtr first field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testParentFieldPtrFirst(&foo.a);
     try comptime testParentFieldPtrFirst(&foo.a);
@@ -53,7 +51,6 @@ test "@fieldParentPtr untagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrUnion(&bar.c);
     try comptime testFieldParentPtrUnion(&bar.c);
@@ -80,7 +77,6 @@ test "@fieldParentPtr tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrTaggedUnion(&bar_tagged.c);
     try comptime testFieldParentPtrTaggedUnion(&bar_tagged.c);
@@ -107,7 +103,6 @@ test "@fieldParentPtr extern union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrExternUnion(&bar_extern.c);
     try comptime testFieldParentPtrExternUnion(&bar_extern.c);

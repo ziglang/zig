@@ -1556,10 +1556,10 @@ pub const Key = union(enum) {
                     // These are strange: we'll sometimes represent them as f128, even if the
                     // underlying type is smaller. f80 is an exception: see float_c_longdouble_f80.
                     const a_val = switch (a_info.storage) {
-                        inline else => |val| @as(f128, @floatCast(val)),
+                        inline else => |val| @as(u128, @bitCast(@as(f128, @floatCast(val)))),
                     };
                     const b_val = switch (b_info.storage) {
-                        inline else => |val| @as(f128, @floatCast(val)),
+                        inline else => |val| @as(u128, @bitCast(@as(f128, @floatCast(val)))),
                     };
                     return a_val == b_val;
                 }
@@ -1567,9 +1567,14 @@ pub const Key = union(enum) {
                 const StorageTag = @typeInfo(Key.Float.Storage).Union.tag_type.?;
                 assert(@as(StorageTag, a_info.storage) == @as(StorageTag, b_info.storage));
 
-                return switch (a_info.storage) {
-                    inline else => |val, tag| val == @field(b_info.storage, @tagName(tag)),
-                };
+                switch (a_info.storage) {
+                    inline else => |val, tag| {
+                        const Bits = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(val)));
+                        const a_bits: Bits = @bitCast(val);
+                        const b_bits: Bits = @bitCast(@field(b_info.storage, @tagName(tag)));
+                        return a_bits == b_bits;
+                    },
+                }
             },
 
             .opaque_type => |a_info| {

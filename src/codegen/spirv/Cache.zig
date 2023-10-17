@@ -81,6 +81,9 @@ const Tag = enum {
     /// have member names trailing.
     /// data is payload to SimpleStructType
     type_struct_simple_with_member_names,
+    /// Opaque type.
+    /// data is name string.
+    type_opaque,
 
     // -- Values
     /// Value of type u8
@@ -235,6 +238,7 @@ pub const Key = union(enum) {
     function_type: FunctionType,
     ptr_type: PointerType,
     struct_type: StructType,
+    opaque_type: OpaqueType,
 
     // -- values
     int: Int,
@@ -287,6 +291,10 @@ pub const Key = union(enum) {
         fn memberNames(self: @This()) []const String {
             return if (self.member_names) |member_names| member_names else &.{};
         }
+    };
+
+    pub const OpaqueType = struct {
+        name: String = .none,
     };
 
     pub const Int = struct {
@@ -427,6 +435,13 @@ pub const Key = union(enum) {
             else => unreachable,
         };
     }
+
+    pub fn isNumericalType(self: Key) bool {
+        return switch (self) {
+            .int_type, .float_type => true,
+            else => false,
+        };
+    }
 };
 
 pub fn deinit(self: *Self, spv: *const Module) void {
@@ -538,6 +553,13 @@ fn emit(
                 }
             }
             // TODO: Decorations?
+        },
+        .opaque_type => |opaque_type| {
+            const name = if (self.getString(opaque_type.name)) |name| name else "";
+            try section.emit(spv.gpa, .OpTypeOpaque, .{
+                .id_result = result_id,
+                .literal_string = name,
+            });
         },
         .int => |int| {
             const int_type = self.lookup(int.ty).int_type;
@@ -696,6 +718,11 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                     .data = extra,
                 };
             }
+        },
+        .opaque_type => |opaque_type| Item{
+            .tag = .type_opaque,
+            .result_id = result_id,
+            .data = @intFromEnum(opaque_type.name),
         },
         .int => |int| blk: {
             const int_type = self.lookup(int.ty).int_type;
@@ -873,6 +900,11 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
                     .member_names = member_names,
                 },
             };
+        },
+        .type_opaque => .{
+            .opaque_type = .{
+                .name = @as(String, @enumFromInt(data)),
+            },
         },
         .float16 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 16 } }),

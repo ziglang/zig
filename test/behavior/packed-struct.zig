@@ -622,6 +622,7 @@ test "@intFromPtr on a packed struct field unaligned and nested" {
 
 test "packed struct fields modification" {
     // Originally reported at https://github.com/ziglang/zig/issues/16615
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Small = packed struct {
         val: u8 = 0,
@@ -980,6 +981,8 @@ test "store undefined to packed result location" {
 }
 
 test "bitcast back and forth" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     // Originally reported at https://github.com/ziglang/zig/issues/9914
     const S = packed struct { one: u6, two: u1 };
     const s = S{ .one = 0b110101, .two = 0b1 };
@@ -991,6 +994,7 @@ test "bitcast back and forth" {
 
 test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
     // Originally reported at https://github.com/ziglang/zig/issues/14200
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         ps: packed struct { x: i2, y: i2 },
@@ -1039,6 +1043,7 @@ test "modify nested packed struct aligned field" {
 
 test "assigning packed struct inside another packed struct" {
     // Originally reported at https://github.com/ziglang/zig/issues/9674
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const Inner = packed struct {
