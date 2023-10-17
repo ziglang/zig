@@ -4098,11 +4098,13 @@ const DeclGen = struct {
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const cond = try self.resolve(pl_op.operand);
         const cond_ty = self.typeOf(pl_op.operand);
+        const cond = try self.resolve(pl_op.operand);
+        const cond_indirect = try self.convertToIndirect(cond_ty, cond);
         const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
 
         const cond_words: u32 = switch (cond_ty.zigTypeTag(mod)) {
+            .Bool => 1,
             .Int => blk: {
                 const bits = cond_ty.intInfo(mod).bits;
                 const backing_bits = self.backingIntBits(bits) orelse {
@@ -4146,7 +4148,7 @@ const DeclGen = struct {
 
         // Emit the instruction before generating the blocks.
         try self.func.body.emitRaw(self.spv.gpa, .OpSwitch, 2 + (cond_words + 1) * num_conditions);
-        self.func.body.writeOperand(IdRef, cond);
+        self.func.body.writeOperand(IdRef, cond_indirect);
         self.func.body.writeOperand(IdRef, default);
 
         // Emit each of the cases
@@ -4167,7 +4169,7 @@ const DeclGen = struct {
                         return self.todo("switch on runtime value???", .{});
                     };
                     const int_val = switch (cond_ty.zigTypeTag(mod)) {
-                        .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
+                        .Bool, .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
                             break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
