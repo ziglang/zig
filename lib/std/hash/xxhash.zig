@@ -443,7 +443,7 @@ pub const XxHash3 = struct {
         0x2b, 0x16, 0xbe, 0x58, 0x7d, 0x47, 0xa1, 0xfc, 0x8f, 0xf8, 0xb8, 0xd1, 0x7a, 0xd0, 0x31, 0xce,
         0x45, 0xcb, 0x3a, 0x8f, 0x95, 0x16, 0x04, 0x28, 0xaf, 0xd7, 0xfb, 0xca, 0xbb, 0x4b, 0x40, 0x7e,
     };
-    
+
     const prime_mx1 = 0x165667919E3779F9;
     const prime_mx2 = 0x9FB21C651E98DF25;
 
@@ -476,7 +476,10 @@ pub const XxHash3 = struct {
     }
 
     inline fn disableAutoVectorization(x: anytype) void {
-        if (!@inComptime()) asm volatile("" :: [x] "r" (x));
+        if (!@inComptime()) asm volatile (""
+            :
+            : [x] "r" (x),
+        );
     }
 
     inline fn mix16(seed: u64, input: []const u8, secret: []const u8) u64 {
@@ -528,11 +531,11 @@ pub const XxHash3 = struct {
             const data = swap(input_block.*);
             const mixed = data ^ swap(secret_block.*);
             state.* +%= (mixed & @as(Block, @splat(0xffffffff))) *% (mixed >> @splat(32));
-            state.* +%= @shuffle(u64, data, undefined, [_]i32{1, 0, 3, 2, 5, 4, 7, 6});
+            state.* +%= @shuffle(u64, data, undefined, [_]i32{ 1, 0, 3, 2, 5, 4, 7, 6 });
         }
 
         fn accumulate(noalias self: *Accumulator, blocks: []align(1) const Block) void {
-            const secret = std.mem.bytesAsSlice(u64, self.secret[self.consumed * 8..]);
+            const secret = std.mem.bytesAsSlice(u64, self.secret[self.consumed * 8 ..]);
             for (blocks, secret[0..blocks.len]) |*input_block, *secret_block| {
                 @prefetch(@as([*]const u8, @ptrCast(input_block)) + 320, .{});
                 round(&self.state, input_block, @ptrCast(secret_block));
@@ -540,7 +543,7 @@ pub const XxHash3 = struct {
         }
 
         fn scramble(self: *Accumulator) void {
-            const secret_block: Block = @bitCast(self.secret[192 - @sizeOf(Block)..192].*);
+            const secret_block: Block = @bitCast(self.secret[192 - @sizeOf(Block) .. 192].*);
             self.state ^= self.state >> @splat(47);
             self.state ^= swap(secret_block);
             self.state *%= @as(Block, @splat(XxHash32.prime_1));
@@ -566,7 +569,7 @@ pub const XxHash3 = struct {
         }
 
         fn digest(noalias self: *Accumulator, total_len: u64, noalias last_block: *align(1) const Block) u64 {
-            const secret_block = self.secret[192 - @sizeOf(Block) - 7..][0..@sizeOf(Block)];
+            const secret_block = self.secret[192 - @sizeOf(Block) - 7 ..][0..@sizeOf(Block)];
             round(&self.state, last_block, @ptrCast(secret_block));
 
             const merge_block: Block = @bitCast(self.secret[11 .. 11 + @sizeOf(Block)].*);
@@ -623,7 +626,7 @@ pub const XxHash3 = struct {
             input[0..4].*,
             input[input.len - 4 ..][0..4].*,
         });
-        
+
         const mixed = seed ^ (@as(u64, @byteSwap(@as(u32, @truncate(seed)))) << 32);
         const key = (swap(flip[0]) ^ swap(flip[1])) -% mixed;
         const combined = (@as(u64, swap(blk[0])) << 32) +% swap(blk[1]);
@@ -656,7 +659,7 @@ pub const XxHash3 = struct {
             const scrt_offset = 96 - (i * 32);
             if (input.len > scrt_offset) {
                 acc +%= mix16(seed, input[in_offset..], secret[scrt_offset..]);
-                acc +%= mix16(seed, input[input.len - (in_offset + 16)..], secret[scrt_offset + 16..]);
+                acc +%= mix16(seed, input[input.len - (in_offset + 16) ..], secret[scrt_offset + 16 ..]);
             }
         }
         return avalanche(.h3, acc);
@@ -668,12 +671,12 @@ pub const XxHash3 = struct {
 
         var acc = XxHash64.prime_1 *% @as(u64, input.len);
         inline for (0..8) |i| {
-            acc +%= mix16(seed, input[i * 16..], secret[i * 16..]);
+            acc +%= mix16(seed, input[i * 16 ..], secret[i * 16 ..]);
         }
 
-        var acc_end = mix16(seed, input[input.len - 16..], secret[136 - 17..]);
+        var acc_end = mix16(seed, input[input.len - 16 ..], secret[136 - 17 ..]);
         for (8..(input.len / 16)) |i| {
-            acc_end +%= mix16(seed, input[i * 16..], secret[((i - 8) * 16) + 3..]);
+            acc_end +%= mix16(seed, input[i * 16 ..], secret[((i - 8) * 16) + 3 ..]);
             disableAutoVectorization(i);
         }
 
@@ -686,7 +689,7 @@ pub const XxHash3 = struct {
         std.debug.assert(input.len >= 240);
 
         const block_count = ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
-        const last_block = input[input.len - @sizeOf(Block)..][0..@sizeOf(Block)];
+        const last_block = input[input.len - @sizeOf(Block) ..][0..@sizeOf(Block)];
 
         var acc = Accumulator.init(seed);
         acc.consume(std.mem.bytesAsSlice(Block, input[0..block_count]));
@@ -733,11 +736,11 @@ pub const XxHash3 = struct {
             const block_count = ((consumable.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
             self.accumulator.consume(std.mem.bytesAsSlice(Block, consumable[0..block_count]));
             consumable = consumable[block_count..];
-            
+
             // In case we consume all remaining input, write the last block to end of the buffer
-            // to populate the last_block_copy in final() similar to hashLong()'s last_block. 
+            // to populate the last_block_copy in final() similar to hashLong()'s last_block.
             @memcpy(
-                self.buffer[self.buffer.len - @sizeOf(Block)..self.buffer.len],
+                self.buffer[self.buffer.len - @sizeOf(Block) .. self.buffer.len],
                 (consumable.ptr - @sizeOf(Block))[0..@sizeOf(Block)],
             );
         }
@@ -757,7 +760,7 @@ pub const XxHash3 = struct {
             return hash(self.accumulator.seed, self.buffer[0..self.total_len]);
         }
 
-        // Make a copy of the Accumulator state in case `self` needs to update() / be used later. 
+        // Make a copy of the Accumulator state in case `self` needs to update() / be used later.
         var accumulator_copy = self.accumulator;
         var last_block_copy: [@sizeOf(Block)]u8 = undefined;
 
@@ -766,10 +769,10 @@ pub const XxHash3 = struct {
             if (self.buffered >= @sizeOf(Block)) {
                 const block_count = ((self.buffered - 1) / @sizeOf(Block)) * @sizeOf(Block);
                 accumulator_copy.consume(std.mem.bytesAsSlice(Block, self.buffer[0..block_count]));
-                break :last_block @ptrCast(self.buffer[self.buffered - @sizeOf(Block)..][0..@sizeOf(Block)]);
+                break :last_block @ptrCast(self.buffer[self.buffered - @sizeOf(Block) ..][0..@sizeOf(Block)]);
             } else {
                 const remaining = @sizeOf(Block) - self.buffered;
-                @memcpy(last_block_copy[0..remaining], self.buffer[self.buffer.len - remaining..][0..remaining]);
+                @memcpy(last_block_copy[0..remaining], self.buffer[self.buffer.len - remaining ..][0..remaining]);
                 @memcpy(last_block_copy[remaining..][0..self.buffered], self.buffer[0..self.buffered]);
                 break :last_block @ptrCast(&last_block_copy);
             }
