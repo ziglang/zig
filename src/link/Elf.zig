@@ -1383,8 +1383,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // libc dep
     self.error_flags.missing_libc = false;
     if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation != null) {
-            @panic("TODO explicit libc_installation");
+        if (self.base.options.libc_installation) |lc| {
+            const flags = target_util.libcFullLinkFlags(target);
+            try system_libs.ensureUnusedCapacity(flags.len);
+            for (flags) |flag| {
+                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so", .{
+                    lc.crt_dir.?, fs.path.sep, flag["-l".len..],
+                });
+                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+            }
         } else if (target.isGnuLibC()) {
             try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
             for (glibc.libs) |lib| {
