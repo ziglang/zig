@@ -836,14 +836,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 
     const rc = ntdll.NtCreateFile(
         &result_handle,
-        FILE_READ_ATTRIBUTES,
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         &attr,
         &io,
         null,
         FILE_ATTRIBUTE_NORMAL,
         FILE_SHARE_READ,
         FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT,
+        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
         null,
         0,
     );

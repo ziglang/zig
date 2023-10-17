@@ -5143,6 +5143,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .thread_pool = &thread_pool,
                 .global_cache = global_cache_directory,
                 .recursive = true,
+                .debug_hash = false,
                 .work_around_btrfs_bug = work_around_btrfs_bug,
             };
             defer job_queue.deinit();
@@ -6991,6 +6992,7 @@ pub const usage_fetch =
     \\Options:
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --debug-hash                  Print verbose hash information to stdout
     \\
 ;
 
@@ -7004,6 +7006,7 @@ fn cmdFetch(
         std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var debug_hash: bool = false;
 
     {
         var i: usize = 0;
@@ -7018,6 +7021,9 @@ fn cmdFetch(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--debug-hash")) {
+                    debug_hash = true;
                     continue;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
@@ -7057,6 +7063,7 @@ fn cmdFetch(
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
+        .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
     };
     defer job_queue.deinit();
