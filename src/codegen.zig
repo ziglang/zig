@@ -793,11 +793,13 @@ fn lowerDeclRef(
 
 /// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
 /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+/// * extern_got - pointer to extern variable referenced via GOT
 /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
 /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
 pub const LinkerLoad = struct {
     type: enum {
         got,
+        extern_got,
         direct,
         import,
     },
@@ -827,6 +829,8 @@ pub const GenResult = union(enum) {
         load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
+        /// Pointer to extern variable via GOT.
+        load_extern_got: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -885,13 +889,26 @@ fn genDeclRef(
     try mod.markDeclAlive(decl);
 
     const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
+    const is_extern = decl.isExtern(mod);
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
+        if (is_extern) {
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            // TODO audit this
+            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
+                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            else
+                null;
+            return GenResult.mcv(.{ .load_extern_got = try elf_file.getGlobalSymbol(name, lib_name) });
+        }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);
-        sym.flags.needs_got = true;
-        _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-        return GenResult.mcv(.{ .memory = sym.gotAddress(elf_file) });
+        _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+        if (bin_file.options.pic) {
+            return GenResult.mcv(.{ .load_got = sym.esym_index });
+        } else {
+            return GenResult.mcv(.{ .memory = sym.zigGotAddress(elf_file) });
+        }
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -926,7 +943,12 @@ fn genUnnamedConst(
         return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
-        return GenResult.mcv(.{ .memory = elf_file.symbol(local_sym_index).value });
+        const local = elf_file.symbol(local_sym_index);
+        if (bin_file.options.pic) {
+            return GenResult.mcv(.{ .load_direct = local.esym_index });
+        } else {
+            return GenResult.mcv(.{ .memory = local.value });
+        }
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

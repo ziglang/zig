@@ -51,6 +51,7 @@ pub const Reloc = struct {
         inst: Mir.Inst.Index,
         linker_extern_fn: Mir.Reloc,
         linker_got: Mir.Reloc,
+        linker_extern_got: Mir.Reloc,
         linker_direct: Mir.Reloc,
         linker_direct_got: Mir.Reloc,
         linker_import: Mir.Reloc,
@@ -388,7 +389,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrmi_sib, .rrmi_rip => inst.data.rrix.fixes,
         .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => inst.data.x.fixes,
         .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .direct_reloc, .direct_got_reloc, .import_reloc, .tlv_reloc => ._,
+        .extern_fn_reloc, .got_reloc, .extern_got_reloc, .direct_reloc, .direct_got_reloc, .import_reloc, .tlv_reloc => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -532,11 +533,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
                 else => unreachable,
             }
         },
-        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+        .got_reloc, .extern_got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
             const reg = inst.data.rx.r1;
             const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
                 .got_reloc => .{ .linker_got = extra },
+                .extern_got_reloc => .{ .linker_extern_got = extra },
                 .direct_reloc => .{ .linker_direct = extra },
                 .import_reloc => .{ .linker_import = extra },
                 .tlv_reloc => .{ .linker_tlv = extra },
