@@ -3810,12 +3810,11 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
-/// Replace all occurrences of `needle` with `replacement`.
-pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
-    for (slice, 0..) |e, i| {
-        if (e == needle) {
-            slice[i] = replacement;
-        }
+/// Replace all occurrences of `match` with `replacement`.
+pub fn replaceScalar(comptime T: type, slice: []T, match: T, replacement: T) void {
+    for (slice) |*e| {
+        if (e.* == match)
+            e.* = replacement;
     }
 }
 
