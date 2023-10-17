@@ -371,6 +371,8 @@ pub const peekStream = @import("io/peek_stream.zig").peekStream;
 pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
 
+pub const GrowableBufferStream = @import("io/growable_buffer_stream.zig").GrowableBufferStream;
+
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
 
@@ -677,6 +679,7 @@ test {
     _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
     _ = @import("io/fixed_buffer_stream.zig");
+    _ = @import("io/growable_buffer_stream.zig");
     _ = @import("io/writer.zig");
     _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
