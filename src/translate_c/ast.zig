@@ -794,6 +794,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
         .nodes = ctx.nodes.toOwnedSlice(),
         .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
         .errors = &.{},
+        .mode = .zig,
     };
 }
 
