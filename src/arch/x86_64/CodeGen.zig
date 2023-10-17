@@ -13755,7 +13755,8 @@ fn resolveCallingConventionValues(
                 }
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
+                const param_align: u31 =
+                    @intCast(@max(ty.abiAlignment(mod).toByteUnitsOptional().?, 8));
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
