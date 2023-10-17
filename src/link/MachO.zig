@@ -707,6 +707,17 @@ fn accessLibPath(
         return true;
     }
 
+    noextension: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}", .{ search_dir, lib_name });
+        try checked_paths.append(try gpa.dupe(u8, test_path.items));
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :noextension,
+            else => |e| return e,
+        };
+        return true;
+    }
+
     return false;
 }
 
