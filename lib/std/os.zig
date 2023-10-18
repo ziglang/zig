@@ -2357,7 +2357,7 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
 pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
     windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd }) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // we're not passing .remove_dir = true
-        inline else => |e| return e,
+        else => |e| return e,
     };
 }
 
