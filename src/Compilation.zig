@@ -1037,13 +1037,24 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
-        const must_pie = target_util.requiresPIE(options.target);
-        const pie: bool = if (options.want_pie) |explicit| pie: {
-            if (!explicit and must_pie) {
-                return error.TargetRequiresPIE;
+        const pie: bool = pie: {
+            if (options.output_mode != .Exe) {
+                if (options.want_pie == true) return error.OutputModeForbidsPie;
+                break :pie false;
             }
-            break :pie explicit;
-        } else must_pie or tsan;
+            if (target_util.requiresPIE(options.target)) {
+                if (options.want_pie == false) return error.TargetRequiresPie;
+                break :pie true;
+            }
+            if (tsan) {
+                if (options.want_pie == false) return error.TsanRequiresPie;
+                break :pie true;
+            }
+            if (options.want_pie) |want_pie| {
+                break :pie want_pie;
+            }
+            break :pie false;
+        };
 
         const must_pic: bool = b: {
             if (target_util.requiresPIC(options.target, link_libc))
@@ -6533,7 +6544,7 @@ fn buildOutputFromZig(
         .want_tsan = false,
         .want_unwind_tables = comp.bin_file.options.eh_frame_hdr,
         .want_pic = comp.bin_file.options.pic,
-        .want_pie = comp.bin_file.options.pie,
+        .want_pie = null,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
@@ -6608,7 +6619,7 @@ pub fn build_crt_file(
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
-        .want_pie = comp.bin_file.options.pie,
+        .want_pie = null,
         .want_lto = switch (output_mode) {
             .Lib => comp.bin_file.options.lto,
             .Obj, .Exe => false,
