@@ -178,7 +178,7 @@ pub const Request = struct {
     };
 
     pub fn parse(req: *Request, bytes: []const u8) ParseError!void {
-        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes, "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 10)

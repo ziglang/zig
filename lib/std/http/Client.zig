@@ -15,7 +15,7 @@ const proto = @import("protocol.zig");
 pub const disable_tls = std.options.http_disable_tls;
 
 allocator: Allocator,
-ca_bundle: std.crypto.Certificate.Bundle = .{},
+ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
 
 /// When this is `true`, the next time this client performs an HTTPS request,
@@ -386,7 +386,7 @@ pub const Response = struct {
     };
 
     pub fn parse(res: *Response, bytes: []const u8, trailing: bool) ParseError!void {
-        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes, "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 12)
@@ -404,6 +404,8 @@ pub const Response = struct {
         res.version = version;
         res.status = status;
         res.reason = reason;
+
+        res.headers.clearRetainingCapacity();
 
         while (it.next()) |line| {
             if (line.len == 0) return error.HttpHeadersInvalid;
@@ -525,6 +527,7 @@ pub const Request = struct {
 
     redirects_left: u32,
     handle_redirects: bool,
+    handle_continue: bool,
 
     response: Response,
 
@@ -758,6 +761,10 @@ pub const Request = struct {
             if (req.response.status == .@"continue") {
                 req.response.parser.done = true; // we're done parsing the continue response, reset to prepare for the real response
                 req.response.parser.reset();
+
+                if (req.handle_continue)
+                    continue;
+
                 break;
             }
 
@@ -897,8 +904,6 @@ pub const Request = struct {
             }
 
             if (has_trail) {
-                req.response.headers.clearRetainingCapacity();
-
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
                 req.response.parse(req.response.parser.header_bytes.items, true) catch return error.InvalidTrailers;
@@ -999,7 +1004,9 @@ pub fn deinit(client: *Client) void {
         proxy.headers.deinit();
     }
 
-    client.ca_bundle.deinit(client.allocator);
+    if (!disable_tls)
+        client.ca_bundle.deinit(client.allocator);
+
     client.* = undefined;
 }
 
@@ -1315,6 +1322,14 @@ pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendE
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",
 
+    /// Automatically ignore 100 Continue responses. This assumes you don't care, and will have sent the body before you
+    /// wait for the response.
+    ///
+    /// If this is not the case AND you know the server will send a 100 Continue, set this to false and wait for a
+    /// response before sending the body. If you wait AND the server does not send a 100 Continue before you finish the
+    /// request, then the request *will* deadlock.
+    handle_continue: bool = true,
+
     handle_redirects: bool = true,
     max_redirects: u32 = 3,
     header_strategy: StorageStrategy = .{ .dynamic = 16 * 1024 },
@@ -1361,6 +1376,8 @@ pub fn open(client: *Client, method: http.Method, uri: Uri, headers: http.Header
     const host = uri.host orelse return error.UriMissingHost;
 
     if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .Acquire)) {
+        if (disable_tls) unreachable;
+
         client.ca_bundle_mutex.lock();
         defer client.ca_bundle_mutex.unlock();
 
@@ -1381,6 +1398,7 @@ pub fn open(client: *Client, method: http.Method, uri: Uri, headers: http.Header
         .version = options.version,
         .redirects_left = options.max_redirects,
         .handle_redirects = options.handle_redirects,
+        .handle_continue = options.handle_continue,
         .response = .{
             .status = undefined,
             .reason = undefined,
