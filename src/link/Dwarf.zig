@@ -2265,7 +2265,6 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
 pub fn writeDbgLineHeader(self: *Dwarf) !void {
     const gpa = self.allocator;
 
-    const ptr_width_bytes: u8 = self.ptrWidthBytes();
     const target_endian = self.target.cpu.arch.endian();
     const init_len_size: usize = if (self.bin_file.tag == .macho)
         4
@@ -2288,11 +2287,6 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     const needed_bytes = self.dbgLineNeededHeaderBytes(paths.dirs, paths.files);
     var di_buf = try std.ArrayList(u8).initCapacity(gpa, needed_bytes);
     defer di_buf.deinit();
-
-    // initial length - length of the .debug_line contribution for this compilation unit,
-    // not including the initial length itself.
-    // We will backpatch this value later so just remember where we need to write it.
-    const before_init_len = di_buf.items.len;
 
     switch (self.bin_file.tag) {
         .macho => {
@@ -2317,10 +2311,14 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     // padding rather than this field.
     const before_header_len = di_buf.items.len;
 
-    di_buf.items.len += switch (self.bin_file.tag) { // We will come back and write this.
-        .macho => @sizeOf(u32),
-        else => ptr_width_bytes,
-    };
+    // We will come back and write this.
+    switch (self.bin_file.tag) {
+        .macho => di_buf.appendNTimesAssumeCapacity(0, 4),
+        else => switch (self.ptr_width) {
+            .p32 => di_buf.appendNTimesAssumeCapacity(0, 4),
+            .p64 => di_buf.appendNTimesAssumeCapacity(0, 8),
+        },
+    }
 
     const after_header_len = di_buf.items.len;
 
@@ -2358,7 +2356,11 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
 
     for (paths.files, 0..) |file, i| {
         const dir_index = paths.files_dirs_indexes[i];
-        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{ i + 1, file, dir_index + 1 });
+        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{
+            i + 1,
+            file,
+            dir_index + 1,
+        });
         di_buf.appendSliceAssumeCapacity(file);
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
@@ -2450,17 +2452,17 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     }
 
     // Backpatch actual length of the debug line program
-    const init_len = self.getDebugLineProgramEnd().? - before_init_len - init_len_size;
+    const init_len = self.getDebugLineProgramEnd().? - init_len_size;
     switch (self.bin_file.tag) {
         .macho => {
-            mem.writeIntLittle(u32, di_buf.items[before_init_len..][0..4], @as(u32, @intCast(init_len)));
+            mem.writeIntLittle(u32, di_buf.items[0..4], @as(u32, @intCast(init_len)));
         },
         else => switch (self.ptr_width) {
             .p32 => {
-                mem.writeInt(u32, di_buf.items[before_init_len..][0..4], @as(u32, @intCast(init_len)), target_endian);
+                mem.writeInt(u32, di_buf.items[0..4], @as(u32, @intCast(init_len)), target_endian);
             },
             .p64 => {
-                mem.writeInt(u64, di_buf.items[before_init_len + 4 ..][0..8], init_len, target_endian);
+                mem.writeInt(u64, di_buf.items[4..][0..8], init_len, target_endian);
             },
         },
     }
@@ -2668,18 +2670,10 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
     try files_dir_indexes.ensureTotalCapacity(self.di_files.count());
 
     for (self.di_files.keys()) |dif| {
-        const dir_path = d: {
-            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const dir_path = try dif.mod.root.joinString(arena, dif.mod.root.sub_path);
-            const abs_dir_path = if (std.fs.path.isAbsolute(dir_path))
-                dir_path
-            else
-                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
-            break :d try std.fs.path.join(arena, &.{
-                abs_dir_path, std.fs.path.dirname(dif.sub_file_path) orelse "",
-            });
-        };
-        const sub_file_path = try arena.dupe(u8, std.fs.path.basename(dif.sub_file_path));
+        const full_path = try dif.mod.root.joinString(arena, dif.sub_file_path);
+        // TODO re-investigate if realpath is needed here
+        const dir_path = std.fs.path.dirname(full_path) orelse ".";
+        const sub_file_path = std.fs.path.basename(full_path);
 
         const dir_index: u28 = blk: {
             const dirs_gop = dirs.getOrPutAssumeCapacity(dir_path);
