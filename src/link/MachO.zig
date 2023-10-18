@@ -206,7 +206,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .allocator = allocator,
-            .dwarf = link.File.Dwarf.init(allocator, &self.base, options.target),
+            .dwarf = link.File.Dwarf.init(allocator, &self.base, .dwarf32),
             .file = d_sym_file,
         };
     }

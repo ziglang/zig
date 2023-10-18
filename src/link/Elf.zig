@@ -310,7 +310,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     if (options.module != null and !options.use_llvm) {
         if (!options.strip) {
-            self.dwarf = Dwarf.init(allocator, &self.base, options.target);
+            self.dwarf = Dwarf.init(allocator, &self.base, .dwarf32);
         }
 
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
