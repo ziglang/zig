@@ -3,6 +3,13 @@ const builtin = @import("builtin");
 const tests = @import("tests.zig");
 const CrossTarget = std.zig.CrossTarget;
 
+// ********************************************************
+// *                                                      *
+// *               DO NOT ADD NEW CASES HERE              *
+// *     instead add a file to test/cases/translate_c     *
+// *                                                      *
+// ********************************************************
+
 pub fn addCases(cases: *tests.TranslateCContext) void {
     const default_enum_type = if (builtin.abi == .msvc) "c_int" else "c_uint";
 
@@ -3313,23 +3320,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x134 derp";
         ,
         \\pub const FOO_CHAR = '\x3f';
-    });
-
-    cases.add("enums",
-        \\enum Foo {
-        \\    FooA = 2,
-        \\    FooB = 5,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const FooA: c_int = 2;
-        \\pub const FooB: c_int = 5;
-        \\pub const Foo1: c_int = 6;
-        \\pub const enum_Foo =
-        ++ " " ++ default_enum_type ++
-            \\;
-        ,
-        \\pub const Foo = enum_Foo;
     });
 
     cases.add("macro cast",

@@ -4265,6 +4265,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(comp.c_frontend);
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };

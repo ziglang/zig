@@ -2,10 +2,10 @@ const std = @import("std");
 
 const Properties = @This();
 
-language: Language,
-attributes: Attributes,
-header: Header,
-target_set: TargetSet,
+language: Language = .all_languages,
+attributes: Attributes = Attributes{},
+header: Header = .none,
+target_set: TargetSet = TargetSet.initOne(.basic),
 
 /// Header which must be included for a builtin to be available
 pub const Header = enum {

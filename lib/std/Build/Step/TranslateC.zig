@@ -17,12 +17,14 @@ target: CrossTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
 link_libc: bool,
+use_clang: bool,
 
 pub const Options = struct {
     source_file: std.Build.LazyPath,
     target: CrossTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
+    use_clang: bool = true,
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
@@ -43,6 +45,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
         .optimize = options.optimize,
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
         .link_libc = options.link_libc,
+        .use_clang = options.use_clang,
     };
     source.addStepDependencies(&self.step);
     return self;
@@ -129,6 +132,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try argv_list.append("translate-c");
     if (self.link_libc) {
         try argv_list.append("-lc");
+    }
+    if (!self.use_clang) {
+        try argv_list.append("-fno-clang");
     }
 
     try argv_list.append("--listen=-");

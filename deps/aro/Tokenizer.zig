@@ -3,8 +3,6 @@ const assert = std.debug.assert;
 const Compilation = @import("Compilation.zig");
 const Source = @import("Source.zig");
 const LangOpts = @import("LangOpts.zig");
-const CharInfo = @import("CharInfo.zig");
-const unicode = @import("unicode.zig");
 
 const Tokenizer = @This();
 
@@ -108,6 +106,8 @@ pub const Token = struct {
         macro_ws,
         /// Special token for implementing __has_attribute
         macro_param_has_attribute,
+        /// Special token for implementing __has_declspec_attribute
+        macro_param_has_declspec_attribute,
         /// Special token for implementing __has_warning
         macro_param_has_warning,
         /// Special token for implementing __has_feature
@@ -290,6 +290,16 @@ pub const Token = struct {
         /// See C99 6.10.3.3.2
         placemarker,
 
+        /// Virtual linemarker token output from preprocessor to indicate start of a new include
+        include_start,
+
+        /// Virtual linemarker token output from preprocessor to indicate resuming a file after
+        /// completion of the preceding #include
+        include_resume,
+
+        /// A comment token if asked to preserve comments.
+        comment,
+
         /// Return true if token is identifier or keyword.
         pub fn isMacroIdentifier(id: Id) bool {
             switch (id) {
@@ -458,6 +468,10 @@ pub const Token = struct {
 
         pub fn lexeme(id: Id) ?[]const u8 {
             return switch (id) {
+                .include_start,
+                .include_resume,
+                => unreachable,
+
                 .invalid,
                 .identifier,
                 .extended_identifier,
@@ -475,6 +489,7 @@ pub const Token = struct {
                 .whitespace,
                 .pp_num,
                 .embed_byte,
+                .comment,
                 => null,
 
                 .zero => "0",
@@ -487,6 +502,7 @@ pub const Token = struct {
                 .stringify_param,
                 .stringify_va_args,
                 .macro_param_has_attribute,
+                .macro_param_has_declspec_attribute,
                 .macro_param_has_warning,
                 .macro_param_has_feature,
                 .macro_param_has_extension,
@@ -817,24 +833,6 @@ pub const Token = struct {
         };
     }
 
-    /// Check if codepoint may appear in specified context
-    /// does not check basic character set chars because the tokenizer handles them separately to keep the common
-    /// case on the fast path
-    pub fn mayAppearInIdent(comp: *const Compilation, codepoint: u21, where: enum { start, inside }) bool {
-        if (codepoint == '$') return comp.langopts.dollars_in_identifiers;
-        if (codepoint <= 0x7F) return false;
-        return switch (where) {
-            .start => if (comp.langopts.standard.atLeast(.c11))
-                CharInfo.isC11IdChar(codepoint) and !CharInfo.isC11DisallowedInitialIdChar(codepoint)
-            else
-                CharInfo.isC99IdChar(codepoint) and !CharInfo.isC99DisallowedInitialIDChar(codepoint),
-            .inside => if (comp.langopts.standard.atLeast(.c11))
-                CharInfo.isC11IdChar(codepoint)
-            else
-                CharInfo.isC99IdChar(codepoint),
-        };
-    }
-
     const all_kws = std.ComptimeStringMap(Id, .{
         .{ "auto", auto: {
             @setEvalBranchQuota(3000);
@@ -986,6 +984,8 @@ index: u32 = 0,
 source: Source.Id,
 comp: *const Compilation,
 line: u32 = 1,
+/// Used to parse include strings with Windows style paths.
+path_escapes: bool = false,
 
 pub fn next(self: *Tokenizer) Token {
     var state: enum {
@@ -996,8 +996,10 @@ pub fn next(self: *Tokenizer) Token {
         U,
         L,
         string_literal,
+        path_escape,
         char_literal_start,
         char_literal,
+        char_escape_sequence,
         escape_sequence,
         octal_escape,
         hex_escape,
@@ -1038,18 +1040,8 @@ pub fn next(self: *Tokenizer) Token {
 
     var return_state = state;
     var counter: u32 = 0;
-    var codepoint_len: u3 = undefined;
-    while (self.index < self.buf.len) : (self.index += codepoint_len) {
-        // Source files get checked for valid utf-8 before being tokenized so it is safe to use
-        // these versions.
-        codepoint_len = unicode.utf8ByteSequenceLength_unsafe(self.buf[self.index]);
-        const c: u21 = switch (codepoint_len) {
-            1 => @as(u21, self.buf[self.index]),
-            2 => unicode.utf8Decode2_unsafe(self.buf[self.index..]),
-            3 => unicode.utf8Decode3_unsafe(self.buf[self.index..]),
-            4 => unicode.utf8Decode4_unsafe(self.buf[self.index..]),
-            else => unreachable,
-        };
+    while (self.index < self.buf.len) : (self.index += 1) {
+        const c = self.buf[self.index];
         switch (state) {
             .start => switch (c) {
                 '\n' => {
@@ -1137,11 +1129,25 @@ pub fn next(self: *Tokenizer) Token {
                 '#' => state = .hash,
                 '0'...'9' => state = .pp_num,
                 '\t', '\x0B', '\x0C', ' ' => state = .whitespace,
-                else => if (Token.mayAppearInIdent(self.comp, c, .start)) {
+                '$' => if (self.comp.langopts.dollars_in_identifiers) {
                     state = .extended_identifier;
                 } else {
                     id = .invalid;
-                    self.index += codepoint_len;
+                    self.index += 1;
+                    break;
+                },
+                0x1A => if (self.comp.langopts.ms_extensions) {
+                    id = .eof;
+                    break;
+                } else {
+                    id = .invalid;
+                    self.index += 1;
+                    break;
+                },
+                0x80...0xFF => state = .extended_identifier,
+                else => {
+                    id = .invalid;
+                    self.index += 1;
                     break;
                 },
             },
@@ -1165,7 +1171,7 @@ pub fn next(self: *Tokenizer) Token {
                     state = .string_literal;
                 },
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = .identifier;
                 },
             },
@@ -1179,7 +1185,7 @@ pub fn next(self: *Tokenizer) Token {
                     state = .char_literal_start;
                 },
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = .identifier;
                 },
             },
@@ -1193,7 +1199,7 @@ pub fn next(self: *Tokenizer) Token {
                     state = .string_literal;
                 },
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = .identifier;
                 },
             },
@@ -1207,14 +1213,14 @@ pub fn next(self: *Tokenizer) Token {
                     state = .string_literal;
                 },
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = .identifier;
                 },
             },
             .string_literal => switch (c) {
                 '\\' => {
                     return_state = .string_literal;
-                    state = .escape_sequence;
+                    state = if (self.path_escapes) .path_escape else .escape_sequence;
                 },
                 '"' => {
                     self.index += 1;
@@ -1227,12 +1233,13 @@ pub fn next(self: *Tokenizer) Token {
                 '\r' => unreachable,
                 else => {},
             },
+            .path_escape => {
+                state = .string_literal;
+            },
             .char_literal_start => switch (c) {
                 '\\' => {
-                    return_state = .char_literal;
-                    state = .escape_sequence;
+                    state = .char_escape_sequence;
                 },
-
                 '\'', '\n' => {
                     id = .invalid;
                     break;
@@ -1243,8 +1250,7 @@ pub fn next(self: *Tokenizer) Token {
             },
             .char_literal => switch (c) {
                 '\\' => {
-                    return_state = .char_literal;
-                    state = .escape_sequence;
+                    state = .char_escape_sequence;
                 },
                 '\'' => {
                     self.index += 1;
@@ -1256,14 +1262,15 @@ pub fn next(self: *Tokenizer) Token {
                 },
                 else => {},
             },
+            .char_escape_sequence => switch (c) {
+                '\r', '\n' => unreachable, // removed by line splicing
+                else => state = .char_literal,
+            },
             .escape_sequence => switch (c) {
                 '\'', '"', '?', '\\', 'a', 'b', 'e', 'f', 'n', 'r', 't', 'v' => {
                     state = return_state;
                 },
-                '\n' => {
-                    state = return_state;
-                    self.line += 1;
-                },
+                '\r', '\n' => unreachable, // removed by line splicing
                 '0'...'7' => {
                     counter = 1;
                     state = .octal_escape;
@@ -1288,14 +1295,14 @@ pub fn next(self: *Tokenizer) Token {
                     if (counter == 3) state = return_state;
                 },
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = return_state;
                 },
             },
             .hex_escape => switch (c) {
                 '0'...'9', 'a'...'f', 'A'...'F' => {},
                 else => {
-                    codepoint_len = 0;
+                    self.index -= 1;
                     state = return_state;
                 },
             },
@@ -1311,12 +1318,16 @@ pub fn next(self: *Tokenizer) Token {
             },
             .identifier, .extended_identifier => switch (c) {
                 'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
-                else => {
-                    if (!Token.mayAppearInIdent(self.comp, c, .inside)) {
-                        id = if (state == .identifier) Token.getTokenId(self.comp, self.buf[start..self.index]) else .extended_identifier;
-                        break;
-                    }
+                '$' => if (self.comp.langopts.dollars_in_identifiers) {
                     state = .extended_identifier;
+                } else {
+                    id = if (state == .identifier) Token.getTokenId(self.comp, self.buf[start..self.index]) else .extended_identifier;
+                    break;
+                },
+                0x80...0xFF => state = .extended_identifier,
+                else => {
+                    id = if (state == .identifier) Token.getTokenId(self.comp, self.buf[start..self.index]) else .extended_identifier;
+                    break;
                 },
             },
             .equal => switch (c) {
@@ -1614,6 +1625,10 @@ pub fn next(self: *Tokenizer) Token {
             },
             .line_comment => switch (c) {
                 '\n' => {
+                    if (self.comp.langopts.preserve_comments) {
+                        id = .comment;
+                        break;
+                    }
                     self.index -= 1;
                     state = .start;
                 },
@@ -1625,7 +1640,14 @@ pub fn next(self: *Tokenizer) Token {
                 else => {},
             },
             .multi_line_comment_asterisk => switch (c) {
-                '/' => state = .multi_line_comment_done,
+                '/' => {
+                    if (self.comp.langopts.preserve_comments) {
+                        self.index += 1;
+                        id = .comment;
+                        break;
+                    }
+                    state = .multi_line_comment_done;
+                },
                 '\n' => {
                     self.line += 1;
                     state = .multi_line_comment;
@@ -1712,9 +1734,11 @@ pub fn next(self: *Tokenizer) Token {
             .extended_identifier => id = .extended_identifier,
             .period2,
             .string_literal,
+            .path_escape,
             .char_literal_start,
             .char_literal,
             .escape_sequence,
+            .char_escape_sequence,
             .octal_escape,
             .hex_escape,
             .unicode_escape,
@@ -1761,6 +1785,12 @@ pub fn next(self: *Tokenizer) Token {
 }
 
 pub fn nextNoWS(self: *Tokenizer) Token {
+    var tok = self.next();
+    while (tok.id == .whitespace or tok.id == .comment) tok = self.next();
+    return tok;
+}
+
+pub fn nextNoWSComments(self: *Tokenizer) Token {
     var tok = self.next();
     while (tok.id == .whitespace) tok = self.next();
     return tok;

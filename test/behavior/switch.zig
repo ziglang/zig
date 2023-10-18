@@ -118,7 +118,6 @@ fn trueIfBoolFalseOtherwise(comptime T: type) bool {
 
 test "switching on booleans" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSwitchOnBools();
     try comptime testSwitchOnBools();

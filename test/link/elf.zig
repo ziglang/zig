@@ -94,7 +94,8 @@ pub fn build(b: *Build) void {
     // https://github.com/ziglang/zig/issues/17576
     //elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17576
+    //elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17430
     // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));

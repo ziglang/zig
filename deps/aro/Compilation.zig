@@ -100,6 +100,8 @@ generated_buf: std.ArrayList(u8),
 builtins: Builtins = .{},
 types: struct {
     wchar: Type = undefined,
+    uint_least16_t: Type = undefined,
+    uint_least32_t: Type = undefined,
     ptrdiff: Type = undefined,
     size: Type = undefined,
     va_list: Type = undefined,
@@ -120,9 +122,8 @@ types: struct {
     int16: Type = .{ .specifier = .invalid },
     int64: Type = .{ .specifier = .invalid },
 } = .{},
-/// Mapping from Source.Id to byte offset of first non-utf8 byte
-invalid_utf8_locs: std.AutoHashMapUnmanaged(Source.Id, u32) = .{},
 string_interner: StringInterner = .{},
+ms_cwd_source_id: ?Source.Id = null,
 
 pub fn init(gpa: Allocator) Compilation {
     return .{
@@ -153,7 +154,6 @@ pub fn deinit(comp: *Compilation) void {
     comp.pragma_handlers.deinit();
     comp.generated_buf.deinit();
     comp.builtins.deinit(comp.gpa);
-    comp.invalid_utf8_locs.deinit(comp.gpa);
     comp.string_interner.deinit(comp.gpa);
 }
 
@@ -635,9 +635,23 @@ fn generateBuiltinTypes(comp: *Compilation) !void {
         .intptr = intptr,
         .int16 = int16,
         .int64 = int64,
+        .uint_least16_t = comp.intLeastN(16, .unsigned),
+        .uint_least32_t = comp.intLeastN(32, .unsigned),
     };
 
     try comp.generateNsConstantStringType();
+}
+
+/// Smallest integer type with at least N bits
+fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Signedness) Type {
+    const candidates = switch (signedness) {
+        .signed => &[_]Type.Specifier{ .schar, .short, .int, .long, .long_long },
+        .unsigned => &[_]Type.Specifier{ .uchar, .ushort, .uint, .ulong, .ulong_long },
+    };
+    for (candidates) |specifier| {
+        const ty: Type = .{ .specifier = specifier };
+        if (ty.sizeof(comp).? * 8 >= bits) return ty;
+    } else unreachable;
 }
 
 fn intSize(comp: *const Compilation, specifier: Type.Specifier) u64 {
@@ -944,21 +958,29 @@ pub fn getSource(comp: *const Compilation, id: Source.Id) Source {
         .buf = comp.generated_buf.items,
         .id = .generated,
         .splice_locs = &.{},
+        .kind = .user,
     };
     return comp.sources.values()[@intFromEnum(id) - 2];
 }
 
 /// Creates a Source from the contents of `reader` and adds it to the Compilation
-/// Performs newline splicing, line-ending normalization to '\n', and UTF-8 validation.
-/// caller retains ownership of `path`
-/// `expected_size` will be allocated to hold the contents of `reader` and *must* be at least
-/// as large as the entire contents of `reader`.
-/// To add a pre-existing buffer as a Source, see addSourceFromBuffer
-/// To add a file's contents given its path, see addSourceFromPath
-pub fn addSourceFromReader(comp: *Compilation, reader: anytype, path: []const u8, expected_size: u32) !Source {
-    var contents = try comp.gpa.alloc(u8, expected_size);
+pub fn addSourceFromReader(comp: *Compilation, reader: anytype, path: []const u8, kind: Source.Kind) !Source {
+    const contents = try reader.readAllAlloc(comp.gpa, std.math.maxInt(u32));
     errdefer comp.gpa.free(contents);
+    return comp.addSourceFromOwnedBuffer(contents, path, kind);
+}
 
+/// Creates a Source from `buf` and adds it to the Compilation
+/// Performs newline splicing and line-ending normalization to '\n'
+/// `buf` will be modified and the allocation will be resized if newline splicing
+/// or line-ending changes happen.
+/// caller retains ownership of `path`
+/// To add the contents of an arbitrary reader as a Source, see addSourceFromReader
+/// To add a file's contents given its path, see addSourceFromPath
+pub fn addSourceFromOwnedBuffer(comp: *Compilation, buf: []u8, path: []const u8, kind: Source.Kind) !Source {
+    try comp.sources.ensureUnusedCapacity(1);
+
+    var contents = buf;
     const duped_path = try comp.gpa.dupe(u8, path);
     errdefer comp.gpa.free(duped_path);
 
@@ -981,11 +1003,7 @@ pub fn addSourceFromReader(comp: *Compilation, reader: anytype, path: []const u8
     } = .beginning_of_file;
     var line: u32 = 1;
 
-    while (true) {
-        const byte = reader.readByte() catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
+    for (contents) |byte| {
         contents[i] = byte;
 
         switch (byte) {
@@ -1083,33 +1101,40 @@ pub fn addSourceFromReader(comp: *Compilation, reader: anytype, path: []const u8
     errdefer comp.gpa.free(splice_locs);
 
     if (i != contents.len) contents = try comp.gpa.realloc(contents, i);
+    errdefer @compileError("errdefers in callers would possibly free the realloced slice using the original len");
 
     var source = Source{
         .id = source_id,
         .path = duped_path,
         .buf = contents,
         .splice_locs = splice_locs,
+        .kind = kind,
     };
 
-    try comp.sources.put(duped_path, source);
-    if (source.offsetOfInvalidUtf8()) |offset| {
-        try comp.invalid_utf8_locs.putNoClobber(comp.gpa, source_id, offset);
-    }
+    comp.sources.putAssumeCapacityNoClobber(duped_path, source);
     return source;
 }
 
 /// Caller retains ownership of `path` and `buf`.
+/// Dupes the source buffer; if it is acceptable to modify the source buffer and possibly resize
+/// the allocation, please use `addSourceFromOwnedBuffer`
 pub fn addSourceFromBuffer(comp: *Compilation, path: []const u8, buf: []const u8) !Source {
     if (comp.sources.get(path)) |some| return some;
+    if (@as(u64, buf.len) > std.math.maxInt(u32)) return error.StreamTooLong;
 
-    const size = std.math.cast(u32, buf.len) orelse return error.StreamTooLong;
-    var buf_reader = std.io.fixedBufferStream(buf);
+    const contents = try comp.gpa.dupe(u8, buf);
+    errdefer comp.gpa.free(contents);
 
-    return comp.addSourceFromReader(buf_reader.reader(), path, size);
+    return comp.addSourceFromOwnedBuffer(contents, path, .user);
 }
 
-/// Caller retains ownership of `path`
+/// Caller retains ownership of `path`.
 pub fn addSourceFromPath(comp: *Compilation, path: []const u8) !Source {
+    return comp.addSourceFromPathExtra(path, .user);
+}
+
+/// Caller retains ownership of `path`.
+fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kind) !Source {
     if (comp.sources.get(path)) |some| return some;
 
     if (mem.indexOfScalar(u8, path, 0) != null) {
@@ -1119,10 +1144,13 @@ pub fn addSourceFromPath(comp: *Compilation, path: []const u8) !Source {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
-    const size = std.math.cast(u32, try file.getEndPos()) orelse return error.StreamTooLong;
-    var buf_reader = std.io.bufferedReader(file.reader());
+    const contents = file.readToEndAlloc(comp.gpa, std.math.maxInt(u32)) catch |err| switch (err) {
+        error.FileTooBig => return error.StreamTooLong,
+        else => |e| return e,
+    };
+    errdefer comp.gpa.free(contents);
 
-    return comp.addSourceFromReader(buf_reader.reader(), path, size);
+    return comp.addSourceFromOwnedBuffer(contents, path, kind);
 }
 
 pub const IncludeDirIterator = struct {
@@ -1130,28 +1158,46 @@ pub const IncludeDirIterator = struct {
     cwd_source_id: ?Source.Id,
     include_dirs_idx: usize = 0,
     sys_include_dirs_idx: usize = 0,
+    tried_ms_cwd: bool = false,
 
-    fn next(self: *IncludeDirIterator) ?[]const u8 {
+    const FoundSource = struct {
+        path: []const u8,
+        kind: Source.Kind,
+    };
+
+    fn next(self: *IncludeDirIterator) ?FoundSource {
         if (self.cwd_source_id) |source_id| {
             self.cwd_source_id = null;
             const path = self.comp.getSource(source_id).path;
-            return std.fs.path.dirname(path) orelse ".";
+            return .{ .path = std.fs.path.dirname(path) orelse ".", .kind = .user };
         }
         if (self.include_dirs_idx < self.comp.include_dirs.items.len) {
             defer self.include_dirs_idx += 1;
-            return self.comp.include_dirs.items[self.include_dirs_idx];
+            return .{ .path = self.comp.include_dirs.items[self.include_dirs_idx], .kind = .user };
         }
         if (self.sys_include_dirs_idx < self.comp.system_include_dirs.items.len) {
             defer self.sys_include_dirs_idx += 1;
-            return self.comp.system_include_dirs.items[self.sys_include_dirs_idx];
+            return .{ .path = self.comp.system_include_dirs.items[self.sys_include_dirs_idx], .kind = .system };
+        }
+        if (self.comp.ms_cwd_source_id) |source_id| {
+            if (self.tried_ms_cwd) return null;
+            self.tried_ms_cwd = true;
+            const path = self.comp.getSource(source_id).path;
+            return .{ .path = std.fs.path.dirname(path) orelse ".", .kind = .user };
         }
         return null;
     }
 
-    /// Returned value must be freed by allocator
-    fn nextWithFile(self: *IncludeDirIterator, filename: []const u8, allocator: Allocator) !?[]const u8 {
-        while (self.next()) |dir| {
-            return try std.fs.path.join(allocator, &.{ dir, filename });
+    /// Returned value's path field must be freed by allocator
+    fn nextWithFile(self: *IncludeDirIterator, filename: []const u8, allocator: Allocator) !?FoundSource {
+        while (self.next()) |found| {
+            const path = try std.fs.path.join(allocator, &.{ found.path, filename });
+            if (self.comp.langopts.ms_extensions) {
+                for (path) |*c| {
+                    if (c.* == '\\') c.* = '/';
+                }
+            }
+            return .{ .path = path, .kind = found.kind };
         }
         return null;
     }
@@ -1161,8 +1207,8 @@ pub const IncludeDirIterator = struct {
     fn skipUntilDirMatch(self: *IncludeDirIterator, source: Source.Id) void {
         const path = self.comp.getSource(source).path;
         const includer_path = std.fs.path.dirname(path) orelse ".";
-        while (self.next()) |dir| {
-            if (mem.eql(u8, includer_path, dir)) break;
+        while (self.next()) |found| {
+            if (mem.eql(u8, includer_path, found.path)) break;
         }
     }
 };
@@ -1196,9 +1242,9 @@ pub fn hasInclude(
 
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
 
-    while (try it.nextWithFile(filename, stack_fallback.get())) |path| {
-        defer stack_fallback.get().free(path);
-        if (!std.meta.isError(cwd.access(path, .{}))) return true;
+    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
+        defer stack_fallback.get().free(found.path);
+        if (!std.meta.isError(cwd.access(found.path, .{}))) return true;
     }
     return false;
 }
@@ -1247,9 +1293,9 @@ pub fn findEmbed(
     var it = IncludeDirIterator{ .comp = comp, .cwd_source_id = cwd_source_id };
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
 
-    while (try it.nextWithFile(filename, stack_fallback.get())) |path| {
-        defer stack_fallback.get().free(path);
-        if (comp.getFileContents(path)) |some|
+    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
+        defer stack_fallback.get().free(found.path);
+        if (comp.getFileContents(found.path)) |some|
             return some
         else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -1262,7 +1308,7 @@ pub fn findEmbed(
 pub fn findInclude(
     comp: *Compilation,
     filename: []const u8,
-    includer_token_source: Source.Id,
+    includer_token: Token,
     /// angle bracket vs quotes
     include_type: IncludeType,
     /// include vs include_next
@@ -1270,6 +1316,7 @@ pub fn findInclude(
 ) !?Source {
     if (std.fs.path.isAbsolute(filename)) {
         if (which == .next) return null;
+        // TODO: classify absolute file as belonging to system includes or not?
         return if (comp.addSourceFromPath(filename)) |some|
             some
         else |err| switch (err) {
@@ -1279,7 +1326,7 @@ pub fn findInclude(
     }
     const cwd_source_id = switch (include_type) {
         .quotes => switch (which) {
-            .first => includer_token_source,
+            .first => includer_token.source,
             .next => null,
         },
         .angle_brackets => null,
@@ -1287,15 +1334,26 @@ pub fn findInclude(
     var it = IncludeDirIterator{ .comp = comp, .cwd_source_id = cwd_source_id };
 
     if (which == .next) {
-        it.skipUntilDirMatch(includer_token_source);
+        it.skipUntilDirMatch(includer_token.source);
     }
 
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-    while (try it.nextWithFile(filename, stack_fallback.get())) |path| {
-        defer stack_fallback.get().free(path);
-        if (comp.addSourceFromPath(path)) |some|
-            return some
-        else |err| switch (err) {
+    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
+        defer stack_fallback.get().free(found.path);
+        if (comp.addSourceFromPathExtra(found.path, found.kind)) |some| {
+            if (it.tried_ms_cwd) {
+                try comp.diag.add(.{
+                    .tag = .ms_search_rule,
+                    .extra = .{ .str = some.path },
+                    .loc = .{
+                        .id = includer_token.source,
+                        .byte_offset = includer_token.start,
+                        .line = includer_token.line,
+                    },
+                }, &.{});
+            }
+            return some;
+        } else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {},
         }
@@ -1358,9 +1416,7 @@ pub fn hasBuiltin(comp: *const Compilation, name: []const u8) bool {
         std.mem.eql(u8, name, "__builtin_offsetof") or
         std.mem.eql(u8, name, "__builtin_types_compatible_p")) return true;
 
-    @setEvalBranchQuota(10_000);
-    const tag = std.meta.stringToEnum(BuiltinFunction.Tag, name) orelse return false;
-    const builtin = BuiltinFunction.fromTag(tag);
+    const builtin = BuiltinFunction.fromName(name) orelse return false;
     return comp.hasBuiltinFunction(builtin);
 }
 
@@ -1383,7 +1439,7 @@ test "addSourceFromReader" {
             defer comp.deinit();
 
             var buf_reader = std.io.fixedBufferStream(str);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "path", @intCast(str.len));
+            const source = try comp.addSourceFromReader(buf_reader.reader(), "path", .user);
 
             try std.testing.expectEqualStrings(expected, source.buf);
             try std.testing.expectEqual(warning_count, @as(u32, @intCast(comp.diag.list.items.len)));
@@ -1460,32 +1516,26 @@ test "ignore BOM at beginning of file" {
     const BOM = "\xEF\xBB\xBF";
 
     const Test = struct {
-        fn run(buf: []const u8, input_type: enum { valid_utf8, invalid_utf8 }) !void {
+        fn run(buf: []const u8) !void {
             var comp = Compilation.init(std.testing.allocator);
             defer comp.deinit();
 
             var buf_reader = std.io.fixedBufferStream(buf);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "file.c", @intCast(buf.len));
-            switch (input_type) {
-                .valid_utf8 => {
-                    const expected_output = if (mem.startsWith(u8, buf, BOM)) buf[BOM.len..] else buf;
-                    try std.testing.expectEqualStrings(expected_output, source.buf);
-                    try std.testing.expect(!comp.invalid_utf8_locs.contains(source.id));
-                },
-                .invalid_utf8 => try std.testing.expect(comp.invalid_utf8_locs.contains(source.id)),
-            }
+            const source = try comp.addSourceFromReader(buf_reader.reader(), "file.c", .user);
+            const expected_output = if (mem.startsWith(u8, buf, BOM)) buf[BOM.len..] else buf;
+            try std.testing.expectEqualStrings(expected_output, source.buf);
         }
     };
 
-    try Test.run(BOM, .valid_utf8);
-    try Test.run(BOM ++ "x", .valid_utf8);
-    try Test.run("x" ++ BOM, .valid_utf8);
-    try Test.run(BOM ++ " ", .valid_utf8);
-    try Test.run(BOM ++ "\n", .valid_utf8);
-    try Test.run(BOM ++ "\\", .valid_utf8);
+    try Test.run(BOM);
+    try Test.run(BOM ++ "x");
+    try Test.run("x" ++ BOM);
+    try Test.run(BOM ++ " ");
+    try Test.run(BOM ++ "\n");
+    try Test.run(BOM ++ "\\");
 
-    try Test.run(BOM[0..1] ++ "x", .invalid_utf8);
-    try Test.run(BOM[0..2] ++ "x", .invalid_utf8);
-    try Test.run(BOM[1..] ++ "x", .invalid_utf8);
-    try Test.run(BOM[2..] ++ "x", .invalid_utf8);
+    try Test.run(BOM[0..1] ++ "x");
+    try Test.run(BOM[0..2] ++ "x");
+    try Test.run(BOM[1..] ++ "x");
+    try Test.run(BOM[2..] ++ "x");
 }
