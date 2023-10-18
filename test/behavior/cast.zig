@@ -2383,7 +2383,6 @@ test "numeric coercions with undefined" {
 
 test "15-bit int to float" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a: u15 = 42;
     var b: f32 = @floatFromInt(a);

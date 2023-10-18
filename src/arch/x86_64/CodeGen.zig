@@ -3798,11 +3798,13 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = result: {
         const pl_ty = self.typeOfIndex(inst);
-        const opt_mcv = try self.resolveInst(ty_op.operand);
+        if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
 
+        const opt_mcv = try self.resolveInst(ty_op.operand);
         if (self.reuseOperand(inst, ty_op.operand, 0, opt_mcv)) {
             switch (opt_mcv) {
                 .register => |reg| try self.truncateRegister(pl_ty, reg),
@@ -11521,10 +11523,13 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
         .undef => {},
         .immediate => |imm| switch (abi_size) {
             1, 2, 4 => {
-                const immediate = if (ty.isSignedInt(mod))
-                    Immediate.s(@truncate(@as(i64, @bitCast(imm))))
+                const immediate = switch (if (ty.isAbiInt(mod))
+                    ty.intInfo(mod).signedness
                 else
-                    Immediate.u(@as(u32, @intCast(imm)));
+                    .unsigned) {
+                    .signed => Immediate.s(@truncate(@as(i64, @bitCast(imm)))),
+                    .unsigned => Immediate.u(@as(u32, @intCast(imm))),
+                };
                 try self.asmMemoryImmediate(
                     .{ ._, .mov },
                     Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = base, .disp = disp }),
@@ -11586,19 +11591,35 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                 .{ .base = base, .disp = disp + @as(i32, @intCast(src_reg_i * 8)) },
             ), registerAlias(src_reg, part_size));
         },
-        .register_overflow => |ro| {
-            try self.genSetMem(
-                base,
-                disp + @as(i32, @intCast(ty.structFieldOffset(0, mod))),
-                ty.structFieldType(0, mod),
-                .{ .register = ro.reg },
-            );
-            try self.genSetMem(
-                base,
-                disp + @as(i32, @intCast(ty.structFieldOffset(1, mod))),
-                ty.structFieldType(1, mod),
-                .{ .eflags = ro.eflags },
-            );
+        .register_overflow => |ro| switch (ty.zigTypeTag(mod)) {
+            .Struct => {
+                try self.genSetMem(
+                    base,
+                    disp + @as(i32, @intCast(ty.structFieldOffset(0, mod))),
+                    ty.structFieldType(0, mod),
+                    .{ .register = ro.reg },
+                );
+                try self.genSetMem(
+                    base,
+                    disp + @as(i32, @intCast(ty.structFieldOffset(1, mod))),
+                    ty.structFieldType(1, mod),
+                    .{ .eflags = ro.eflags },
+                );
+            },
+            .Optional => {
+                assert(!ty.optionalReprIsPayload(mod));
+                const child_ty = ty.optionalChild(mod);
+                try self.genSetMem(base, disp, child_ty, .{ .register = ro.reg });
+                try self.genSetMem(
+                    base,
+                    disp + @as(i32, @intCast(child_ty.abiSize(mod))),
+                    Type.bool,
+                    .{ .eflags = ro.eflags },
+                );
+            },
+            else => return self.fail("TODO implement genSetMem for {s} of {}", .{
+                @tagName(src_mcv), ty.fmt(mod),
+            }),
         },
         .register_offset,
         .memory,
