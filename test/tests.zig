@@ -997,8 +997,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
         }
 
-        // TODO get universal-libc tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
+        // TODO get universal-libc tests passing for other self-hosted backends.
+        if (test_target.target.getCpuArch() != .x86_64 and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
 
         // TODO get std lib tests passing for self-hosted backends.
