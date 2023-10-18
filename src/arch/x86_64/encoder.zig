@@ -151,7 +151,11 @@ pub const Instruction = struct {
                         moffs.offset,
                     }),
                 },
-                .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
+                .imm => |imm| if (enc_op.isSigned()) {
+                    var imms = imm.asSigned(enc_op.immBitSize());
+                    if (imms < 0) try writer.writeByte('-');
+                    try writer.print("0x{x}", .{@abs(imms)});
+                } else try writer.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
             }
         }
 

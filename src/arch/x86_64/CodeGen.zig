@@ -10631,6 +10631,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         var prefix: Instruction.Prefix = .none;
         const mnem_str = while (mnem_it.next()) |mnem_str| {
             if (mem.startsWith(u8, mnem_str, "#")) continue :next_line;
+            if (mem.startsWith(u8, mnem_str, "//")) continue :next_line;
             if (std.meta.stringToEnum(Instruction.Prefix, mnem_str)) |pre| {
                 if (prefix != .none) return self.fail("extra prefix: '{s}'", .{mnem_str});
                 prefix = pre;
@@ -10714,10 +10715,13 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         next_op: for (&ops) |*op| {
             const op_str = while (!last_op) {
                 const full_str = op_it.next() orelse break :next_op;
-                const trim_str = mem.trim(u8, if (mem.indexOfScalar(u8, full_str, '#')) |hash| hash: {
+                const code_str = if (mem.indexOfScalar(u8, full_str, '#') orelse
+                    mem.indexOf(u8, full_str, "//")) |comment|
+                code: {
                     last_op = true;
-                    break :hash full_str[0..hash];
-                } else full_str, " \t");
+                    break :code full_str[0..comment];
+                } else full_str;
+                const trim_str = mem.trim(u8, code_str, " \t*");
                 if (trim_str.len > 0) break trim_str;
             } else break;
             if (mem.startsWith(u8, op_str, "%%")) {

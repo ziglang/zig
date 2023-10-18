@@ -607,6 +607,24 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
+    pub fn asSigned(imm: Immediate, bit_size: u64) i64 {
+        return switch (imm) {
+            .signed => |x| switch (bit_size) {
+                1, 8 => @as(i8, @intCast(x)),
+                16 => @as(i16, @intCast(x)),
+                32, 64 => x,
+                else => unreachable,
+            },
+            .unsigned => |x| switch (bit_size) {
+                1, 8 => @as(i8, @bitCast(@as(u8, @intCast(x)))),
+                16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
+                32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
+                64 => @as(i64, @bitCast(x)),
+                else => unreachable,
+            },
+        };
+    }
+
     pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
         return switch (imm) {
             .signed => |x| switch (bit_size) {
