@@ -18,6 +18,7 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
+const EnvVar = introspect.EnvVar;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const BuildId = std.Build.CompileStep.BuildId;
@@ -231,14 +232,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         fatal("expected command argument", .{});
     }
 
-    if (std.process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+    if (process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
         // Here we ignore the CC environment variable and exec `cc` as a child process.
         // However it's possible Zig is installed as *that* C compiler as well, which is
         // why we have this additional environment variable here to check.
-        var env_map = try std.process.getEnvMap(arena);
+        var env_map = try process.getEnvMap(arena);
 
         const inf_loop_env_key = "ZIG_IS_TRYING_TO_NOT_CALL_ITSELF";
         if (env_map.get(inf_loop_env_key) != null) {
@@ -254,11 +255,11 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         // CC environment variable. We detect and support this scenario here because of
         // the ZIG_IS_DETECTING_LIBC_PATHS environment variable.
         if (mem.eql(u8, args[1], "cc")) {
-            return std.process.execve(arena, args[1..], &env_map);
+            return process.execve(arena, args[1..], &env_map);
         } else {
             const modified_args = try arena.dupe([]const u8, args);
             modified_args[0] = "cc";
-            return std.process.execve(arena, modified_args, &env_map);
+            return process.execve(arena, modified_args, &env_map);
         }
     }
 
@@ -686,19 +687,6 @@ const Emit = union(enum) {
     }
 };
 
-fn optionalStringEnvVar(arena: Allocator, name: []const u8) !?[]const u8 {
-    // Env vars aren't used in the bootstrap stage.
-    if (build_options.only_c) {
-        return null;
-    }
-    if (std.process.getEnvVarOwned(arena, name)) |value| {
-        return value;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => return null,
-        else => |e| return e,
-    }
-}
-
 const ArgMode = union(enum) {
     build: std.builtin.OutputMode,
     cc,
@@ -797,8 +785,10 @@ fn buildOutputType(
     var no_builtin = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
-    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
-    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
+    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
+    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -892,15 +882,15 @@ fn buildOutputType(
     var each_lib_rpath: ?bool = null;
     var build_id: ?BuildId = null;
     var sysroot: ?[]const u8 = null;
-    var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
+    var libc_paths_file: ?[]const u8 = try EnvVar.ZIG_LIBC.get(arena);
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
-    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
-    var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
+    var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
+    var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var main_mod_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
@@ -960,7 +950,7 @@ fn buildOutputType(
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    color = if (builtin.os.tag == .wasi or std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    color = if (builtin.os.tag == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -4059,18 +4049,18 @@ fn runOrTest(
     if (runtime_args_start) |i| {
         try argv.appendSlice(all_args[i..]);
     }
-    var env_map = try std.process.getEnvMap(arena);
+    var env_map = try process.getEnvMap(arena);
     try env_map.put("ZIG_EXE", self_exe_path);
 
     // We do not execve for tests because if the test fails we want to print
     // the error message and invocation below.
-    if (std.process.can_execv and arg_mode == .run) {
+    if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
-        const err = std.process.execve(gpa, argv.items, &env_map);
+        const err = process.execve(gpa, argv.items, &env_map);
         try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
-    } else if (std.process.can_spawn) {
+    } else if (process.can_spawn) {
         var child = std.ChildProcess.init(argv.items, gpa);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;
@@ -4489,7 +4479,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 try stdout_writer.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
             }
 
-            if (std.process.can_spawn) {
+            if (process.can_spawn) {
                 var result = std.ChildProcess.exec(.{
                     .allocator = gpa,
                     .argv = argv.items,
@@ -4922,7 +4912,7 @@ pub const usage_build =
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const work_around_btrfs_bug = builtin.os.tag == .linux and
-        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var color: Color = .auto;
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -4931,10 +4921,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         const self_exe_path = try introspect.findZigExePath(arena);
 
         var build_file: ?[]const u8 = null;
-        var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
-        var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
-        var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
-        var override_build_runner: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_BUILD_RUNNER");
+        var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+        var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+        var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
+        var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
@@ -5292,7 +5282,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         break :argv child_argv.items;
     };
 
-    if (std.process.can_spawn) {
+    if (process.can_spawn) {
         var child = std.ChildProcess.init(child_argv, gpa);
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
@@ -7003,9 +6993,9 @@ fn cmdFetch(
 ) !void {
     const color: Color = .auto;
     const work_around_btrfs_bug = builtin.os.tag == .linux and
-        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
-    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
 
     {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
+const introspect = @import("../introspect.zig");
 
 pub const IncludeArgs = struct {
     clang_target: ?[]const u8 = null,
@@ -67,7 +68,7 @@ pub fn appendClangArgs(arena: Allocator, argv: *std.ArrayList([]const u8), optio
     }
 
     if (!options.ignore_include_env_var) {
-        const INCLUDE = std.process.getEnvVarOwned(arena, "INCLUDE") catch "";
+        const INCLUDE = (introspect.EnvVar.INCLUDE.get(arena) catch @panic("OOM")) orelse "";
 
         // TODO: Should this be platform-specific? How does windres/llvm-rc handle this (if at all)?
         var it = std.mem.tokenize(u8, INCLUDE, ";");
