@@ -452,6 +452,7 @@ pub const Mutable = struct {
     }
 
     /// r = a + b
+    ///
     /// r, a and b may be aliases.
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
@@ -1869,7 +1870,7 @@ pub const Mutable = struct {
         }
     }
 
-    /// Read the value of `x` from `buffer`
+    /// Read the value of `x` from `buffer`.
     /// Asserts that `buffer` is large enough to contain a value of bit-size `bit_count`.
     ///
     /// The contents of `buffer` are interpreted as if they were the contents of
