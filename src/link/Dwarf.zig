@@ -1823,7 +1823,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     // We have to come back and write it later after we know the size.
     const after_init_len = di_buf.items.len + init_len_size;
     const dbg_info_end = self.getDebugInfoEnd().?;
-    const init_len = dbg_info_end - after_init_len;
+    const init_len = dbg_info_end - after_init_len + 1;
 
     if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
     self.writeOffsetAssumeCapacity(&di_buf, init_len);
@@ -2417,7 +2417,7 @@ fn getDebugInfoOff(self: Dwarf) ?u32 {
 fn getDebugInfoEnd(self: Dwarf) ?u32 {
     const last_index = self.di_atom_last_index orelse return null;
     const last = self.getAtom(.di_atom, last_index);
-    return last.off + last.len + 1;
+    return last.off + last.len;
 }
 
 fn getDebugLineProgramOff(self: Dwarf) ?u32 {
