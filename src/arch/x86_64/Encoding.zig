@@ -554,6 +554,7 @@ pub const Op = enum {
         return switch (op) {
             .unity, .imm8, .imm16, .imm32, .imm64 => false,
             .imm8s, .imm16s, .imm32s => true,
+            .rel8, .rel16, .rel32 => true,
             else => unreachable,
         };
     }
