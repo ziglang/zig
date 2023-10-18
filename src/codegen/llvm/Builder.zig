@@ -7999,11 +7999,13 @@ pub fn init(options: Options) InitError!Builder {
     assert(try self.string("") == .empty);
 
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
-    self.initializeLLVMTarget(options.target.cpu.arch);
-    if (self.useLibLlvm()) self.llvm.module = llvm.Module.createWithName(
-        (self.source_filename.slice(&self) orelse ""),
-        self.llvm.context,
-    );
+    if (self.useLibLlvm()) {
+        initializeLLVMTarget(options.target.cpu.arch);
+        self.llvm.module = llvm.Module.createWithName(
+            (self.source_filename.slice(&self) orelse ""),
+            self.llvm.context,
+        );
+    }
 
     if (options.triple.len > 0) {
         self.target_triple = try self.string(options.triple);
@@ -8117,8 +8119,7 @@ pub fn deinit(self: *Builder) void {
     self.* = undefined;
 }
 
-pub fn initializeLLVMTarget(self: *const Builder, arch: std.Target.Cpu.Arch) void {
-    if (!self.useLibLlvm()) return;
+pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             llvm.LLVMInitializeAArch64Target();
