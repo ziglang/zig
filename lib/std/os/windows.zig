@@ -1593,11 +1593,12 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{Unexpected};
+pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (kernel32.GetLastError()) {
+            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
             else => |err| return unexpectedError(err),
         }
     }

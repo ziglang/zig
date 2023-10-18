@@ -639,14 +639,14 @@ pub fn raise(sig: u8) RaiseError!void {
     @compileError("std.os.raise unimplemented for this target");
 }
 
-pub const KillError = error{PermissionDenied} || UnexpectedError;
+pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
 
 pub fn kill(pid: pid_t, sig: u8) KillError!void {
     switch (errno(system.kill(pid, sig))) {
         .SUCCESS => return,
         .INVAL => unreachable, // invalid signal
         .PERM => return error.PermissionDenied,
-        .SRCH => unreachable, // always a race condition
+        .SRCH => return error.ProcessNotFound,
         else => |err| return unexpectedErrno(err),
     }
 }
