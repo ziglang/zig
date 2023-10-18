@@ -1656,7 +1656,7 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
-} || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+} || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 fn parsePositional(
     self: *Elf,
@@ -1689,7 +1689,13 @@ fn parseLibrary(
         try self.parseArchive(in_file, lib.path, must_link, ctx);
     } else if (SharedObject.isSharedObject(in_file)) {
         try self.parseSharedObject(in_file, lib, ctx);
-    } else return error.UnknownFileType;
+    } else {
+        // TODO if the script has a top-level comment identifying it as GNU ld script,
+        // then report parse errors. Otherwise return UnknownFileType.
+        self.parseLdScript(in_file, lib, ctx) catch |err| switch (err) {
+            else => return error.UnknownFileType,
+        };
+    }
 }
 
 fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
@@ -1700,7 +1706,7 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
-        .path = path,
+        .path = try gpa.dupe(u8, path),
         .data = data,
         .index = index,
     } });
@@ -1725,11 +1731,14 @@ fn parseArchive(
 
     const gpa = self.base.allocator;
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    var archive = Archive{ .path = path, .data = data };
+    var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
     defer archive.deinit(gpa);
     try archive.parse(self);
 
-    for (archive.objects.items) |extracted| {
+    const objects = try archive.objects.toOwnedSlice(gpa);
+    defer gpa.free(objects);
+
+    for (objects) |extracted| {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .object = extracted });
         const object = &self.files.items(.data)[index].object;
@@ -1756,7 +1765,7 @@ fn parseSharedObject(
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
-        .path = lib.path,
+        .path = try gpa.dupe(u8, lib.path),
         .data = data,
         .index = index,
         .needed = lib.needed,
@@ -1769,6 +1778,123 @@ fn parseSharedObject(
 
     ctx.detected_cpu_arch = shared_object.header.?.e_machine.toTargetCpuArch().?;
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+}
+
+fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    defer gpa.free(data);
+
+    var script = LdScript{};
+    defer script.deinit(gpa);
+    try script.parse(data, self);
+
+    if (script.cpu_arch) |cpu_arch| {
+        ctx.detected_cpu_arch = cpu_arch;
+        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+    }
+
+    const lib_dirs = self.base.options.lib_dirs;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var test_path = std.ArrayList(u8).init(arena);
+    var checked_paths = std.ArrayList([]const u8).init(arena);
+
+    for (script.args.items) |scr_obj| {
+        checked_paths.clearRetainingCapacity();
+
+        success: {
+            if (mem.startsWith(u8, scr_obj.path, "-l")) {
+                const lib_name = scr_obj.path["-l".len..];
+
+                // TODO I think technically we should re-use the mechanism used by the frontend here.
+                // Maybe we should hoist search-strategy all the way here?
+                for (lib_dirs) |lib_dir| {
+                    if (!self.isStatic()) {
+                        if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                            break :success;
+                    }
+                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
+                        break :success;
+                }
+
+                try self.reportMissingLibraryError(
+                    checked_paths.items,
+                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                    .{
+                        lib.path,
+                        scr_obj.path,
+                    },
+                );
+            } else {
+                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                if (fs.realpath(scr_obj.path, &buffer)) |path| {
+                    test_path.clearRetainingCapacity();
+                    try test_path.writer().writeAll(path);
+                    break :success;
+                } else |_| {}
+
+                try checked_paths.append(try gpa.dupe(u8, scr_obj.path));
+                for (lib_dirs) |lib_dir| {
+                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
+                        break :success;
+                }
+
+                try self.reportMissingLibraryError(
+                    checked_paths.items,
+                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                    .{
+                        lib.path,
+                        scr_obj.path,
+                    },
+                );
+            }
+        }
+
+        const full_path = test_path.items;
+        const scr_file = try std.fs.cwd().openFile(full_path, .{});
+        defer scr_file.close();
+
+        var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parseLibrary(scr_file, .{
+            .needed = scr_obj.needed,
+            .path = full_path,
+        }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
+    }
+}
+
+fn accessLibPath(
+    self: *Elf,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    lib_dir_path: []const u8,
+    lib_name: []const u8,
+    link_mode: ?std.builtin.LinkMode,
+) !bool {
+    const sep = fs.path.sep_str;
+    const target = self.base.options.target;
+    test_path.clearRetainingCapacity();
+    try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+        lib_dir_path,
+        target.libPrefix(),
+        lib_name,
+        if (link_mode) |mode| switch (mode) {
+            .Static => target.staticLibSuffix(),
+            .Dynamic => target.dynamicLibSuffix(),
+        } else "",
+    });
+    try checked_paths.append(try self.base.allocator.dupe(u8, test_path.items));
+    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    return true;
 }
 
 /// When resolving symbols, we approach the problem similarly to `mold`.
@@ -5893,6 +6019,19 @@ fn reportUndefined(self: *Elf, undefs: anytype) !void {
     }
 }
 
+fn reportMissingLibraryError(
+    self: *Elf,
+    checked_paths: []const []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(checked_paths.len);
+    try err.addMsg(self, format, args);
+    for (checked_paths) |path| {
+        try err.addNote(self, "tried {s}", .{path});
+    }
+}
+
 const ParseErrorCtx = struct {
     detected_cpu_arch: std.Target.Cpu.Arch,
 };
@@ -6189,7 +6328,7 @@ pub const null_shdr = elf.Elf64_Shdr{
     .sh_entsize = 0,
 };
 
-const SystemLib = struct {
+pub const SystemLib = struct {
     needed: bool = false,
     path: []const u8,
 };
@@ -6235,6 +6374,7 @@ const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
+const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
