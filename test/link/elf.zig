@@ -85,17 +85,14 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17576
-    //elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsIe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeTbss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17576
-    //elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17576
-    //elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17430
     // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
@@ -2113,10 +2110,10 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
     b_o.force_pic = true;
 
     {
-        const dso = addSharedLibrary(b, "a", opts);
+        const dso = addSharedLibrary(b, "a1", opts);
         dso.addObject(a_o);
 
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main1", opts);
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
@@ -2127,11 +2124,11 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
     }
 
     {
-        const dso = addSharedLibrary(b, "a", opts);
+        const dso = addSharedLibrary(b, "a2", opts);
         dso.addObject(a_o);
         // dso.link_relax = false; // TODO
 
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main2", opts);
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
@@ -2210,7 +2207,7 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
     const exp_stdout = "0 0 3 5 7\n";
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main1", opts);
         exe.addObject(main_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
@@ -2221,7 +2218,7 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main2", opts);
         exe.addObject(main_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
@@ -2374,7 +2371,7 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
     const exp_stdout = "3 5 3 5\n";
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main1", opts);
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibC();
@@ -2385,7 +2382,7 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main2", opts);
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibC();
@@ -2456,7 +2453,7 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
     b_o.force_pic = true;
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main1", opts);
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.linkLibC();
@@ -2467,7 +2464,7 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = addExecutable(b, "main", opts);
+        const exe = addExecutable(b, "main2", opts);
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.linkLibC();
