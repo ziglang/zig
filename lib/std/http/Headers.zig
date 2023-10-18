@@ -249,7 +249,7 @@ pub const Headers = struct {
         try out_stream.writeAll("\r\n");
     }
 
-    /// Frees all `HeaderIndexList`s within `index`
+    /// Frees all `HeaderIndexList`s within `index`.
     /// Frees names and values of all fields if they are owned.
     fn deallocateIndexListsAndFields(headers: *Headers) void {
         var it = headers.index.iterator();
