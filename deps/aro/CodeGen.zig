@@ -1162,7 +1162,7 @@ fn genBoolExpr(c: *CodeGen, base: NodeIndex, true_label: Ir.Ref, false_label: Ir
 fn genBuiltinCall(c: *CodeGen, builtin: BuiltinFunction, arg_nodes: []const NodeIndex, ty: Type) Error!Ir.Ref {
     _ = arg_nodes;
     _ = ty;
-    return c.comp.diag.fatalNoSrc("TODO CodeGen.genBuiltinCall {s}\n", .{@tagName(builtin.tag)});
+    return c.comp.diag.fatalNoSrc("TODO CodeGen.genBuiltinCall {s}\n", .{BuiltinFunction.nameFromTag(builtin.tag).span()});
 }
 
 fn genCall(c: *CodeGen, fn_node: NodeIndex, arg_nodes: []const NodeIndex, ty: Type) Error!Ir.Ref {

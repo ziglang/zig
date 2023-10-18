@@ -2,17 +2,14 @@ const std = @import("std");
 const tests = @import("tests.zig");
 const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
-pub fn addCases(cases: *tests.RunTranslatedCContext) void {
-    cases.add("dereference address of",
-        \\#include <stdlib.h>
-        \\int main(void) {
-        \\    int i = 0;
-        \\    *&i = 42;
-        \\    if (i != 42) abort();
-        \\	  return 0;
-        \\}
-    , "");
+// *********************************************************
+// *                                                       *
+// *               DO NOT ADD NEW CASES HERE               *
+// *   instead add a file to test/cases/run_translated_c   *
+// *                                                       *
+// *********************************************************
 
+pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("division of floating literals",
         \\#define _NO_CRT_STDIO_INLINE 1
         \\#include <stdio.h>

@@ -1727,7 +1727,11 @@ pub const Builder = struct {
                     ty = typeof;
                 } else {
                     ty.specifier = .int;
-                    try p.err(.missing_type_specifier);
+                    if (p.comp.langopts.standard.atLeast(.c2x)) {
+                        try p.err(.missing_type_specifier_c2x);
+                    } else {
+                        try p.err(.missing_type_specifier);
+                    }
                 }
             },
             .void => ty.specifier = .void,

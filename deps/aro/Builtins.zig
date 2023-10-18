@@ -125,6 +125,18 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
             std.debug.assert(builder.specifier == .none);
             builder.specifier = Type.Builder.fromType(comp.types.ns_constant_string.ty);
         },
+        .G => {
+            // Todo: id
+            return .{ .specifier = .invalid };
+        },
+        .H => {
+            // Todo: SEL
+            return .{ .specifier = .invalid };
+        },
+        .M => {
+            // Todo: struct objc_super
+            return .{ .specifier = .invalid };
+        },
         .a => {
             std.debug.assert(builder.specifier == .none);
             std.debug.assert(desc.suffix.len == 0);
@@ -260,8 +272,7 @@ fn createBuiltin(comp: *const Compilation, builtin: BuiltinFunction, type_arena:
 
 /// Asserts that the builtin has already been created
 pub fn lookup(b: *const Builtins, name: []const u8) Expanded {
-    @setEvalBranchQuota(10_000);
-    const builtin = BuiltinFunction.fromTag(std.meta.stringToEnum(BuiltinFunction.Tag, name).?);
+    const builtin = BuiltinFunction.fromName(name).?;
     const ty = b._name_to_type_map.get(name).?;
     return .{
         .builtin = builtin,
@@ -271,9 +282,7 @@ pub fn lookup(b: *const Builtins, name: []const u8) Expanded {
 
 pub fn getOrCreate(b: *Builtins, comp: *Compilation, name: []const u8, type_arena: std.mem.Allocator) !?Expanded {
     const ty = b._name_to_type_map.get(name) orelse {
-        @setEvalBranchQuota(10_000);
-        const tag = std.meta.stringToEnum(BuiltinFunction.Tag, name) orelse return null;
-        const builtin = BuiltinFunction.fromTag(tag);
+        const builtin = BuiltinFunction.fromName(name) orelse return null;
         if (!comp.hasBuiltinFunction(builtin)) return null;
 
         try b._name_to_type_map.ensureUnusedCapacity(comp.gpa, 1);
@@ -285,7 +294,7 @@ pub fn getOrCreate(b: *Builtins, comp: *Compilation, name: []const u8, type_aren
             .ty = ty,
         };
     };
-    const builtin = BuiltinFunction.fromTag(std.meta.stringToEnum(BuiltinFunction.Tag, name).?);
+    const builtin = BuiltinFunction.fromName(name).?;
     return .{
         .builtin = builtin,
         .ty = ty,
@@ -301,9 +310,9 @@ test "All builtins" {
 
     const type_arena = arena.allocator();
 
-    for (0..@typeInfo(BuiltinFunction.Tag).Enum.fields.len) |i| {
-        const tag: BuiltinFunction.Tag = @enumFromInt(i);
-        const name = @tagName(tag);
+    var builtin_it = BuiltinFunction.BuiltinsIterator{};
+    while (builtin_it.next()) |entry| {
+        const name = try type_arena.dupe(u8, entry.name);
         if (try comp.builtins.getOrCreate(&comp, name, type_arena)) |func_ty| {
             const get_again = (try comp.builtins.getOrCreate(&comp, name, std.testing.failing_allocator)).?;
             const found_by_lookup = comp.builtins.lookup(name);
@@ -325,10 +334,10 @@ test "Allocation failures" {
             const type_arena = arena.allocator();
 
             const num_builtins = 40;
-            for (0..num_builtins) |i| {
-                const tag: BuiltinFunction.Tag = @enumFromInt(i);
-                const name = @tagName(tag);
-                _ = try comp.builtins.getOrCreate(&comp, name, type_arena);
+            var builtin_it = BuiltinFunction.BuiltinsIterator{};
+            for (0..num_builtins) |_| {
+                const entry = builtin_it.next().?;
+                _ = try comp.builtins.getOrCreate(&comp, entry.name, type_arena);
             }
         }
     };
