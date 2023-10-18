@@ -23,30 +23,38 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Wr
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
 
-    try w.print(
-        \\zig_exe={s}
-        \\lib_dir={s}
-        \\std_dir={s}
-        \\global_cache_dir={s}
-        \\version={s}
-        \\target={s}
-        \\
-    , .{
-        self_exe_path,
-        zig_lib_directory.path.?,
-        zig_std_dir,
-        global_cache_dir,
-        build_options.version,
-        triple,
-    });
+    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
 
+    try jws.beginObject();
+
+    try jws.objectField("zig_exe");
+    try jws.write(self_exe_path);
+
+    try jws.objectField("lib_dir");
+    try jws.write(zig_lib_directory.path.?);
+
+    try jws.objectField("std_dir");
+    try jws.write(zig_std_dir);
+
+    try jws.objectField("global_cache_dir");
+    try jws.write(global_cache_dir);
+
+    try jws.objectField("version");
+    try jws.write(build_options.version);
+
+    try jws.objectField("target");
+    try jws.write(triple);
+
+    try jws.objectField("env");
+    try jws.beginObject();
     inline for (@typeInfo(introspect.EnvVar).Enum.fields) |field| {
-        if (try @field(introspect.EnvVar, field.name).get(arena)) |value| {
-            try w.print("{s}={s}\n", .{ field.name, value });
-        } else {
-            try w.print("{s}\n", .{field.name});
-        }
+        try jws.objectField(field.name);
+        try jws.write(try @field(introspect.EnvVar, field.name).get(arena));
     }
+    try jws.endObject();
+
+    try jws.endObject();
+    try w.writeByte('\n');
 
     try bw.flush();
 }
