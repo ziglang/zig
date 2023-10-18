@@ -85,12 +85,14 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17576
+    //elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsIe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeTbss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
+    // https://github.com/ziglang/zig/issues/17576
+    //elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17430

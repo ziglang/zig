@@ -12,6 +12,7 @@ tokens: TokenList.Slice,
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
+mode: Mode = .zig,
 
 errors: []const Error,
 
@@ -96,6 +97,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
+        .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),

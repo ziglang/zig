@@ -756,12 +756,14 @@ const FileType = enum {
     tar,
     @"tar.gz",
     @"tar.xz",
+    @"tar.zst",
     git_pack,
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
         if (ascii.endsWithIgnoreCase(file_path, ".tar.gz")) return .@"tar.gz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
+        if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         return null;
     }
 
@@ -979,6 +981,9 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(content_type, "application/x-xz"))
                 break :ft .@"tar.xz";
 
+            if (ascii.eqlIgnoreCase(content_type, "application/zstd"))
+                break :ft .@"tar.zst";
+
             if (!ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
                 return f.fail(f.location_tok, try eb.printString(
                     "unrecognized 'Content-Type' header: '{s}'",
@@ -1019,6 +1024,7 @@ fn unpackResource(
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
         .@"tar.gz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.gzip),
         .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
+        .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
@@ -1029,6 +1035,18 @@ fn unpackResource(
         },
     }
 }
+
+// due to slight differences in the API of std.compress.(gzip|xz) and std.compress.zstd, zstd is
+// wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
+const ZstdWrapper = struct {
+    fn DecompressType(comptime T: type) type {
+        return error{}!std.compress.zstd.DecompressStream(T, .{});
+    }
+
+    fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
+        return std.compress.zstd.decompressStream(allocator, reader);
+    }
+};
 
 fn unpackTarballCompressed(
     f: *Fetch,
