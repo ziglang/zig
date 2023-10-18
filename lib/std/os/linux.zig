@@ -4053,7 +4053,7 @@ pub const IORING_ENTER_EXT_ARG = 1 << 3;
 pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
 
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = enum(u8) {
+pub const IORING_REGISTER = enum(u32) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
