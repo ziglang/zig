@@ -10462,7 +10462,7 @@ fn bigIntConstAssumeCapacity(
                         const overflow = @subWithOverflow(borrow, llvm_limb);
                         llvm_limb = overflow[0];
                         borrow -%= overflow[1];
-                        assert(borrow == 0 or borrow == std.math.maxInt(u64));
+                        assert(borrow == 0 or borrow == std.math.maxInt(std.math.big.Limb));
                     }
                     result_limb.* = llvm_limb;
                 }
