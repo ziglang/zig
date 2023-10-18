@@ -73,7 +73,7 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     esym.st_shndx = shndx;
     symbol_ptr.esym_index = esym_index;
 
-    const relocs_index = @as(u16, @intCast(self.relocs.items.len));
+    const relocs_index = @as(u32, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
     atom_ptr.relocs_section_index = relocs_index;
