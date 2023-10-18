@@ -946,13 +946,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
 
         const lto = blk: {
-            if (options.want_lto) |explicit| {
-                if (!use_lld and !options.target.isDarwin())
+            if (options.want_lto) |want_lto| {
+                if (want_lto and !use_lld and !options.target.isDarwin())
                     return error.LtoUnavailableWithoutLld;
-                break :blk explicit;
+                break :blk want_lto;
             } else if (!use_lld) {
-                // TODO zig ld LTO support
-                // See https://github.com/ziglang/zig/issues/8680
+                // zig ld LTO support is tracked by
+                // https://github.com/ziglang/zig/issues/8680
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
                 break :blk false;
