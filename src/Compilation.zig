@@ -1111,12 +1111,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.StackProtectorUnavailableWithoutLibC;
         }
 
-        const valgrind: bool = b: {
-            if (!target_util.hasValgrindSupport(options.target))
-                break :b false;
-            break :b options.want_valgrind orelse (options.optimize_mode == .Debug);
-        };
-
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
         const must_single_thread = target_util.isSingleThreaded(options.target);
@@ -1159,6 +1153,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
 
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
+        const valgrind: bool = b: {
+            if (!target_util.hasValgrindSupport(options.target)) break :b false;
+            if (options.want_valgrind) |explicit| break :b explicit;
+            if (strip) break :b false;
+            break :b options.optimize_mode == .Debug;
+        };
+        if (!valgrind and options.want_valgrind == true)
+            return error.ValgrindUnsupportedOnTarget;
+
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
         const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
