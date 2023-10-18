@@ -1788,8 +1788,6 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.count,          DW.FORM.udata,
         0,
         0, // table sentinel
-        0,
-        0,
         0, // section sentinel
     };
     const abbrev_offset = 0;
