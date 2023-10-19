@@ -4759,11 +4759,17 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // unconditionally set `ignore_include_env_var` to true
         options.ignore_include_env_var = true;
 
+        if (options.preprocess != .yes) {
+            return comp.failWin32Resource(win32_resource, "the '{s}' option is not supported in this context", .{switch (options.preprocess) {
+                .no => "/:no-preprocess",
+                .only => "/p",
+                .yes => unreachable,
+            }});
+        }
+
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        // TODO: support options.preprocess == .no and .only
-        //       alternatively, error if those options are used
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
 
         try resinator.preprocess.appendClangArgs(arena, &argv, options, .{

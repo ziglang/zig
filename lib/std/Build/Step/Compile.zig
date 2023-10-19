@@ -243,6 +243,8 @@ pub const RcSourceFile = struct {
     file: LazyPath,
     /// Any option that rc.exe accepts will work here, with the exception of:
     /// - `/fo`: The output filename is set by the build system
+    /// - `/p`: Only running the preprocessor is not supported in this context
+    /// - `/:no-preprocess` (non-standard option): Not supported in this context
     /// - Any MUI-related option
     /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
     ///
