@@ -331,7 +331,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         symbol_ptr.name_offset = name_off;
 
         const esym_index = try zig_module.addLocalEsym(allocator);
-        const esym = &zig_module.local_esyms.items[esym_index];
+        const esym = &zig_module.local_esyms.items(.elf_sym)[esym_index];
         esym.st_name = name_off;
         esym.st_info |= elf.STT_FILE;
         esym.st_shndx = elf.SHN_ABS;
@@ -1383,8 +1383,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // libc dep
     self.error_flags.missing_libc = false;
     if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation != null) {
-            @panic("TODO explicit libc_installation");
+        if (self.base.options.libc_installation) |lc| {
+            const flags = target_util.libcFullLinkFlags(target);
+            try system_libs.ensureUnusedCapacity(flags.len);
+            for (flags) |flag| {
+                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so", .{
+                    lc.crt_dir.?, fs.path.sep, flag["-l".len..],
+                });
+                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+            }
         } else if (target.isGnuLibC()) {
             try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
             for (glibc.libs) |lib| {
@@ -1649,7 +1656,7 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
-} || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+} || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 fn parsePositional(
     self: *Elf,
@@ -1682,7 +1689,13 @@ fn parseLibrary(
         try self.parseArchive(in_file, lib.path, must_link, ctx);
     } else if (SharedObject.isSharedObject(in_file)) {
         try self.parseSharedObject(in_file, lib, ctx);
-    } else return error.UnknownFileType;
+    } else {
+        // TODO if the script has a top-level comment identifying it as GNU ld script,
+        // then report parse errors. Otherwise return UnknownFileType.
+        self.parseLdScript(in_file, lib, ctx) catch |err| switch (err) {
+            else => return error.UnknownFileType,
+        };
+    }
 }
 
 fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
@@ -1693,7 +1706,7 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
-        .path = path,
+        .path = try gpa.dupe(u8, path),
         .data = data,
         .index = index,
     } });
@@ -1718,11 +1731,14 @@ fn parseArchive(
 
     const gpa = self.base.allocator;
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    var archive = Archive{ .path = path, .data = data };
+    var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
     defer archive.deinit(gpa);
     try archive.parse(self);
 
-    for (archive.objects.items) |extracted| {
+    const objects = try archive.objects.toOwnedSlice(gpa);
+    defer gpa.free(objects);
+
+    for (objects) |extracted| {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .object = extracted });
         const object = &self.files.items(.data)[index].object;
@@ -1749,7 +1765,7 @@ fn parseSharedObject(
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
-        .path = lib.path,
+        .path = try gpa.dupe(u8, lib.path),
         .data = data,
         .index = index,
         .needed = lib.needed,
@@ -1762,6 +1778,123 @@ fn parseSharedObject(
 
     ctx.detected_cpu_arch = shared_object.header.?.e_machine.toTargetCpuArch().?;
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+}
+
+fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    defer gpa.free(data);
+
+    var script = LdScript{};
+    defer script.deinit(gpa);
+    try script.parse(data, self);
+
+    if (script.cpu_arch) |cpu_arch| {
+        ctx.detected_cpu_arch = cpu_arch;
+        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+    }
+
+    const lib_dirs = self.base.options.lib_dirs;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    var test_path = std.ArrayList(u8).init(arena);
+    var checked_paths = std.ArrayList([]const u8).init(arena);
+
+    for (script.args.items) |scr_obj| {
+        checked_paths.clearRetainingCapacity();
+
+        success: {
+            if (mem.startsWith(u8, scr_obj.path, "-l")) {
+                const lib_name = scr_obj.path["-l".len..];
+
+                // TODO I think technically we should re-use the mechanism used by the frontend here.
+                // Maybe we should hoist search-strategy all the way here?
+                for (lib_dirs) |lib_dir| {
+                    if (!self.isStatic()) {
+                        if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                            break :success;
+                    }
+                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
+                        break :success;
+                }
+
+                try self.reportMissingLibraryError(
+                    checked_paths.items,
+                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                    .{
+                        lib.path,
+                        scr_obj.path,
+                    },
+                );
+            } else {
+                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                if (fs.realpath(scr_obj.path, &buffer)) |path| {
+                    test_path.clearRetainingCapacity();
+                    try test_path.writer().writeAll(path);
+                    break :success;
+                } else |_| {}
+
+                try checked_paths.append(try gpa.dupe(u8, scr_obj.path));
+                for (lib_dirs) |lib_dir| {
+                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
+                        break :success;
+                }
+
+                try self.reportMissingLibraryError(
+                    checked_paths.items,
+                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                    .{
+                        lib.path,
+                        scr_obj.path,
+                    },
+                );
+            }
+        }
+
+        const full_path = test_path.items;
+        const scr_file = try std.fs.cwd().openFile(full_path, .{});
+        defer scr_file.close();
+
+        var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parseLibrary(scr_file, .{
+            .needed = scr_obj.needed,
+            .path = full_path,
+        }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
+    }
+}
+
+fn accessLibPath(
+    self: *Elf,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    lib_dir_path: []const u8,
+    lib_name: []const u8,
+    link_mode: ?std.builtin.LinkMode,
+) !bool {
+    const sep = fs.path.sep_str;
+    const target = self.base.options.target;
+    test_path.clearRetainingCapacity();
+    try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+        lib_dir_path,
+        target.libPrefix(),
+        lib_name,
+        if (link_mode) |mode| switch (mode) {
+            .Static => target.staticLibSuffix(),
+            .Dynamic => target.dynamicLibSuffix(),
+        } else "",
+    });
+    try checked_paths.append(try self.base.allocator.dupe(u8, test_path.items));
+    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    return true;
 }
 
 /// When resolving symbols, we approach the problem similarly to `mold`.
@@ -3039,7 +3172,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(mod);
 
     const sym = self.symbol(sym_index);
-    const esym = &zig_module.local_esyms.items[sym.esym_index];
+    const esym = &zig_module.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(self).?;
 
     const shdr_index = self.getDeclShdrIndex(decl_index, code);
@@ -3305,7 +3438,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
+    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3394,7 +3527,7 @@ fn lowerConst(
     const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
+    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3440,7 +3573,9 @@ pub fn updateDeclExports(
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    const decl_esym = zig_module.local_esyms.items[self.symbol(decl_sym_index).esym_index];
+    const decl_esym_index = self.symbol(decl_sym_index).esym_index;
+    const decl_esym = zig_module.local_esyms.items(.elf_sym)[decl_esym_index];
+    const decl_esym_shndx = zig_module.local_esyms.items(.shndx)[decl_esym_index];
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -3482,11 +3617,13 @@ pub fn updateDeclExports(
             try zig_module.global_symbols.append(gpa, gop.index);
             break :blk sym_index;
         };
-        const esym = &zig_module.global_esyms.items[sym_index & 0x0fffffff];
-        esym.st_value = self.symbol(decl_sym_index).value;
-        esym.st_shndx = decl_esym.st_shndx;
-        esym.st_info = (stb_bits << 4) | stt_bits;
-        esym.st_name = name_off;
+        const global_esym_index = sym_index & ZigModule.symbol_mask;
+        const global_esym = &zig_module.global_esyms.items(.elf_sym)[global_esym_index];
+        global_esym.st_value = self.symbol(decl_sym_index).value;
+        global_esym.st_shndx = decl_esym.st_shndx;
+        global_esym.st_info = (stb_bits << 4) | stt_bits;
+        global_esym.st_name = name_off;
+        zig_module.global_esyms.items(.shndx)[global_esym_index] = decl_esym_shndx;
     }
 }
 
@@ -3518,7 +3655,7 @@ pub fn deleteDeclExport(
     const exp_name = mod.intern_pool.stringToSlice(name);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &zig_module.global_esyms.items[esym_index.*];
+    const esym = &zig_module.global_esyms.items(.elf_sym)[esym_index.*];
     _ = zig_module.globals_lookup.remove(esym.st_name);
     const sym_index = self.resolver.get(esym.st_name).?;
     const sym = self.symbol(sym_index);
@@ -3527,6 +3664,7 @@ pub fn deleteDeclExport(
         sym.* = .{};
     }
     esym.* = null_sym;
+    zig_module.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
@@ -5886,6 +6024,19 @@ fn reportUndefined(self: *Elf, undefs: anytype) !void {
     }
 }
 
+fn reportMissingLibraryError(
+    self: *Elf,
+    checked_paths: []const []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(checked_paths.len);
+    try err.addMsg(self, format, args);
+    for (checked_paths) |path| {
+        try err.addNote(self, "tried {s}", .{path});
+    }
+}
+
 const ParseErrorCtx = struct {
     detected_cpu_arch: std.Target.Cpu.Arch,
 };
@@ -6182,7 +6333,7 @@ pub const null_shdr = elf.Elf64_Shdr{
     .sh_entsize = 0,
 };
 
-const SystemLib = struct {
+pub const SystemLib = struct {
     needed: bool = false,
     path: []const u8,
 };
@@ -6228,6 +6379,7 @@ const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
+const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;

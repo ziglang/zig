@@ -946,13 +946,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
 
         const lto = blk: {
-            if (options.want_lto) |explicit| {
-                if (!use_lld and !options.target.isDarwin())
+            if (options.want_lto) |want_lto| {
+                if (want_lto and !use_lld and !options.target.isDarwin())
                     return error.LtoUnavailableWithoutLld;
-                break :blk explicit;
+                break :blk want_lto;
             } else if (!use_lld) {
-                // TODO zig ld LTO support
-                // See https://github.com/ziglang/zig/issues/8680
+                // zig ld LTO support is tracked by
+                // https://github.com/ziglang/zig/issues/8680
                 break :blk false;
             } else if (options.c_source_files.len == 0) {
                 break :blk false;
@@ -1111,12 +1111,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.StackProtectorUnavailableWithoutLibC;
         }
 
-        const valgrind: bool = b: {
-            if (!target_util.hasValgrindSupport(options.target))
-                break :b false;
-            break :b options.want_valgrind orelse (options.optimize_mode == .Debug);
-        };
-
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
         const must_single_thread = target_util.isSingleThreaded(options.target);
@@ -1159,6 +1153,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
 
         const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
+        const valgrind: bool = b: {
+            if (!target_util.hasValgrindSupport(options.target)) break :b false;
+            if (options.want_valgrind) |explicit| break :b explicit;
+            if (strip) break :b false;
+            break :b options.optimize_mode == .Debug;
+        };
+        if (!valgrind and options.want_valgrind == true)
+            return error.ValgrindUnsupportedOnTarget;
+
         const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
         const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
         const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
@@ -1659,7 +1662,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse false,
+            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .build_id = build_id,
             .cache_mode = cache_mode,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,

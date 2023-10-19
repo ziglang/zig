@@ -33,6 +33,7 @@ pub fn isSharedObject(file: std.fs.File) bool {
 }
 
 pub fn deinit(self: *SharedObject, allocator: Allocator) void {
+    allocator.free(self.path);
     allocator.free(self.data);
     self.versyms.deinit(allocator);
     self.verstrings.deinit(allocator);

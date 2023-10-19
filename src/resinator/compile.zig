@@ -28,6 +28,7 @@ const windows1252 = @import("windows1252.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const errors = @import("errors.zig");
+const introspect = @import("../introspect.zig");
 
 pub const CompileOptions = struct {
     cwd: std.fs.Dir,
@@ -91,7 +92,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
     // `catch unreachable` since `options.cwd` is expected to be a valid dir handle, so opening
     // a new handle to it should be fine as well.
     // TODO: Maybe catch and return an error instead
-    const cwd_dir = options.cwd.openDir(".", .{}) catch unreachable;
+    const cwd_dir = options.cwd.openDir(".", .{}) catch @panic("unable to open dir");
     try search_dirs.append(.{ .dir = cwd_dir, .path = null });
     for (options.extra_include_paths) |extra_include_path| {
         var dir = openSearchPathDir(options.cwd, extra_include_path) catch {
@@ -110,7 +111,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         try search_dirs.append(.{ .dir = dir, .path = try allocator.dupe(u8, system_include_path) });
     }
     if (!options.ignore_include_env_var) {
-        const INCLUDE = std.process.getEnvVarOwned(allocator, "INCLUDE") catch "";
+        const INCLUDE = (introspect.EnvVar.INCLUDE.get(allocator) catch @panic("OOM")) orelse "";
         defer allocator.free(INCLUDE);
 
         // TODO: Should this be platform-specific? How does windres/llvm-rc handle this (if at all)?

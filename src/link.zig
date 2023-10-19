@@ -1150,7 +1150,9 @@ pub const File = struct {
         }
 
         const llvm_bindings = @import("codegen/llvm/bindings.zig");
+        const Builder = @import("codegen/llvm/Builder.zig");
         const llvm = @import("codegen/llvm.zig");
+        Builder.initializeLLVMTarget(base.options.target.cpu.arch);
         const os_tag = llvm.targetOs(base.options.target.os.tag);
         const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
