@@ -127,6 +127,11 @@ pub const Header = struct {
         return result;
     }
 
+    pub fn mode(header: Header) []const u8 {
+        // The mode is stored in bytes 100-107
+        return str(header, 100, 100 + 7);
+    }
+
     fn str(header: Header, start: usize, end: usize) []const u8 {
         var i: usize = start;
         while (i < end) : (i += 1) {
@@ -175,15 +180,14 @@ const Buffer = struct {
 };
 
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
+    var should_exec: bool = false;
     switch (options.mode_mode) {
         .ignore => {},
         .executable_bit_only => {
-            // This code does not look at the mode bits yet. To implement this feature,
-            // the implementation must be adjusted to look at the mode, and check the
-            // user executable bit, then call fchmod on newly created files when
-            // the executable bit is supposed to be set.
-            // It also needs to properly deal with ACLs on Windows.
-            @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
+            // Make sure the OS supports executable bit.
+            if (std.fs.has_executable_bit) {
+                should_exec = true;
+            }
         },
     }
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -217,7 +221,6 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             .normal => {
                 if (file_size == 0 and unstripped_file_name.len == 0) return;
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
-
                 var file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
                         const code = code: {
@@ -241,6 +244,17 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 defer if (file) |f| f.close();
 
                 var file_off: usize = 0;
+
+                const mode = header.mode();
+                var modebits = std.StaticBitSet(32){
+                    .mask = @intCast(try std.fmt.parseInt(u32, mode, 8)),
+                };
+
+                const has_owner_exe_bit = modebits.isSet(6);
+                modebits.setValue(3, has_owner_exe_bit);
+                modebits.setValue(0, has_owner_exe_bit);
+                try file.?.chmod(modebits.mask);
+
                 while (true) {
                     const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
                     if (temp.len == 0) return error.UnexpectedEndOfStream;
