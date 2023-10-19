@@ -2956,7 +2956,7 @@ fn writeHeader(self: *Elf) !void {
     assert(index == 16);
 
     const elf_type: elf.ET = switch (self.base.options.effectiveOutputMode()) {
-        .Exe => if (self.base.options.pic) .DYN else .EXEC,
+        .Exe => if (self.base.options.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (self.base.options.link_mode) {
             .Static => @as(elf.ET, .REL),
@@ -4869,6 +4869,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
             phdr.p_align = shdr.sh_addralign;
             phdr.p_offset = shdr.sh_offset;
             phdr.p_vaddr = shdr.sh_addr;
+            phdr.p_paddr = shdr.sh_addr;
             phdr.p_filesz = shdr.sh_size;
             phdr.p_memsz = shdr.sh_size;
         }
@@ -5581,7 +5582,8 @@ const CsuObjects = struct {
 };
 
 pub fn calcImageBase(self: Elf) u64 {
-    if (self.base.options.pic) return 0; // TODO flag an error if PIC and image_base_override
+    if (self.isDynLib()) return 0;
+    if (self.isExe() and self.base.options.pie) return 0;
     return self.base.options.image_base_override orelse switch (self.ptr_width) {
         .p32 => 0x1000,
         .p64 => 0x1000000,
