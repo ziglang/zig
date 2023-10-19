@@ -259,7 +259,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     // the compiler requires chmod take a u0 on windows.
                     // mask is a u32, so it would fail on windows.
                     if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
-                        try file.?.chmod(modebits.mask);
+                        if (file) |f| try f.chmod(modebits.mask);
                     }
                 }
 
