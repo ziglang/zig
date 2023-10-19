@@ -4472,7 +4472,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
 
             if (process.can_spawn) {
-                var result = std.ChildProcess.exec(.{
+                var result = std.ChildProcess.run(.{
                     .allocator = gpa,
                     .argv = argv.items,
                     .max_output_bytes = std.math.maxInt(u32),
