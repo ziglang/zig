@@ -34,6 +34,8 @@ pub fn isObject(file: std.fs.File) bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
+    if (self.archive) |path| allocator.free(path);
+    allocator.free(self.path);
     allocator.free(self.data);
     self.shdrs.deinit(allocator);
     self.strings.deinit(allocator);
