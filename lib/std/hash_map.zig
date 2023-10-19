@@ -92,7 +92,7 @@ pub fn hashString(s: []const u8) u64 {
 }
 
 pub const StringIndexContext = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
     pub fn eql(self: @This(), a: u32, b: u32) bool {
         _ = self;
@@ -106,7 +106,7 @@ pub const StringIndexContext = struct {
 };
 
 pub const StringIndexAdapter = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
     pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
         const b_slice = mem.sliceTo(@as([*:0]const u8, @ptrCast(self.bytes.items.ptr)) + b, 0);
