@@ -538,6 +538,7 @@ test "basic" {
         \\.{
         \\    .name = "foo",
         \\    .version = "3.2.1",
+        \\    .paths = .{""},
         \\    .dependencies = .{
         \\        .bar = .{
         \\            .url = "https://example.com/baz.tar.gz",
@@ -552,7 +553,7 @@ test "basic" {
 
     try testing.expect(ast.errors.len == 0);
 
-    var manifest = try Manifest.parse(gpa, ast);
+    var manifest = try Manifest.parse(gpa, ast, .{});
     defer manifest.deinit(gpa);
 
     try testing.expect(manifest.errors.len == 0);
@@ -568,7 +569,7 @@ test "basic" {
     try testing.expectEqualStrings("bar", manifest.dependencies.keys()[0]);
     try testing.expectEqualStrings(
         "https://example.com/baz.tar.gz",
-        manifest.dependencies.values()[0].url,
+        manifest.dependencies.values()[0].location.url,
     );
     try testing.expectEqualStrings(
         "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
@@ -585,6 +586,7 @@ test "minimum_zig_version" {
         \\.{
         \\    .name = "foo",
         \\    .version = "3.2.1",
+        \\    .paths = .{""},
         \\    .minimum_zig_version = "0.11.1",
         \\}
     ;
@@ -594,7 +596,7 @@ test "minimum_zig_version" {
 
     try testing.expect(ast.errors.len == 0);
 
-    var manifest = try Manifest.parse(gpa, ast);
+    var manifest = try Manifest.parse(gpa, ast, .{});
     defer manifest.deinit(gpa);
 
     try testing.expect(manifest.errors.len == 0);
@@ -617,6 +619,7 @@ test "minimum_zig_version - invalid version" {
         \\    .name = "foo",
         \\    .version = "3.2.1",
         \\    .minimum_zig_version = "X.11.1",
+        \\    .paths = .{""},
         \\}
     ;
 
@@ -625,7 +628,7 @@ test "minimum_zig_version - invalid version" {
 
     try testing.expect(ast.errors.len == 0);
 
-    var manifest = try Manifest.parse(gpa, ast);
+    var manifest = try Manifest.parse(gpa, ast, .{});
     defer manifest.deinit(gpa);
 
     try testing.expect(manifest.errors.len == 1);
