@@ -202,8 +202,10 @@ pub fn main() !void {
                     std.debug.print("Expected u32 after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
-                seed = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
-                    std.debug.print("unable to parse seed '{s}' as u32: {s}", .{ next_arg, @errorName(err) });
+                seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
+                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}", .{
+                        next_arg, @errorName(err),
+                    });
                     process.exit(1);
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
@@ -526,9 +528,7 @@ fn runStepNames(
             stderr.writeAll(" (disable with --summary none)") catch {};
             ttyconf.setColor(stderr, .reset) catch {};
         }
-        ttyconf.setColor(stderr, .dim) catch {};
-        stderr.writer().print("\nseed is {}\n", .{seed}) catch {};
-        ttyconf.setColor(stderr, .reset) catch {};
+        stderr.writeAll("\n") catch {};
         const failures_only = run.summary != Summary.all;
 
         // Print a fancy tree with build results.
