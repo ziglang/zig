@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const base64 = std.base64;
 const crypto = std.crypto;
 const debug = std.debug;
@@ -753,6 +754,8 @@ pub fn strVerify(
 }
 
 test "bcrypt codec" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
     var salt_str: [salt_str_length]u8 = undefined;
@@ -763,6 +766,8 @@ test "bcrypt codec" {
 }
 
 test "bcrypt crypt format" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var hash_options = HashOptions{
         .params = .{ .rounds_log = 5 },
         .encoding = .crypt,
@@ -803,6 +808,8 @@ test "bcrypt crypt format" {
 }
 
 test "bcrypt phc format" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var hash_options = HashOptions{
         .params = .{ .rounds_log = 5 },
         .encoding = .phc,

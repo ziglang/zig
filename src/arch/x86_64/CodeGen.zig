@@ -2979,8 +2979,21 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
 
         const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
             src_mcv
-        else
-            try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
+        else if (dst_abi_size <= 8)
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv)
+        else if (dst_abi_size <= 16) dst: {
+            const dst_regs = try self.register_manager.allocRegs(
+                2,
+                .{ inst, inst },
+                abi.RegisterClass.gp,
+            );
+            const dst_mcv: MCValue = .{ .register_pair = dst_regs };
+            const dst_locks = self.register_manager.lockRegsAssumeUnused(2, dst_regs);
+            defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
+
+            try self.genCopy(dst_ty, dst_mcv, src_mcv);
+            break :dst dst_mcv;
+        } else return self.fail("TODO implement trunc from {} to {}", .{ src_ty.fmt(mod), dst_ty.fmt(mod) });
 
         if (dst_ty.zigTypeTag(mod) == .Vector) {
             assert(src_ty.zigTypeTag(mod) == .Vector and dst_ty.vectorLen(mod) == src_ty.vectorLen(mod));
@@ -3051,14 +3064,15 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
             break :result dst_mcv;
         }
 
-        if (dst_abi_size > 8) {
-            return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
-        }
-
         // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
         // have to be removed. this only happens if the dst if not a power-of-two size.
-        if (self.regExtraBits(dst_ty) > 0)
-            try self.truncateRegister(dst_ty, dst_mcv.register.to64());
+        if (dst_abi_size <= 8) {
+            if (self.regExtraBits(dst_ty) > 0) try self.truncateRegister(dst_ty, dst_mcv.register.to64());
+        } else if (dst_abi_size <= 16) {
+            const dst_info = dst_ty.intInfo(mod);
+            const high_ty = try mod.intType(dst_info.signedness, dst_info.bits - 64);
+            if (self.regExtraBits(high_ty) > 0) try self.truncateRegister(high_ty, dst_mcv.register_pair[1].to64());
+        }
 
         break :result dst_mcv;
     };
@@ -3381,7 +3395,7 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     const cc: Condition = if (ty.isSignedInt(mod)) cc: {
         try self.genSetReg(limit_reg, ty, lhs_mcv);
         try self.genBinOpMir(.{ ._, .xor }, ty, limit_mcv, rhs_mcv);
-        try self.genShiftBinOpMir(.{ ._, .sa }, ty, limit_mcv, .{ .immediate = reg_bits - 1 });
+        try self.genShiftBinOpMir(.{ ._r, .sa }, ty, limit_mcv, .{ .immediate = reg_bits - 1 });
         try self.genBinOpMir(.{ ._, .xor }, ty, limit_mcv, .{
             .immediate = (@as(u64, 1) << @intCast(reg_bits - 1)) - 1,
         });
@@ -4949,7 +4963,7 @@ fn byteSwap(self: *Self, inst: Air.Inst.Index, src_ty: Type, src_mcv: MCValue, m
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
-    if (src_ty.zigTypeTag(mod) == .Vector or src_ty.abiSize(mod) > 8) return self.fail(
+    if (src_ty.zigTypeTag(mod) == .Vector) return self.fail(
         "TODO implement byteSwap for {}",
         .{src_ty.fmt(mod)},
     );
@@ -10493,39 +10507,44 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             },
             else => return self.fail("invalid constraint: '{s}'", .{constraint}),
         };
-        const arg_maybe_reg: ?Register = if (mem.eql(u8, constraint[1..], "r"))
-            self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
-                return self.fail("ran out of registers lowering inline asm", .{})
-        else if (mem.eql(u8, constraint[1..], "m"))
-            if (output != .none) null else return self.fail(
-                "memory constraint unsupported for asm result: '{s}'",
-                .{constraint},
-            )
-        else if (mem.eql(u8, constraint[1..], "g") or
-            mem.eql(u8, constraint[1..], "rm") or mem.eql(u8, constraint[1..], "mr") or
-            mem.eql(u8, constraint[1..], "r,m") or mem.eql(u8, constraint[1..], "m,r"))
-            self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
-                if (output != .none)
-                null
-            else
-                return self.fail("ran out of registers lowering inline asm", .{})
-        else if (mem.startsWith(u8, constraint[1..], "{") and mem.endsWith(u8, constraint[1..], "}"))
-            parseRegName(constraint[1 + "{".len .. constraint.len - "}".len]) orelse
-                return self.fail("invalid register constraint: '{s}'", .{constraint})
-        else
-            return self.fail("invalid constraint: '{s}'", .{constraint});
-        const arg_mcv: MCValue = if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
-            const ptr_mcv = try self.resolveInst(output);
-            switch (ptr_mcv) {
-                .immediate => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
-                    break :arg ptr_mcv.deref(),
-                .register, .register_offset, .lea_frame => break :arg ptr_mcv.deref(),
-                else => {},
-            }
-            break :arg .{ .indirect = .{ .reg = try self.copyToTmpRegister(Type.usize, ptr_mcv) } };
+        const arg_mcv: MCValue = arg_mcv: {
+            const arg_maybe_reg: ?Register = if (mem.eql(u8, constraint[1..], "r"))
+                self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
+                    return self.fail("ran out of registers lowering inline asm", .{})
+            else if (mem.eql(u8, constraint[1..], "m"))
+                if (output != .none) null else return self.fail(
+                    "memory constraint unsupported for asm result: '{s}'",
+                    .{constraint},
+                )
+            else if (mem.eql(u8, constraint[1..], "g") or
+                mem.eql(u8, constraint[1..], "rm") or mem.eql(u8, constraint[1..], "mr") or
+                mem.eql(u8, constraint[1..], "r,m") or mem.eql(u8, constraint[1..], "m,r"))
+                self.register_manager.tryAllocReg(maybe_inst, self.regClassForType(ty)) orelse
+                    if (output != .none)
+                    null
+                else
+                    return self.fail("ran out of registers lowering inline asm", .{})
+            else if (mem.startsWith(u8, constraint[1..], "{") and mem.endsWith(u8, constraint[1..], "}"))
+                parseRegName(constraint[1 + "{".len .. constraint.len - "}".len]) orelse
+                    return self.fail("invalid register constraint: '{s}'", .{constraint})
+            else if (constraint.len == 2 and std.ascii.isDigit(constraint[1])) {
+                const index = std.fmt.charToDigit(constraint[0], 10) catch unreachable;
+                if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{constraint});
+                break :arg_mcv args.items[index];
+            } else return self.fail("invalid constraint: '{s}'", .{constraint});
+            break :arg_mcv if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
+                const ptr_mcv = try self.resolveInst(output);
+                switch (ptr_mcv) {
+                    .immediate => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
+                        break :arg ptr_mcv.deref(),
+                    .register, .register_offset, .lea_frame => break :arg ptr_mcv.deref(),
+                    else => {},
+                }
+                break :arg .{ .indirect = .{ .reg = try self.copyToTmpRegister(Type.usize, ptr_mcv) } };
+            };
         };
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
-            _ = self.register_manager.lockRegAssumeUnused(reg);
+            _ = self.register_manager.lockReg(reg);
         };
         if (!mem.eql(u8, name, "_"))
             arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
@@ -10587,6 +10606,10 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             try self.register_manager.getReg(reg, null);
             try self.genSetReg(reg, ty, input_mcv);
             break :arg .{ .register = reg };
+        } else if (constraint.len == 1 and std.ascii.isDigit(constraint[0])) arg: {
+            const index = std.fmt.charToDigit(constraint[0], 10) catch unreachable;
+            if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{constraint});
+            break :arg args.items[index];
         } else return self.fail("invalid constraint: '{s}'", .{constraint});
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
             _ = self.register_manager.lockReg(reg);
@@ -10712,7 +10735,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 mnem_name[mnem_prefix.len .. mnem_name.len - mnem_suffix.len],
             ) orelse continue };
         } else {
-            assert(prefix != .none);
+            assert(prefix != .none); // no combination of fixes produced a known mnemonic
             return self.fail("invalid prefix for mnemonic: '{s} {s}'", .{
                 @tagName(prefix), mnem_str,
             });
@@ -10943,6 +10966,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
 
         if (output == .none) continue;
         if (arg_mcv != .register) continue;
+        if (constraint.len == 2 and std.ascii.isDigit(constraint[1])) continue;
         try self.store(self.typeOf(output), .{ .air_ref = output }, arg_mcv);
     }
 
@@ -11036,6 +11060,7 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
             else => {},
         },
         .Vector => switch (ty.childType(mod).zigTypeTag(mod)) {
+            .Bool => return .{ .move = .{ ._, .mov } },
             .Int => switch (ty.childType(mod).intInfo(mod).bits) {
                 8 => switch (ty.vectorLen(mod)) {
                     1 => if (self.hasFeature(.avx)) return .{ .vex_insert_extract = .{

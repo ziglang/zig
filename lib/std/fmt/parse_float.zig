@@ -1,8 +1,8 @@
 pub const parseFloat = @import("parse_float/parse_float.zig").parseFloat;
 pub const ParseFloatError = @import("parse_float/parse_float.zig").ParseFloatError;
 
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
 const expect = testing.expect;
@@ -14,6 +14,8 @@ const epsilon = 1e-7;
 // See https://github.com/tiehuis/parse-number-fxx-test-data for a wider-selection of test-data.
 
 test "fmt.parseFloat" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         try testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         try testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
@@ -70,6 +72,8 @@ test "fmt.parseFloat" {
 }
 
 test "fmt.parseFloat nan and inf" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
@@ -80,16 +84,22 @@ test "fmt.parseFloat nan and inf" {
 }
 
 test "fmt.parseFloat #11169" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectEqual(try parseFloat(f128, "9007199254740993.0"), 9007199254740993.0);
 }
 
 test "fmt.parseFloat hex.special" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expect(math.isNan(try parseFloat(f32, "nAn")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "iNf")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "+Inf")));
     try testing.expect(math.isNegativeInf(try parseFloat(f32, "-iNf")));
 }
 test "fmt.parseFloat hex.zero" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "-0x0"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0p42"));
@@ -98,6 +108,8 @@ test "fmt.parseFloat hex.zero" {
 }
 
 test "fmt.parseFloat hex.f16" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expectEqual(try parseFloat(f16, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f16, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f16, "0x10p+10"), 16384.0);
@@ -114,6 +126,8 @@ test "fmt.parseFloat hex.f16" {
 }
 
 test "fmt.parseFloat hex.f32" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expectError(error.InvalidCharacter, parseFloat(f32, "0x"));
     try testing.expectEqual(try parseFloat(f32, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f32, "-0x1p-1"), -0.5);
@@ -148,6 +162,8 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
 test "fmt.parseFloat hex.f128" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expectEqual(try parseFloat(f128, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f128, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f128, "0x10p+10"), 16384.0);

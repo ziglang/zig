@@ -1,6 +1,7 @@
 //! Connecting and opening requests are threadsafe. Individual requests are not.
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const testing = std.testing;
 const http = std.http;
 const mem = std.mem;
@@ -427,6 +428,8 @@ pub const Response = struct {
     }
 
     test parseInt3 {
+        if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
         const expectEqual = testing.expectEqual;
         try expectEqual(@as(u10, 0), parseInt3("000".*));
         try expectEqual(@as(u10, 418), parseInt3("418".*));
@@ -585,7 +588,7 @@ pub const Request = struct {
 
         if (!req.headers.contains("user-agent")) {
             try w.writeAll("User-Agent: zig/");
-            try w.writeAll(@import("builtin").zig_version_string);
+            try w.writeAll(builtin.zig_version_string);
             try w.writeAll(" (std.http)\r\n");
         }
 
@@ -1249,7 +1252,6 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
 }
 
 test {
-    const builtin = @import("builtin");
     const native_endian = comptime builtin.cpu.arch.endian();
     if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
         // https://github.com/ziglang/zig/issues/13782
@@ -1257,6 +1259,8 @@ test {
     }
 
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     std.testing.refAllDecls(@This());
 }

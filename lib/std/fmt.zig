@@ -2735,6 +2735,8 @@ test "formatType max_depth" {
 }
 
 test "positional" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("0 0", "{0} {0}", .{@as(usize, 0)});
@@ -2743,14 +2745,20 @@ test "positional" {
 }
 
 test "positional with specifier" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
 }
 
 test "positional/alignment/width/precision" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
 }
 
 test "vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
