@@ -14,13 +14,13 @@ size: u64 = 0,
 alignment: Alignment = .@"1",
 
 /// Index of the input section.
-input_section_index: u16 = 0,
+input_section_index: u32 = 0,
 
 /// Index of the output section.
 output_section_index: u16 = 0,
 
 /// Index of the input section containing this atom's relocs.
-relocs_section_index: u16 = 0,
+relocs_section_index: u32 = 0,
 
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,

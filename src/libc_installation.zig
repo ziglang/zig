@@ -11,6 +11,7 @@ const is_haiku = builtin.target.os.tag == .haiku;
 const log = std.log.scoped(.libc_installation);
 
 const ZigWindowsSDK = @import("windows_sdk.zig").ZigWindowsSDK;
+const EnvVar = @import("introspect.zig").EnvVar;
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -694,7 +695,7 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
         args.appendAssumeCapacity(default_cc_exe);
         return;
     }
-    const cc_env_var = std.os.getenvZ("CC") orelse {
+    const cc_env_var = EnvVar.CC.getPosix() orelse {
         args.appendAssumeCapacity(default_cc_exe);
         return;
     };

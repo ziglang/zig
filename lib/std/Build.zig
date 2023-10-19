@@ -379,7 +379,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .h_dir = parent.h_dir,
         .install_path = parent.install_path,
         .sysroot = parent.sysroot,
-        .search_prefixes = ArrayList([]const u8).init(allocator),
+        .search_prefixes = parent.search_prefixes,
         .libc_file = parent.libc_file,
         .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,

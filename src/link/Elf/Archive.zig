@@ -71,6 +71,7 @@ pub fn isArchive(file: std.fs.File) bool {
 }
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
+    allocator.free(self.path);
     allocator.free(self.data);
     self.objects.deinit(allocator);
 }
@@ -122,7 +123,7 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
         };
 
         const object = Object{
-            .archive = self.path,
+            .archive = try gpa.dupe(u8, self.path),
             .path = try gpa.dupe(u8, object_name[0 .. object_name.len - 1]), // To account for trailing '/'
             .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
             .index = undefined,
