@@ -262,7 +262,7 @@ fn mainTerminal(args: [][:0]const u8) void {
                 };
                 switch (term) {
                     .Exited => |code| {
-                        progress.log("FAIL term exited, status: {})\nstdout: ({s})\nstderr: ({s})\n", .{ code, stdout.items, stderr.items });
+                        progress.log("FAIL term exited, (exit_status: {})\nstdout: ({s})\nstderr: ({s})\n", .{ code, stdout.items, stderr.items });
                         fail_count += 1;
                         test_node.end();
                         continue;
@@ -372,7 +372,7 @@ fn mainTerminal(args: [][:0]const u8) void {
 
 fn panicTest(test_i: usize) void {
     const test_fn_list = builtin.test_functions;
-    var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
+    var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
     // ignores the alignment of the slice.
     async_frame_buffer = &[_]u8{};
@@ -392,7 +392,7 @@ fn panicTest(test_i: usize) void {
                     std.heap.page_allocator.free(async_frame_buffer);
                     async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
                 }
-                const casted_fn = @ptrCast(fn () callconv(.Async) anyerror!void, test_fn_list[test_i].func);
+                const casted_fn = @as(fn () callconv(.Async) anyerror!void, @ptrCast(test_fn_list[test_i].func));
                 break :blk await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
             },
             .blocking => @panic("SKIP (async test)"),
