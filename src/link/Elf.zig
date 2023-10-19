@@ -331,7 +331,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         symbol_ptr.name_offset = name_off;
 
         const esym_index = try zig_module.addLocalEsym(allocator);
-        const esym = &zig_module.local_esyms.items[esym_index];
+        const esym = &zig_module.local_esyms.items(.elf_sym)[esym_index];
         esym.st_name = name_off;
         esym.st_info |= elf.STT_FILE;
         esym.st_shndx = elf.SHN_ABS;
@@ -3172,7 +3172,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(mod);
 
     const sym = self.symbol(sym_index);
-    const esym = &zig_module.local_esyms.items[sym.esym_index];
+    const esym = &zig_module.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(self).?;
 
     const shdr_index = self.getDeclShdrIndex(decl_index, code);
@@ -3438,7 +3438,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
+    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3527,7 +3527,7 @@ fn lowerConst(
     const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items[local_sym.esym_index];
+    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3573,7 +3573,9 @@ pub fn updateDeclExports(
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    const decl_esym = zig_module.local_esyms.items[self.symbol(decl_sym_index).esym_index];
+    const decl_esym_index = self.symbol(decl_sym_index).esym_index;
+    const decl_esym = zig_module.local_esyms.items(.elf_sym)[decl_esym_index];
+    const decl_esym_shndx = zig_module.local_esyms.items(.shndx)[decl_esym_index];
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -3615,11 +3617,13 @@ pub fn updateDeclExports(
             try zig_module.global_symbols.append(gpa, gop.index);
             break :blk sym_index;
         };
-        const esym = &zig_module.global_esyms.items[sym_index & 0x0fffffff];
-        esym.st_value = self.symbol(decl_sym_index).value;
-        esym.st_shndx = decl_esym.st_shndx;
-        esym.st_info = (stb_bits << 4) | stt_bits;
-        esym.st_name = name_off;
+        const global_esym_index = sym_index & ZigModule.symbol_mask;
+        const global_esym = &zig_module.global_esyms.items(.elf_sym)[global_esym_index];
+        global_esym.st_value = self.symbol(decl_sym_index).value;
+        global_esym.st_shndx = decl_esym.st_shndx;
+        global_esym.st_info = (stb_bits << 4) | stt_bits;
+        global_esym.st_name = name_off;
+        zig_module.global_esyms.items(.shndx)[global_esym_index] = decl_esym_shndx;
     }
 }
 
@@ -3651,7 +3655,7 @@ pub fn deleteDeclExport(
     const exp_name = mod.intern_pool.stringToSlice(name);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &zig_module.global_esyms.items[esym_index.*];
+    const esym = &zig_module.global_esyms.items(.elf_sym)[esym_index.*];
     _ = zig_module.globals_lookup.remove(esym.st_name);
     const sym_index = self.resolver.get(esym.st_name).?;
     const sym = self.symbol(sym_index);
@@ -3660,6 +3664,7 @@ pub fn deleteDeclExport(
         sym.* = .{};
     }
     esym.* = null_sym;
+    zig_module.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
