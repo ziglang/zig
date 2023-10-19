@@ -2587,12 +2587,17 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
 
     for (self.di_files.keys()) |dif| {
         const full_path = try dif.mod.root.joinString(arena, dif.sub_file_path);
-        // TODO re-investigate if realpath is needed here
         const dir_path = std.fs.path.dirname(full_path) orelse ".";
         const sub_file_path = std.fs.path.basename(full_path);
+        // TODO re-investigate if realpath is needed here
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const resolved = if (!std.fs.path.isAbsolute(dir_path))
+            std.os.realpath(dir_path, &buffer) catch dir_path
+        else
+            dir_path;
 
         const dir_index: u28 = blk: {
-            const dirs_gop = dirs.getOrPutAssumeCapacity(dir_path);
+            const dirs_gop = dirs.getOrPutAssumeCapacity(try arena.dupe(u8, resolved));
             break :blk @as(u28, @intCast(dirs_gop.index + 1));
         };
 
