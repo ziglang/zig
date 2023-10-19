@@ -196,20 +196,31 @@ test "Allocator.resize" {
 /// `copyForwards` if they do.
 pub const copy = copyForwards;
 
-/// Returns true if the slices overlap
-/// This is an *exclusive* range track
+/// Returns true if the second argument aliases the first.
+/// This is an *exclusive* range check.
+/// If ptr is a slice, it will check for both arguments overlapping, otherwise
+/// it will check if ptr is contained within range.
 /// TODO: Remove this when builtin is implemented! (See issue: #17613)
-pub fn alias(comptime T: type, slice_a: []const T, slice_b: []const T) bool {
+pub fn alias(comptime T: type, range: []const T, ptr: anytype) bool {
     // NOTE: We can't currently determine if ranges overlap at comptime (as the
     // currently language doesn't expose the information needed to do that).
-    const a_begin = @intFromPtr(slice_a.ptr);
-    const b_begin = @intFromPtr(slice_b.ptr);
+    const range_begin = @intFromPtr(range.ptr);
+    const range_end = @intFromPtr(range.ptr + range.len);
 
-    // The ptrs to one element beyond the last element of a & B
-    const a_end = @intFromPtr(slice_a.ptr + slice_a.len);
-    const b_end = @intFromPtr(slice_b.ptr + slice_b.len);
-
-    return !(a_begin >= b_end or b_begin >= a_end);
+    switch (@typeInfo(@TypeOf(ptr))) {
+        .Pointer => |p| switch (p.size) {
+            .Slice => {
+                const ptr_begin = @intFromPtr(ptr.ptr);
+                const ptr_end = @intFromPtr(ptr.ptr + ptr.len);
+                return !(range_begin >= ptr_end or ptr_begin >= range_end);
+            },
+            else => {
+                const ptr_int = @intFromPtr(ptr);
+                return (ptr_int < range_end and ptr_int >= range_begin);
+            },
+        },
+        else => @compileError("ptr must be a pointer type!"),
+    }
 }
 
 /// Copy all of source into dest at position 0.
@@ -217,9 +228,7 @@ pub fn alias(comptime T: type, slice_a: []const T, slice_b: []const T) bool {
 /// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
     if (!@inComptime() and std.debug.runtime_safety) {
-        if (alias(T, dest, source)) {
-            assert(@intFromPtr(source.ptr) >= @intFromPtr(dest.ptr));
-        }
+        assert(!alias(T, source, dest.ptr) or (source.ptr == dest.ptr));
     }
     for (dest[0..source.len], source) |*d, s| d.* = s;
 }
@@ -230,9 +239,7 @@ pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     assert(dest.len >= source.len);
     if (!@inComptime() and std.debug.runtime_safety) {
-        if (alias(T, dest, source)) {
-            assert(@intFromPtr(dest.ptr) >= @intFromPtr(source.ptr));
-        }
+        assert(!alias(T, dest, source.ptr) or (source.ptr == dest.ptr));
     }
 
     {
