@@ -152,5 +152,5 @@ test "StreamSource (growable buffer)" {
     try writer.writeAll(", ");
     try writer.writeAll("World!");
 
-    try std.testing.expectEqualStrings("Hello, World!", source.buffer.getWritten());
+    try std.testing.expectEqualStrings("Hello, World!", source.growable_buffer.getWritten());
 }
