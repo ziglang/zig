@@ -254,7 +254,13 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     const has_owner_exe_bit = modebits.isSet(6);
                     modebits.setValue(3, has_owner_exe_bit);
                     modebits.setValue(0, has_owner_exe_bit);
-                    try file.?.chmod(modebits.mask);
+
+                    // Needed for comptime fix, as should_exec is runtime, and
+                    // the compiler requires chmod take a u0 on windows.
+                    // mask is a u32, so it would fail on windows.
+                    if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
+                        try file.?.chmod(modebits.mask);
+                    }
                 }
 
                 while (true) {
@@ -411,3 +417,4 @@ test parsePaxAttribute {
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
