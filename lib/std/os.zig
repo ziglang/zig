@@ -3029,6 +3029,7 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
+    if (dirfd == AT.FDCWD) return;
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,
