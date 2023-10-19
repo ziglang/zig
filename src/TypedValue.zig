@@ -321,7 +321,8 @@ pub fn print(
                             .val = decl.val,
                         }, writer, level - 1, mod);
                     },
-                    .anon_decl => |decl_val| {
+                    .anon_decl => |anon_decl| {
+                        const decl_val = anon_decl.val;
                         if (level == 0) return writer.print("(anon decl '{d}')", .{
                             @intFromEnum(decl_val),
                         });

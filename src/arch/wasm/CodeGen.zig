@@ -3139,16 +3139,25 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.In
     return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
 }
 
-fn lowerAnonDeclRef(func: *CodeGen, anon_decl: InternPool.Index, offset: u32) InnerError!WValue {
+fn lowerAnonDeclRef(
+    func: *CodeGen,
+    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    offset: u32,
+) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(anon_decl).toType();
+    const decl_val = anon_decl.val;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
 
     const is_fn_body = ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    const res = try func.bin_file.lowerAnonDecl(anon_decl, func.decl.srcLoc(mod));
+    const alignment = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    if (alignment != .none) {
+        @panic("TODO how to make this anon decl be aligned?");
+    }
+    const res = try func.bin_file.lowerAnonDecl(decl_val, func.decl.srcLoc(mod));
     switch (res) {
         .ok => {},
         .fail => |em| {
@@ -3156,7 +3165,7 @@ fn lowerAnonDeclRef(func: *CodeGen, anon_decl: InternPool.Index, offset: u32) In
             return error.CodegenFail;
         },
     }
-    const target_atom_index = func.bin_file.anon_decls.get(anon_decl).?;
+    const target_atom_index = func.bin_file.anon_decls.get(decl_val).?;
     const target_sym_index = func.bin_file.getAtom(target_atom_index).getSymbolIndex().?;
     if (is_fn_body) {
         return WValue{ .function_index = target_sym_index };

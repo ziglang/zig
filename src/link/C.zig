@@ -7,6 +7,7 @@ const fs = std.fs;
 const C = @This();
 const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
+const Alignment = InternPool.Alignment;
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
@@ -30,6 +31,10 @@ string_bytes: std.ArrayListUnmanaged(u8) = .{},
 /// Tracks all the anonymous decls that are used by all the decls so they can
 /// be rendered during flush().
 anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, DeclBlock) = .{},
+/// Sparse set of anon decls that are overaligned. Underaligned anon decls are
+/// lowered the same as ABI-aligned anon decls. The keys here are a subset of
+/// the keys of `anon_decls`.
+aligned_anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .{},
 
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
@@ -125,6 +130,7 @@ pub fn deinit(self: *C) void {
         db.deinit(gpa);
     }
     self.anon_decls.deinit(gpa);
+    self.aligned_anon_decls.deinit(gpa);
 
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
@@ -179,6 +185,7 @@ pub fn updateFunc(
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
                 .anon_decl_deps = self.anon_decls,
+                .aligned_anon_decls = self.aligned_anon_decls,
             },
             .code = code.toManaged(gpa),
             .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -189,6 +196,7 @@ pub fn updateFunc(
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
     defer {
         self.anon_decls = function.object.dg.anon_decl_deps;
+        self.aligned_anon_decls = function.object.dg.aligned_anon_decls;
         fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
         code.* = function.object.code.moveToUnmanaged();
         function.deinit();
@@ -232,6 +240,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = .{},
             .anon_decl_deps = self.anon_decls,
+            .aligned_anon_decls = self.aligned_anon_decls,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -240,6 +249,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
 
     defer {
         self.anon_decls = object.dg.anon_decl_deps;
+        self.aligned_anon_decls = object.dg.aligned_anon_decls;
         object.dg.ctypes.deinit(object.dg.gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -250,7 +260,8 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
         .val = anon_decl.toValue(),
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
-    codegen.genDeclValue(&object, tv, false, c_value, .none, .none) catch |err| switch (err) {
+    const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
+    codegen.genDeclValue(&object, tv, false, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
             //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
@@ -296,6 +307,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
             .anon_decl_deps = self.anon_decls,
+            .aligned_anon_decls = self.aligned_anon_decls,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -303,6 +315,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         self.anon_decls = object.dg.anon_decl_deps;
+        self.aligned_anon_decls = object.dg.aligned_anon_decls;
         object.dg.ctypes.deinit(object.dg.gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -602,6 +615,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
             .anon_decl_deps = self.anon_decls,
+            .aligned_anon_decls = self.aligned_anon_decls,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -609,6 +623,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         self.anon_decls = object.dg.anon_decl_deps;
+        self.aligned_anon_decls = object.dg.aligned_anon_decls;
         object.dg.ctypes.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();
@@ -642,6 +657,7 @@ fn flushLazyFn(
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
             .anon_decl_deps = .{},
+            .aligned_anon_decls = .{},
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -651,6 +667,7 @@ fn flushLazyFn(
         // If this assert trips just handle the anon_decl_deps the same as
         // `updateFunc()` does.
         assert(object.dg.anon_decl_deps.count() == 0);
+        assert(object.dg.aligned_anon_decls.count() == 0);
         object.dg.ctypes.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         code.* = object.code.moveToUnmanaged();

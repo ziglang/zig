@@ -1571,7 +1571,7 @@ pub const Value = struct {
             .none => switch (ip.indexToKey(switch (ptr.addr) {
                 .decl => |decl| mod.declPtr(decl).ty.toIntern(),
                 .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
-                .anon_decl => |anon_decl| ip.typeOf(anon_decl),
+                .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
                 .comptime_field => |comptime_field| ip.typeOf(comptime_field),
                 else => unreachable,
             })) {
@@ -1604,7 +1604,7 @@ pub const Value = struct {
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
-                    .anon_decl => |anon_decl| anon_decl.toValue().maybeElemValue(mod, index),
+                    .anon_decl => |anon_decl| anon_decl.val.toValue().maybeElemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
                         .toValue().maybeElemValue(mod, index),
                     .int, .eu_payload => null,

@@ -531,6 +531,7 @@ pub const DeclGen = struct {
     /// Keeps track of anonymous decls that need to be rendered before this
     /// (named) Decl in the output C code.
     anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.DeclBlock),
+    aligned_anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
@@ -548,11 +549,12 @@ pub const DeclGen = struct {
         writer: anytype,
         ty: Type,
         ptr_val: Value,
-        decl_val: InternPool.Index,
+        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const mod = dg.module;
         const ip = &mod.intern_pool;
+        const decl_val = anon_decl.val;
         const decl_ty = ip.typeOf(decl_val).toType();
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
@@ -592,8 +594,23 @@ pub const DeclGen = struct {
 
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
+        const ptr_type = ip.indexToKey(anon_decl.orig_ty).ptr_type;
         const gop = try dg.anon_decl_deps.getOrPut(dg.gpa, decl_val);
         if (!gop.found_existing) gop.value_ptr.* = .{};
+
+        // Only insert an alignment entry if the alignment is greater than ABI
+        // alignment. If there is already an entry, keep the greater alignment.
+        const explicit_alignment = ptr_type.flags.alignment;
+        if (explicit_alignment != .none) {
+            const abi_alignment = ptr_type.child.toType().abiAlignment(mod);
+            if (explicit_alignment.compareStrict(.gt, abi_alignment)) {
+                const aligned_gop = try dg.aligned_anon_decls.getOrPut(dg.gpa, decl_val);
+                aligned_gop.value_ptr.* = if (aligned_gop.found_existing)
+                    aligned_gop.value_ptr.maxStrict(explicit_alignment)
+                else
+                    explicit_alignment;
+            }
+        }
     }
 
     fn renderDeclValue(
@@ -651,7 +668,7 @@ pub const DeclGen = struct {
         switch (ptr.addr) {
             .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), d, location),
             .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val.toValue(), md.decl, location),
-            .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val.toValue(), decl_val, location),
+            .anon_decl => |anon_decl| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val.toValue(), anon_decl, location),
             .int => |int| {
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_cty);

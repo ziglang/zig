@@ -3659,7 +3659,10 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     if (try sema.resolveComptimeKnownAllocValue(block, alloc, null)) |val| {
         const new_mut_ptr = Air.internedToRef((try mod.intern(.{ .ptr = .{
             .ty = alloc_ty.toIntern(),
-            .addr = .{ .anon_decl = val },
+            .addr = .{ .anon_decl = .{
+                .val = val,
+                .orig_ty = alloc_ty.toIntern(),
+            } },
         } })));
         return sema.makePtrConst(block, new_mut_ptr);
     }
@@ -5540,7 +5543,10 @@ fn addStrLitNoAlias(sema: *Sema, bytes: []const u8) CompileError!Air.Inst.Ref {
     });
     return Air.internedToRef((try mod.intern(.{ .ptr = .{
         .ty = ptr_ty.toIntern(),
-        .addr = .{ .anon_decl = val },
+        .addr = .{ .anon_decl = .{
+            .val = val,
+            .orig_ty = ptr_ty.toIntern(),
+        } },
     } })));
 }
 
@@ -30546,7 +30552,8 @@ fn beginComptimePtrLoad(
                     .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
                 };
             },
-            .anon_decl => |decl_val| blk: {
+            .anon_decl => |anon_decl| blk: {
+                const decl_val = anon_decl.val;
                 if (decl_val.toValue().getVariable(mod) != null) return error.RuntimeLoad;
                 const decl_ty = ip.typeOf(decl_val).toType();
                 const decl_tv: TypedValue = .{ .ty = decl_ty, .val = decl_val.toValue() };
@@ -36650,6 +36657,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .simple_value,
             .ptr_decl,
             .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
             .ptr_mut_decl,
             .ptr_comptime_field,
             .ptr_int,

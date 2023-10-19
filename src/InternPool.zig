@@ -1074,7 +1074,7 @@ pub const Key = union(enum) {
 
             decl: Module.Decl.Index,
             mut_decl: MutDecl,
-            anon_decl: Index,
+            anon_decl: AnonDecl,
             comptime_field: Index,
             int: Index,
             eu_payload: Index,
@@ -1089,6 +1089,14 @@ pub const Key = union(enum) {
             pub const BaseIndex = struct {
                 base: Index,
                 index: u64,
+            };
+            pub const AnonDecl = extern struct {
+                val: Index,
+                /// Contains the canonical pointer type of the anonymous
+                /// declaration. This may equal `ty` of the `Ptr` or it may be
+                /// different. Importantly, when lowering the anonymous decl,
+                /// the original pointer type alignment must be used.
+                orig_ty: Index,
             };
         };
     };
@@ -1231,7 +1239,8 @@ pub const Key = union(enum) {
                         common ++ asBytes(&x.decl) ++ asBytes(&x.runtime_index),
                     ),
 
-                    .anon_decl,
+                    .anon_decl => |x| Hash.hash(seed2, common ++ asBytes(&x)),
+
                     .int,
                     .eu_payload,
                     .opt_payload,
@@ -1500,7 +1509,8 @@ pub const Key = union(enum) {
                 return switch (a_info.addr) {
                     .decl => |a_decl| a_decl == b_info.addr.decl,
                     .mut_decl => |a_mut_decl| std.meta.eql(a_mut_decl, b_info.addr.mut_decl),
-                    .anon_decl => |a_decl| a_decl == b_info.addr.anon_decl,
+                    .anon_decl => |ad| ad.val == b_info.addr.anon_decl.val and
+                        ad.orig_ty == b_info.addr.anon_decl.orig_ty,
                     .int => |a_int| a_int == b_info.addr.int,
                     .eu_payload => |a_eu_payload| a_eu_payload == b_info.addr.eu_payload,
                     .opt_payload => |a_opt_payload| a_opt_payload == b_info.addr.opt_payload,
@@ -2133,6 +2143,7 @@ pub const Index = enum(u32) {
         ptr_decl: struct { data: *PtrDecl },
         ptr_mut_decl: struct { data: *PtrMutDecl },
         ptr_anon_decl: struct { data: *PtrAnonDecl },
+        ptr_anon_decl_aligned: struct { data: *PtrAnonDeclAligned },
         ptr_comptime_field: struct { data: *PtrComptimeField },
         ptr_int: struct { data: *PtrBase },
         ptr_eu_payload: struct { data: *PtrBase },
@@ -2583,8 +2594,16 @@ pub const Tag = enum(u8) {
     /// data is extra index of `PtrMutDecl`, which contains the type and address.
     ptr_mut_decl,
     /// A pointer to an anonymous decl.
-    /// data is extra index of `PtrAnonDecl`, which contains the type and decl value.
+    /// data is extra index of `PtrAnonDecl`, which contains the pointer type and decl value.
+    /// The alignment of the anonymous decl is communicated via the pointer type.
     ptr_anon_decl,
+    /// A pointer to an anonymous decl.
+    /// data is extra index of `PtrAnonDeclAligned`, which contains the pointer
+    /// type and decl value.
+    /// The original pointer type is also provided, which will be different than `ty`.
+    /// This encoding is only used when a pointer to an anonymous decl is
+    /// coerced to a different pointer type with a different alignment.
+    ptr_anon_decl_aligned,
     /// data is extra index of `PtrComptimeField`, which contains the pointer type and field value.
     ptr_comptime_field,
     /// A pointer with an integer value.
@@ -2781,6 +2800,7 @@ pub const Tag = enum(u8) {
             .ptr_decl => PtrDecl,
             .ptr_mut_decl => PtrMutDecl,
             .ptr_anon_decl => PtrAnonDecl,
+            .ptr_anon_decl_aligned => PtrAnonDeclAligned,
             .ptr_comptime_field => PtrComptimeField,
             .ptr_int => PtrBase,
             .ptr_eu_payload => PtrBase,
@@ -3383,6 +3403,13 @@ pub const PtrAnonDecl = struct {
     val: Index,
 };
 
+pub const PtrAnonDeclAligned = struct {
+    ty: Index,
+    val: Index,
+    /// Must be nonequal to `ty`. Only the alignment from this value is important.
+    orig_ty: Index,
+};
+
 pub const PtrMutDecl = struct {
     ty: Index,
     decl: Module.Decl.Index,
@@ -3736,7 +3763,20 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const info = ip.extraData(PtrAnonDecl, data);
             return .{ .ptr = .{
                 .ty = info.ty,
-                .addr = .{ .anon_decl = info.val },
+                .addr = .{ .anon_decl = .{
+                    .val = info.val,
+                    .orig_ty = info.ty,
+                } },
+            } };
+        },
+        .ptr_anon_decl_aligned => {
+            const info = ip.extraData(PtrAnonDeclAligned, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .anon_decl = .{
+                    .val = info.val,
+                    .orig_ty = info.orig_ty,
+                } },
             } };
         },
         .ptr_comptime_field => {
@@ -3817,7 +3857,17 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                             } };
                         },
                         .ptr_anon_decl => .{
-                            .anon_decl = ip.extraData(PtrAnonDecl, ptr_item.data).val,
+                            .anon_decl = .{
+                                .val = ip.extraData(PtrAnonDecl, ptr_item.data).val,
+                                .orig_ty = info.ty,
+                            },
+                        },
+                        .ptr_anon_decl_aligned => b: {
+                            const sub_info = ip.extraData(PtrAnonDeclAligned, ptr_item.data);
+                            break :b .{ .anon_decl = .{
+                                .val = sub_info.val,
+                                .orig_ty = sub_info.orig_ty,
+                            } };
                         },
                         .ptr_comptime_field => .{
                             .comptime_field = ip.extraData(PtrComptimeField, ptr_item.data).field_val,
@@ -4571,13 +4621,22 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                                 .runtime_index = mut_decl.runtime_index,
                             }),
                         }),
-                        .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(.{
-                            .tag = .ptr_anon_decl,
-                            .data = try ip.addExtra(gpa, PtrAnonDecl{
-                                .ty = ptr.ty,
-                                .val = anon_decl,
-                            }),
-                        }),
+                        .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(
+                            if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) .{
+                                .tag = .ptr_anon_decl,
+                                .data = try ip.addExtra(gpa, PtrAnonDecl{
+                                    .ty = ptr.ty,
+                                    .val = anon_decl.val,
+                                }),
+                            } else .{
+                                .tag = .ptr_anon_decl_aligned,
+                                .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
+                                    .ty = ptr.ty,
+                                    .val = anon_decl.val,
+                                    .orig_ty = anon_decl.orig_ty,
+                                }),
+                            },
+                        ),
                         .comptime_field => |field_val| {
                             assert(field_val != .none);
                             ip.items.appendAssumeCapacity(.{
@@ -7184,6 +7243,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .ptr_decl => @sizeOf(PtrDecl),
             .ptr_mut_decl => @sizeOf(PtrMutDecl),
             .ptr_anon_decl => @sizeOf(PtrAnonDecl),
+            .ptr_anon_decl_aligned => @sizeOf(PtrAnonDeclAligned),
             .ptr_comptime_field => @sizeOf(PtrComptimeField),
             .ptr_int => @sizeOf(PtrBase),
             .ptr_eu_payload => @sizeOf(PtrBase),
@@ -7314,6 +7374,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .ptr_decl,
             .ptr_mut_decl,
             .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
             .ptr_comptime_field,
             .ptr_int,
             .ptr_eu_payload,
@@ -7695,6 +7756,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             inline .ptr_decl,
             .ptr_mut_decl,
             .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
             .ptr_comptime_field,
             .ptr_int,
             .ptr_eu_payload,
@@ -7855,7 +7917,7 @@ pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.Addr.Tag {
         switch (ip.items.items(.tag)[base]) {
             .ptr_decl => return .decl,
             .ptr_mut_decl => return .mut_decl,
-            .ptr_anon_decl => return .anon_decl,
+            .ptr_anon_decl, .ptr_anon_decl_aligned => return .anon_decl,
             .ptr_comptime_field => return .comptime_field,
             .ptr_int => return .int,
             inline .ptr_eu_payload,
@@ -8032,6 +8094,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .ptr_decl,
             .ptr_mut_decl,
             .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
             .ptr_comptime_field,
             .ptr_int,
             .ptr_eu_payload,
@@ -8280,4 +8343,13 @@ pub fn addFieldName(
     if (gop.found_existing) return @intCast(gop.index);
     ip.extra.items[names_start + field_index] = @intFromEnum(name);
     return null;
+}
+
+/// Used only by `get` for pointer values, and mainly intended to use `Tag.ptr_anon_decl`
+/// encoding instead of `Tag.ptr_anon_decl_aligned` when possible.
+fn ptrsHaveSameAlignment(ip: *InternPool, a_ty: Index, a_info: Key.PtrType, b_ty: Index) bool {
+    if (a_ty == b_ty) return true;
+    const b_info = ip.indexToKey(b_ty).ptr_type;
+    return a_info.flags.alignment == b_info.flags.alignment and
+        (a_info.child == b_info.child or a_info.flags.alignment != .none);
 }

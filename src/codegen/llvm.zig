@@ -3051,9 +3051,17 @@ pub const Object = struct {
         llvm_addr_space: Builder.AddrSpace,
         alignment: InternPool.Alignment,
     ) Error!Builder.Variable.Index {
+        assert(alignment != .none);
         // TODO: Add address space to the anon_decl_map
         const gop = try o.anon_decl_map.getOrPut(o.gpa, decl_val);
-        if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
+        if (gop.found_existing) {
+            // Keep the greater of the two alignments.
+            const variable_index = gop.value_ptr.ptr(&o.builder).kind.variable;
+            const old_alignment = InternPool.Alignment.fromLlvm(variable_index.getAlignment(&o.builder));
+            const max_alignment = old_alignment.maxStrict(alignment);
+            variable_index.setAlignment(max_alignment.toLlvm(), &o.builder);
+            return variable_index;
+        }
         errdefer assert(o.anon_decl_map.remove(decl_val));
 
         const mod = o.module;
@@ -3069,8 +3077,7 @@ pub const Object = struct {
         try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-        if (alignment != .none)
-            variable_index.setAlignment(alignment.toLlvm(), &o.builder);
+        variable_index.setAlignment(alignment.toLlvm(), &o.builder);
         return variable_index;
     }
 
@@ -4253,13 +4260,6 @@ pub const Object = struct {
         return o.builder.bigIntConst(try o.builder.intType(ty.intInfo(mod).bits), bigint);
     }
 
-    fn lowerParentPtrAnonDecl(o: *Object, decl_val: InternPool.Index) Error!Builder.Constant {
-        const mod = o.module;
-        const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
-        const ptr_ty = try mod.singleMutPtrType(decl_ty);
-        return o.lowerAnonDeclRef(ptr_ty, decl_val);
-    }
-
     fn lowerParentPtrDecl(o: *Object, decl_index: Module.Decl.Index) Allocator.Error!Builder.Constant {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
@@ -4275,7 +4275,7 @@ pub const Object = struct {
         return switch (ptr.addr) {
             .decl => |decl| try o.lowerParentPtrDecl(decl),
             .mut_decl => |mut_decl| try o.lowerParentPtrDecl(mut_decl.decl),
-            .anon_decl => |anon_decl| try o.lowerParentPtrAnonDecl(anon_decl),
+            .anon_decl => |ad| try o.lowerAnonDeclRef(ad.orig_ty.toType(), ad),
             .int => |int| try o.lowerIntAsPtr(int),
             .eu_payload => |eu_ptr| {
                 const parent_ptr = try o.lowerParentPtr(eu_ptr.toValue());
@@ -4394,10 +4394,11 @@ pub const Object = struct {
     fn lowerAnonDeclRef(
         o: *Object,
         ptr_ty: Type,
-        decl_val: InternPool.Index,
+        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
     ) Error!Builder.Constant {
         const mod = o.module;
         const ip = &mod.intern_pool;
+        const decl_val = anon_decl.val;
         const decl_ty = ip.typeOf(decl_val).toType();
         const target = mod.getTarget();
 
@@ -4416,9 +4417,9 @@ pub const Object = struct {
         if (is_fn_body)
             @panic("TODO");
 
-        const addr_space = target_util.defaultAddressSpace(target, .global_constant);
-        const llvm_addr_space = toLlvmAddressSpace(addr_space, target);
-        const alignment = ptr_ty.ptrAlignment(mod);
+        const orig_ty = anon_decl.orig_ty.toType();
+        const llvm_addr_space = toLlvmAddressSpace(orig_ty.ptrAddressSpace(mod), target);
+        const alignment = orig_ty.ptrAlignment(mod);
         const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
