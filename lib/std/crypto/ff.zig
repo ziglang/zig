@@ -808,7 +808,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Returns x^e (mod m), the exponent being public and provided as a byte string.
         /// Exponents are usually small, so this function is faster than `powPublic` as a field element
         /// doesn't have to be created if a serialized representation is already available.
-        /// b
+        ///
         /// If the exponent is secret, `powWithEncodedExponent` must be used instead.
         pub fn powWithEncodedPublicExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) NullExponentError!Fe {
             return self.powWithEncodedExponentInternal(x, e, endian, true);
