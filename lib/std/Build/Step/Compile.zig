@@ -14,7 +14,7 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const LazyPath = std.Build.LazyPath;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
-const ExecError = std.Build.ExecError;
+const RunError = std.Build.RunError;
 const Module = std.Build.Module;
 const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
@@ -854,7 +854,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
     };
 
     var code: u8 = undefined;
-    const stdout = if (b.execAllowFail(&[_][]const u8{
+    const stdout = if (b.runAllowFail(&[_][]const u8{
         "pkg-config",
         pkg_name,
         "--cflags",
@@ -2263,8 +2263,8 @@ pub fn doAtomicSymLinks(
     };
 }
 
-fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
-    const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
+    const stdout = try self.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
