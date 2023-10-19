@@ -4755,6 +4755,10 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         };
         defer options.deinit();
 
+        // We never want to read the INCLUDE environment variable, so
+        // unconditionally set `ignore_include_env_var` to true
+        options.ignore_include_env_var = true;
+
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 

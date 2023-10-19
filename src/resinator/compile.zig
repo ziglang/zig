@@ -28,7 +28,6 @@ const windows1252 = @import("windows1252.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const errors = @import("errors.zig");
-const introspect = @import("../introspect.zig");
 
 pub const CompileOptions = struct {
     cwd: std.fs.Dir,
@@ -89,10 +88,23 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         }
     }
     // Re-open the passed in cwd since we want to be able to close it (std.fs.cwd() shouldn't be closed)
-    // `catch unreachable` since `options.cwd` is expected to be a valid dir handle, so opening
-    // a new handle to it should be fine as well.
-    // TODO: Maybe catch and return an error instead
-    const cwd_dir = options.cwd.openDir(".", .{}) catch @panic("unable to open dir");
+    const cwd_dir = options.cwd.openDir(".", .{}) catch |err| {
+        try options.diagnostics.append(.{
+            .err = .failed_to_open_cwd,
+            .token = .{
+                .id = .invalid,
+                .start = 0,
+                .end = 0,
+                .line_number = 1,
+            },
+            .print_source_line = false,
+            .extra = .{ .file_open_error = .{
+                .err = ErrorDetails.FileOpenError.enumFromError(err),
+                .filename_string_index = undefined,
+            } },
+        });
+        return error.CompileError;
+    };
     try search_dirs.append(.{ .dir = cwd_dir, .path = null });
     for (options.extra_include_paths) |extra_include_path| {
         var dir = openSearchPathDir(options.cwd, extra_include_path) catch {
@@ -111,11 +123,16 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
         try search_dirs.append(.{ .dir = dir, .path = try allocator.dupe(u8, system_include_path) });
     }
     if (!options.ignore_include_env_var) {
-        const INCLUDE = (introspect.EnvVar.INCLUDE.get(allocator) catch @panic("OOM")) orelse "";
+        const INCLUDE = std.process.getEnvVarOwned(allocator, "INCLUDE") catch "";
         defer allocator.free(INCLUDE);
 
-        // TODO: Should this be platform-specific? How does windres/llvm-rc handle this (if at all)?
-        var it = std.mem.tokenize(u8, INCLUDE, ";");
+        // The only precedence here is llvm-rc which also uses the platform-specific
+        // delimiter. There's no precedence set by `rc.exe` since it's Windows-only.
+        const delimiter = switch (builtin.os.tag) {
+            .windows => ';',
+            else => ':',
+        };
+        var it = std.mem.tokenizeScalar(u8, INCLUDE, delimiter);
         while (it.next()) |search_path| {
             var dir = openSearchPathDir(options.cwd, search_path) catch continue;
             errdefer dir.close();
