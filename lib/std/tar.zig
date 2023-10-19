@@ -245,15 +245,17 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
 
                 var file_off: usize = 0;
 
-                const mode = header.mode();
-                var modebits = std.StaticBitSet(32){
-                    .mask = @intCast(try std.fmt.parseInt(u32, mode, 8)),
-                };
+                if (should_exec) {
+                    const mode = header.mode();
+                    var modebits = std.StaticBitSet(32){
+                        .mask = @intCast(try std.fmt.parseInt(u32, mode, 8)),
+                    };
 
-                const has_owner_exe_bit = modebits.isSet(6);
-                modebits.setValue(3, has_owner_exe_bit);
-                modebits.setValue(0, has_owner_exe_bit);
-                try file.?.chmod(modebits.mask);
+                    const has_owner_exe_bit = modebits.isSet(6);
+                    modebits.setValue(3, has_owner_exe_bit);
+                    modebits.setValue(0, has_owner_exe_bit);
+                    try file.?.chmod(modebits.mask);
+                }
 
                 while (true) {
                     const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
