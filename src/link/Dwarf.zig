@@ -87,15 +87,6 @@ pub const DeclState = struct {
         self.exprloc_relocs.deinit(self.gpa);
     }
 
-    fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
-        log.debug("{x}: target sym %{d}, via GOT {}", .{ offset, target, is_ptr });
-        try self.exprloc_relocs.append(self.gpa, .{
-            .type = if (is_ptr) .got_load else .direct_load,
-            .target = target,
-            .offset = offset,
-        });
-    }
-
     /// Adds local type relocation of the form: @offset => @this + addend
     /// @this signifies the offset within the .debug_abbrev section of the containing atom.
     fn addTypeRelocLocal(self: *DeclState, atom_index: Atom.Index, offset: u32, addend: u32) !void {
@@ -807,11 +798,25 @@ pub const DeclState = struct {
                     try dbg_info.append(DW.OP.deref);
                 }
                 switch (loc) {
-                    .linker_load => |load_struct| try self.addExprlocReloc(
-                        load_struct.sym_index,
-                        offset,
-                        is_ptr,
-                    ),
+                    .linker_load => |load_struct| switch (load_struct.type) {
+                        .direct => {
+                            log.debug("{x}: target sym %{d}", .{ offset, load_struct.sym_index });
+                            try self.exprloc_relocs.append(self.gpa, .{
+                                .type = .direct_load,
+                                .target = load_struct.sym_index,
+                                .offset = offset,
+                            });
+                        },
+                        .got => {
+                            log.debug("{x}: target sym %{d} via GOT", .{ offset, load_struct.sym_index });
+                            try self.exprloc_relocs.append(self.gpa, .{
+                                .type = .got_load,
+                                .target = load_struct.sym_index,
+                                .offset = offset,
+                            });
+                        },
+                        else => {}, // TODO
+                    },
                     else => {},
                 }
             },
