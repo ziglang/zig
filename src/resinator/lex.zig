@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const ErrorDetails = @import("errors.zig").ErrorDetails;
-const columnsUntilTabStop = @import("literals.zig").columnsUntilTabStop;
+const columnWidth = @import("literals.zig").columnWidth;
 const code_pages = @import("code_pages.zig");
 const CodePage = code_pages.CodePage;
 const SourceMappings = @import("source_mapping.zig").SourceMappings;
@@ -69,17 +69,14 @@ pub const Token = struct {
         };
     }
 
+    /// Returns 0-based column
     pub fn calculateColumn(token: Token, source: []const u8, tab_columns: usize, maybe_line_start: ?usize) usize {
         const line_start = maybe_line_start orelse token.getLineStart(source);
 
         var i: usize = line_start;
         var column: usize = 0;
         while (i < token.start) : (i += 1) {
-            const c = source[i];
-            switch (c) {
-                '\t' => column += columnsUntilTabStop(column, tab_columns),
-                else => column += 1,
-            }
+            column += columnWidth(column, source[i], tab_columns);
         }
         return column;
     }
@@ -109,6 +106,7 @@ pub const Token = struct {
         const line_start = maybe_line_start orelse token.getLineStart(source);
 
         var line_end = line_start + 1;
+        if (line_end >= source.len or source[line_end] == '\n') return source[line_start..line_start];
         while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
         while (line_end > 0 and source[line_end - 1] == '\r') : (line_end -= 1) {}
 
@@ -404,6 +402,9 @@ pub const Lexer = struct {
         // TODO: Understand this more, bring it more in line with how the Win32 limits work.
         //       Alternatively, do something that makes more sense but may be more permissive.
         var string_literal_length: usize = 0;
+        // Keeping track of the string literal column prevents pathological edge cases when
+        // there are tons of tab stop characters within a string literal.
+        var string_literal_column: usize = 0;
         var string_literal_collapsing_whitespace: bool = false;
         var still_could_have_exponent: bool = true;
         var exponent_index: ?usize = null;
@@ -471,6 +472,14 @@ pub const Lexer = struct {
                         self.at_start_of_line = false;
                         string_literal_collapsing_whitespace = false;
                         string_literal_length = 0;
+
+                        var dummy_token = Token{
+                            .start = self.index,
+                            .end = self.index,
+                            .line_number = self.line_handler.line_number,
+                            .id = .invalid,
+                        };
+                        string_literal_column = dummy_token.calculateColumn(self.buffer, 8, null);
                     },
                     '+', '&', '|' => {
                         self.index += 1;
@@ -618,6 +627,14 @@ pub const Lexer = struct {
                         state = .quoted_wide_string;
                         string_literal_collapsing_whitespace = false;
                         string_literal_length = 0;
+
+                        var dummy_token = Token{
+                            .start = self.index,
+                            .end = self.index,
+                            .line_number = self.line_handler.line_number,
+                            .id = .invalid,
+                        };
+                        string_literal_column = dummy_token.calculateColumn(self.buffer, 8, null);
                     },
                     else => {
                         state = .literal;
@@ -695,18 +712,23 @@ pub const Lexer = struct {
                 },
                 .quoted_ascii_string, .quoted_wide_string => switch (c) {
                     '"' => {
+                        string_literal_column += 1;
                         state = if (state == .quoted_ascii_string) .quoted_ascii_string_maybe_end else .quoted_wide_string_maybe_end;
                     },
                     '\\' => {
+                        string_literal_length += 1;
+                        string_literal_column += 1;
                         state = if (state == .quoted_ascii_string) .quoted_ascii_string_escape else .quoted_wide_string_escape;
                     },
                     '\r' => {
+                        string_literal_column = 0;
                         // \r doesn't count towards string literal length
 
                         // Increment line number but don't affect the result token's line number
                         _ = self.incrementLineNumber();
                     },
                     '\n' => {
+                        string_literal_column = 0;
                         // first \n expands to <space><\n>
                         if (!string_literal_collapsing_whitespace) {
                             string_literal_length += 2;
@@ -720,33 +742,17 @@ pub const Lexer = struct {
                     // only \t, space, Vertical Tab, and Form Feed count as whitespace when collapsing
                     '\t', ' ', '\x0b', '\x0c' => {
                         if (!string_literal_collapsing_whitespace) {
-                            if (c == '\t') {
-                                // Literal tab characters are counted as the number of space characters
-                                // needed to reach the next 8-column tab stop.
-                                //
-                                // This implemention is ineffecient but hopefully it's enough of an
-                                // edge case that it doesn't matter too much. Literal tab characters in
-                                // string literals being replaced by a variable number of spaces depending
-                                // on which column the tab character is located in the source .rc file seems
-                                // like it has extremely limited use-cases, so it seems unlikely that it's used
-                                // in real .rc files.
-                                var dummy_token = Token{
-                                    .start = self.index,
-                                    .end = self.index,
-                                    .line_number = self.line_handler.line_number,
-                                    .id = .invalid,
-                                };
-                                dummy_token.start = self.index;
-                                const current_column = dummy_token.calculateColumn(self.buffer, 8, null);
-                                string_literal_length += columnsUntilTabStop(current_column, 8);
-                            } else {
-                                string_literal_length += 1;
-                            }
+                            // Literal tab characters are counted as the number of space characters
+                            // needed to reach the next 8-column tab stop.
+                            const width = columnWidth(string_literal_column, @intCast(c), 8);
+                            string_literal_length += width;
+                            string_literal_column += width;
                         }
                     },
                     else => {
                         string_literal_collapsing_whitespace = false;
                         string_literal_length += 1;
+                        string_literal_column += 1;
                     },
                 },
                 .quoted_ascii_string_escape, .quoted_wide_string_escape => switch (c) {
@@ -760,14 +766,19 @@ pub const Lexer = struct {
                         return error.FoundCStyleEscapedQuote;
                     },
                     else => {
+                        string_literal_length += 1;
+                        string_literal_column += 1;
                         state = if (state == .quoted_ascii_string_escape) .quoted_ascii_string else .quoted_wide_string;
                     },
                 },
                 .quoted_ascii_string_maybe_end, .quoted_wide_string_maybe_end => switch (c) {
                     '"' => {
                         state = if (state == .quoted_ascii_string_maybe_end) .quoted_ascii_string else .quoted_wide_string;
-                        // Escaped quotes only count as 1 char for string literal length checks,
-                        // so we don't increment string_literal_length here.
+                        // Escaped quotes count as 1 char for string literal length checks.
+                        // Since we did not increment on the first " (because it could have been
+                        // the end of the quoted string), we increment here
+                        string_literal_length += 1;
+                        string_literal_column += 1;
                     },
                     else => {
                         result.id = if (state == .quoted_ascii_string_maybe_end) .quoted_ascii_string else .quoted_wide_string;
@@ -807,6 +818,8 @@ pub const Lexer = struct {
             }
         }
 
+        result.end = self.index;
+
         if (result.id == .quoted_ascii_string or result.id == .quoted_wide_string) {
             if (string_literal_length > self.max_string_literal_codepoints) {
                 self.error_context_token = result;
@@ -814,7 +827,6 @@ pub const Lexer = struct {
             }
         }
 
-        result.end = self.index;
         return result;
     }
 
@@ -877,6 +889,7 @@ pub const Lexer = struct {
             .end = end,
             .line_number = self.line_handler.line_number,
         };
+        errdefer self.error_context_token = token;
         const full_command = self.buffer[start..end];
         var command = full_command;
 
@@ -901,7 +914,6 @@ pub const Lexer = struct {
         }
 
         if (command.len == 0 or command[0] != '(') {
-            self.error_context_token = token;
             return error.CodePagePragmaMissingLeftParen;
         }
         command = command[1..];
@@ -917,7 +929,6 @@ pub const Lexer = struct {
         }
 
         if (num_str.len == 0) {
-            self.error_context_token = token;
             return error.CodePagePragmaNotInteger;
         }
 
@@ -926,7 +937,6 @@ pub const Lexer = struct {
         }
 
         if (command.len == 0 or command[0] != ')') {
-            self.error_context_token = token;
             return error.CodePagePragmaMissingRightParen;
         }
 
@@ -943,41 +953,26 @@ pub const Lexer = struct {
             //
             // Instead of that, we just have a separate error specifically for overflow.
             const num = parseCodePageNum(num_str) catch |err| switch (err) {
-                error.InvalidCharacter => {
-                    self.error_context_token = token;
-                    return error.CodePagePragmaNotInteger;
-                },
-                error.Overflow => {
-                    self.error_context_token = token;
-                    return error.CodePagePragmaOverflow;
-                },
+                error.InvalidCharacter => return error.CodePagePragmaNotInteger,
+                error.Overflow => return error.CodePagePragmaOverflow,
             };
 
             // Anything that starts with 0 but does not resolve to 0 is treated as invalid, e.g. 01252
             if (num_str[0] == '0' and num != 0) {
-                self.error_context_token = token;
                 return error.CodePagePragmaInvalidCodePage;
             }
             // Anything that resolves to 0 is treated as 'not an integer' by the Win32 implementation.
             else if (num == 0) {
-                self.error_context_token = token;
                 return error.CodePagePragmaNotInteger;
             }
             // Anything above u16 max is not going to be found since our CodePage enum is backed by a u16.
             if (num > std.math.maxInt(u16)) {
-                self.error_context_token = token;
                 return error.CodePagePragmaInvalidCodePage;
             }
 
             break :code_page code_pages.CodePage.getByIdentifierEnsureSupported(@intCast(num)) catch |err| switch (err) {
-                error.InvalidCodePage => {
-                    self.error_context_token = token;
-                    return error.CodePagePragmaInvalidCodePage;
-                },
-                error.UnsupportedCodePage => {
-                    self.error_context_token = token;
-                    return error.CodePagePragmaUnsupportedCodePage;
-                },
+                error.InvalidCodePage => return error.CodePagePragmaInvalidCodePage,
+                error.UnsupportedCodePage => return error.CodePagePragmaUnsupportedCodePage,
             };
         };
 
@@ -990,7 +985,6 @@ pub const Lexer = struct {
         // to still be able to work correctly after this error is returned.
         if (self.source_mappings) |source_mappings| {
             if (!source_mappings.isRootFile(token.line_number)) {
-                self.error_context_token = token;
                 return error.CodePagePragmaInIncludedFile;
             }
         }

@@ -1,7 +1,7 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
-const introspect = @import("../introspect.zig");
 
 pub const IncludeArgs = struct {
     clang_target: ?[]const u8 = null,
@@ -68,10 +68,15 @@ pub fn appendClangArgs(arena: Allocator, argv: *std.ArrayList([]const u8), optio
     }
 
     if (!options.ignore_include_env_var) {
-        const INCLUDE = (introspect.EnvVar.INCLUDE.get(arena) catch @panic("OOM")) orelse "";
+        const INCLUDE = std.process.getEnvVarOwned(arena, "INCLUDE") catch "";
 
-        // TODO: Should this be platform-specific? How does windres/llvm-rc handle this (if at all)?
-        var it = std.mem.tokenize(u8, INCLUDE, ";");
+        // The only precedence here is llvm-rc which also uses the platform-specific
+        // delimiter. There's no precedence set by `rc.exe` since it's Windows-only.
+        const delimiter = switch (builtin.os.tag) {
+            .windows => ';',
+            else => ':',
+        };
+        var it = std.mem.tokenizeScalar(u8, INCLUDE, delimiter);
         while (it.next()) |include_path| {
             try argv.append("-isystem");
             try argv.append(include_path);

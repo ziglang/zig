@@ -157,8 +157,6 @@ pub const EnvVar = enum {
     NO_COLOR,
     XDG_CACHE_HOME,
     HOME,
-    /// https://github.com/ziglang/zig/issues/17585
-    INCLUDE,
 
     pub fn isSet(comptime ev: EnvVar) bool {
         return std.process.hasEnvVarConstant(@tagName(ev));
