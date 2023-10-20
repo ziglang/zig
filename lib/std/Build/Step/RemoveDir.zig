@@ -9,6 +9,7 @@ step: Step,
 dir_path: []const u8,
 
 pub fn init(owner: *std.Build, dir_path: []const u8) RemoveDir {
+    std.debug.assert(owner.phase == .configure);
     return RemoveDir{
         .step = Step.init(.{
             .id = .remove_dir,
@@ -26,6 +27,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const self = @fieldParentPtr(RemoveDir, "step", step);
 
     b.build_root.handle.deleteTree(self.dir_path) catch |err| {

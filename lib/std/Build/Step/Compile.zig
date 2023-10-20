@@ -1383,6 +1383,7 @@ fn getGeneratedFilePath(self: *Compile, comptime tag_name: []const u8, asking_st
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
+    assert(b.phase == .make);
     const self = @fieldParentPtr(Compile, "step", step);
 
     if (self.root_src == null and self.link_objects.items.len == 0) {

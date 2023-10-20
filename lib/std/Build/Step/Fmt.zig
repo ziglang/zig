@@ -20,6 +20,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *Fmt {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(Fmt) catch @panic("OOM");
     const name = if (options.check) "zig fmt --check" else "zig fmt";
     self.* = .{
@@ -46,6 +47,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // modifications.
 
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const arena = b.allocator;
     const self = @fieldParentPtr(Fmt, "step", step);
 

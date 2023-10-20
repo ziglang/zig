@@ -16,6 +16,7 @@ contents: std.ArrayList(u8),
 args: std.ArrayList(Arg),
 
 pub fn create(owner: *std.Build) *Options {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(Options) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
@@ -207,6 +208,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const self = @fieldParentPtr(Options, "step", step);
 
     for (self.args.items) |item| {

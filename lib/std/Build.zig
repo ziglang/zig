@@ -134,6 +134,8 @@ modules: std.StringArrayHashMap(*Module),
 initialized_deps: *InitializedDepMap,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
+/// the current phase, only running build(b) from a build.zig is configure phase
+phase: enum { configure, make },
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
 
@@ -314,6 +316,7 @@ pub fn create(
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .initialized_deps = initialized_deps,
         .available_deps = available_deps,
+        .phase = .configure,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -401,6 +404,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
+        .phase = .configure,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -1674,6 +1678,7 @@ pub fn execAllowFail(
 /// inside step make() functions. If any errors occur, it fails the build with
 /// a helpful message.
 pub fn exec(b: *Build, argv: []const []const u8) []u8 {
+    assert(b.phase == .configure);
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
             try allocPrintCmd(b.allocator, null, argv),
@@ -1885,6 +1890,8 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
         .ErrorUnion => try build_zig.build(b),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
+    // After running build_zig.build(b) we enter make phase
+    b.phase = .make;
 }
 
 pub const Module = struct {

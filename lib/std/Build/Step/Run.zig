@@ -139,6 +139,7 @@ pub const Output = struct {
 };
 
 pub fn create(owner: *std.Build, name: []const u8) *Run {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(Run) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
@@ -458,6 +459,7 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const arena = b.allocator;
     const self = @fieldParentPtr(Run, "step", step);
     const has_side_effects = self.hasSideEffects();

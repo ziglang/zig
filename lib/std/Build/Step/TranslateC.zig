@@ -28,6 +28,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(TranslateC) catch @panic("OOM");
     const source = options.source_file.dupe(owner);
     self.* = TranslateC{
@@ -125,6 +126,7 @@ pub fn defineCMacroRaw(self: *TranslateC, name_and_value: []const u8) void {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const self = @fieldParentPtr(TranslateC, "step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);

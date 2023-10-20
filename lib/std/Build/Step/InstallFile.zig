@@ -22,6 +22,7 @@ pub fn create(
     dest_rel_path: []const u8,
 ) *InstallFile {
     assert(dest_rel_path.len != 0);
+    assert(owner.phase == .configure);
     owner.pushInstalledFile(dir, dest_rel_path);
     const self = owner.allocator.create(InstallFile) catch @panic("OOM");
     self.* = .{
@@ -43,6 +44,7 @@ pub fn create(
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const src_builder = step.owner;
+    assert(src_builder.phase == .make);
     const self = @fieldParentPtr(InstallFile, "step", step);
     const dest_builder = self.dest_builder;
     const full_src_path = self.source.getPath2(src_builder, step);

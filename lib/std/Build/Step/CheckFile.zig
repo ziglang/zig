@@ -7,6 +7,7 @@ const std = @import("std");
 const Step = std.Build.Step;
 const fs = std.fs;
 const mem = std.mem;
+const assert = std.debug.assert;
 
 step: Step,
 expected_matches: []const []const u8,
@@ -26,6 +27,7 @@ pub fn create(
     source: std.Build.LazyPath,
     options: Options,
 ) *CheckFile {
+    assert(owner.phase == .configure);
     const self = owner.allocator.create(CheckFile) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
@@ -47,6 +49,7 @@ pub fn setName(self: *CheckFile, name: []const u8) void {
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    assert(step.owner.phase == .make);
     _ = prog_node;
     const b = step.owner;
     const self = @fieldParentPtr(CheckFile, "step", step);

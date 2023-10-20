@@ -58,6 +58,7 @@ pub fn create(
     input_file: std.Build.LazyPath,
     options: Options,
 ) *ObjCopy {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(ObjCopy) catch @panic("OOM");
     self.* = ObjCopy{
         .step = Step.init(.{
@@ -92,6 +93,7 @@ pub fn getOutputSeparatedDebug(self: *const ObjCopy) ?std.Build.LazyPath {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const self = @fieldParentPtr(ObjCopy, "step", step);
 
     var man = b.cache.obtain();

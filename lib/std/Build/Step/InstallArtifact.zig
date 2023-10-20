@@ -52,6 +52,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *InstallArtifact {
+    std.debug.assert(owner.phase == .configure);
     const self = owner.allocator.create(InstallArtifact) catch @panic("OOM");
     const dest_dir: ?InstallDir = switch (options.dest_dir) {
         .disabled => null,
@@ -120,6 +121,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    std.debug.assert(step.owner.phase == .make);
     _ = prog_node;
     const self = @fieldParentPtr(InstallArtifact, "step", step);
     const dest_builder = step.owner;
