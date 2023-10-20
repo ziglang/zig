@@ -912,7 +912,10 @@ const ct_unprotected = struct {
 };
 
 test {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (@import("builtin").zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
 
     const M = Modulus(256);
     const m = try M.fromPrimitive(u256, 3429938563481314093726330772853735541133072814650493833233);

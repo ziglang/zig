@@ -3031,6 +3031,8 @@ fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expecte
 }
 
 test "big int byte swap" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
     defer a.deinit();
 

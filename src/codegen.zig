@@ -545,7 +545,7 @@ pub fn generateSymbol(
 
             if (layout.payload_size == 0) {
                 return generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info);
             }
@@ -553,7 +553,7 @@ pub fn generateSymbol(
             // Check if we should store the tag first.
             if (layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align)) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
