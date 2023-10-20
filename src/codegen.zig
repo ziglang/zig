@@ -731,16 +731,13 @@ fn lowerAnonDeclRef(
         return Result.ok;
     }
 
-    const res = try bin_file.lowerAnonDecl(decl_val, src_loc);
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try bin_file.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
         .fail => |em| return .{ .fail = em },
     }
 
-    const alignment = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
-    if (alignment != .none) {
-        @panic("TODO how to make this anon decl be aligned?");
-    }
     const vaddr = try bin_file.getAnonDeclVAddr(decl_val, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,

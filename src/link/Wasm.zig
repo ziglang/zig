@@ -1702,25 +1702,30 @@ pub fn getDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, decl_align: Alignment, src_loc: Module.SrcLoc) !codegen.Result {
     const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
-    if (gop.found_existing) {
-        return .ok;
+    if (!gop.found_existing) {
+        const mod = wasm.base.options.module.?;
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+        const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
+        defer wasm.base.allocator.free(name);
+
+        switch (try wasm.lowerConst(name, tv, src_loc)) {
+            .ok => |atom_index| gop.value_ptr.* = atom_index,
+            .fail => |em| return .{ .fail = em },
+        }
     }
 
-    const mod = wasm.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
-    const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
-    defer wasm.base.allocator.free(name);
-
-    switch (try wasm.lowerConst(name, tv, src_loc)) {
-        .ok => |atom_index| {
-            gop.value_ptr.* = atom_index;
-            return .ok;
+    const atom = wasm.getAtomPtr(gop.value_ptr.*);
+    atom.alignment = switch (atom.alignment) {
+        .none => decl_align,
+        else => switch (decl_align) {
+            .none => atom.alignment,
+            else => atom.alignment.maxStrict(decl_align),
         },
-        .fail => |em| return .{ .fail = em },
-    }
+    };
+    return .ok;
 }
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {

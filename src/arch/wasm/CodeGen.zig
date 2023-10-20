@@ -3153,11 +3153,8 @@ fn lowerAnonDeclRef(
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    const alignment = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
-    if (alignment != .none) {
-        @panic("TODO how to make this anon decl be aligned?");
-    }
-    const res = try func.bin_file.lowerAnonDecl(decl_val, func.decl.srcLoc(mod));
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try func.bin_file.lowerAnonDecl(decl_val, decl_align, func.decl.srcLoc(mod));
     switch (res) {
         .ok => {},
         .fail => |em| {
