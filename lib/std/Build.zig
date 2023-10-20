@@ -839,7 +839,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
-    obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
+    obj_step.addAssemblyFile(options.source_file);
     return obj_step;
 }
 
