@@ -4906,6 +4906,7 @@ pub const usage_build =
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --zig-lib-dir [arg]           Override path to Zig lib directory
     \\  --build-runner [file]         Override path to build runner
+    \\  --seed [integer]              For shuffling dependency traversal order (default: random)
     \\  --fetch                       Exit after fetching dependency tree
     \\  -h, --help                    Print this help and exit
     \\
@@ -4944,6 +4945,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         const argv_index_global_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
+
+        try child_argv.appendSlice(&.{
+            "--seed",
+            try std.fmt.allocPrint(arena, "0x{x}", .{std.crypto.random.int(u32)}),
+        });
+        const argv_index_seed = child_argv.items.len - 1;
 
         {
             var i: usize = 0;
@@ -4993,6 +5000,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         try child_argv.append(arg);
                         debug_compile_errors = true;
+                    } else if (mem.eql(u8, arg, "--seed")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        i += 1;
+                        child_argv.items[argv_index_seed] = args[i];
+                        continue;
                     }
                 }
                 try child_argv.append(arg);
