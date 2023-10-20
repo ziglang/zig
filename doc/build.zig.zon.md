@@ -24,6 +24,15 @@ Struct.
 
 Each dependency must either provide a `url` and `hash`, or a `path`.
 
+### `minimum_zig_version`
+
+String. Optional.
+
+[semver](https://semver.org/)
+
+This is currently advisory only; the compiler does does not yet do anything
+with this version.
+
 #### `url`
 
 String. 
