@@ -34,6 +34,9 @@ fn test__powixf2(a: f80, b: i32, expected: f80) !void {
 }
 
 test "powihf2" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .f16c)) return error.SkipZigTest;
+
     const inf_f16 = math.inf(f16);
     try test__powisf2(0, 0, 1);
     try test__powihf2(1, 0, 1);

@@ -3,6 +3,7 @@
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/test/builtins/Unit/multf3_test.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const qnan128: f128 = @bitCast(@as(u128, 0x7fff800000000000) << 64);
 const inf128: f128 = @bitCast(@as(u128, 0x7fff000000000000) << 64);
@@ -48,6 +49,9 @@ fn makeNaN128(rand: u64) f128 {
     return @bitCast(int_result);
 }
 test "multf3" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     // qNaN * any = qNaN
     try test__multf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 

@@ -343,6 +343,9 @@ test "64" {
 }
 
 test "128" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f128, fmaq(0.0, 5.0, 9.124), 9.124, epsilon));
