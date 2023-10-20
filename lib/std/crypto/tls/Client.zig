@@ -737,7 +737,7 @@ pub fn writeAllEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !v
 pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usize {
     var ciphertext_buf: [tls.max_ciphertext_record_len * 4]u8 = undefined;
     var iovecs_buf: [6]std.os.iovec_const = undefined;
-    var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, bytes, .application_data);
+    var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, bytes[0..@min(bytes.len, 1 << 14)], .application_data);
     if (end) {
         prepared.iovec_end += prepareCiphertextRecord(
             c,
