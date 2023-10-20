@@ -685,7 +685,7 @@ pub fn HashMap(
 }
 
 /// A HashMap based on open addressing and linear probing.
-/// A lookup or modification typically occurs only 2 cache misses.
+/// A lookup or modification typically incurs only 2 cache misses.
 /// No order is guaranteed and any modification invalidates live iterators.
 /// It achieves good performance with quite high load factors (by default,
 /// grow is triggered at 80% full) and only one byte of overhead per element.
