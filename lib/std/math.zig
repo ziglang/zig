@@ -1214,7 +1214,9 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     }
                 },
                 .Float, .ComptimeFloat => {
-                    if (value >= maxInt(T)) {
+                    if (isNan(value)) {
+                        return 0;
+                    } else if (value >= maxInt(T)) {
                         return @as(T, maxInt(T));
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
@@ -1234,6 +1236,7 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+    try testing.expect(lossyCast(u32, nan(f32)) == 0);
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
