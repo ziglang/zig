@@ -607,16 +607,6 @@ const usage_build_generic =
     \\
 ;
 
-const repl_help =
-    \\Commands:
-    \\         update  Detect changes to source files and update output files.
-    \\            run  Execute the output file, if it is an executable or test.
-    \\ update-and-run  Perform an `update` followed by `run`.
-    \\           help  Print this text
-    \\           exit  Quit this repl
-    \\
-;
-
 const SOName = union(enum) {
     no,
     yes_default_value,
