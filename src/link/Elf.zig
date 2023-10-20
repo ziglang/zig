@@ -1415,9 +1415,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (system_libs.items) |lib| {
-        const in_file = try std.fs.cwd().openFile(lib.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        const in_file = std.fs.cwd().openFile(lib.path, .{}) catch |err| {
+            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
+            continue;
+        };
+        defer in_file.close();
         self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
             try self.handleAndReportParseError(lib.path, err, &parse_ctx);
     }
