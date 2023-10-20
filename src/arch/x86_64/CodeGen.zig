@@ -11315,6 +11315,10 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         ) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
+                    .lea_got => |sym_index| if (mem.eql(u8, modifier, "P"))
+                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_got = sym_index }) }
+                    else
+                        return self.fail("invalid modifier: '{s}'", .{modifier}),
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
                 };
             } else if (mem.startsWith(u8, op_str, "$")) {
