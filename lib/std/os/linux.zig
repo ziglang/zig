@@ -1030,7 +1030,7 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
-pub fn gettimeofday(tv: *timeval, tz: *timezone) usize {
+pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
 
