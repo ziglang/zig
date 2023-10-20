@@ -971,9 +971,7 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *Step.RemoveDir {
-    const remove_dir_step = self.allocator.create(Step.RemoveDir) catch @panic("OOM");
-    remove_dir_step.* = Step.RemoveDir.init(self, dir_path);
-    return remove_dir_step;
+    return Step.RemoveDir.create(self, dir_path);
 }
 
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
