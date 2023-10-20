@@ -7172,6 +7172,11 @@ fn analyzeCall(
     const callee_ty = sema.typeOf(func);
     const func_ty_info = mod.typeToFunc(func_ty).?;
     const cc = func_ty_info.cc;
+    if (try sema.resolveMaybeUndefVal(func)) |func_val| {
+        if (func_val.isUndef(mod)) {
+            return sema.fail(block, call_src, "unable to call 'undefined'", .{});
+        }
+    }
     if (cc == .Naked) {
         const maybe_decl = try sema.funcDeclSrc(func);
         const msg = msg: {
