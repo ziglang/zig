@@ -185,6 +185,8 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -211,6 +213,8 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -396,6 +400,8 @@ fn testCopyrel(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5\n");
@@ -556,6 +562,8 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello WORLD\n");
@@ -591,6 +599,8 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -896,6 +906,8 @@ fn testIFuncAlias(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1006,6 +1018,8 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
         exe.link_z_lazy = true;
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1015,6 +1029,8 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "other", opts);
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1078,6 +1094,8 @@ fn testIFuncFuncPtr(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");
@@ -1107,6 +1125,8 @@ fn testIFuncNoPlt(b: *Build, opts: Options) *Step {
     , &.{"-fno-plt"});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -1413,6 +1433,8 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -1447,6 +1469,8 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     , &.{});
     exe.link_function_sections = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const check = exe.checkObject();
     check.checkInSymtab();
@@ -1475,6 +1499,8 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1698,6 +1724,8 @@ fn testPltGot(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dso);
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -1912,6 +1940,8 @@ fn testTlsDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("5 3 5 3 5 3\n");
@@ -2061,6 +2091,8 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(a_so);
         exe.linkLibrary(b_so);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2074,6 +2106,8 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(b_so);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2117,6 +2151,8 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -2132,6 +2168,8 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -2211,6 +2249,8 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2223,6 +2263,8 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.linkLibrary(dso);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2270,6 +2312,8 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -2282,6 +2326,8 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -2315,6 +2361,8 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");
@@ -2337,6 +2385,8 @@ fn testTlsLargeStaticImage(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2 3 0 5\n");
@@ -2375,6 +2425,8 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2387,6 +2439,8 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2420,6 +2474,8 @@ fn testTlsLdDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2\n");
@@ -2457,6 +2513,8 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -2469,6 +2527,8 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -2554,6 +2614,8 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
     exe.force_pic = true;
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2588,6 +2650,8 @@ fn testTlsPic(b: *Build, opts: Options) *Step {
     , &.{});
     exe.addObject(obj);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5 3 5\n");
@@ -2627,6 +2691,8 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -2642,6 +2708,8 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -2711,6 +2779,8 @@ fn testWeakExports(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "main", opts);
         exe.addObject(obj);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const check = exe.checkObject();
         check.checkInDynamicSymtab();
@@ -2743,6 +2813,8 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=-1\n");
@@ -2759,6 +2831,8 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=5\n");
@@ -2866,6 +2940,8 @@ fn testZText(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");
