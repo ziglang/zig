@@ -2491,6 +2491,8 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
 }
 
 test "ntToWin32Namespace" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
     try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));

@@ -7,6 +7,8 @@ const expect = std.testing.expect;
 pub const scalbn = @import("ldexp.zig").ldexp;
 
 test "math.scalbn" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Verify we are using base 2.
     try expect(scalbn(@as(f16, 1.5), 4) == 24.0);
     try expect(scalbn(@as(f32, 1.5), 4) == 24.0);

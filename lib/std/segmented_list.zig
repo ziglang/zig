@@ -409,6 +409,8 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "SegmentedList basic usage" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testSegmentedList(0);
     try testSegmentedList(1);
     try testSegmentedList(2);

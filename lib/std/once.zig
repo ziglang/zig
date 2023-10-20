@@ -46,6 +46,8 @@ fn incr() void {
 }
 
 test "Once executes its function just once" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.single_threaded) {
         global_once.call();
         global_once.call();

@@ -369,6 +369,8 @@ test "Condition - signal" {
         return error.SkipZigTest;
     }
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const num_threads = 4;
 
     const SignalTest = struct {
@@ -498,6 +500,8 @@ test "Condition - broadcasting" {
         return error.SkipZigTest;
     }
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const num_threads = 10;
 
     const BroadcastTest = struct {
@@ -564,6 +568,8 @@ test "Condition - broadcasting - wake all threads" {
     if (builtin.single_threaded) {
         return error.SkipZigTest;
     }
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var num_runs: usize = 1;
     const num_threads = 10;

@@ -1025,6 +1025,8 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 }
 
 test "indexOfSentinel vector paths" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
 

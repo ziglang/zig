@@ -649,6 +649,8 @@ test "best speed shift offsets" {
 }
 
 test "best speed reset" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // test that encoding is consistent across a warparound of the table offset.
     // See https://github.com/golang/go/issues/34121
     const fmt = std.fmt;

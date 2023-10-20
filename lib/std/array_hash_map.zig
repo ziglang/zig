@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -2137,6 +2138,8 @@ test "ensure capacity leak" {
 }
 
 test "big map" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2190,6 +2193,8 @@ test "big map" {
 }
 
 test "clone" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var original = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer original.deinit();
 
@@ -2216,6 +2221,8 @@ test "clone" {
 }
 
 test "shrink" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2256,6 +2263,8 @@ test "shrink" {
 }
 
 test "pop" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2274,6 +2283,8 @@ test "pop" {
 }
 
 test "popOrNull" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2294,6 +2305,8 @@ test "popOrNull" {
 }
 
 test "reIndex" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = ArrayHashMap(i32, i32, AutoContext(i32), true).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2338,6 +2351,8 @@ test "auto store_hash" {
 }
 
 test "sort" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 

@@ -385,6 +385,8 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var thread_current_id: Thread.Id = undefined;
     const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
     thread.join();
@@ -427,6 +429,9 @@ test "cpu count" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
     try testTls();
@@ -513,6 +518,8 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 
 test "dl_iterate_phdr" {
     if (builtin.object_format != .elf) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
@@ -773,6 +780,8 @@ test "getrlimit and setrlimit" {
         return error.SkipZigTest;
     }
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
         const resource = @as(os.rlimit_resource, @enumFromInt(field.value));
         const limit = try os.getrlimit(resource);
@@ -814,6 +823,8 @@ test "shutdown socket" {
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)

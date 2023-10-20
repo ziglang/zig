@@ -5,6 +5,7 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IPv6 addresses" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var buffer: [100]u8 = undefined;
@@ -70,6 +71,7 @@ test "invalid but parseable IPv6 scope ids" {
 }
 
 test "parse and render IPv4 addresses" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var buffer: [18]u8 = undefined;

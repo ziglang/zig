@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const io = std.io;
 const mem = std.mem;
@@ -11,6 +12,8 @@ const inflate = @import("decompressor.zig");
 const deflate_const = @import("deflate_const.zig");
 
 test "best speed" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Tests that round-tripping through deflate and then inflate recovers the original input.
     // The Write sizes are near the thresholds in the compressor.encSpeed method (0, 16, 128), as well
     // as near `deflate_const.max_store_block_size` (65535).
@@ -93,6 +96,8 @@ test "best speed" {
 }
 
 test "best speed max match offset" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const abc = "abcdefgh";
     const xyz = "stuvwxyz";
     const input_margin = 16 - 1;

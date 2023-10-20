@@ -505,6 +505,8 @@ test "LinearFifo(u8, .Dynamic)" {
 }
 
 test "LinearFifo" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     inline for ([_]type{ u1, u8, u16, u64 }) |T| {
         inline for ([_]LinearFifoBufferType{ LinearFifoBufferType{ .Static = 32 }, .Slice, .Dynamic }) |bt| {
             const FifoType = LinearFifo(T, bt);

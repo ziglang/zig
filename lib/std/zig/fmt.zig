@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 
 /// Print the string as a Zig identifier escaping it with @"" syntax if needed.
@@ -95,6 +96,8 @@ pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
 }
 
 test "escape invalid identifiers" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expectFmt = std.testing.expectFmt;
     try expectFmt("@\"while\"", "{}", .{fmtId("while")});
     try expectFmt("hello", "{}", .{fmtId("hello")});
