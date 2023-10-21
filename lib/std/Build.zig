@@ -435,10 +435,10 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                     .used = false,
                 }) catch @panic("OOM");
             },
-            []const u8 => {
+            bool => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
-                    .value = .{ .scalar = v },
+                    .value = .{ .scalar = if (v) "true" else "false" },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -453,13 +453,6 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
             },
             else => switch (@typeInfo(T)) {
-                .Bool => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = if (v) "true" else "false" },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
                 .Enum, .EnumLiteral => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
@@ -474,7 +467,15 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
+                else => {
+                    if (comptime std.meta.trait.isZigString(T)) {
+                        user_input_options.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .scalar = v },
+                            .used = false,
+                        }) catch @panic("OOM");
+                    } else @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T));
+                },
             },
         }
     }
