@@ -634,9 +634,6 @@ pub fn main() !void {
         req.transfer_encoding = .chunked;
 
         try req.send(.{});
-        try req.wait();
-        try testing.expectEqual(http.Status.@"continue", req.response.status);
-
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();

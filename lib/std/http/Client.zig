@@ -14,7 +14,11 @@ const proto = @import("protocol.zig");
 
 pub const disable_tls = std.options.http_disable_tls;
 
+/// Allocator used for all allocations made by the client.
+///
+/// This allocator must be thread-safe.
 allocator: Allocator,
+
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
 
@@ -26,10 +30,10 @@ next_https_rescan_certs: bool = true,
 connection_pool: ConnectionPool = .{},
 
 /// This is the proxy that will handle http:// connections. It *must not* be modified when the client has any active connections.
-http_proxy: ?ProxyInformation = null,
+http_proxy: ?Proxy = null,
 
 /// This is the proxy that will handle https:// connections. It *must not* be modified when the client has any active connections.
-https_proxy: ?ProxyInformation = null,
+https_proxy: ?Proxy = null,
 
 /// A set of linked lists of connections that can be reused.
 pub const ConnectionPool = struct {
@@ -61,6 +65,8 @@ pub const ConnectionPool = struct {
         while (next) |node| : (next = node.prev) {
             if (node.data.protocol != criteria.protocol) continue;
             if (node.data.port != criteria.port) continue;
+
+            // Domain names are case-insensitive (RFC 5890, Section 2.3.2.4)
             if (!std.ascii.eqlIgnoreCase(node.data.host, criteria.host)) continue;
 
             pool.acquireUnsafe(node);
@@ -88,6 +94,9 @@ pub const ConnectionPool = struct {
 
     /// Tries to release a connection back to the connection pool. This function is threadsafe.
     /// If the connection is marked as closing, it will be closed instead.
+    ///
+    /// The allocator must be the owner of all nodes in this pool.
+    /// The allocator must be the owner of all resources associated with the connection.
     pub fn release(pool: *ConnectionPool, allocator: Allocator, connection: *Connection) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -195,7 +204,7 @@ pub const Connection = struct {
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.os.iovec) ReadError!usize {
         return conn.tls_client.readv(conn.stream, buffers) catch |err| {
-            // TODO: https://github.com/ziglang/zig/issues/2473
+            // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
 
             switch (err) {
@@ -978,7 +987,7 @@ pub const Request = struct {
     }
 };
 
-pub const ProxyInformation = struct {
+pub const Proxy = struct {
     allocator: Allocator,
     headers: http.Headers,
 
@@ -990,8 +999,12 @@ pub const ProxyInformation = struct {
 };
 
 /// Release all associated resources with the client.
-/// TODO: currently leaks all request allocated data
+///
+/// All pending requests must be de-initialized and all active connections released
+/// before calling this function.
 pub fn deinit(client: *Client) void {
+    assert(client.connection_pool.used.first == null); // There are still active requests.
+
     client.connection_pool.deinit(client.allocator);
 
     if (client.http_proxy) |*proxy| {
@@ -1013,6 +1026,12 @@ pub fn deinit(client: *Client) void {
 /// Uses the *_proxy environment variable to set any unset proxies for the client.
 /// This function *must not* be called when the client has any active connections.
 pub fn loadDefaultProxies(client: *Client) !void {
+    // Prevent any new connections from being created.
+    client.connection_pool.mutex.lock();
+    defer client.connection_pool.mutex.unlock();
+
+    assert(client.connection_pool.used.first == null); // There are still active requests.
+
     if (client.http_proxy == null) http: {
         const content: []const u8 = if (std.process.hasEnvVarConstant("http_proxy"))
             try std.process.getEnvVarOwned(client.allocator, "http_proxy")
@@ -1203,7 +1222,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
 /// This function is threadsafe.
 pub fn connectTunnel(
     client: *Client,
-    proxy: *ProxyInformation,
+    proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
 ) !*Connection {
@@ -1217,7 +1236,7 @@ pub fn connectTunnel(
         return node;
 
     var maybe_valid = false;
-    _ = tunnel: {
+    (tunnel: {
         const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
         errdefer {
             conn.closing = true;
@@ -1241,7 +1260,7 @@ pub fn connectTunnel(
         var req = client.open(.CONNECT, uri, proxy.headers, .{
             .handle_redirects = false,
             .connection = conn,
-            .header_strategy = .{ .static = buffer[0..] },
+            .header_strategy = .{ .static = &buffer },
         }) catch |err| {
             std.log.debug("err {}", .{err});
             break :tunnel err;
@@ -1269,7 +1288,7 @@ pub fn connectTunnel(
         conn.closing = false;
 
         return conn;
-    } catch {
+    }) catch {
         // something went wrong with the tunnel
         proxy.supports_connect = maybe_valid;
         return error.TunnelNotSupported;
@@ -1287,7 +1306,7 @@ pub const ConnectError = ConnectErrorPartial || RequestError;
 /// This function is threadsafe.
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*Connection {
     // pointer required so that `supports_connect` can be updated if a CONNECT fails
-    const potential_proxy: ?*ProxyInformation = switch (protocol) {
+    const potential_proxy: ?*Proxy = switch (protocol) {
         .plain => if (client.http_proxy) |*proxy_info| proxy_info else null,
         .tls => if (client.https_proxy) |*proxy_info| proxy_info else null,
     };
@@ -1298,12 +1317,12 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
             return client.connectTcp(host, port, protocol);
         }
 
-        _ = if (proxy.supports_connect) tunnel: {
+        if (proxy.supports_connect) tunnel: {
             return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
                 error.TunnelNotSupported => break :tunnel,
                 else => |e| return e,
             };
-        };
+        }
 
         // fall back to using the proxy as a normal http proxy
         const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
