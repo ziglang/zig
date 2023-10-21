@@ -292,7 +292,6 @@ const Val = struct {
 test "struct point to self" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var root: Node = undefined;
     root.val.x = 1;
@@ -347,7 +346,6 @@ test "self-referencing struct via array member" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct {
         children: [1]*@This(),
@@ -370,7 +368,6 @@ const EmptyStruct = struct {
 
 test "align 1 field before self referential align 8 field as slice return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = alloc(Expr);
     try expect(result.len == 0);
@@ -1422,7 +1419,6 @@ test "fieldParentPtr of a zero-bit field" {
 
 test "struct field has a pointer to an aligned version of itself" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = struct {
         next: *align(1) @This(),
@@ -1518,7 +1514,6 @@ test "function pointer in struct returns the struct" {
 
 test "no dependency loop on optional field wrapped in generic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn Atomic(comptime T: type) type {

@@ -209,6 +209,10 @@ const DeclGen = struct {
     /// See Object.type_map
     type_map: *TypeMap,
 
+    /// Child types of pointers that are currently in progress of being resolved. If a pointer
+    /// is already in this map, its recursive.
+    wip_pointers: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, CacheRef) = .{},
+
     /// We need to keep track of result ids for block labels, as well as the 'incoming'
     /// blocks for a block.
     blocks: BlockMap = .{},
@@ -295,6 +299,7 @@ const DeclGen = struct {
     pub fn deinit(self: *DeclGen) void {
         self.args.deinit(self.gpa);
         self.inst_results.deinit(self.gpa);
+        self.wip_pointers.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
         self.func.deinit(self.gpa);
         self.base_line_stack.deinit(self.gpa);
@@ -1100,9 +1105,30 @@ const DeclGen = struct {
     }
 
     fn ptrType(self: *DeclGen, child_ty: Type, storage_class: StorageClass) !CacheRef {
-        // TODO: This function will be rewritten so that forward declarations work properly
+        const key = .{ child_ty.toIntern(), storage_class };
+        const entry = try self.wip_pointers.getOrPut(self.gpa, key);
+        if (entry.found_existing) {
+            const fwd_ref = entry.value_ptr.*;
+            try self.spv.cache.recursive_ptrs.put(self.spv.gpa, fwd_ref, {});
+            return fwd_ref;
+        }
+
+        const fwd_ref = try self.spv.resolve(.{ .fwd_ptr_type = .{
+            .zig_child_type = child_ty.toIntern(),
+            .storage_class = storage_class,
+        } });
+        entry.value_ptr.* = fwd_ref;
+
         const child_ty_ref = try self.resolveType(child_ty, .indirect);
-        return try self.spv.ptrType(child_ty_ref, storage_class);
+        _ = try self.spv.resolve(.{ .ptr_type = .{
+            .storage_class = storage_class,
+            .child_type = child_ty_ref,
+            .fwd = fwd_ref,
+        } });
+
+        assert(self.wip_pointers.remove(key));
+
+        return fwd_ref;
     }
 
     /// Generate a union type. Union types are always generated with the
@@ -1323,12 +1349,12 @@ const DeclGen = struct {
             .Pointer => {
                 const ptr_info = ty.ptrInfo(mod);
 
+                // Note: Don't cache this pointer type, it would mess up the recursive pointer functionality
+                // in ptrType()!
+
                 const storage_class = spvStorageClass(ptr_info.flags.address_space);
-                const child_ty_ref = try self.resolveType(ptr_info.child.toType(), .indirect);
-                const ptr_ty_ref = try self.spv.resolve(.{ .ptr_type = .{
-                    .storage_class = storage_class,
-                    .child_type = child_ty_ref,
-                } });
+                const ptr_ty_ref = try self.ptrType(ptr_info.child.toType(), storage_class);
+
                 if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_ref;
                 }
@@ -4371,6 +4397,7 @@ const DeclGen = struct {
             }
 
             // TODO: Multiple results
+            // TODO: Check that the output type from assembly is the same as the type actually expected by Zig.
         }
 
         return null;
