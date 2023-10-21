@@ -581,6 +581,19 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             if (self.items.len == 0) return null;
             return self.getLast();
         }
+
+        /// Transform every element from the list, putting the result in the
+        /// specified `output_list`.
+        ///
+        /// The `output_list` should have enough capacity to hold all the
+        /// elements from the input list. The `transformer` argument should be
+        /// a type with a `transform` method.
+        pub fn transform(self: *Self, comptime U: type, output_list: *ArrayList(U), transformer: anytype) void {
+            assert(output_list.capacity >= self.items.len);
+            for (self.items) |item| {
+                output_list.appendAssumeCapacity(transformer.transform(item));
+            }
+        }
     };
 }
 
@@ -1940,4 +1953,31 @@ test "std.ArrayList(u32).getLastOrNull()" {
     try list.append(2);
     const const_list = list;
     try testing.expectEqual(const_list.getLastOrNull().?, 2);
+}
+
+test "std.ArrayList(T).transform()" {
+    const a = testing.allocator;
+
+    var list = ArrayList(u32).init(a);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+
+    var output_list = ArrayList(u32).init(a);
+    defer output_list.deinit();
+
+    try output_list.ensureTotalCapacity(list.items.len);
+
+    list.transform(u32, &output_list, struct {
+        fn transform(item: u32) u32 {
+            return item + 1;
+        }
+    });
+
+    try testing.expectEqual(@as(u32, 1), list.items[0]);
+    try testing.expectEqual(@as(u32, 2), list.items[1]);
+
+    try testing.expectEqual(@as(u32, 2), output_list.items[0]);
+    try testing.expectEqual(@as(u32, 3), output_list.items[1]);
 }
