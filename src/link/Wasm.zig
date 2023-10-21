@@ -507,7 +507,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     // if (!options.strip and options.module != null) {
-    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, options.target);
+    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, .dwarf32);
     //     try wasm_bin.initDebugSections();
     // }
 
