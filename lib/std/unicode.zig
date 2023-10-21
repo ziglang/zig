@@ -201,21 +201,18 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 pub fn utf8ValidateSlice(input: []const u8) bool {
     var remaining = input;
 
-    const V_len = std.simd.suggestVectorSize(usize) orelse 1;
-    const V = @Vector(V_len, usize);
-    const u8s_in_vector = @sizeOf(usize) * V_len;
+    const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+    const Chunk = @Vector(chunk_len, u8);
 
     // Fast path. Check for and skip ASCII characters at the start of the input.
-    while (remaining.len >= u8s_in_vector) {
-        const chunk: V = @bitCast(remaining[0..u8s_in_vector].*);
-        const swapped = mem.littleToNative(V, chunk);
-        const reduced = @reduce(.Or, swapped);
-        const mask: usize = @bitCast([1]u8{0x80} ** @sizeOf(usize));
-        if (reduced & mask != 0) {
-            // Found a non ASCII byte
+    while (remaining.len >= chunk_len) {
+        const chunk: Chunk = remaining[0..chunk_len].*;
+        const mask: Chunk = @splat(0x80);
+        if (@reduce(.Or, chunk & mask == mask)) {
+            // found a non ASCII byte
             break;
         }
-        remaining = remaining[u8s_in_vector..];
+        remaining = remaining[chunk_len..];
     }
 
     // default lowest and highest continuation byte
