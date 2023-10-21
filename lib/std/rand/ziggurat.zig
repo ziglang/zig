@@ -1,7 +1,6 @@
-//! Implements ZIGNOR [1].
+//! Implements [ZIGNOR][1] (Jurgen A. Doornik, 2005, Nuffield College, Oxford).
 //!
-//! [1]: Jurgen A. Doornik (2005). [*An Improved Ziggurat Method to Generate Normal Random Samples*]
-//! (https://www.doornik.com/research/ziggurat.pdf). Nuffield College, Oxford.
+//! [1]: https://www.doornik.com/research/ziggurat.pdf
 //!
 //! rust/rand used as a reference;
 //!

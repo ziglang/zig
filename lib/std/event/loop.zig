@@ -969,21 +969,21 @@ pub const Loop = struct {
         /// This argument is a socket that has been created with `socket`, bound to a local address
         /// with `bind`, and is listening for connections after a `listen`.
         sockfd: os.socket_t,
-        /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
-        /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
-        /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
-        /// respective  protocol  man  pages).
+        /// This argument is a pointer to a sockaddr structure.  This structure is filled in with the
+        /// address of the peer socket, as known to the communications layer.  The exact format of the
+        /// address returned addr is determined by the socket's address family (see `socket` and the
+        /// respective protocol man pages).
         addr: *os.sockaddr,
-        /// This argument is a value-result argument: the caller must initialize it to contain  the
+        /// This argument is a value-result argument: the caller must initialize it to contain the
         /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
         /// of the peer address.
         ///
-        /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
+        /// The returned address is truncated if the buffer provided is too small; in this case, `addr_size`
         /// will return a value greater than was supplied to the call.
         addr_size: *os.socklen_t,
         /// The following values can be bitwise ORed in flags to obtain different behavior:
-        /// * `SOCK.CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
-        ///   description  of the `O.CLOEXEC` flag in `open` for reasons why this may be useful.
+        /// * `SOCK.CLOEXEC` - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor. See the
+        ///   description of the `O.CLOEXEC` flag in `open` for reasons why this may be useful.
         flags: u32,
     ) os.AcceptError!os.socket_t {
         while (true) {

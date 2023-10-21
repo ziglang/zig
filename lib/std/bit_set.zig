@@ -753,7 +753,7 @@ pub const DynamicBitSetUnmanaged = struct {
         self.bit_length = new_len;
     }
 
-    /// deinitializes the array and releases its memory.
+    /// Deinitializes the array and releases its memory.
     /// The passed allocator must be the same one used for
     /// init* or resize in the past.
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -1058,7 +1058,7 @@ pub const DynamicBitSet = struct {
         try self.unmanaged.resize(self.allocator, new_len, fill);
     }
 
-    /// deinitializes the array and releases its memory.
+    /// Deinitializes the array and releases its memory.
     /// The passed allocator must be the same one used for
     /// init* or resize in the past.
     pub fn deinit(self: *Self) void {

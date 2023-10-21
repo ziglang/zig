@@ -333,8 +333,8 @@ pub const Rational = struct {
         r.q.swap(&other.q);
     }
 
-    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
-    /// > b respectively.
+    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or
+    /// a > b respectively.
     pub fn order(a: Rational, b: Rational) !math.Order {
         return cmpInternal(a, b, false);
     }
