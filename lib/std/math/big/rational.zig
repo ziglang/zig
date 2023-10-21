@@ -494,8 +494,6 @@ fn extractLowBits(a: Int, comptime T: type) T {
 }
 
 test "big.rational extractLowBits" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Int.initSet(testing.allocator, 0x11112222333344441234567887654321);
     defer a.deinit();
 
@@ -649,8 +647,6 @@ test "big.rational copy" {
 }
 
 test "big.rational negate" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -668,8 +664,6 @@ test "big.rational negate" {
 }
 
 test "big.rational abs" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 

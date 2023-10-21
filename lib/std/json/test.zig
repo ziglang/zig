@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const parseFromSlice = @import("./static.zig").parseFromSlice;
 const validate = @import("./scanner.zig").validate;
@@ -35,15 +34,13 @@ fn testHighLevelDynamicParser(s: []const u8) !void {
 
 // Additional tests not part of test JSONTestSuite.
 test "y_trailing_comma_after_empty" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try roundTrip(
         \\{"1":[],"2":{},"3":"4"}
     );
 }
 test "n_object_closed_missing_value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err(
         \\{"a":}
     );

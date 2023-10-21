@@ -38,8 +38,6 @@ test parseFromSlice {
 }
 
 test Value {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var parsed = try parseFromSlice(Value, testing.allocator, "{\"anything\": \"goes\"}", .{});
     defer parsed.deinit();
     try testing.expectEqualSlices(u8, "goes", parsed.value.object.get("anything").?.string);
@@ -65,8 +63,6 @@ test writeStream {
 }
 
 test stringify {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
 

@@ -759,8 +759,6 @@ fn XChaChaPoly1305(comptime rounds_nb: usize) type {
 }
 
 test "chacha20 AEAD API" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const aeads = [_]type{ ChaCha20Poly1305, XChaCha20Poly1305 };
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
@@ -782,8 +780,6 @@ test "chacha20 AEAD API" {
 
 // https://tools.ietf.org/html/rfc7539#section-2.4.2
 test "crypto.chacha20 test vector sunscreen" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80,
         0x41, 0xba, 0x07, 0x28, 0xdd, 0x0d, 0x69, 0x81,

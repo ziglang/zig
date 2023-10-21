@@ -302,7 +302,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
     };
 }
 
-const SalsaImpl = if (builtin.cpu.arch == .x86_64) SalsaVecImpl else SalsaNonVecImpl;
+const SalsaImpl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64) SalsaVecImpl else SalsaNonVecImpl;
 
 fn keyToWords(key: [32]u8) [8]u32 {
     var k: [8]u32 = undefined;
@@ -555,8 +555,6 @@ pub const SealedBox = struct {
 const htest = @import("test.zig");
 
 test "(x)salsa20" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const key = [_]u8{0x69} ** 32;
     const nonce = [_]u8{0x42} ** 8;
     const msg = [_]u8{0} ** 20;
@@ -571,8 +569,6 @@ test "(x)salsa20" {
 }
 
 test "xsalsa20poly1305" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var c: [msg.len]u8 = undefined;
@@ -588,8 +584,6 @@ test "xsalsa20poly1305" {
 }
 
 test "xsalsa20poly1305 secretbox" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;

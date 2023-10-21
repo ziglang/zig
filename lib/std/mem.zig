@@ -1741,8 +1741,6 @@ pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: Endian) T {
 }
 
 test "comptime read/write int" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     comptime {
         var bytes: [2]u8 = undefined;
         writeIntLittle(u16, &bytes, 0x1234);
@@ -3309,8 +3307,6 @@ test "testStringEquality" {
 }
 
 test "testReadInt" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testReadIntImpl();
     try comptime testReadIntImpl();
 }

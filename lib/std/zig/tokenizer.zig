@@ -1481,8 +1481,6 @@ test "utf8" {
 }
 
 test "invalid utf8" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("//\x80", &.{
         .invalid,
     });

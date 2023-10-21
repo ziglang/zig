@@ -246,8 +246,6 @@ test "big.int fits" {
 }
 
 test "big.int string set" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
@@ -264,8 +262,6 @@ test "big.int string negative" {
 }
 
 test "big.int string set number with underscores" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
@@ -274,8 +270,6 @@ test "big.int string set number with underscores" {
 }
 
 test "big.int string set case insensitive number" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
@@ -326,8 +320,6 @@ test "big.int twos complement limit set" {
 }
 
 test "big.int string to" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 120317241209124781241290847124);
     defer a.deinit();
 
@@ -368,8 +360,6 @@ test "big.int string to base 16" {
 }
 
 test "big.int neg string to" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, -123907434);
     defer a.deinit();
 
@@ -392,8 +382,6 @@ test "big.int zero string to" {
 }
 
 test "big.int clone" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 1234);
     defer a.deinit();
     var b = try a.clone();
@@ -634,8 +622,6 @@ test "big.int addWrap single-single, unsigned" {
 }
 
 test "big.int subWrap single-single, unsigned" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 0);
     defer a.deinit();
 
@@ -963,8 +949,6 @@ test "big.int mul multi-multi" {
 }
 
 test "big.int mul alias r with a" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 2);
@@ -976,8 +960,6 @@ test "big.int mul alias r with a" {
 }
 
 test "big.int mul alias r with b" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 2);
@@ -989,8 +971,6 @@ test "big.int mul alias r with b" {
 }
 
 test "big.int mul alias r with a and b" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
 
@@ -1096,7 +1076,7 @@ test "big.int mulWrap multi-multi unsigned" {
 
 test "big.int mulWrap multi-multi signed" {
     switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        .stage2_c => return error.SkipZigTest,
         else => {},
     }
 
@@ -1171,8 +1151,6 @@ test "big.int div single-half with rem" {
 }
 
 test "big.int div single-single no rem" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // assumes usize is <= 64 bits.
     var a = try Managed.initSet(testing.allocator, 1 << 52);
     defer a.deinit();
@@ -1190,8 +1168,6 @@ test "big.int div single-single no rem" {
 }
 
 test "big.int div single-single with rem" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, (1 << 52) | (1 << 33));
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, (1 << 35));
@@ -1271,8 +1247,6 @@ test "big.int div multi>2-single" {
 }
 
 test "big.int div single-single q < r" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 0x0078f432);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 0x01000000);
@@ -1317,10 +1291,7 @@ test "big.int div q=0 alias" {
 }
 
 test "big.int div multi-multi q < r" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const op1 = 0x1ffffffff0078f432;
     const op2 = 0x1ffffffff01000000;
@@ -1642,8 +1613,6 @@ test "big.int div floor single-single -/-" {
 }
 
 test "big.int div floor no remainder negative quotient" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const u: i32 = -0x80000000;
     const v: i32 = 1;
 
@@ -1743,10 +1712,7 @@ test "big.int div multi-multi no rem" {
 }
 
 test "big.int div multi-multi (2 branch)" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x866666665555555588888887777777761111111111111111);
     defer a.deinit();
@@ -1785,10 +1751,7 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 }
 
 test "big.int div multi-single zero-limb trailing" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x60000000000000000000000000000000000000000000000000000000000000000);
     defer a.deinit();
@@ -1808,10 +1771,7 @@ test "big.int div multi-single zero-limb trailing" {
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem)" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x86666666555555558888888777777776111111111111111100000000000000000000000000000000);
     defer a.deinit();
@@ -1908,8 +1868,6 @@ test "big.int div multi-multi fuzz case #1" {
 }
 
 test "big.int div multi-multi fuzz case #2" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
     var b = try Managed.init(testing.allocator);
@@ -2672,8 +2630,6 @@ test "big.int mutable to managed" {
 }
 
 test "big.int const to managed" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 123423453456);
     defer a.deinit();
 

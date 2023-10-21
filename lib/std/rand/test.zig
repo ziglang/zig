@@ -443,8 +443,6 @@ fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
 }
 
 test "CSPRNG" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
     std.crypto.random.bytes(&secret_seed);
     var csprng = DefaultCsprng.init(secret_seed);

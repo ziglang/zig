@@ -104,8 +104,6 @@ test "i_string_utf16LE_no_BOM.json" {
     try any("[\x00\"\x00\xe9\x00\"\x00]\x00");
 }
 test "i_structure_500_nested_arrays.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try any("[" ** 500 ++ "]" ** 500);
 }
 test "i_structure_UTF-8_BOM_empty_object.json" {
@@ -361,21 +359,15 @@ test "n_object_bracket_key.json" {
     try err("{[: \"x\"}\n");
 }
 test "n_object_comma_instead_of_colon.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"x\", null}");
 }
 test "n_object_double_colon.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"x\"::\"b\"}");
 }
 test "n_object_emoji.json" {
     try err("{\xf0\x9f\x87\xa8\xf0\x9f\x87\xad}");
 }
 test "n_object_garbage_at_end.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"a\" 123}");
 }
 test "n_object_key_with_single_quotes.json" {
@@ -385,26 +377,18 @@ test "n_object_lone_continuation_byte_in_key_and_trailing_comma.json" {
     try err("{\"\xb9\":\"0\",}");
 }
 test "n_object_missing_colon.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\" b}");
 }
 test "n_object_missing_key.json" {
     try err("{:\"b\"}");
 }
 test "n_object_missing_semicolon.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\" \"b\"}");
 }
 test "n_object_missing_value.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":");
 }
 test "n_object_no-colon.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\"");
 }
 test "n_object_non_string_key.json" {
@@ -417,59 +401,39 @@ test "n_object_repeated_null_null.json" {
     try err("{null:null,null:null}");
 }
 test "n_object_several_trailing_commas.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"id\":0,,,,,}");
 }
 test "n_object_single_quote.json" {
     try err("{'a':0}");
 }
 test "n_object_trailing_comma.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"id\":0,}");
 }
 test "n_object_trailing_comment.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}/**/");
 }
 test "n_object_trailing_comment_open.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}/**//");
 }
 test "n_object_trailing_comment_slash_open.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}//");
 }
 test "n_object_trailing_comment_slash_open_incomplete.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}/");
 }
 test "n_object_two_commas_in_a_row.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\",,\"c\":\"d\"}");
 }
 test "n_object_unquoted_key.json" {
     try err("{a: \"b\"}");
 }
 test "n_object_unterminated-value.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"a");
 }
 test "n_object_with_single_string.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{ \"foo\" : \"bar\", \"a\" }");
 }
 test "n_object_with_trailing_garbage.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}#");
 }
 test "n_single_space.json" {
@@ -596,8 +560,6 @@ test "n_structure_close_unopened_array.json" {
     try err("1]");
 }
 test "n_structure_comma_instead_of_closing_brace.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"x\": true,");
 }
 test "n_structure_double_array.json" {
@@ -628,18 +590,12 @@ test "n_structure_object_followed_by_closing_object.json" {
     try err("{}}");
 }
 test "n_structure_object_unclosed_no_value.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"\":");
 }
 test "n_structure_object_with_comment.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":/*comment*/\"b\"}");
 }
 test "n_structure_object_with_trailing_garbage.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\": true} \"x\"");
 }
 test "n_structure_open_array_apostrophe.json" {
@@ -649,8 +605,6 @@ test "n_structure_open_array_comma.json" {
     try err("[,");
 }
 test "n_structure_open_array_object.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("[{\"\":" ** 50000 ++ "\n");
 }
 test "n_structure_open_array_open_object.json" {
@@ -690,8 +644,6 @@ test "n_structure_single_star.json" {
     try err("*");
 }
 test "n_structure_trailing_#.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"a\":\"b\"}#{}");
 }
 test "n_structure_uescaped_LF_before_string.json" {
@@ -710,8 +662,6 @@ test "n_structure_unclosed_array_unfinished_true.json" {
     try err("[ false, tru");
 }
 test "n_structure_unclosed_object.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try err("{\"asd\":\"asd\"");
 }
 test "n_structure_unicode-identifier.json" {
@@ -819,31 +769,21 @@ test "y_object.json" {
     try ok("{\"asd\":\"sdf\", \"dfg\":\"fgh\"}");
 }
 test "y_object_basic.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"asd\":\"sdf\"}");
 }
 test "y_object_duplicated_key.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"a\":\"b\",\"a\":\"c\"}");
 }
 test "y_object_duplicated_key_and_value.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"a\":\"b\",\"a\":\"b\"}");
 }
 test "y_object_empty.json" {
     try ok("{}");
 }
 test "y_object_empty_key.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"\":0}");
 }
 test "y_object_escaped_null_in_key.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"foo\\u0000bar\": 42}");
 }
 test "y_object_extreme_numbers.json" {
@@ -857,18 +797,12 @@ test "y_object_long_strings.json" {
     try ok("{\"x\":[{\"id\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}], \"id\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}");
 }
 test "y_object_simple.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"a\":[]}");
 }
 test "y_object_string_unicode.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"title\":\"\\u041f\\u043e\\u043b\\u0442\\u043e\\u0440\\u0430 \\u0417\\u0435\\u043c\\u043b\\u0435\\u043a\\u043e\\u043f\\u0430\" }");
 }
 test "y_object_with_newlines.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\n\"a\": \"b\"\n}");
 }
 test "y_string_1_2_3_bytes_UTF-8_sequences.json" {

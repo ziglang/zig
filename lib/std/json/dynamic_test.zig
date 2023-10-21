@@ -125,16 +125,12 @@ fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
 }
 
 test "parsing empty string gives appropriate error" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
 test "Value.array allocator should still be usable after parsing" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var parsed = try parseFromSlice(Value, std.testing.allocator, "[]", .{});
     defer parsed.deinit();
 
@@ -195,8 +191,6 @@ test "escaped characters" {
 }
 
 test "Value.jsonStringify" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var vals = [_]Value{
         .{ .integer = 1 },
         .{ .integer = 2 },
@@ -263,8 +257,6 @@ test "parseFromValue(std.json.Value,...)" {
 }
 
 test "polymorphic parsing" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
     const doc =
         \\{ "type": "div",
@@ -310,8 +302,6 @@ test "polymorphic parsing" {
 }
 
 test "long object value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const value = "01234567890123456789";
     const doc = "{\"key\":\"" ++ value ++ "\"}";
     var fbs = std.io.fixedBufferStream(doc);
@@ -324,8 +314,6 @@ test "long object value" {
 }
 
 test "ParseOptions.max_value_len" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
 
