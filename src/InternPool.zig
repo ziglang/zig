@@ -1228,7 +1228,7 @@ pub const Key = union(enum) {
 
                     .mut_decl => |x| Hash.hash(
                         seed2,
-                        asBytes(&x.decl) ++ asBytes(&x.runtime_index),
+                        common ++ asBytes(&x.decl) ++ asBytes(&x.runtime_index),
                     ),
 
                     .anon_decl,
@@ -1236,11 +1236,11 @@ pub const Key = union(enum) {
                     .eu_payload,
                     .opt_payload,
                     .comptime_field,
-                    => |int| Hash.hash(seed2, asBytes(&int)),
+                    => |int| Hash.hash(seed2, common ++ asBytes(&int)),
 
                     .elem, .field => |x| Hash.hash(
                         seed2,
-                        asBytes(&x.base) ++ asBytes(&x.index),
+                        common ++ asBytes(&x.base) ++ asBytes(&x.index),
                     ),
                 };
             },

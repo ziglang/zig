@@ -342,10 +342,10 @@ pub const Target = struct {
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
-                                .max = .{ .major = 5, .minor = 10, .patch = 81 },
+                                .min = .{ .major = 4, .minor = 19, .patch = 0 },
+                                .max = .{ .major = 6, .minor = 5, .patch = 7 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
+                            .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
                         },
                     },
 
