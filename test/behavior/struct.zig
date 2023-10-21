@@ -1785,3 +1785,60 @@ test "comptimeness of optional and error union payload is analyzed properly" {
     const x = (try c).?.x;
     try std.testing.expectEqual(3, x);
 }
+
+test "initializer uses own alignment" {
+    const S = struct {
+        x: u32 = @alignOf(@This()) + 1,
+    };
+
+    var s: S = .{};
+    try expectEqual(4, @alignOf(S));
+    try expectEqual(@as(usize, 5), s.x);
+}
+
+test "initializer uses own size" {
+    const S = struct {
+        x: u32 = @sizeOf(@This()) + 1,
+    };
+
+    var s: S = .{};
+    try expectEqual(4, @sizeOf(S));
+    try expectEqual(@as(usize, 5), s.x);
+}
+
+test "initializer takes a pointer to a variable inside its struct" {
+    const namespace = struct {
+        const S = struct {
+            s: *S = &S.instance,
+            var instance: S = undefined;
+        };
+
+        fn doTheTest() !void {
+            var foo: S = .{};
+            try expectEqual(&S.instance, foo.s);
+        }
+    };
+
+    try namespace.doTheTest();
+    comptime try namespace.doTheTest();
+}
+
+test "circular dependency through pointer field of a struct" {
+    const S = struct {
+        const StructInner = extern struct {
+            outer: StructOuter = std.mem.zeroes(StructOuter),
+        };
+
+        const StructMiddle = extern struct {
+            outer: ?*StructInner,
+            inner: ?*StructOuter,
+        };
+
+        const StructOuter = extern struct {
+            middle: StructMiddle = std.mem.zeroes(StructMiddle),
+        };
+    };
+    var outer: S.StructOuter = .{};
+    try expect(outer.middle.outer == null);
+    try expect(outer.middle.inner == null);
+}
