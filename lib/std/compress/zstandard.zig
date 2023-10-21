@@ -219,9 +219,7 @@ pub fn DecompressStream(
             }
 
             const size = @min(self.buffer.len(), buffer.len);
-            for (0..size) |i| {
-                buffer[i] = self.buffer.read().?;
-            }
+            self.buffer.readFirstAssumeLength(buffer, size);
             if (self.state == .LastBlock and self.buffer.len() == 0) {
                 self.state = .NewFrame;
                 self.allocator.free(self.literal_fse_buffer);

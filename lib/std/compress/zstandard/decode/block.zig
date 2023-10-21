@@ -311,8 +311,8 @@ pub const DecodeState = struct {
         try self.decodeLiteralsRingBuffer(dest, sequence.literal_length);
         const copy_start = dest.write_index + dest.data.len - sequence.offset;
         const copy_slice = dest.sliceAt(copy_start, sequence.match_length);
-        for (copy_slice.first) |b| dest.writeAssumeCapacity(b);
-        for (copy_slice.second) |b| dest.writeAssumeCapacity(b);
+        dest.writeSliceForwardsAssumeCapacity(copy_slice.first);
+        dest.writeSliceForwardsAssumeCapacity(copy_slice.second);
         self.written_count += sequence.match_length;
     }
 
@@ -723,9 +723,7 @@ pub fn decodeBlockRingBuffer(
         },
         .rle => {
             if (src.len < 1) return error.MalformedRleBlock;
-            for (0..block_size) |_| {
-                dest.writeAssumeCapacity(src[0]);
-            }
+            dest.writeSliceAssumeCapacity(src[0..block_size]);
             consumed_count.* += 1;
             decode_state.written_count += block_size;
             return block_size;
