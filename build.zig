@@ -578,7 +578,7 @@ fn addCompilerStep(
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
-        .max_rss = 6_500_000_000,
+        .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
     exe.addAnonymousModule("aro", .{
