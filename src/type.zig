@@ -3309,8 +3309,6 @@ pub const Type = struct {
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
-    pub const err_int = Type.u16;
-
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;
         const base = std.math.log2(max);

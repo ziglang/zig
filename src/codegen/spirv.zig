@@ -742,16 +742,17 @@ const DeclGen = struct {
             .error_union => |error_union| {
                 // TODO: Error unions may be constructed with constant instructions if the payload type
                 // allows it. For now, just generate it here regardless.
+                const err_int_ty = try mod.errorIntType();
                 const err_ty = switch (error_union.val) {
                     .err_name => ty.errorUnionSet(mod),
-                    .payload => Type.err_int,
+                    .payload => err_int_ty,
                 };
                 const err_val = switch (error_union.val) {
                     .err_name => |err_name| (try mod.intern(.{ .err = .{
                         .ty = ty.errorUnionSet(mod).toIntern(),
                         .name = err_name,
                     } })).toValue(),
-                    .payload => try mod.intValue(Type.err_int, 0),
+                    .payload => try mod.intValue(err_int_ty, 0),
                 };
                 const payload_ty = ty.errorUnionPayload(mod);
                 const eu_layout = self.errorUnionLayout(payload_ty);

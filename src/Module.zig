@@ -5906,6 +5906,10 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
     } })).toType();
 }
 
+pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
+    return mod.intType(.unsigned, mod.errorSetBits());
+}
+
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
     const i = try intern(mod, .{ .array_type = info });
     return i.toType();

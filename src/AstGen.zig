@@ -8430,7 +8430,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .error_from_int => {
-            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[0]);
+            const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
             const result = try gz.addExtendedPayload(.error_from_int, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,

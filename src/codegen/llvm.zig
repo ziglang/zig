@@ -1111,7 +1111,7 @@ pub const Object = struct {
         // }
 
         const lhs = wip.arg(0);
-        const rhs = try o.builder.intValue(Builder.Type.err_int, errors_len);
+        const rhs = try o.builder.intValue(try o.errorIntType(), errors_len);
         const is_lt = try wip.icmp(.ult, lhs, rhs, "");
         _ = try wip.ret(is_lt);
         try wip.finish();
@@ -3111,6 +3111,10 @@ pub const Object = struct {
         return variable_index;
     }
 
+    fn errorIntType(o: *Object) Allocator.Error!Builder.Type {
+        return o.builder.intType(o.module.errorSetBits());
+    }
+
     fn lowerType(o: *Object, t: Type) Allocator.Error!Builder.Type {
         const ty = try o.lowerTypeInner(t);
         const mod = o.module;
@@ -3182,7 +3186,7 @@ pub const Object = struct {
             .bool_type => .i1,
             .void_type => .void,
             .type_type => unreachable,
-            .anyerror_type => Builder.Type.err_int,
+            .anyerror_type => try o.errorIntType(),
             .comptime_int_type,
             .comptime_float_type,
             .noreturn_type,
@@ -3203,7 +3207,7 @@ pub const Object = struct {
             .optional_noreturn_type => unreachable,
             .anyerror_void_error_union_type,
             .adhoc_inferred_error_set_type,
-            => Builder.Type.err_int,
+            => try o.errorIntType(),
             .generic_poison_type,
             .empty_struct_type,
             => unreachable,
@@ -3272,16 +3276,17 @@ pub const Object = struct {
                 },
                 .anyframe_type => @panic("TODO implement lowerType for AnyFrame types"),
                 .error_union_type => |error_union_type| {
-                    const error_type = Builder.Type.err_int;
+                    const error_type = try o.errorIntType();
                     if (!error_union_type.payload_type.toType().hasRuntimeBitsIgnoreComptime(mod))
                         return error_type;
                     const payload_type = try o.lowerType(error_union_type.payload_type.toType());
+                    const err_int_ty = try mod.errorIntType();
 
                     const payload_align = error_union_type.payload_type.toType().abiAlignment(mod);
-                    const error_align = Type.err_int.abiAlignment(mod);
+                    const error_align = err_int_ty.abiAlignment(mod);
 
                     const payload_size = error_union_type.payload_type.toType().abiSize(mod);
-                    const error_size = Type.err_int.abiSize(mod);
+                    const error_size = err_int_ty.abiSize(mod);
 
                     var fields: [3]Builder.Type = undefined;
                     var fields_len: usize = 2;
@@ -3542,7 +3547,7 @@ pub const Object = struct {
                 },
                 .enum_type => |enum_type| try o.lowerType(enum_type.tag_ty.toType()),
                 .func_type => |func_type| try o.lowerTypeFn(func_type),
-                .error_set_type, .inferred_error_set_type => Builder.Type.err_int,
+                .error_set_type, .inferred_error_set_type => try o.errorIntType(),
                 // values, not types
                 .undef,
                 .runtime_value,
@@ -3725,7 +3730,7 @@ pub const Object = struct {
             },
             .err => |err| {
                 const int = try mod.getErrorValue(err.name);
-                const llvm_int = try o.builder.intConst(Builder.Type.err_int, int);
+                const llvm_int = try o.builder.intConst(try o.errorIntType(), int);
                 return llvm_int;
             },
             .error_union => |error_union| {
@@ -3734,8 +3739,9 @@ pub const Object = struct {
                         .ty = ty.errorUnionSet(mod).toIntern(),
                         .name = err_name,
                     } }),
-                    .payload => (try mod.intValue(Type.err_int, 0)).toIntern(),
+                    .payload => (try mod.intValue(try mod.errorIntType(), 0)).toIntern(),
                 };
+                const err_int_ty = try mod.errorIntType();
                 const payload_type = ty.errorUnionPayload(mod);
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                     // We use the error type directly as the type.
@@ -3743,7 +3749,7 @@ pub const Object = struct {
                 }
 
                 const payload_align = payload_type.abiAlignment(mod);
-                const error_align = Type.err_int.abiAlignment(mod);
+                const error_align = err_int_ty.abiAlignment(mod);
                 const llvm_error_value = try o.lowerValue(err_val);
                 const llvm_payload_value = try o.lowerValue(switch (error_union.val) {
                     .err_name => try mod.intern(.{ .undef = payload_type.toIntern() }),
@@ -4285,8 +4291,9 @@ pub const Object = struct {
                     return parent_ptr;
                 }
 
+                const err_int_ty = try mod.errorIntType();
                 const payload_align = payload_ty.abiAlignment(mod);
-                const err_align = Type.err_int.abiAlignment(mod);
+                const err_align = err_int_ty.abiAlignment(mod);
                 const index: u32 = if (payload_align.compare(.gt, err_align)) 2 else 1;
                 return o.builder.gepConst(.inbounds, try o.lowerType(eu_ty), parent_ptr, null, &.{
                     try o.builder.intConst(.i32, 0), try o.builder.intConst(.i32, index),
@@ -5399,7 +5406,7 @@ pub const FuncGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                _ = try self.wip.ret(try o.builder.intValue(Builder.Type.err_int, 0));
+                _ = try self.wip.ret(try o.builder.intValue(try o.errorIntType(), 0));
             } else {
                 _ = try self.wip.retVoid();
             }
@@ -5441,7 +5448,7 @@ pub const FuncGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                _ = try self.wip.ret(try o.builder.intValue(Builder.Type.err_int, 0));
+                _ = try self.wip.ret(try o.builder.intValue(try o.errorIntType(), 0));
             } else {
                 _ = try self.wip.retVoid();
             }
@@ -5788,24 +5795,25 @@ pub const FuncGen = struct {
         const payload_ty = err_union_ty.errorUnionPayload(mod);
         const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod);
         const err_union_llvm_ty = try o.lowerType(err_union_ty);
+        const error_type = try o.errorIntType();
 
         if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const loaded = loaded: {
                 if (!payload_has_bits) {
                     // TODO add alignment to this load
                     break :loaded if (operand_is_ptr)
-                        try fg.wip.load(.normal, Builder.Type.err_int, err_union, .default, "")
+                        try fg.wip.load(.normal, error_type, err_union, .default, "")
                     else
                         err_union;
                 }
-                const err_field_index = errUnionErrorOffset(payload_ty, mod);
+                const err_field_index = try errUnionErrorOffset(payload_ty, mod);
                 if (operand_is_ptr or isByRef(err_union_ty, mod)) {
                     const err_field_ptr =
                         try fg.wip.gepStruct(err_union_llvm_ty, err_union, err_field_index, "");
                     // TODO add alignment to this load
                     break :loaded try fg.wip.load(
                         .normal,
-                        Builder.Type.err_int,
+                        error_type,
                         err_field_ptr,
                         .default,
                         "",
@@ -5813,7 +5821,7 @@ pub const FuncGen = struct {
                 }
                 break :loaded try fg.wip.extractValue(err_union, &.{err_field_index}, "");
             };
-            const zero = try o.builder.intValue(Builder.Type.err_int, 0);
+            const zero = try o.builder.intValue(error_type, 0);
             const is_err = try fg.wip.icmp(.ne, loaded, zero, "");
 
             const return_block = try fg.wip.block(1, "TryRet");
@@ -5827,7 +5835,7 @@ pub const FuncGen = struct {
         }
         if (is_unused) return .none;
         if (!payload_has_bits) return if (operand_is_ptr) err_union else .none;
-        const offset = errUnionPayloadOffset(payload_ty, mod);
+        const offset = try errUnionPayloadOffset(payload_ty, mod);
         if (operand_is_ptr) {
             return fg.wip.gepStruct(err_union_llvm_ty, err_union, offset, "");
         } else if (isByRef(err_union_ty, mod)) {
@@ -7053,7 +7061,8 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(un_op);
         const err_union_ty = if (operand_is_ptr) operand_ty.childType(mod) else operand_ty;
         const payload_ty = err_union_ty.errorUnionPayload(mod);
-        const zero = try o.builder.intValue(Builder.Type.err_int, 0);
+        const error_type = try o.errorIntType();
+        const zero = try o.builder.intValue(error_type, 0);
 
         if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const val: Builder.Constant = switch (cond) {
@@ -7072,13 +7081,13 @@ pub const FuncGen = struct {
             return self.wip.icmp(cond, loaded, zero, "");
         }
 
-        const err_field_index = errUnionErrorOffset(payload_ty, mod);
+        const err_field_index = try errUnionErrorOffset(payload_ty, mod);
 
         const loaded = if (operand_is_ptr or isByRef(err_union_ty, mod)) loaded: {
             const err_union_llvm_ty = try o.lowerType(err_union_ty);
             const err_field_ptr =
                 try self.wip.gepStruct(err_union_llvm_ty, operand, err_field_index, "");
-            break :loaded try self.wip.load(.normal, Builder.Type.err_int, err_field_ptr, .default, "");
+            break :loaded try self.wip.load(.normal, error_type, err_field_ptr, .default, "");
         } else try self.wip.extractValue(operand, &.{err_field_index}, "");
         return self.wip.icmp(cond, loaded, zero, "");
     }
@@ -7173,7 +7182,7 @@ pub const FuncGen = struct {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             return if (operand_is_ptr) operand else .none;
         }
-        const offset = errUnionPayloadOffset(payload_ty, mod);
+        const offset = try errUnionPayloadOffset(payload_ty, mod);
         const err_union_llvm_ty = try o.lowerType(err_union_ty);
         if (operand_is_ptr) {
             return self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
@@ -7200,27 +7209,28 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
+        const error_type = try o.errorIntType();
         const err_union_ty = if (operand_is_ptr) operand_ty.childType(mod) else operand_ty;
         if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             if (operand_is_ptr) {
                 return operand;
             } else {
-                return o.builder.intValue(Builder.Type.err_int, 0);
+                return o.builder.intValue(error_type, 0);
             }
         }
 
         const payload_ty = err_union_ty.errorUnionPayload(mod);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (!operand_is_ptr) return operand;
-            return self.wip.load(.normal, Builder.Type.err_int, operand, .default, "");
+            return self.wip.load(.normal, error_type, operand, .default, "");
         }
 
-        const offset = errUnionErrorOffset(payload_ty, mod);
+        const offset = try errUnionErrorOffset(payload_ty, mod);
 
         if (operand_is_ptr or isByRef(err_union_ty, mod)) {
             const err_union_llvm_ty = try o.lowerType(err_union_ty);
             const err_field_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
-            return self.wip.load(.normal, Builder.Type.err_int, err_field_ptr, .default, "");
+            return self.wip.load(.normal, error_type, err_field_ptr, .default, "");
         }
 
         return self.wip.extractValue(operand, &.{offset}, "");
@@ -7234,15 +7244,16 @@ pub const FuncGen = struct {
         const err_union_ty = self.typeOf(ty_op.operand).childType(mod);
 
         const payload_ty = err_union_ty.errorUnionPayload(mod);
-        const non_error_val = try o.builder.intValue(Builder.Type.err_int, 0);
+        const non_error_val = try o.builder.intValue(try o.errorIntType(), 0);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             _ = try self.wip.store(.normal, non_error_val, operand, .default);
             return operand;
         }
         const err_union_llvm_ty = try o.lowerType(err_union_ty);
         {
-            const error_alignment = Type.err_int.abiAlignment(mod).toLlvm();
-            const error_offset = errUnionErrorOffset(payload_ty, mod);
+            const err_int_ty = try mod.errorIntType();
+            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
+            const error_offset = try errUnionErrorOffset(payload_ty, mod);
             // First set the non-error value.
             const non_null_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, error_offset, "");
             _ = try self.wip.store(.normal, non_error_val, non_null_ptr, error_alignment);
@@ -7250,7 +7261,7 @@ pub const FuncGen = struct {
         // Then return the payload pointer (only if it is used).
         if (self.liveness.isUnused(inst)) return .none;
 
-        const payload_offset = errUnionPayloadOffset(payload_ty, mod);
+        const payload_offset = try errUnionPayloadOffset(payload_ty, mod);
         return self.wip.gepStruct(err_union_llvm_ty, operand, payload_offset, "");
     }
 
@@ -7353,11 +7364,11 @@ pub const FuncGen = struct {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             return operand;
         }
-        const ok_err_code = try o.builder.intValue(Builder.Type.err_int, 0);
+        const ok_err_code = try o.builder.intValue(try o.errorIntType(), 0);
         const err_un_llvm_ty = try o.lowerType(err_un_ty);
 
-        const payload_offset = errUnionPayloadOffset(payload_ty, mod);
-        const error_offset = errUnionErrorOffset(payload_ty, mod);
+        const payload_offset = try errUnionPayloadOffset(payload_ty, mod);
+        const error_offset = try errUnionErrorOffset(payload_ty, mod);
         if (isByRef(err_un_ty, mod)) {
             const directReturn = self.isNextRet(body_tail);
             const result_ptr = if (directReturn)
@@ -7369,7 +7380,8 @@ pub const FuncGen = struct {
             };
 
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
-            const error_alignment = Type.err_int.abiAlignment(mod).toLlvm();
+            const err_int_ty = try mod.errorIntType();
+            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, ok_err_code, err_ptr, error_alignment);
             const payload_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, payload_offset, "");
             const payload_ptr_ty = try mod.singleMutPtrType(payload_ty);
@@ -7393,8 +7405,8 @@ pub const FuncGen = struct {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) return operand;
         const err_un_llvm_ty = try o.lowerType(err_un_ty);
 
-        const payload_offset = errUnionPayloadOffset(payload_ty, mod);
-        const error_offset = errUnionErrorOffset(payload_ty, mod);
+        const payload_offset = try errUnionPayloadOffset(payload_ty, mod);
+        const error_offset = try errUnionErrorOffset(payload_ty, mod);
         if (isByRef(err_un_ty, mod)) {
             const directReturn = self.isNextRet(body_tail);
             const result_ptr = if (directReturn)
@@ -7406,7 +7418,8 @@ pub const FuncGen = struct {
             };
 
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
-            const error_alignment = Type.err_int.abiAlignment(mod).toLlvm();
+            const err_int_ty = try mod.errorIntType();
+            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, operand, err_ptr, error_alignment);
             const payload_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, payload_offset, "");
             const payload_ptr_ty = try mod.singleMutPtrType(payload_ty);
@@ -9363,7 +9376,7 @@ pub const FuncGen = struct {
 
         for (names) |name| {
             const err_int = mod.global_error_set.getIndex(name).?;
-            const this_tag_int_value = try o.builder.intConst(Builder.Type.err_int, err_int);
+            const this_tag_int_value = try o.builder.intConst(try o.errorIntType(), err_int);
             try wip_switch.addCase(this_tag_int_value, valid_block, &self.wip);
         }
         self.wip.cursor = .{ .block = valid_block };
@@ -9545,7 +9558,7 @@ pub const FuncGen = struct {
         if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
 
         const function_index = try o.builder.addFunction(
-            try o.builder.fnType(.i1, &.{Builder.Type.err_int}, .normal),
+            try o.builder.fnType(.i1, &.{try o.errorIntType()}, .normal),
             name,
             toLlvmAddressSpace(.generic, o.module.getTarget()),
         );
@@ -10880,7 +10893,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
         // If the return type is an error set or an error union, then we make this
         // anyerror return type instead, so that it can be coerced into a function
         // pointer type which has anyerror as the return type.
-        return if (return_type.isError(mod)) Builder.Type.err_int else .void;
+        return if (return_type.isError(mod)) try o.errorIntType() else .void;
     }
     const target = mod.getTarget();
     switch (fn_info.cc) {
@@ -11633,12 +11646,14 @@ fn buildAllocaInner(
     return wip.conv(.unneeded, alloca, .ptr, "");
 }
 
-fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u1 {
-    return @intFromBool(Type.err_int.abiAlignment(mod).compare(.gt, payload_ty.abiAlignment(mod)));
+fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) !u1 {
+    const err_int_ty = try mod.errorIntType();
+    return @intFromBool(err_int_ty.abiAlignment(mod).compare(.gt, payload_ty.abiAlignment(mod)));
 }
 
-fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u1 {
-    return @intFromBool(Type.err_int.abiAlignment(mod).compare(.lte, payload_ty.abiAlignment(mod)));
+fn errUnionErrorOffset(payload_ty: Type, mod: *Module) !u1 {
+    const err_int_ty = try mod.errorIntType();
+    return @intFromBool(err_int_ty.abiAlignment(mod).compare(.lte, payload_ty.abiAlignment(mod)));
 }
 
 /// Returns true for asm constraint (e.g. "=*m", "=r") if it accepts a memory location

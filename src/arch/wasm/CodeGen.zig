@@ -3296,6 +3296,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             return WValue{ .imm32 = int };
         },
         .error_union => |error_union| {
+            const err_int_ty = try mod.errorIntType();
             const err_tv: TypedValue = switch (error_union.val) {
                 .err_name => |err_name| .{
                     .ty = ty.errorUnionSet(mod),
@@ -3305,8 +3306,8 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                     } })).toValue(),
                 },
                 .payload => .{
-                    .ty = Type.err_int,
-                    .val = try mod.intValue(Type.err_int, 0),
+                    .ty = err_int_ty,
+                    .val = try mod.intValue(err_int_ty, 0),
                 },
             };
             const payload_type = ty.errorUnionPayload(mod);
@@ -3705,8 +3706,10 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const errors_len = WValue{ .memory = sym_index };
 
     try func.emitWValue(operand);
-    const errors_len_val = try func.load(errors_len, Type.err_int, 0);
-    const result = try func.cmp(.stack, errors_len_val, Type.err_int, .lt);
+    const mod = func.bin_file.base.options.module.?;
+    const err_int_ty = try mod.errorIntType();
+    const errors_len_val = try func.load(errors_len, err_int_ty, 0);
+    const result = try func.cmp(.stack, errors_len_val, err_int_ty, .lt);
 
     return func.finishAir(inst, try result.toLocal(func, Type.bool), &.{un_op});
 }

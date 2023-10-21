@@ -8373,7 +8373,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -8694,7 +8694,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>

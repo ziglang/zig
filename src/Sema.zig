@@ -8384,14 +8384,15 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
     const operand = try sema.coerce(block, Type.anyerror, uncasted_operand, operand_src);
+    const err_int_ty = try mod.errorIntType();
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         if (val.isUndef(mod)) {
-            return mod.undefRef(Type.err_int);
+            return mod.undefRef(err_int_ty);
         }
         const err_name = ip.indexToKey(val.toIntern()).err.name;
         return Air.internedToRef((try mod.intValue(
-            Type.err_int,
+            err_int_ty,
             try mod.getErrorValue(err_name),
         )).toIntern());
     }
@@ -8402,10 +8403,10 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         else => |err_set_ty_index| {
             const names = ip.indexToKey(err_set_ty_index).error_set_type.names;
             switch (names.len) {
-                0 => return Air.internedToRef((try mod.intValue(Type.err_int, 0)).toIntern()),
+                0 => return Air.internedToRef((try mod.intValue(err_int_ty, 0)).toIntern()),
                 1 => {
                     const int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[0]).?);
-                    return mod.intRef(Type.err_int, int);
+                    return mod.intRef(err_int_ty, int);
                 },
                 else => {},
             }
@@ -8413,7 +8414,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    return block.addBitCast(Type.err_int, operand);
+    return block.addBitCast(err_int_ty, operand);
 }
 
 fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
@@ -8425,7 +8426,8 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
-    const operand = try sema.coerce(block, Type.err_int, uncasted_operand, operand_src);
+    const err_int_ty = try mod.errorIntType();
+    const operand = try sema.coerce(block, err_int_ty, uncasted_operand, operand_src);
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
         const int = try sema.usizeCast(block, operand_src, value.toUnsignedInt(mod));
@@ -8439,7 +8441,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
         const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
-        const zero_val = Air.internedToRef((try mod.intValue(Type.err_int, 0)).toIntern());
+        const zero_val = Air.internedToRef((try mod.intValue(err_int_ty, 0)).toIntern());
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bool_and, is_lt_len, is_non_zero);
         try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
@@ -21899,10 +21901,11 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
+    const err_int_ty = try mod.errorIntType();
     if (block.wantSafety() and !dest_ty.isAnyError(mod) and sema.mod.backendSupportsFeature(.error_set_has_value)) {
         if (dest_tag == .ErrorUnion) {
             const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
-            const err_int = try block.addBitCast(Type.err_int, err_code);
+            const err_int = try block.addBitCast(err_int_ty, err_code);
             const zero_u16 = Air.internedToRef(try mod.intern(.{
                 .int = .{ .ty = .u16_type, .storage = .{ .u64 = 0 } },
             }));
@@ -21918,7 +21921,7 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
                 try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
             }
         } else {
-            const err_int_inst = try block.addBitCast(Type.err_int, operand);
+            const err_int_inst = try block.addBitCast(err_int_ty, operand);
             const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
             try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
         }
