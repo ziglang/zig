@@ -5,11 +5,11 @@ const testing = std.testing;
 
 const meta = @import("../meta.zig");
 
-pub const TraitFn = fn (type) bool;
+pub const TraitFn = fn (type) callconv(.Inline) bool;
 
-pub fn multiTrait(comptime traits: anytype) TraitFn {
+pub inline fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
+        pub inline fn trait(comptime T: type) bool {
             inline for (traits) |t|
                 if (!t(T)) return false;
             return true;
@@ -42,11 +42,11 @@ test "multiTrait" {
     try testing.expect(!isVector(u8));
 }
 
-pub fn hasFn(comptime name: []const u8) TraitFn {
+pub inline fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            if (!comptime isContainer(T)) return false;
-            if (!comptime @hasDecl(T, name)) return false;
+        pub inline fn trait(comptime T: type) bool {
+            if (!isContainer(T)) return false;
+            if (!@hasDecl(T, name)) return false;
             const DeclType = @TypeOf(@field(T, name));
             return @typeInfo(DeclType) == .Fn;
         }
@@ -64,9 +64,9 @@ test "hasFn" {
     try testing.expect(!hasFn("useless")(u8));
 }
 
-pub fn hasField(comptime name: []const u8) TraitFn {
+pub inline fn hasField(comptime name: []const u8) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
+        pub inline fn trait(comptime T: type) bool {
             const fields = switch (@typeInfo(T)) {
                 .Struct => |s| s.fields,
                 .Union => |u| u.fields,
@@ -96,9 +96,9 @@ test "hasField" {
     try testing.expect(!hasField("value")(u8));
 }
 
-pub fn is(comptime id: std.builtin.TypeId) TraitFn {
+pub inline fn is(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
+        pub inline fn trait(comptime T: type) bool {
             return id == @typeInfo(T);
         }
     };
@@ -113,10 +113,10 @@ test "is" {
     try testing.expect(!is(.Optional)(anyerror));
 }
 
-pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
+pub inline fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            if (!comptime isSingleItemPtr(T)) return false;
+        pub inline fn trait(comptime T: type) bool {
+            if (!isSingleItemPtr(T)) return false;
             return id == @typeInfo(meta.Child(T));
         }
     };
@@ -129,10 +129,10 @@ test "isPtrTo" {
     try testing.expect(!isPtrTo(.Struct)(**struct {}));
 }
 
-pub fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
+pub inline fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            if (!comptime isSlice(T)) return false;
+        pub inline fn trait(comptime T: type) bool {
+            if (!isSlice(T)) return false;
             return id == @typeInfo(meta.Child(T));
         }
     };
@@ -150,7 +150,7 @@ test "isSliceOf" {
 //@TODO:
 // Somewhat limited since we can't apply this logic to normal variables, fields, or
 //  Fns yet. Should be isExternType?
-pub fn isExtern(comptime T: type) bool {
+pub inline fn isExtern(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Extern,
         .Union => |u| u.layout == .Extern,
@@ -167,7 +167,7 @@ test "isExtern" {
     try testing.expect(!isExtern(u8));
 }
 
-pub fn isPacked(comptime T: type) bool {
+pub inline fn isPacked(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Packed,
         .Union => |u| u.layout == .Packed,
@@ -184,7 +184,7 @@ test "isPacked" {
     try testing.expect(!isPacked(u8));
 }
 
-pub fn isUnsignedInt(comptime T: type) bool {
+pub inline fn isUnsignedInt(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Int => |i| i.signedness == .unsigned,
         else => false,
@@ -198,7 +198,7 @@ test "isUnsignedInt" {
     try testing.expect(isUnsignedInt(f64) == false);
 }
 
-pub fn isSignedInt(comptime T: type) bool {
+pub inline fn isSignedInt(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .ComptimeInt => true,
         .Int => |i| i.signedness == .signed,
@@ -213,8 +213,8 @@ test "isSignedInt" {
     try testing.expect(isSignedInt(f64) == false);
 }
 
-pub fn isSingleItemPtr(comptime T: type) bool {
-    if (comptime is(.Pointer)(T)) {
+pub inline fn isSingleItemPtr(comptime T: type) bool {
+    if (is(.Pointer)(T)) {
         return @typeInfo(T).Pointer.size == .One;
     }
     return false;
@@ -228,8 +228,8 @@ test "isSingleItemPtr" {
     try testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
 
-pub fn isManyItemPtr(comptime T: type) bool {
-    if (comptime is(.Pointer)(T)) {
+pub inline fn isManyItemPtr(comptime T: type) bool {
+    if (is(.Pointer)(T)) {
         return @typeInfo(T).Pointer.size == .Many;
     }
     return false;
@@ -243,8 +243,8 @@ test "isManyItemPtr" {
     try testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));
 }
 
-pub fn isSlice(comptime T: type) bool {
-    if (comptime is(.Pointer)(T)) {
+pub inline fn isSlice(comptime T: type) bool {
+    if (is(.Pointer)(T)) {
         return @typeInfo(T).Pointer.size == .Slice;
     }
     return false;
@@ -258,14 +258,14 @@ test "isSlice" {
     try testing.expect(!isSlice(@TypeOf(&array[0])));
 }
 
-pub fn isIndexable(comptime T: type) bool {
-    if (comptime is(.Pointer)(T)) {
+pub inline fn isIndexable(comptime T: type) bool {
+    if (is(.Pointer)(T)) {
         if (@typeInfo(T).Pointer.size == .One) {
-            return (comptime is(.Array)(meta.Child(T)));
+            return (is(.Array)(meta.Child(T)));
         }
         return true;
     }
-    return comptime is(.Array)(T) or is(.Vector)(T) or isTuple(T);
+    return is(.Array)(T) or is(.Vector)(T) or isTuple(T);
 }
 
 test "isIndexable" {
@@ -282,7 +282,7 @@ test "isIndexable" {
     try testing.expect(isIndexable(@TypeOf(tuple)));
 }
 
-pub fn isNumber(comptime T: type) bool {
+pub inline fn isNumber(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Int, .Float, .ComptimeInt, .ComptimeFloat => true,
         else => false,
@@ -303,7 +303,7 @@ test "isNumber" {
     try testing.expect(!isNumber(NotANumber));
 }
 
-pub fn isIntegral(comptime T: type) bool {
+pub inline fn isIntegral(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Int, .ComptimeInt => true,
         else => false,
@@ -319,7 +319,7 @@ test "isIntegral" {
     try testing.expect(!isIntegral([]u8));
 }
 
-pub fn isFloat(comptime T: type) bool {
+pub inline fn isFloat(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => true,
         else => false,
@@ -335,8 +335,8 @@ test "isFloat" {
     try testing.expect(!isFloat([]f32));
 }
 
-pub fn isConstPtr(comptime T: type) bool {
-    if (!comptime is(.Pointer)(T)) return false;
+pub inline fn isConstPtr(comptime T: type) bool {
+    if (!is(.Pointer)(T)) return false;
     return @typeInfo(T).Pointer.is_const;
 }
 
@@ -349,7 +349,7 @@ test "isConstPtr" {
     try testing.expect(!isConstPtr(@TypeOf(6)));
 }
 
-pub fn isContainer(comptime T: type) bool {
+pub inline fn isContainer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct, .Union, .Enum, .Opaque => true,
         else => false,
@@ -374,7 +374,7 @@ test "isContainer" {
     try testing.expect(!isContainer(u8));
 }
 
-pub fn isTuple(comptime T: type) bool {
+pub inline fn isTuple(comptime T: type) bool {
     return is(.Struct)(T) and @typeInfo(T).Struct.is_tuple;
 }
 
@@ -399,8 +399,8 @@ test "isTuple" {
 /// [*]const [N]u8, []const u16, []const i8,
 /// *const u8, ?[]const u8, ?*const [N]u8.
 /// ```
-pub fn isZigString(comptime T: type) bool {
-    return comptime blk: {
+pub inline fn isZigString(comptime T: type) bool {
+    return blk: {
         // Only pointer types can be strings, no optionals
         const info = @typeInfo(T);
         if (info != .Pointer) break :blk false;
@@ -465,7 +465,7 @@ test "isZigString" {
     try testing.expect(!isZigString(*volatile [4]u8));
 }
 
-pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
+pub inline fn hasDecls(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasDecl(T, name))
             return false;
@@ -491,7 +491,7 @@ test "hasDecls" {
     try testing.expect(!hasDecls(TestStruct2, tuple));
 }
 
-pub fn hasFields(comptime T: type, comptime names: anytype) bool {
+pub inline fn hasFields(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasField(T, name))
             return false;
@@ -517,7 +517,7 @@ test "hasFields" {
     try testing.expect(!hasFields(TestStruct2, .{ "a", "b", "useless" }));
 }
 
-pub fn hasFunctions(comptime T: type, comptime names: anytype) bool {
+pub inline fn hasFunctions(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!hasFn(name)(T))
             return false;
@@ -542,7 +542,7 @@ test "hasFunctions" {
 
 /// True if every value of the type `T` has a unique bit pattern representing it.
 /// In other words, `T` has no unused bits and no padding.
-pub fn hasUniqueRepresentation(comptime T: type) bool {
+pub inline fn hasUniqueRepresentation(comptime T: type) bool {
     switch (@typeInfo(T)) {
         else => return false, // TODO can we know if it's true for some of these types ?
 
@@ -558,21 +558,21 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
 
         .Pointer => |info| return info.size != .Slice,
 
-        .Array => |info| return comptime hasUniqueRepresentation(info.child),
+        .Array => |info| return hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
                 const FieldType = field.type;
-                if (comptime !hasUniqueRepresentation(FieldType)) return false;
+                if (!hasUniqueRepresentation(FieldType)) return false;
                 sum_size += @sizeOf(FieldType);
             }
 
             return @sizeOf(T) == sum_size;
         },
 
-        .Vector => |info| return comptime hasUniqueRepresentation(info.child) and
+        .Vector => |info| return hasUniqueRepresentation(info.child) and
             @sizeOf(T) == @sizeOf(info.child) * info.len,
     }
 }
