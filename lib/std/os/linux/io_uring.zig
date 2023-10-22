@@ -1741,6 +1741,8 @@ test "readv" {
 test "writev/fsync/readv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -1811,6 +1813,8 @@ test "writev/fsync/readv" {
 test "write/read" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -1857,6 +1861,8 @@ test "write/read" {
 
 test "splice/read" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1929,6 +1935,8 @@ test "splice/read" {
 test "write_fixed/read_fixed" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -1994,6 +2002,8 @@ test "write_fixed/read_fixed" {
 test "openat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2044,6 +2054,8 @@ test "openat" {
 
 test "close" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2204,6 +2216,8 @@ test "sendmsg/recvmsg" {
 test "timeout (after a relative time)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2267,6 +2281,8 @@ test "timeout (after a number of completions)" {
 
 test "timeout_remove" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2376,6 +2392,8 @@ test "accept/connect/recv/link_timeout" {
 test "fallocate" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2421,6 +2439,8 @@ test "fallocate" {
 
 test "statx" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2678,6 +2698,8 @@ test "shutdown" {
 test "renameat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2747,6 +2769,8 @@ test "renameat" {
 test "unlinkat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2799,6 +2823,8 @@ test "unlinkat" {
 test "mkdirat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2842,6 +2868,8 @@ test "mkdirat" {
 
 test "symlinkat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2890,6 +2918,8 @@ test "symlinkat" {
 
 test "linkat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,

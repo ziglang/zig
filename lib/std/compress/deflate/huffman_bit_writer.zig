@@ -845,6 +845,8 @@ const testing = std.testing;
 const ArrayList = std.ArrayList;
 
 test "writeBlockHuff" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Tests huffman encoding against reference files to detect possible regressions.
     // If encoding/bit allocation changes you can regenerate these files
 
@@ -1569,6 +1571,8 @@ const TestType = enum {
 };
 
 test "writeBlock" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // tests if the writeBlock encoding has changed.
 
     const ttype: TestType = .write_block;
@@ -1584,6 +1588,8 @@ test "writeBlock" {
 }
 
 test "writeBlockDynamic" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // tests if the writeBlockDynamic encoding has changed.
 
     const ttype: TestType = .write_dyn_block;

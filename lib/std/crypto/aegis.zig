@@ -17,6 +17,7 @@
 //! https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 
 const std = @import("std");
+const builtin = @import("builtin");
 const crypto = std.crypto;
 const mem = std.mem;
 const assert = std.debug.assert;
@@ -513,6 +514,8 @@ const htest = @import("test.zig");
 const testing = std.testing;
 
 test "Aegis128L test vector 1" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis128L.key_length]u8 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** 14;
     const nonce: [Aegis128L.nonce_length]u8 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** 13;
     const ad = [8]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
@@ -536,6 +539,8 @@ test "Aegis128L test vector 1" {
 }
 
 test "Aegis128L test vector 2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis128L.key_length]u8 = [_]u8{0x00} ** 16;
     const nonce: [Aegis128L.nonce_length]u8 = [_]u8{0x00} ** 16;
     const ad = [_]u8{};
@@ -553,6 +558,8 @@ test "Aegis128L test vector 2" {
 }
 
 test "Aegis128L test vector 3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis128L.key_length]u8 = [_]u8{0x00} ** 16;
     const nonce: [Aegis128L.nonce_length]u8 = [_]u8{0x00} ** 16;
     const ad = [_]u8{};
@@ -569,6 +576,8 @@ test "Aegis128L test vector 3" {
 }
 
 test "Aegis256 test vector 1" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis256.key_length]u8 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** 30;
     const nonce: [Aegis256.nonce_length]u8 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** 29;
     const ad = [8]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
@@ -592,6 +601,8 @@ test "Aegis256 test vector 1" {
 }
 
 test "Aegis256 test vector 2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis256.key_length]u8 = [_]u8{0x00} ** 32;
     const nonce: [Aegis256.nonce_length]u8 = [_]u8{0x00} ** 32;
     const ad = [_]u8{};
@@ -609,6 +620,8 @@ test "Aegis256 test vector 2" {
 }
 
 test "Aegis256 test vector 3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aegis256.key_length]u8 = [_]u8{0x00} ** 32;
     const nonce: [Aegis256.nonce_length]u8 = [_]u8{0x00} ** 32;
     const ad = [_]u8{};
@@ -625,6 +638,8 @@ test "Aegis256 test vector 3" {
 }
 
 test "Aegis MAC" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{0x00} ** Aegis128LMac.key_length;
     var msg: [64]u8 = undefined;
     for (&msg, 0..) |*m, i| {

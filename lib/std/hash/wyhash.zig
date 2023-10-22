@@ -242,6 +242,8 @@ test "smhasher" {
 }
 
 test "iterative api" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(Wyhash);

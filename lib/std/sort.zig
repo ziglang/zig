@@ -1,5 +1,6 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
@@ -176,6 +177,8 @@ const IdAndValue = struct {
 };
 
 test "stable sort" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected = [_]IdAndValue{
         IdAndValue{ .id = 0, .value = 0 },
         IdAndValue{ .id = 1, .value = 0 },
@@ -223,6 +226,8 @@ test "stable sort" {
 }
 
 test "sort" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const u8cases = [_][]const []const u8{
         &[_][]const u8{
             "",
@@ -301,6 +306,8 @@ test "sort" {
 }
 
 test "sort descending" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const rev_cases = [_][]const []const i32{
         &[_][]const i32{
             &[_]i32{},
@@ -340,6 +347,8 @@ test "sort descending" {
 }
 
 test "sort with context in the middle of a slice" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Context = struct {
         items: []i32,
 
@@ -379,6 +388,8 @@ test "sort with context in the middle of a slice" {
 }
 
 test "sort fuzz testing" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var prng = std.rand.DefaultPrng.init(0x12345678);
     const random = prng.random();
     const test_case_count = 10;

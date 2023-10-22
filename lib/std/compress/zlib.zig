@@ -199,6 +199,8 @@ fn testDecompress(data: []const u8, expected: []const u8) !void {
 // https://tools.ietf.org/rfc/rfc1951.txt length=36944 bytes
 // SHA256=5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009
 test "compressed data" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
     // Compressed with compression level = 0
@@ -264,6 +266,8 @@ test "sanity checks" {
 }
 
 test "compress data" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = testing.allocator;
     const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 

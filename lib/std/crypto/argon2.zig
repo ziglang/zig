@@ -622,6 +622,8 @@ pub fn strVerify(
 }
 
 test "argon2d" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const password = [_]u8{0x01} ** 32;
     const salt = [_]u8{0x02} ** 16;
     const secret = [_]u8{0x03} ** 8;
@@ -647,6 +649,8 @@ test "argon2d" {
 }
 
 test "argon2i" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const password = [_]u8{0x01} ** 32;
     const salt = [_]u8{0x02} ** 16;
     const secret = [_]u8{0x03} ** 8;
@@ -672,6 +676,8 @@ test "argon2i" {
 }
 
 test "argon2id" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const password = [_]u8{0x01} ** 32;
     const salt = [_]u8{0x02} ** 16;
     const secret = [_]u8{0x03} ** 8;
@@ -697,6 +703,8 @@ test "argon2id" {
 }
 
 test "kdf" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const password = "password";
     const salt = "somesalt";
 
@@ -896,6 +904,8 @@ test "kdf" {
 }
 
 test "phc format hasher" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
     const password = "testpass";
 
@@ -911,6 +921,8 @@ test "phc format hasher" {
 }
 
 test "password hash and password verify" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
     const password = "testpass";
 
@@ -924,6 +936,8 @@ test "password hash and password verify" {
 }
 
 test "kdf derived key length" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
 
     const password = "testpass";

@@ -168,6 +168,8 @@ pub const Ristretto255 = struct {
 };
 
 test "ristretto255" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = Ristretto255.basePoint;
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&p.toBytes())}), "E2F2AE0A6ABC4E71A884A961C500515F58E30B6AA582DD8DB6A65945E08D2D76");

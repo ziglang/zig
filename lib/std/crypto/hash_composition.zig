@@ -65,6 +65,8 @@ pub const Sha384oSha384 = Composition(sha2.Sha384, sha2.Sha384);
 pub const Sha512oSha512 = Composition(sha2.Sha512, sha2.Sha512);
 
 test "Hash composition" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Sha256 = sha2.Sha256;
     const msg = "test";
 

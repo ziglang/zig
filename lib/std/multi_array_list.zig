@@ -583,6 +583,8 @@ pub fn MultiArrayList(comptime T: type) type {
 }
 
 test "basic usage" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = struct {
@@ -677,6 +679,8 @@ test "basic usage" {
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
 // function used the @reduce code path.
 test "regression test for @reduce bug" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
     var list = MultiArrayList(struct {
         tag: std.zig.Token.Tag,
@@ -754,6 +758,8 @@ test "regression test for @reduce bug" {
 }
 
 test "ensure capacity on empty list" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = struct {
@@ -789,6 +795,8 @@ test "ensure capacity on empty list" {
 }
 
 test "insert elements" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = struct {
@@ -808,6 +816,8 @@ test "insert elements" {
 }
 
 test "union" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = union(enum) {
@@ -863,6 +873,8 @@ test "union" {
 }
 
 test "sorting a span" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var list: MultiArrayList(struct { score: u32, chr: u8 }) = .{};
     defer list.deinit(testing.allocator);
 
@@ -903,6 +915,8 @@ test "sorting a span" {
 }
 
 test "0 sized struct field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = struct {
@@ -930,6 +944,8 @@ test "0 sized struct field" {
 }
 
 test "0 sized struct" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const ally = testing.allocator;
 
     const Foo = struct {

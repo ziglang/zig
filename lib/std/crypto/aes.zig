@@ -28,6 +28,8 @@ pub const Aes128 = impl.Aes128;
 pub const Aes256 = impl.Aes256;
 
 test "ctr" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // NIST SP 800-38A pp 55-58
     const ctr = @import("modes.zig").ctr;
 
@@ -53,6 +55,8 @@ test "ctr" {
 }
 
 test "encrypt" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Appendix B
     {
         const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
@@ -82,6 +86,8 @@ test "encrypt" {
 }
 
 test "decrypt" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Appendix B
     {
         const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
@@ -111,6 +117,8 @@ test "decrypt" {
 }
 
 test "expand 128-bit key" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
     const exp_enc = [_]*const [32:0]u8{
         "2b7e151628aed2a6abf7158809cf4f3c", "a0fafe1788542cb123a339392a6c7605", "f2c295f27a96b9435935807a7359f67f", "3d80477d4716fe3e1e237e446d7a883b", "ef44a541a8525b7fb671253bdb0bad00", "d4d1c6f87c839d87caf2b8bc11f915bc", "6d88a37a110b3efddbf98641ca0093fd", "4e54f70e5f5fc9f384a64fb24ea6dc4f", "ead27321b58dbad2312bf5607f8d292f", "ac7766f319fadc2128d12941575c006e", "d014f9a8c9ee2589e13f0cc8b6630ca6",
@@ -133,6 +141,8 @@ test "expand 128-bit key" {
 }
 
 test "expand 256-bit key" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{
         0x60, 0x3d, 0xeb, 0x10,
         0x15, 0xca, 0x71, 0xbe,

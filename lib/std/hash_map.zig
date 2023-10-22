@@ -1873,6 +1873,8 @@ test "std.hash_map multiple removes on same metadata" {
 }
 
 test "std.hash_map put and remove loop in random order" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 

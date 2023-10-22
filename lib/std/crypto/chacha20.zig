@@ -499,6 +499,8 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 fn ChaChaImpl(comptime rounds_nb: usize) type {
     switch (builtin.cpu.arch) {
         .x86_64 => {
+            if (builtin.zig_backend == .stage2_x86_64) return ChaChaNonVecImpl(rounds_nb);
+
             const has_avx2 = std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
             const has_avx512f = std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f);
             if (has_avx512f) return ChaChaVecImpl(rounds_nb, 4);
@@ -757,6 +759,8 @@ fn XChaChaPoly1305(comptime rounds_nb: usize) type {
 }
 
 test "chacha20 AEAD API" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const aeads = [_]type{ ChaCha20Poly1305, XChaCha20Poly1305 };
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
@@ -778,6 +782,8 @@ test "chacha20 AEAD API" {
 
 // https://tools.ietf.org/html/rfc7539#section-2.4.2
 test "crypto.chacha20 test vector sunscreen" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80,
         0x41, 0xba, 0x07, 0x28, 0xdd, 0x0d, 0x69, 0x81,
@@ -819,6 +825,8 @@ test "crypto.chacha20 test vector sunscreen" {
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
 test "crypto.chacha20 test vector 1" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0x76, 0xb8, 0xe0, 0xad, 0xa0, 0xf1, 0x3d, 0x90,
         0x40, 0x5d, 0x6a, 0xe5, 0x53, 0x86, 0xbd, 0x28,
@@ -853,6 +861,8 @@ test "crypto.chacha20 test vector 1" {
 }
 
 test "crypto.chacha20 test vector 2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0x45, 0x40, 0xf0, 0x5a, 0x9f, 0x1f, 0xb2, 0x96,
         0xd7, 0x73, 0x6e, 0x7b, 0x20, 0x8e, 0x3c, 0x96,
@@ -887,6 +897,8 @@ test "crypto.chacha20 test vector 2" {
 }
 
 test "crypto.chacha20 test vector 3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0xde, 0x9c, 0xba, 0x7b, 0xf3, 0xd6, 0x9e, 0xf5,
         0xe7, 0x86, 0xdc, 0x63, 0x97, 0x3f, 0x65, 0x3a,
@@ -921,6 +933,8 @@ test "crypto.chacha20 test vector 3" {
 }
 
 test "crypto.chacha20 test vector 4" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0xef, 0x3f, 0xdf, 0xd6, 0xc6, 0x15, 0x78, 0xfb,
         0xf5, 0xcf, 0x35, 0xbd, 0x3d, 0xd3, 0x3b, 0x80,
@@ -955,6 +969,8 @@ test "crypto.chacha20 test vector 4" {
 }
 
 test "crypto.chacha20 test vector 5" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expected_result = [_]u8{
         0xf7, 0x98, 0xa1, 0x89, 0xf1, 0x95, 0xe6, 0x69,
         0x82, 0x10, 0x5f, 0xfb, 0x64, 0x0b, 0xb7, 0x75,
@@ -1027,6 +1043,8 @@ test "crypto.chacha20 test vector 5" {
 }
 
 test "seal" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     {
         const m = "";
         const ad = "";
@@ -1077,6 +1095,8 @@ test "seal" {
 }
 
 test "open" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     {
         const c = [_]u8{ 0xa0, 0x78, 0x4d, 0x7a, 0x47, 0x16, 0xf3, 0xfe, 0xb4, 0xf6, 0x4e, 0x7f, 0x4b, 0x39, 0xbf, 0x4 };
         const ad = "";
@@ -1141,6 +1161,8 @@ test "open" {
 }
 
 test "crypto.xchacha20" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{69} ** 32;
     const nonce = [_]u8{42} ** 24;
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";

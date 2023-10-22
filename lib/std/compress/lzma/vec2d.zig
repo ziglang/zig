@@ -50,6 +50,8 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
 
 test "Vec2D.init" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = testing.allocator;
     var vec2d = try Vec2D(i32).init(allocator, 1, .{ 2, 3 });
     defer vec2d.deinit(allocator);

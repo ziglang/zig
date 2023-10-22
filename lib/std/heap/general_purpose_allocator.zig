@@ -1042,6 +1042,8 @@ const TraceKind = enum {
 const test_config = Config{};
 
 test "small allocations - free in same order" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1061,6 +1063,8 @@ test "small allocations - free in same order" {
 }
 
 test "small allocations - free in reverse order" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();

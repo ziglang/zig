@@ -624,6 +624,8 @@ pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
 }
 
 test parseTimeDigits {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expectEqual = std.testing.expectEqual;
     try expectEqual(@as(u8, 0), try parseTimeDigits("00", 0, 99));
     try expectEqual(@as(u8, 99), try parseTimeDigits("99", 0, 99));
@@ -645,6 +647,8 @@ pub fn parseYear4(text: *const [4]u8) !u16 {
 }
 
 test parseYear4 {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const expectEqual = std.testing.expectEqual;
     try expectEqual(@as(u16, 0), try parseYear4("0000"));
     try expectEqual(@as(u16, 9999), try parseYear4("9999"));
@@ -1119,3 +1123,5 @@ pub const rsa = struct {
         return res;
     }
 };
+
+const builtin = @import("builtin");

@@ -492,10 +492,13 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -536,10 +539,13 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -581,10 +587,13 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotr" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -625,10 +634,13 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotl" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -752,6 +764,8 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divTrunc" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDivTrunc();
     try comptime testDivTrunc();
 }
@@ -776,6 +790,8 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divFloor" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDivFloor();
     try comptime testDivFloor();
 }
@@ -813,6 +829,8 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divCeil" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDivCeil();
     try comptime testDivCeil();
 }
@@ -857,6 +875,8 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divExact" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDivExact();
     try comptime testDivExact();
 }
@@ -887,6 +907,8 @@ test "mod" {
     try comptime testMod();
 }
 fn testMod() !void {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
     try testing.expect((mod(i32, 5, 3) catch unreachable) == 2);
     try testing.expectError(error.NegativeDenominator, mod(i32, 10, -1));
@@ -909,6 +931,8 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "rem" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testRem();
     try comptime testRem();
 }
@@ -1261,6 +1285,8 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test "lerp" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));

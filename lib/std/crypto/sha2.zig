@@ -238,7 +238,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                         return;
                     },
                     // C backend doesn't currently support passing vectors to inline asm.
-                    .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
+                    .x86_64 => if (builtin.zig_backend != .stage2_c and builtin.zig_backend != .stage2_x86_64 and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
                         var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
                         var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
                         const s_v = @as(*[16]v4u32, @ptrCast(&s));
@@ -406,12 +406,16 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 }
 
 test "sha224 single" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try htest.assertEqualHash(Sha224, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", "");
     try htest.assertEqualHash(Sha224, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", "abc");
     try htest.assertEqualHash(Sha224, "c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha224 streaming" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var h = Sha224.init(.{});
     var out: [28]u8 = undefined;
 
@@ -432,12 +436,16 @@ test "sha224 streaming" {
 }
 
 test "sha256 single" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
     try htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
     try htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha256 streaming" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var h = Sha256.init(.{});
     var out: [32]u8 = undefined;
 
@@ -458,6 +466,8 @@ test "sha256 streaming" {
 }
 
 test "sha256 aligned final" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var block = [_]u8{0} ** Sha256.block_length;
     var out: [Sha256.digest_length]u8 = undefined;
 

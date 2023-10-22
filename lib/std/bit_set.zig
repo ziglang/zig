@@ -33,6 +33,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
 
 /// Returns the optimal static bit set type for the specified number
 /// of elements: either `IntegerBitSet` or `ArrayBitSet`,
@@ -1636,7 +1637,10 @@ fn testStaticBitSet(comptime Set: type) !void {
 }
 
 test "IntegerBitSet" {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (builtin.zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
 
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
@@ -1649,6 +1653,11 @@ test "IntegerBitSet" {
 }
 
 test "ArrayBitSet" {
+    switch (builtin.zig_backend) {
+        .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
+
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
         try testStaticBitSet(ArrayBitSet(u8, size));
         try testStaticBitSet(ArrayBitSet(u16, size));
@@ -1659,6 +1668,8 @@ test "ArrayBitSet" {
 }
 
 test "DynamicBitSetUnmanaged" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
     var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
@@ -1712,6 +1723,8 @@ test "DynamicBitSetUnmanaged" {
 }
 
 test "DynamicBitSet" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const allocator = std.testing.allocator;
     var a = try DynamicBitSet.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());

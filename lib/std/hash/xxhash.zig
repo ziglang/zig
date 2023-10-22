@@ -803,6 +803,8 @@ fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64)
 }
 
 test "xxhash3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const H = XxHash3;
     // Non-Seeded Tests
     try testExpect(H, 0, "", 0x2d06800538d394c2);
@@ -834,6 +836,8 @@ test "xxhash3" {
 }
 
 test "xxhash3 smhasher" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try expectEqual(verify.smhasher(XxHash3.hash), 0x9a636405);
@@ -845,6 +849,8 @@ test "xxhash3 smhasher" {
 }
 
 test "xxhash3 iterative api" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(XxHash3);
@@ -856,6 +862,8 @@ test "xxhash3 iterative api" {
 }
 
 test "xxhash64" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const H = XxHash64;
     try testExpect(H, 0, "", 0xef46db3751d8e999);
     try testExpect(H, 0, "a", 0xd24ec4f1a98c6e5b);
@@ -867,6 +875,8 @@ test "xxhash64" {
 }
 
 test "xxhash64 smhasher" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try expectEqual(verify.smhasher(XxHash64.hash), 0x024B7CF4);
@@ -878,6 +888,8 @@ test "xxhash64 smhasher" {
 }
 
 test "xxhash64 iterative api" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(XxHash64);
@@ -889,6 +901,8 @@ test "xxhash64 iterative api" {
 }
 
 test "xxhash32" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const H = XxHash32;
 
     try testExpect(H, 0, "", 0x02cc5d05);
@@ -901,6 +915,8 @@ test "xxhash32" {
 }
 
 test "xxhash32 smhasher" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try expectEqual(verify.smhasher(XxHash32.hash), 0xBA88B743);
@@ -912,6 +928,8 @@ test "xxhash32 smhasher" {
 }
 
 test "xxhash32 iterative api" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(XxHash32);

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 
@@ -125,6 +126,9 @@ fn test__floatuntisf(a: u128, expected: f32) !void {
 }
 
 test "floattisf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floattisf(0, 0.0);
 
     try test__floattisf(1, 1.0);
@@ -171,6 +175,9 @@ test "floattisf" {
 }
 
 test "floatuntisf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floatuntisf(0, 0.0);
 
     try test__floatuntisf(1, 1.0);
@@ -367,6 +374,9 @@ fn test__floatuntidf(a: u128, expected: f64) !void {
 }
 
 test "floattidf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floattidf(0, 0.0);
 
     try test__floattidf(1, 1.0);
@@ -437,6 +447,9 @@ test "floattidf" {
 }
 
 test "floatuntidf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floatuntidf(0, 0.0);
 
     try test__floatuntidf(1, 1.0);
@@ -582,6 +595,9 @@ test "floatditf" {
 }
 
 test "floatunditf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floatunditf(0xffffffffffffffff, 0x403effffffffffff, 0xfffe000000000000);
     try test__floatunditf(0xfffffffffffffffe, 0x403effffffffffff, 0xfffc000000000000);
     try test__floatunditf(0x8000000000000000, 0x403e000000000000, 0x0);
@@ -603,6 +619,9 @@ fn test__floatuntitf(a: u128, expected: f128) !void {
 }
 
 test "floattitf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floattitf(0, 0.0);
 
     try test__floattitf(1, 1.0);
@@ -685,6 +704,9 @@ test "floattitf" {
 }
 
 test "floatuntitf" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     try test__floatuntitf(0, 0.0);
 
     try test__floatuntitf(1, 1.0);

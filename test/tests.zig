@@ -985,7 +985,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getObjectFormat() != .elf) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
         // TODO get compiler-rt tests passing for wasm32-wasi
@@ -1002,8 +1004,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
 
-        // TODO get std lib tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
+        // TODO get std lib tests passing for other self-hosted backends.
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getObjectFormat() != .elf) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
         const want_this_mode = for (options.optimize_modes) |m| {

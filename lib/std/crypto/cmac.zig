@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const crypto = std.crypto;
 const mem = std.mem;
 
@@ -93,6 +94,8 @@ pub fn Cmac(comptime BlockCipher: type) type {
 const testing = std.testing;
 
 test "CmacAes128 - Example 1: len = 0" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
@@ -106,6 +109,8 @@ test "CmacAes128 - Example 1: len = 0" {
 }
 
 test "CmacAes128 - Example 2: len = 16" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
@@ -121,6 +126,8 @@ test "CmacAes128 - Example 2: len = 16" {
 }
 
 test "CmacAes128 - Example 3: len = 40" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
@@ -138,6 +145,8 @@ test "CmacAes128 - Example 3: len = 40" {
 }
 
 test "CmacAes128 - Example 4: len = 64" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
