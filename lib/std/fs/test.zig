@@ -698,6 +698,8 @@ test "file operations on directories" {
 }
 
 test "makeOpenPath parent dirs do not exist" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
