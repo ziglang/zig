@@ -16792,7 +16792,7 @@ fn zirRetAddr(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     _ = extended;
-    if (block.is_comptime) {
+    if (block.is_comptime or block.inlining != null) {
         // TODO: we could give a meaningful lazy value here. #14938
         return sema.mod.intRef(Type.usize, 0);
     } else {
