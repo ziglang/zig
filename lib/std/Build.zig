@@ -90,6 +90,8 @@ host: ResolvedTarget,
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
+
+named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
 /// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
 /// `Build`s.
 initialized_deps: *InitializedDepMap,
@@ -273,6 +275,7 @@ pub fn create(
         .args = null,
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = initialized_deps,
         .available_deps = available_deps,
     };
@@ -360,6 +363,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
     };
@@ -979,6 +983,12 @@ pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Step
     const write_file_step = self.addWriteFiles();
     _ = write_file_step.add(file_path, data);
     return write_file_step;
+}
+
+pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
+    const wf = Step.WriteFile.create(b);
+    b.named_writefiles.put(b.dupe(name), wf) catch @panic("OOM");
+    return wf;
 }
 
 pub fn addWriteFiles(b: *Build) *Step.WriteFile {
@@ -1708,6 +1718,12 @@ pub const Dependency = struct {
     pub fn module(d: *Dependency, name: []const u8) *Module {
         return d.builder.modules.get(name) orelse {
             panic("unable to find module '{s}'", .{name});
+        };
+    }
+
+    pub fn namedWriteFiles(d: *Dependency, name: []const u8) *Step.WriteFile {
+        return d.builder.named_writefiles.get(name) orelse {
+            panic("unable to find named writefiles '{s}'", .{name});
         };
     }
 
