@@ -22,8 +22,6 @@ const Opcode = spec.Opcode;
 const IdResult = spec.IdResult;
 const StorageClass = spec.StorageClass;
 
-const InternPool = @import("../../InternPool.zig");
-
 const Self = @This();
 
 map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
@@ -32,8 +30,6 @@ extra: std.ArrayListUnmanaged(u32) = .{},
 
 string_bytes: std.ArrayListUnmanaged(u8) = .{},
 strings: std.AutoArrayHashMapUnmanaged(void, u32) = .{},
-
-recursive_ptrs: std.AutoHashMapUnmanaged(Ref, void) = .{},
 
 const Item = struct {
     tag: Tag,
@@ -66,21 +62,18 @@ const Tag = enum {
     /// Function (proto)type
     /// data is payload to FunctionType
     type_function,
-    // /// Pointer type in the CrossWorkgroup storage class
-    // /// data is child type
-    // type_ptr_generic,
-    // /// Pointer type in the CrossWorkgroup storage class
-    // /// data is child type
-    // type_ptr_crosswgp,
-    // /// Pointer type in the Function storage class
-    // /// data is child type
-    // type_ptr_function,
+    /// Pointer type in the CrossWorkgroup storage class
+    /// data is child type
+    type_ptr_generic,
+    /// Pointer type in the CrossWorkgroup storage class
+    /// data is child type
+    type_ptr_crosswgp,
+    /// Pointer type in the Function storage class
+    /// data is child type
+    type_ptr_function,
     /// Simple pointer type that does not have any decorations.
     /// data is payload to SimplePointerType
     type_ptr_simple,
-    /// A forward declaration for a pointer.
-    /// data is ForwardPointerType
-    type_fwd_ptr,
     /// Simple structure type that does not have any decorations.
     /// data is payload to SimpleStructType
     type_struct_simple,
@@ -149,12 +142,6 @@ const Tag = enum {
     const SimplePointerType = struct {
         storage_class: StorageClass,
         child_type: Ref,
-        fwd: Ref,
-    };
-
-    const ForwardPointerType = struct {
-        storage_class: StorageClass,
-        zig_child_type: InternPool.Index,
     };
 
     /// Trailing:
@@ -176,14 +163,14 @@ const Tag = enum {
         fn encode(value: f64) Float64 {
             const bits = @as(u64, @bitCast(value));
             return .{
-                .low = @truncate(bits),
-                .high = @truncate(bits >> 32),
+                .low = @as(u32, @truncate(bits)),
+                .high = @as(u32, @truncate(bits >> 32)),
             };
         }
 
         fn decode(self: Float64) f64 {
             const bits = @as(u64, self.low) | (@as(u64, self.high) << 32);
-            return @bitCast(bits);
+            return @as(f64, @bitCast(bits));
         }
     };
 
@@ -205,8 +192,8 @@ const Tag = enum {
         fn encode(ty: Ref, value: u64) Int64 {
             return .{
                 .ty = ty,
-                .low = @truncate(value),
-                .high = @truncate(value >> 32),
+                .low = @as(u32, @truncate(value)),
+                .high = @as(u32, @truncate(value >> 32)),
             };
         }
 
@@ -223,8 +210,8 @@ const Tag = enum {
         fn encode(ty: Ref, value: i64) Int64 {
             return .{
                 .ty = ty,
-                .low = @truncate(@as(u64, @bitCast(value))),
-                .high = @truncate(@as(u64, @bitCast(value)) >> 32),
+                .low = @as(u32, @truncate(@as(u64, @bitCast(value)))),
+                .high = @as(u32, @truncate(@as(u64, @bitCast(value)) >> 32)),
             };
         }
 
@@ -250,7 +237,6 @@ pub const Key = union(enum) {
     array_type: ArrayType,
     function_type: FunctionType,
     ptr_type: PointerType,
-    fwd_ptr_type: ForwardPointerType,
     struct_type: StructType,
     opaque_type: OpaqueType,
 
@@ -287,16 +273,10 @@ pub const Key = union(enum) {
     pub const PointerType = struct {
         storage_class: StorageClass,
         child_type: Ref,
-        fwd: Ref,
         // TODO: Decorations:
         // - Alignment
         // - ArrayStride,
         // - MaxByteOffset,
-    };
-
-    pub const ForwardPointerType = struct {
-        zig_child_type: InternPool.Index,
-        storage_class: StorageClass,
     };
 
     pub const StructType = struct {
@@ -333,21 +313,21 @@ pub const Key = union(enum) {
         /// Turns this value into the corresponding 32-bit literal, 2s complement signed.
         fn toBits32(self: Int) u32 {
             return switch (self.value) {
-                .uint64 => |val| @intCast(val),
-                .int64 => |val| if (val < 0) @bitCast(@as(i32, @intCast(val))) else @intCast(val),
+                .uint64 => |val| @as(u32, @intCast(val)),
+                .int64 => |val| if (val < 0) @as(u32, @bitCast(@as(i32, @intCast(val)))) else @as(u32, @intCast(val)),
             };
         }
 
         fn toBits64(self: Int) u64 {
             return switch (self.value) {
                 .uint64 => |val| val,
-                .int64 => |val| @bitCast(val),
+                .int64 => |val| @as(u64, @bitCast(val)),
             };
         }
 
         fn to(self: Int, comptime T: type) T {
             return switch (self.value) {
-                inline else => |val| @intCast(val),
+                inline else => |val| @as(T, @intCast(val)),
             };
         }
     };
@@ -407,7 +387,7 @@ pub const Key = union(enum) {
             },
             inline else => |key| std.hash.autoHash(&hasher, key),
         }
-        return @truncate(hasher.final());
+        return @as(u32, @truncate(hasher.final()));
     }
 
     fn eql(a: Key, b: Key) bool {
@@ -439,7 +419,7 @@ pub const Key = union(enum) {
 
         pub fn eql(ctx: @This(), a: Key, b_void: void, b_index: usize) bool {
             _ = b_void;
-            return ctx.self.lookup(@enumFromInt(b_index)).eql(a);
+            return ctx.self.lookup(@as(Ref, @enumFromInt(b_index))).eql(a);
         }
 
         pub fn hash(ctx: @This(), a: Key) u32 {
@@ -470,7 +450,6 @@ pub fn deinit(self: *Self, spv: *const Module) void {
     self.extra.deinit(spv.gpa);
     self.string_bytes.deinit(spv.gpa);
     self.strings.deinit(spv.gpa);
-    self.recursive_ptrs.deinit(spv.gpa);
 }
 
 /// Actually materialize the database into spir-v instructions.
@@ -481,7 +460,7 @@ pub fn materialize(self: *const Self, spv: *Module) !Section {
     var section = Section{};
     errdefer section.deinit(spv.gpa);
     for (self.items.items(.result_id), 0..) |result_id, index| {
-        try self.emit(spv, result_id, @enumFromInt(index), &section);
+        try self.emit(spv, result_id, @as(Ref, @enumFromInt(index)), &section);
     }
     return section;
 }
@@ -559,15 +538,6 @@ fn emit(
             });
             // TODO: Decorations?
         },
-        .fwd_ptr_type => |fwd| {
-            // Only emit the OpTypeForwardPointer if its actually required.
-            if (self.recursive_ptrs.contains(ref)) {
-                try section.emit(spv.gpa, .OpTypeForwardPointer, .{
-                    .pointer_type = result_id,
-                    .storage_class = fwd.storage_class,
-                });
-            }
-        },
         .struct_type => |struct_type| {
             try section.emitRaw(spv.gpa, .OpTypeStruct, 1 + struct_type.member_types.len);
             section.writeOperand(IdResult, result_id);
@@ -579,7 +549,7 @@ fn emit(
             }
             for (struct_type.memberNames(), 0..) |member_name, i| {
                 if (self.getString(member_name)) |name| {
-                    try spv.memberDebugName(result_id, @intCast(i), name);
+                    try spv.memberDebugName(result_id, @as(u32, @intCast(i)), name);
                 }
             }
             // TODO: Decorations?
@@ -655,12 +625,13 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
     const adapter: Key.Adapter = .{ .self = self };
     const entry = try self.map.getOrPutAdapted(spv.gpa, key, adapter);
     if (entry.found_existing) {
-        return @enumFromInt(entry.index);
+        return @as(Ref, @enumFromInt(entry.index));
     }
+    const result_id = spv.allocId();
     const item: Item = switch (key) {
         inline .void_type, .bool_type => .{
             .tag = .type_simple,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = @intFromEnum(key.toSimpleType()),
         },
         .int_type => |int| blk: {
@@ -670,104 +641,87 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
             };
             break :blk .{
                 .tag = t,
-                .result_id = spv.allocId(),
+                .result_id = result_id,
                 .data = int.bits,
             };
         },
         .float_type => |float| .{
             .tag = .type_float,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = float.bits,
         },
         .vector_type => |vector| .{
             .tag = .type_vector,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = try self.addExtra(spv, vector),
         },
         .array_type => |array| .{
             .tag = .type_array,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = try self.addExtra(spv, array),
         },
         .function_type => |function| blk: {
             const extra = try self.addExtra(spv, Tag.FunctionType{
-                .param_len = @intCast(function.parameters.len),
+                .param_len = @as(u32, @intCast(function.parameters.len)),
                 .return_type = function.return_type,
             });
-            try self.extra.appendSlice(spv.gpa, @ptrCast(function.parameters));
+            try self.extra.appendSlice(spv.gpa, @as([]const u32, @ptrCast(function.parameters)));
             break :blk .{
                 .tag = .type_function,
-                .result_id = spv.allocId(),
+                .result_id = result_id,
                 .data = extra,
             };
         },
-        // .ptr_type => |ptr| switch (ptr.storage_class) {
-        //     .Generic => Item{
-        //         .tag = .type_ptr_generic,
-        //         .result_id = spv.allocId(),
-        //         .data = @intFromEnum(ptr.child_type),
-        //     },
-        //     .CrossWorkgroup => Item{
-        //         .tag = .type_ptr_crosswgp,
-        //         .result_id = spv.allocId(),
-        //         .data = @intFromEnum(ptr.child_type),
-        //     },
-        //     .Function => Item{
-        //         .tag = .type_ptr_function,
-        //         .result_id = spv.allocId(),
-        //         .data = @intFromEnum(ptr.child_type),
-        //     },
-        //     else => |storage_class| Item{
-        //         .tag = .type_ptr_simple,
-        //         .result_id = spv.allocId(),
-        //         .data = try self.addExtra(spv, Tag.SimplePointerType{
-        //             .storage_class = storage_class,
-        //             .child_type = ptr.child_type,
-        //         }),
-        //     },
-        // },
-        .ptr_type => |ptr| Item{
-            .tag = .type_ptr_simple,
-            .result_id = self.resultId(ptr.fwd),
-            .data = try self.addExtra(spv, Tag.SimplePointerType{
-                .storage_class = ptr.storage_class,
-                .child_type = ptr.child_type,
-                .fwd = ptr.fwd,
-            }),
-        },
-        .fwd_ptr_type => |fwd| Item{
-            .tag = .type_fwd_ptr,
-            .result_id = spv.allocId(),
-            .data = try self.addExtra(spv, Tag.ForwardPointerType{
-                .zig_child_type = fwd.zig_child_type,
-                .storage_class = fwd.storage_class,
-            }),
+        .ptr_type => |ptr| switch (ptr.storage_class) {
+            .Generic => Item{
+                .tag = .type_ptr_generic,
+                .result_id = result_id,
+                .data = @intFromEnum(ptr.child_type),
+            },
+            .CrossWorkgroup => Item{
+                .tag = .type_ptr_crosswgp,
+                .result_id = result_id,
+                .data = @intFromEnum(ptr.child_type),
+            },
+            .Function => Item{
+                .tag = .type_ptr_function,
+                .result_id = result_id,
+                .data = @intFromEnum(ptr.child_type),
+            },
+            else => |storage_class| Item{
+                .tag = .type_ptr_simple,
+                .result_id = result_id,
+                .data = try self.addExtra(spv, Tag.SimplePointerType{
+                    .storage_class = storage_class,
+                    .child_type = ptr.child_type,
+                }),
+            },
         },
         .struct_type => |struct_type| blk: {
             const extra = try self.addExtra(spv, Tag.SimpleStructType{
                 .name = struct_type.name,
-                .members_len = @intCast(struct_type.member_types.len),
+                .members_len = @as(u32, @intCast(struct_type.member_types.len)),
             });
-            try self.extra.appendSlice(spv.gpa, @ptrCast(struct_type.member_types));
+            try self.extra.appendSlice(spv.gpa, @as([]const u32, @ptrCast(struct_type.member_types)));
 
             if (struct_type.member_names) |member_names| {
-                try self.extra.appendSlice(spv.gpa, @ptrCast(member_names));
+                try self.extra.appendSlice(spv.gpa, @as([]const u32, @ptrCast(member_names)));
                 break :blk Item{
                     .tag = .type_struct_simple_with_member_names,
-                    .result_id = spv.allocId(),
+                    .result_id = result_id,
                     .data = extra,
                 };
             } else {
                 break :blk Item{
                     .tag = .type_struct_simple,
-                    .result_id = spv.allocId(),
+                    .result_id = result_id,
                     .data = extra,
                 };
             }
         },
         .opaque_type => |opaque_type| Item{
             .tag = .type_opaque,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = @intFromEnum(opaque_type.name),
         },
         .int => |int| blk: {
@@ -775,13 +729,13 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
             if (int_type.signedness == .unsigned and int_type.bits == 8) {
                 break :blk .{
                     .tag = .uint8,
-                    .result_id = spv.allocId(),
+                    .result_id = result_id,
                     .data = int.to(u8),
                 };
             } else if (int_type.signedness == .unsigned and int_type.bits == 32) {
                 break :blk .{
                     .tag = .uint32,
-                    .result_id = spv.allocId(),
+                    .result_id = result_id,
                     .data = int.to(u32),
                 };
             }
@@ -791,32 +745,32 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                     if (val >= 0 and val <= std.math.maxInt(u32)) {
                         break :blk .{
                             .tag = .uint_small,
-                            .result_id = spv.allocId(),
+                            .result_id = result_id,
                             .data = try self.addExtra(spv, Tag.UInt32{
                                 .ty = int.ty,
-                                .value = @intCast(val),
+                                .value = @as(u32, @intCast(val)),
                             }),
                         };
                     } else if (val >= std.math.minInt(i32) and val <= std.math.maxInt(i32)) {
                         break :blk .{
                             .tag = .int_small,
-                            .result_id = spv.allocId(),
+                            .result_id = result_id,
                             .data = try self.addExtra(spv, Tag.Int32{
                                 .ty = int.ty,
-                                .value = @intCast(val),
+                                .value = @as(i32, @intCast(val)),
                             }),
                         };
                     } else if (val < 0) {
                         break :blk .{
                             .tag = .int_large,
-                            .result_id = spv.allocId(),
-                            .data = try self.addExtra(spv, Tag.Int64.encode(int.ty, @intCast(val))),
+                            .result_id = result_id,
+                            .data = try self.addExtra(spv, Tag.Int64.encode(int.ty, @as(i64, @intCast(val)))),
                         };
                     } else {
                         break :blk .{
                             .tag = .uint_large,
-                            .result_id = spv.allocId(),
-                            .data = try self.addExtra(spv, Tag.UInt64.encode(int.ty, @intCast(val))),
+                            .result_id = result_id,
+                            .data = try self.addExtra(spv, Tag.UInt64.encode(int.ty, @as(u64, @intCast(val)))),
                         };
                     }
                 },
@@ -825,29 +779,29 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
         .float => |float| switch (self.lookup(float.ty).float_type.bits) {
             16 => .{
                 .tag = .float16,
-                .result_id = spv.allocId(),
+                .result_id = result_id,
                 .data = @as(u16, @bitCast(float.value.float16)),
             },
             32 => .{
                 .tag = .float32,
-                .result_id = spv.allocId(),
+                .result_id = result_id,
                 .data = @as(u32, @bitCast(float.value.float32)),
             },
             64 => .{
                 .tag = .float64,
-                .result_id = spv.allocId(),
+                .result_id = result_id,
                 .data = try self.addExtra(spv, Tag.Float64.encode(float.value.float64)),
             },
             else => unreachable,
         },
         .undef => |undef| .{
             .tag = .undef,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = @intFromEnum(undef.ty),
         },
         .null => |null_info| .{
             .tag = .null,
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = @intFromEnum(null_info.ty),
         },
         .bool => |bool_info| .{
@@ -855,13 +809,13 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                 true => Tag.bool_true,
                 false => Tag.bool_false,
             },
-            .result_id = spv.allocId(),
+            .result_id = result_id,
             .data = @intFromEnum(bool_info.ty),
         },
     };
     try self.items.append(spv.gpa, item);
 
-    return @enumFromInt(entry.index);
+    return @as(Ref, @enumFromInt(entry.index));
 }
 
 /// Turn a Ref back into a Key.
@@ -876,14 +830,14 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
         },
         .type_int_signed => .{ .int_type = .{
             .signedness = .signed,
-            .bits = @intCast(data),
+            .bits = @as(u16, @intCast(data)),
         } },
         .type_int_unsigned => .{ .int_type = .{
             .signedness = .unsigned,
-            .bits = @intCast(data),
+            .bits = @as(u16, @intCast(data)),
         } },
         .type_float => .{ .float_type = .{
-            .bits = @intCast(data),
+            .bits = @as(u16, @intCast(data)),
         } },
         .type_vector => .{ .vector_type = self.extraData(Tag.VectorType, data) },
         .type_array => .{ .array_type = self.extraData(Tag.ArrayType, data) },
@@ -892,50 +846,40 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
             return .{
                 .function_type = .{
                     .return_type = payload.data.return_type,
-                    .parameters = @ptrCast(self.extra.items[payload.trail..][0..payload.data.param_len]),
+                    .parameters = @as([]const Ref, @ptrCast(self.extra.items[payload.trail..][0..payload.data.param_len])),
                 },
             };
         },
-        // .type_ptr_generic => .{
-        //     .ptr_type = .{
-        //         .storage_class = .Generic,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
-        // .type_ptr_crosswgp => .{
-        //     .ptr_type = .{
-        //         .storage_class = .CrossWorkgroup,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
-        // .type_ptr_function => .{
-        //     .ptr_type = .{
-        //         .storage_class = .Function,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
+        .type_ptr_generic => .{
+            .ptr_type = .{
+                .storage_class = .Generic,
+                .child_type = @as(Ref, @enumFromInt(data)),
+            },
+        },
+        .type_ptr_crosswgp => .{
+            .ptr_type = .{
+                .storage_class = .CrossWorkgroup,
+                .child_type = @as(Ref, @enumFromInt(data)),
+            },
+        },
+        .type_ptr_function => .{
+            .ptr_type = .{
+                .storage_class = .Function,
+                .child_type = @as(Ref, @enumFromInt(data)),
+            },
+        },
         .type_ptr_simple => {
             const payload = self.extraData(Tag.SimplePointerType, data);
             return .{
                 .ptr_type = .{
                     .storage_class = payload.storage_class,
                     .child_type = payload.child_type,
-                    .fwd = payload.fwd,
-                },
-            };
-        },
-        .type_fwd_ptr => {
-            const payload = self.extraData(Tag.ForwardPointerType, data);
-            return .{
-                .fwd_ptr_type = .{
-                    .zig_child_type = payload.zig_child_type,
-                    .storage_class = payload.storage_class,
                 },
             };
         },
         .type_struct_simple => {
             const payload = self.extraDataTrail(Tag.SimpleStructType, data);
-            const member_types: []const Ref = @ptrCast(self.extra.items[payload.trail..][0..payload.data.members_len]);
+            const member_types = @as([]const Ref, @ptrCast(self.extra.items[payload.trail..][0..payload.data.members_len]));
             return .{
                 .struct_type = .{
                     .name = payload.data.name,
@@ -947,8 +891,8 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
         .type_struct_simple_with_member_names => {
             const payload = self.extraDataTrail(Tag.SimpleStructType, data);
             const trailing = self.extra.items[payload.trail..];
-            const member_types: []const Ref = @ptrCast(trailing[0..payload.data.members_len]);
-            const member_names: []const String = @ptrCast(trailing[payload.data.members_len..][0..payload.data.members_len]);
+            const member_types = @as([]const Ref, @ptrCast(trailing[0..payload.data.members_len]));
+            const member_names = @as([]const String, @ptrCast(trailing[payload.data.members_len..][0..payload.data.members_len]));
             return .{
                 .struct_type = .{
                     .name = payload.data.name,
@@ -959,16 +903,16 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
         },
         .type_opaque => .{
             .opaque_type = .{
-                .name = @enumFromInt(data),
+                .name = @as(String, @enumFromInt(data)),
             },
         },
         .float16 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 16 } }),
-            .value = .{ .float16 = @bitCast(@as(u16, @intCast(data))) },
+            .value = .{ .float16 = @as(f16, @bitCast(@as(u16, @intCast(data)))) },
         } },
         .float32 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 32 } }),
-            .value = .{ .float32 = @bitCast(data) },
+            .value = .{ .float32 = @as(f32, @bitCast(data)) },
         } },
         .float64 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 64 } }),
@@ -1011,17 +955,17 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
             } };
         },
         .undef => .{ .undef = .{
-            .ty = @enumFromInt(data),
+            .ty = @as(Ref, @enumFromInt(data)),
         } },
         .null => .{ .null = .{
-            .ty = @enumFromInt(data),
+            .ty = @as(Ref, @enumFromInt(data)),
         } },
         .bool_true => .{ .bool = .{
-            .ty = @enumFromInt(data),
+            .ty = @as(Ref, @enumFromInt(data)),
             .value = true,
         } },
         .bool_false => .{ .bool = .{
-            .ty = @enumFromInt(data),
+            .ty = @as(Ref, @enumFromInt(data)),
             .value = false,
         } },
     };
@@ -1037,7 +981,7 @@ pub fn resultId(self: Self, ref: Ref) IdResult {
 fn get(self: *const Self, key: Key) Ref {
     const adapter: Key.Adapter = .{ .self = self };
     const index = self.map.getIndexAdapted(key, adapter).?;
-    return @enumFromInt(index);
+    return @as(Ref, @enumFromInt(index));
 }
 
 fn addExtra(self: *Self, spv: *Module, extra: anytype) !u32 {
@@ -1047,16 +991,15 @@ fn addExtra(self: *Self, spv: *Module, extra: anytype) !u32 {
 }
 
 fn addExtraAssumeCapacity(self: *Self, extra: anytype) !u32 {
-    const payload_offset: u32 = @intCast(self.extra.items.len);
+    const payload_offset = @as(u32, @intCast(self.extra.items.len));
     inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
         const field_val = @field(extra, field.name);
-        const word: u32 = switch (field.type) {
+        const word = switch (field.type) {
             u32 => field_val,
-            i32 => @bitCast(field_val),
+            i32 => @as(u32, @bitCast(field_val)),
             Ref => @intFromEnum(field_val),
             StorageClass => @intFromEnum(field_val),
             String => @intFromEnum(field_val),
-            InternPool.Index => @intFromEnum(field_val),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
         self.extra.appendAssumeCapacity(word);
@@ -1075,11 +1018,10 @@ fn extraDataTrail(self: Self, comptime T: type, offset: u32) struct { data: T, t
         const word = self.extra.items[offset + i];
         @field(result, field.name) = switch (field.type) {
             u32 => word,
-            i32 => @bitCast(word),
-            Ref => @enumFromInt(word),
-            StorageClass => @enumFromInt(word),
-            String => @enumFromInt(word),
-            InternPool.Index => @enumFromInt(word),
+            i32 => @as(i32, @bitCast(word)),
+            Ref => @as(Ref, @enumFromInt(word)),
+            StorageClass => @as(StorageClass, @enumFromInt(word)),
+            String => @as(String, @enumFromInt(word)),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
     }
@@ -1107,7 +1049,7 @@ pub const String = enum(u32) {
             _ = ctx;
             var hasher = std.hash.Wyhash.init(0);
             hasher.update(a);
-            return @truncate(hasher.final());
+            return @as(u32, @truncate(hasher.final()));
         }
     };
 };
@@ -1122,10 +1064,10 @@ pub fn addString(self: *Self, spv: *Module, str: []const u8) !String {
         try self.string_bytes.ensureUnusedCapacity(spv.gpa, 1 + str.len);
         self.string_bytes.appendSliceAssumeCapacity(str);
         self.string_bytes.appendAssumeCapacity(0);
-        entry.value_ptr.* = @intCast(offset);
+        entry.value_ptr.* = @as(u32, @intCast(offset));
     }
 
-    return @enumFromInt(entry.index);
+    return @as(String, @enumFromInt(entry.index));
 }
 
 pub fn getString(self: *const Self, ref: String) ?[]const u8 {
