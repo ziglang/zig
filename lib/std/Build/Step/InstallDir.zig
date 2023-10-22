@@ -45,6 +45,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *InstallDirStep {
+    std.debug.assert(owner.phase == .configure);
     owner.pushInstalledFile(options.install_dir, options.install_subdir);
     const self = owner.allocator.create(InstallDirStep) catch @panic("OOM");
     self.* = .{
@@ -63,6 +64,7 @@ pub fn create(owner: *std.Build, options: Options) *InstallDirStep {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
+    std.debug.assert(step.owner.phase == .make);
     const self = @fieldParentPtr(InstallDirStep, "step", step);
     const dest_builder = self.dest_builder;
     const arena = dest_builder.allocator;

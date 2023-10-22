@@ -28,6 +28,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const self = @fieldParentPtr(RemoveDir, "step", step);
 
     b.build_root.handle.deleteTree(self.dir_path) catch |err| {

@@ -2,6 +2,7 @@ const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
@@ -55,6 +56,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
+    assert(owner.phase == .configure);
     const self = owner.allocator.create(ConfigHeader) catch @panic("OOM");
 
     var include_path: []const u8 = "config.h";
@@ -173,6 +175,7 @@ fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T)
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
+    assert(b.phase == .make);
     const self = @fieldParentPtr(ConfigHeader, "step", step);
     const gpa = b.allocator;
     const arena = b.allocator;

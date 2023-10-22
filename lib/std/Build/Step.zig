@@ -141,6 +141,7 @@ pub const StepOptions = struct {
 
 pub fn init(options: StepOptions) Step {
     const arena = options.owner.allocator;
+    assert(options.owner.phase == .configure);
 
     return .{
         .id = options.id,
@@ -175,6 +176,7 @@ pub fn init(options: StepOptions) Step {
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
 pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
+    assert(s.owner.phase == .make);
     const arena = s.owner.allocator;
 
     s.makeFn(s, prog_node) catch |err| switch (err) {

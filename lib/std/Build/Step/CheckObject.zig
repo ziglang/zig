@@ -25,6 +25,7 @@ pub fn create(
     source: std.Build.LazyPath,
     obj_format: std.Target.ObjectFormat,
 ) *CheckObject {
+    assert(owner.phase == .configure);
     const gpa = owner.allocator;
     const self = gpa.create(CheckObject) catch @panic("OOM");
     self.* = .{
@@ -419,6 +420,7 @@ pub fn checkComputeCompare(
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    assert(step.owner.phase == .make);
     _ = prog_node;
     const b = step.owner;
     const gpa = b.allocator;

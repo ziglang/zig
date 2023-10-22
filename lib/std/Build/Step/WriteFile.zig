@@ -47,6 +47,7 @@ pub const Contents = union(enum) {
 };
 
 pub fn create(owner: *std.Build) *WriteFile {
+    std.debug.assert(owner.phase == .configure);
     const wf = owner.allocator.create(WriteFile) catch @panic("OOM");
     wf.* = .{
         .step = Step.init(.{
@@ -148,6 +149,7 @@ fn maybeUpdateName(wf: *WriteFile) void {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
+    std.debug.assert(b.phase == .make);
     const wf = @fieldParentPtr(WriteFile, "step", step);
 
     // Writing to source files is kind of an extra capability of this
