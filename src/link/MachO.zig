@@ -2196,7 +2196,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "___unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const atom_index = switch (try self.lowerConst(name, typed_value, self.data_const_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.data_const_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2219,6 +2219,7 @@ fn lowerConst(
     self: *MachO,
     name: []const u8,
     tv: TypedValue,
+    required_alignment: InternPool.Alignment,
     sect_id: u8,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
@@ -2226,8 +2227,6 @@ fn lowerConst(
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
-
-    const mod = self.base.options.module.?;
 
     log.debug("allocating symbol indexes for {s}", .{name});
 
@@ -2243,7 +2242,6 @@ fn lowerConst(
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment = tv.ty.abiAlignment(mod);
     const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
     // TODO: work out logic for disambiguating functions from function pointers
@@ -2868,7 +2866,7 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
     return 0;
 }
 
-pub fn lowerAnonDecl(self: *MachO, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(self: *MachO, decl_val: InternPool.Index, decl_align: InternPool.Alignment, src_loc: Module.SrcLoc) !codegen.Result {
     // This is basically the same as lowerUnnamedConst.
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
@@ -2879,15 +2877,21 @@ pub fn lowerAnonDecl(self: *MachO, decl_val: InternPool.Index, src_loc: Module.S
     // to put it in some location.
     // ...
     const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
     const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const required_alignment = switch (decl_align) {
+        .none => ty.abiAlignment(mod),
+        else => decl_align,
+    };
+    if (!gop.found_existing or
+        !required_alignment.check(self.getAtom(gop.value_ptr.*).getSymbol(self).n_value))
+    {
         const val = decl_val.toValue();
         const tv = TypedValue{ .ty = ty, .val = val };
         const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
         defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.data_const_section_index.?, src_loc) catch |err| switch (err) {
+        const res = self.lowerConst(name, tv, required_alignment, self.data_const_section_index.?, src_loc) catch |err| switch (err) {
             else => {
                 // TODO improve error message
                 const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{

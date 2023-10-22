@@ -959,12 +959,17 @@ const DeclGen = struct {
         }
     }
 
-    fn constantAnonDeclRef(self: *DeclGen, ty: Type, decl_val: InternPool.Index) !IdRef {
+    fn constantAnonDeclRef(
+        self: *DeclGen,
+        ty: Type,
+        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    ) !IdRef {
         // TODO: Merge this function with constantDeclRef.
 
         const mod = self.module;
         const ip = &mod.intern_pool;
         const ty_ref = try self.resolveType(ty, .direct);
+        const decl_val = anon_decl.val;
         const decl_ty = ip.typeOf(decl_val).toType();
 
         if (decl_val.toValue().getFunction(mod)) |func| {

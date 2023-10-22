@@ -1091,7 +1091,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const index = unnamed_consts.items.len;
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(sym_name);
-    const atom_index = switch (try self.lowerConst(sym_name, tv, self.rdata_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(sym_name, tv, tv.ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1109,13 +1109,12 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = self.base.allocator;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const mod = self.base.options.module.?;
     const atom_index = try self.createAtom();
     const sym = self.getAtom(atom_index).getSymbolPtr(self);
     try self.setSymbolName(sym, name);
@@ -1129,10 +1128,13 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, sect_id: u16, src_l
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment: u32 = @intCast(tv.ty.abiAlignment(mod).toByteUnits(0));
     const atom = self.getAtomPtr(atom_index);
     atom.size = @as(u32, @intCast(code.len));
-    atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
+    atom.getSymbolPtr(self).value = try self.allocateAtom(
+        atom_index,
+        atom.size,
+        @intCast(required_alignment.toByteUnitsOptional().?),
+    );
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(self).value });
@@ -1736,7 +1738,7 @@ pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link
     return 0;
 }
 
-pub fn lowerAnonDecl(self: *Coff, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(self: *Coff, decl_val: InternPool.Index, decl_align: InternPool.Alignment, src_loc: Module.SrcLoc) !codegen.Result {
     // This is basically the same as lowerUnnamedConst.
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
@@ -1747,15 +1749,21 @@ pub fn lowerAnonDecl(self: *Coff, decl_val: InternPool.Index, src_loc: Module.Sr
     // to put it in some location.
     // ...
     const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
     const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const required_alignment = switch (decl_align) {
+        .none => ty.abiAlignment(mod),
+        else => decl_align,
+    };
+    if (!gop.found_existing or
+        !required_alignment.check(self.getAtom(gop.value_ptr.*).getSymbol(self).value))
+    {
         const val = decl_val.toValue();
         const tv = TypedValue{ .ty = ty, .val = val };
         const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
         defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.rdata_section_index.?, src_loc) catch |err| switch (err) {
+        const res = self.lowerConst(name, tv, required_alignment, self.rdata_section_index.?, src_loc) catch |err| switch (err) {
             else => {
                 // TODO improve error message
                 const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{

@@ -3123,10 +3123,10 @@ fn varDecl(
             if (nodeMayAppendToErrorTrace(tree, var_decl.ast.init_node))
                 _ = try gz.addSaveErrRetIndex(.{ .if_of_error_type = init_inst });
 
-            if (resolve_inferred_alloc != .none) {
+            const const_ptr = if (resolve_inferred_alloc != .none) p: {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
-            }
-            const const_ptr = try gz.addUnNode(.make_ptr_const, var_ptr, node);
+                break :p var_ptr;
+            } else try gz.addUnNode(.make_ptr_const, var_ptr, node);
 
             try gz.addDbgVar(.dbg_var_ptr, ident_name, const_ptr);
 
@@ -3533,7 +3533,9 @@ fn assignDestructureMaybeDecls(
             else => unreachable,
         };
         // If the alloc was const, make it const.
-        const var_ptr = if (is_const) make_const: {
+        const var_ptr = if (is_const and full.ast.type_node != 0) make_const: {
+            // Note that we don't do this if type_node == 0 since `resolve_inferred_alloc`
+            // handles it for us.
             break :make_const try gz.addUnNode(.make_ptr_const, raw_ptr, node);
         } else raw_ptr;
         const name_token = full.ast.mut_token + 1;

@@ -3657,9 +3657,13 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const elem_ty = ptr_info.child.toType();
 
     if (try sema.resolveComptimeKnownAllocValue(block, alloc, null)) |val| {
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        const new_mut_ptr = try sema.analyzeDeclRef(try anon_decl.finish(elem_ty, val.toValue(), ptr_info.flags.alignment));
+        const new_mut_ptr = Air.internedToRef((try mod.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .anon_decl = .{
+                .val = val,
+                .orig_ty = alloc_ty.toIntern(),
+            } },
+        } })));
         return sema.makePtrConst(block, new_mut_ptr);
     }
 
@@ -3668,10 +3672,18 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     implicit_ct: {
         const ptr_val = try sema.resolveMaybeUndefVal(alloc) orelse break :implicit_ct;
         if (!ptr_val.isComptimeMutablePtr(mod)) {
-            // It could still be a constant pointer to a decl
-            const decl_index = ptr_val.pointerDecl(mod) orelse break :implicit_ct;
-            const decl_val = mod.declPtr(decl_index).val.toIntern();
-            if (mod.intern_pool.isRuntimeValue(decl_val)) break :implicit_ct;
+            // It could still be a constant pointer to a decl.
+            switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
+                .anon_decl => |anon_decl| {
+                    if (mod.intern_pool.isVariable(anon_decl.val))
+                        break :implicit_ct;
+                },
+                else => {
+                    const decl_index = ptr_val.pointerDecl(mod) orelse break :implicit_ct;
+                    const decl_val = mod.declPtr(decl_index).val.toIntern();
+                    if (mod.intern_pool.isRuntimeValue(decl_val)) break :implicit_ct;
+                },
+            }
         }
         return sema.makePtrConst(block, alloc);
     }
@@ -3911,17 +3923,19 @@ fn finishResolveComptimeKnownAllocValue(sema: *Sema, result_val: InternPool.Inde
     return result_val;
 }
 
-fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const alloc_ty = sema.typeOf(alloc);
-
-    var ptr_info = alloc_ty.ptrInfo(mod);
+fn makePtrTyConst(sema: *Sema, ptr_ty: Type) CompileError!Type {
+    var ptr_info = ptr_ty.ptrInfo(sema.mod);
     ptr_info.flags.is_const = true;
-    const const_ptr_ty = try sema.ptrType(ptr_info);
+    return sema.ptrType(ptr_info);
+}
+
+fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Air.Inst.Ref {
+    const alloc_ty = sema.typeOf(alloc);
+    const const_ptr_ty = try sema.makePtrTyConst(alloc_ty);
 
     // Detect if a comptime value simply needs to have its type changed.
     if (try sema.resolveMaybeUndefVal(alloc)) |val| {
-        return Air.internedToRef((try mod.getCoerced(val, const_ptr_ty)).toIntern());
+        return Air.internedToRef((try sema.mod.getCoerced(val, const_ptr_ty)).toIntern());
     }
 
     return block.addBitCast(const_ptr_ty, alloc);
@@ -4035,6 +4049,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     defer tracy.end();
 
     const mod = sema.mod;
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
@@ -4100,11 +4115,14 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (!ia1.is_const) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
             } else if (try sema.resolveComptimeKnownAllocValue(block, ptr, final_ptr_ty)) |val| {
-                var anon_decl = try block.startAnonDecl();
-                defer anon_decl.deinit();
-                const new_decl_index = try anon_decl.finish(final_elem_ty, val.toValue(), ia1.alignment);
-                const new_mut_ptr = Air.refToInterned(try sema.analyzeDeclRef(new_decl_index)).?.toValue();
-                const new_const_ptr = (try mod.getCoerced(new_mut_ptr, final_ptr_ty)).toIntern();
+                const const_ptr_ty = (try sema.makePtrTyConst(final_ptr_ty)).toIntern();
+                const new_const_ptr = try mod.intern(.{ .ptr = .{
+                    .ty = const_ptr_ty,
+                    .addr = .{ .anon_decl = .{
+                        .val = val,
+                        .orig_ty = const_ptr_ty,
+                    } },
+                } });
 
                 // Remap the ZIR oeprand to the resolved pointer value
                 sema.inst_map.putAssumeCapacity(Zir.refToIndex(inst_data.operand).?, Air.internedToRef(new_const_ptr));
@@ -4127,7 +4145,6 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             // Now we need to go back over all the store instructions, and do the logic as if
             // the new result ptr type was available.
-            const gpa = sema.gpa;
 
             for (ia2.prongs.items) |placeholder_inst| {
                 var replacement_block = block.makeSubBlock();
@@ -5539,7 +5556,10 @@ fn addStrLitNoAlias(sema: *Sema, bytes: []const u8) CompileError!Air.Inst.Ref {
     });
     return Air.internedToRef((try mod.intern(.{ .ptr = .{
         .ty = ptr_ty.toIntern(),
-        .addr = .{ .anon_decl = val },
+        .addr = .{ .anon_decl = .{
+            .val = val,
+            .orig_ty = ptr_ty.toIntern(),
+        } },
     } })));
 }
 
@@ -30545,7 +30565,8 @@ fn beginComptimePtrLoad(
                     .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
                 };
             },
-            .anon_decl => |decl_val| blk: {
+            .anon_decl => |anon_decl| blk: {
+                const decl_val = anon_decl.val;
                 if (decl_val.toValue().getVariable(mod) != null) return error.RuntimeLoad;
                 const decl_ty = ip.typeOf(decl_val).toType();
                 const decl_tv: TypedValue = .{ .ty = decl_ty, .val = decl_val.toValue() };
@@ -36649,6 +36670,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .simple_value,
             .ptr_decl,
             .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
             .ptr_mut_decl,
             .ptr_comptime_field,
             .ptr_int,

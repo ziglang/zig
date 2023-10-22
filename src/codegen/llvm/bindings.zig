@@ -273,6 +273,9 @@ pub const Value = opaque {
     pub const setAlignment = LLVMSetAlignment;
     extern fn LLVMSetAlignment(V: *Value, Bytes: c_uint) void;
 
+    pub const getAlignment = LLVMGetAlignment;
+    extern fn LLVMGetAlignment(V: *Value) c_uint;
+
     pub const setFunctionCallConv = LLVMSetFunctionCallConv;
     extern fn LLVMSetFunctionCallConv(Fn: *Value, CC: CallConv) void;
 

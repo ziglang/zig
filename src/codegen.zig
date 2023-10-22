@@ -713,7 +713,7 @@ const RelocInfo = struct {
 fn lowerAnonDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    decl_val: InternPool.Index,
+    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
@@ -723,6 +723,7 @@ fn lowerAnonDeclRef(
     const mod = bin_file.options.module.?;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const decl_val = anon_decl.val;
     const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
     const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
@@ -730,7 +731,8 @@ fn lowerAnonDeclRef(
         return Result.ok;
     }
 
-    const res = try bin_file.lowerAnonDecl(decl_val, src_loc);
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try bin_file.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
         .fail => |em| return .{ .fail = em },

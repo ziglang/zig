@@ -782,10 +782,10 @@ pub const Elf32_Sym = extern struct {
     st_shndx: Elf32_Section,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @as(u4, @truncate(self.st_info));
+        return @truncate(self.st_info);
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @as(u4, @truncate(self.st_info >> 4));
+        return @truncate(self.st_info >> 4);
     }
 };
 pub const Elf64_Sym = extern struct {
@@ -797,10 +797,10 @@ pub const Elf64_Sym = extern struct {
     st_size: Elf64_Xword,
 
     pub inline fn st_type(self: @This()) u4 {
-        return @as(u4, @truncate(self.st_info));
+        return @truncate(self.st_info);
     }
     pub inline fn st_bind(self: @This()) u4 {
-        return @as(u4, @truncate(self.st_info >> 4));
+        return @truncate(self.st_info >> 4);
     }
 };
 pub const Elf32_Syminfo = extern struct {
@@ -816,10 +816,10 @@ pub const Elf32_Rel = extern struct {
     r_info: Elf32_Word,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @as(u24, @truncate(self.r_info >> 8));
+        return @truncate(self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @as(u8, @truncate(self.r_info));
+        return @truncate(self.r_info);
     }
 };
 pub const Elf64_Rel = extern struct {
@@ -827,10 +827,10 @@ pub const Elf64_Rel = extern struct {
     r_info: Elf64_Xword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @as(u32, @truncate(self.r_info >> 32));
+        return @truncate(self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @as(u32, @truncate(self.r_info));
+        return @truncate(self.r_info);
     }
 };
 pub const Elf32_Rela = extern struct {
@@ -839,10 +839,10 @@ pub const Elf32_Rela = extern struct {
     r_addend: Elf32_Sword,
 
     pub inline fn r_sym(self: @This()) u24 {
-        return @as(u24, @truncate(self.r_info >> 8));
+        return @truncate(self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @as(u8, @truncate(self.r_info));
+        return @truncate(self.r_info);
     }
 };
 pub const Elf64_Rela = extern struct {
@@ -851,10 +851,10 @@ pub const Elf64_Rela = extern struct {
     r_addend: Elf64_Sxword,
 
     pub inline fn r_sym(self: @This()) u32 {
-        return @as(u32, @truncate(self.r_info >> 32));
+        return @truncate(self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @as(u32, @truncate(self.r_info));
+        return @truncate(self.r_info);
     }
 };
 pub const Elf32_Dyn = extern struct {

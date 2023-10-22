@@ -2477,6 +2477,12 @@ pub const Variable = struct {
             self.ptr(builder).alignment = alignment;
         }
 
+        pub fn getAlignment(self: Index, builder: *Builder) Alignment {
+            if (builder.useLibLlvm())
+                return Alignment.fromByteUnits(self.toLlvm(builder).getAlignment());
+            return self.ptr(builder).alignment;
+        }
+
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
             return self.ptrConst(builder).global.toLlvm(builder);
         }
