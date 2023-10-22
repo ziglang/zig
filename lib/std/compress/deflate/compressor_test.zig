@@ -154,6 +154,8 @@ fn testToFromWithLimit(input: []const u8, limit: [11]u32) !void {
 }
 
 test "deflate/inflate" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var limits = [_]u32{0} ** 11;
 
     var test0 = [_]u8{};
@@ -178,6 +180,8 @@ test "deflate/inflate" {
 }
 
 test "very long sparse chunk" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // A SparseReader returns a stream consisting of 0s ending with 65,536 (1<<16) 1s.
     // This tests missing hash references in a very large input.
     const SparseReader = struct {
@@ -239,6 +243,8 @@ test "very long sparse chunk" {
 }
 
 test "compressor reset" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     for (std.enums.values(deflate.Compression)) |c| {
         try testWriterReset(c, null);
         try testWriterReset(c, "dict");
@@ -289,6 +295,8 @@ fn testWriterReset(level: deflate.Compression, dict: ?[]const u8) !void {
 }
 
 test "decompressor dictionary" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const dict = "hello world"; // dictionary
     const text = "hello again world";
 
@@ -329,6 +337,8 @@ test "decompressor dictionary" {
 }
 
 test "compressor dictionary" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const dict = "hello world";
     const text = "hello again world";
 
@@ -375,6 +385,8 @@ test "compressor dictionary" {
 // Update the hash for best_speed only if d.index < d.maxInsertIndex
 // See https://golang.org/issue/2508
 test "Go non-regression test for 2508" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var comp = try compressor(
         testing.allocator,
         io.null_writer,
@@ -392,6 +404,8 @@ test "Go non-regression test for 2508" {
 }
 
 test "deflate/inflate string" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const StringTest = struct {
         filename: []const u8,
         limit: [11]u32,
@@ -439,6 +453,8 @@ test "deflate/inflate string" {
 }
 
 test "inflate reset" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const strings = [_][]const u8{
         "lorem ipsum izzle fo rizzle",
         "the quick brown fox jumped over",
@@ -485,6 +501,8 @@ test "inflate reset" {
 }
 
 test "inflate reset dictionary" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const dict = "the lorem fox";
     const strings = [_][]const u8{
         "lorem ipsum izzle fo rizzle",

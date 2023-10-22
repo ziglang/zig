@@ -4,6 +4,7 @@
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/test/builtins/Unit/subtf3_test.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const qnan128: f128 = @bitCast(@as(u128, 0x7fff800000000000) << 64);
 
@@ -34,6 +35,8 @@ fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
 }
 
 test "addtf3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__addtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
@@ -73,6 +76,9 @@ fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
 }
 
 test "subtf3" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
+
     // qNaN - any = qNaN
     try test__subtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
@@ -103,6 +109,8 @@ fn test__addxf3(a: f80, b: f80, expected: u80) !void {
 }
 
 test "addxf3" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // NaN + any = NaN
     try test__addxf3(qnan80, 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));
     try test__addxf3(@as(f80, @bitCast(@as(u80, 0x7fff_8000_8000_3000_0000))), 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));

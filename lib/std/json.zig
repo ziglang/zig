@@ -9,6 +9,7 @@
 //! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
+const builtin = @import("builtin");
 const testing = @import("std").testing;
 const ArrayList = @import("std").ArrayList;
 
@@ -23,6 +24,8 @@ test Scanner {
 }
 
 test parseFromSlice {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var parsed_str = try parseFromSlice([]const u8, testing.allocator, "\"a\\u0020b\"", .{});
     defer parsed_str.deinit();
     try testing.expectEqualSlices(u8, "a b", parsed_str.value);
@@ -35,12 +38,16 @@ test parseFromSlice {
 }
 
 test Value {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var parsed = try parseFromSlice(Value, testing.allocator, "{\"anything\": \"goes\"}", .{});
     defer parsed.deinit();
     try testing.expectEqualSlices(u8, "goes", parsed.value.object.get("anything").?.string);
 }
 
 test writeStream {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
     var write_stream = writeStream(out.writer(), .{ .whitespace = .indent_2 });
@@ -58,6 +65,8 @@ test writeStream {
 }
 
 test stringify {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
 

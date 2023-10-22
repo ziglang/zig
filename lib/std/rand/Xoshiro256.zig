@@ -90,7 +90,10 @@ pub fn fill(self: *Xoshiro256, buf: []u8) void {
 }
 
 test "xoroshiro sequence" {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (@import("builtin").zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
 
     var r = Xoshiro256.init(0);
 

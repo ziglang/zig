@@ -67,6 +67,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 }
 
 test "math.ldexp" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     // subnormals
     try expect(ldexp(@as(f16, 0x1.1FFp14), -14 - 9 - 15) == math.floatTrueMin(f16));

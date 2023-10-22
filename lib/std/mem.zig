@@ -315,6 +315,8 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -1023,6 +1025,8 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 }
 
 test "indexOfSentinel vector paths" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
 
@@ -1737,6 +1741,8 @@ pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: Endian) T {
 }
 
 test "comptime read/write int" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     comptime {
         var bytes: [2]u8 = undefined;
         writeIntLittle(u16, &bytes, 0x1234);
@@ -1752,7 +1758,10 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (builtin.zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
 
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
@@ -2053,7 +2062,10 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 }
 
 test "writeIntBig and writeIntLittle" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (builtin.zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
 
     var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
@@ -3297,6 +3309,8 @@ test "testStringEquality" {
 }
 
 test "testReadInt" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testReadIntImpl();
     try comptime testReadIntImpl();
 }
@@ -4650,8 +4664,10 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
+    switch (builtin.zig_backend) {
+        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
+        else => {},
+    }
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"

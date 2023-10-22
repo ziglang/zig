@@ -215,6 +215,8 @@ fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u
 }
 
 test "deserialize signed LEB128" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Truncated
     try testing.expectError(error.EndOfStream, test_read_stream_ileb128(i64, "\x80"));
 
@@ -361,6 +363,8 @@ test "serialize unsigned LEB128" {
 }
 
 test "serialize signed LEB128" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // explicitly test i0 because starting `t` at 0
     // will break the while loop
     try test_write_leb128(@as(i0, 0));

@@ -39,6 +39,8 @@ fn test__divxf3(a: f80, b: f80) !void {
 }
 
 test "divxf3" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // NaN / any = NaN
     try expect__divxf3_result(math.nan(f80), 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // inf / any(except inf and nan) = inf

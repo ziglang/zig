@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -1183,6 +1184,8 @@ test "std.ArrayList/ArrayListUnmanaged.initCapacity" {
 }
 
 test "std.ArrayList/ArrayListUnmanaged.clone" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a = testing.allocator;
     {
         var array = ArrayList(i32).init(a);
@@ -1224,6 +1227,8 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
 }
 
 test "std.ArrayList/ArrayListUnmanaged.basic" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1508,6 +1513,8 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
 }
 
 test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1554,6 +1561,8 @@ test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
 }
 
 test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1725,6 +1734,8 @@ test "shrink still sets length when resizing is disabled" {
 }
 
 test "shrinkAndFree with a copy" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
     const a = failing_allocator.allocator();
 

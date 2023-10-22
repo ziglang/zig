@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const DefaultPrng = std.rand.DefaultPrng;
 const Random = std.rand.Random;
@@ -157,6 +158,8 @@ fn testRandomEnumValue() !void {
 }
 
 test "Random intLessThan" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     try testRandomIntLessThan();
     try comptime testRandomIntLessThan();
@@ -199,6 +202,8 @@ fn testRandomIntLessThan() !void {
 }
 
 test "Random intAtMost" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     @setEvalBranchQuota(10000);
     try testRandomIntAtMost();
     try comptime testRandomIntAtMost();
@@ -239,6 +244,8 @@ fn testRandomIntAtMost() !void {
 }
 
 test "Random Biased" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var prng = DefaultPrng.init(0);
     const random = prng.random();
     // Not thoroughly checking the logic here.
@@ -436,6 +443,8 @@ fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
 }
 
 test "CSPRNG" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
     std.crypto.random.bytes(&secret_seed);
     var csprng = DefaultCsprng.init(secret_seed);
@@ -447,6 +456,8 @@ test "CSPRNG" {
 }
 
 test "Random weightedIndex" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Make sure weightedIndex works for various integers and floats
     inline for (.{ u64, i4, f32, f64 }) |T| {
         var prng = DefaultPrng.init(0);

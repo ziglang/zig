@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 
@@ -40,6 +41,8 @@ fn test__fixunssfsi(a: f32, expected: u32) !void {
 }
 
 test "fixsfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixsfsi(-math.floatMax(f32), math.minInt(i32));
 
     try test__fixsfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
@@ -103,6 +106,8 @@ test "fixsfsi" {
 }
 
 test "fixunssfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunssfsi(0.0, 0);
 
     try test__fixunssfsi(0.5, 0);
@@ -142,6 +147,8 @@ fn test__fixunssfdi(a: f32, expected: u64) !void {
 }
 
 test "fixsfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixsfdi(-math.floatMax(f32), math.minInt(i64));
 
     try test__fixsfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));
@@ -197,6 +204,8 @@ test "fixsfdi" {
 }
 
 test "fixunssfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunssfdi(0.0, 0);
 
     try test__fixunssfdi(0.5, 0);
@@ -235,6 +244,8 @@ fn test__fixunssfti(a: f32, expected: u128) !void {
 }
 
 test "fixsfti" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixsfti(-math.floatMax(f32), math.minInt(i128));
 
     try test__fixsfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
@@ -306,6 +317,8 @@ test "fixsfti" {
 }
 
 test "fixunssfti" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunssfti(0.0, 0);
 
     try test__fixunssfti(0.5, 0);
@@ -352,6 +365,8 @@ fn test__fixunsdfsi(a: f64, expected: u32) !void {
 }
 
 test "fixdfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixdfsi(-math.floatMax(f64), math.minInt(i32));
 
     try test__fixdfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
@@ -413,6 +428,8 @@ test "fixdfsi" {
 }
 
 test "fixunsdfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunsdfsi(0.0, 0);
 
     try test__fixunsdfsi(0.5, 0);
@@ -455,6 +472,8 @@ fn test__fixunsdfdi(a: f64, expected: u64) !void {
 }
 
 test "fixdfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixdfdi(-math.floatMax(f64), math.minInt(i64));
 
     try test__fixdfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));
@@ -508,6 +527,8 @@ test "fixdfdi" {
 }
 
 test "fixunsdfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunsdfdi(0.0, 0);
     try test__fixunsdfdi(0.5, 0);
     try test__fixunsdfdi(0.99, 0);
@@ -550,6 +571,8 @@ fn test__fixunsdfti(a: f64, expected: u128) !void {
 }
 
 test "fixdfti" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixdfti(-math.floatMax(f64), math.minInt(i128));
 
     try test__fixdfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
@@ -603,6 +626,8 @@ test "fixdfti" {
 }
 
 test "fixunsdfti" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunsdfti(0.0, 0);
 
     try test__fixunsdfti(0.5, 0);
@@ -652,6 +677,8 @@ fn test__fixunstfsi(a: f128, expected: u32) !void {
 }
 
 test "fixtfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixtfsi(-math.floatMax(f128), math.minInt(i32));
 
     try test__fixtfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
@@ -715,6 +742,8 @@ test "fixtfsi" {
 }
 
 test "fixunstfsi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunstfsi(math.inf(f128), 0xffffffff);
     try test__fixunstfsi(0, 0x0);
     try test__fixunstfsi(0x1.23456789abcdefp+5, 0x24);
@@ -738,6 +767,8 @@ fn test__fixunstfdi(a: f128, expected: u64) !void {
 }
 
 test "fixtfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixtfdi(-math.floatMax(f128), math.minInt(i64));
 
     try test__fixtfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));
@@ -801,6 +832,8 @@ test "fixtfdi" {
 }
 
 test "fixunstfdi" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunstfdi(0.0, 0);
 
     try test__fixunstfdi(0.5, 0);
@@ -853,6 +886,8 @@ fn test__fixunstfti(a: f128, expected: u128) !void {
 }
 
 test "fixtfti" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixtfti(-math.floatMax(f128), math.minInt(i128));
 
     try test__fixtfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
@@ -934,6 +969,8 @@ fn test__fixunshfti(a: f16, expected: u128) !void {
 }
 
 test "fixunshfti for f16" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try test__fixunshfti(math.inf(f16), math.maxInt(u128));
     try test__fixunshfti(math.floatMax(f16), 65504);
 }

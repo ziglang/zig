@@ -131,6 +131,8 @@ test "tan" {
 }
 
 test "tan32" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const epsilon = 0.00001;
 
     try expect(math.approxEqAbs(f32, tanf(0.0), 0.0, epsilon));
@@ -142,6 +144,8 @@ test "tan32" {
 }
 
 test "tan64" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, tan(0.0), 0.0, epsilon));

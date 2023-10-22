@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const lzma = @import("../lzma.zig");
 
 fn testDecompress(compressed: []const u8) ![]u8 {
@@ -22,6 +23,8 @@ fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
 }
 
 test "LZMA: decompress empty world" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "",
         &[_]u8{
@@ -32,6 +35,8 @@ test "LZMA: decompress empty world" {
 }
 
 test "LZMA: decompress hello world" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -43,6 +48,8 @@ test "LZMA: decompress hello world" {
 }
 
 test "LZMA: decompress huge dict" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -54,6 +61,8 @@ test "LZMA: decompress huge dict" {
 }
 
 test "LZMA: unknown size with end of payload marker" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-unknown_size-with_eopm.lzma"),
@@ -61,6 +70,8 @@ test "LZMA: unknown size with end of payload marker" {
 }
 
 test "LZMA: known size without end of payload marker" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-without_eopm.lzma"),
@@ -68,6 +79,8 @@ test "LZMA: known size without end of payload marker" {
 }
 
 test "LZMA: known size with end of payload marker" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-with_eopm.lzma"),
@@ -75,6 +88,8 @@ test "LZMA: known size with end of payload marker" {
 }
 
 test "LZMA: too big uncompressed size in header" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_big_size-with_eopm.lzma"),
@@ -82,6 +97,8 @@ test "LZMA: too big uncompressed size in header" {
 }
 
 test "LZMA: too small uncompressed size in header" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),

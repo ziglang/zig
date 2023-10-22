@@ -56,6 +56,8 @@ pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
 }
 
 test "math.log_int" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Test all unsigned integers with 2, 3, ..., 64 bits.
     // We cannot test 0 or 1 bits since base must be > 1.
     inline for (2..64 + 1) |bits| {

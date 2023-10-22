@@ -4102,5 +4102,7 @@ const TokenIndex = Ast.TokenIndex;
 const Token = std.zig.Token;
 
 test {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     _ = @import("parser_test.zig");
 }

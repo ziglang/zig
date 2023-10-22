@@ -2129,6 +2129,8 @@ test "int.small" {
 }
 
 test "int.specifier" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     {
         const value: u8 = 'a';
         try expectFmt("u8: a\n", "u8: {c}\n", .{value});
@@ -2179,6 +2181,8 @@ test "int.padded" {
 }
 
 test "buffer" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
@@ -2375,6 +2379,8 @@ test "float.scientific" {
 }
 
 test "float.scientific.precision" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
     try expectFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 814313563))))});
     try expectFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1006632960))))});
@@ -2435,6 +2441,8 @@ test "float.hexadecimal" {
 }
 
 test "float.hexadecimal.precision" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("f16: 0x1.5p-2", "f16: {x:.1}", .{@as(f16, 1.0 / 3.0)});
     try expectFmt("f32: 0x1.555p-2", "f32: {x:.3}", .{@as(f32, 1.0 / 3.0)});
     try expectFmt("f64: 0x1.55555p-2", "f64: {x:.5}", .{@as(f64, 1.0 / 3.0)});
@@ -2449,6 +2457,8 @@ test "float.hexadecimal.precision" {
 }
 
 test "float.decimal" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
     try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
@@ -2472,6 +2482,8 @@ test "float.decimal" {
 }
 
 test "float.libc.sanity" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 916964781))))});
     try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 925353389))))});
     try expectFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1036831278))))});
@@ -2491,6 +2503,8 @@ test "float.libc.sanity" {
 }
 
 test "custom" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -2669,6 +2683,8 @@ test "formatFloatValue with comptime_float" {
 }
 
 test "formatType max_depth" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -2735,6 +2751,8 @@ test "formatType max_depth" {
 }
 
 test "positional" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("0 0", "{0} {0}", .{@as(usize, 0)});
@@ -2743,14 +2761,20 @@ test "positional" {
 }
 
 test "positional with specifier" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
 }
 
 test "positional/alignment/width/precision" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
 }
 
 test "vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

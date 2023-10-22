@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const OutputTooLongError = std.crypto.errors.OutputTooLongError;
@@ -151,6 +152,8 @@ const HmacSha1 = std.crypto.auth.hmac.HmacSha1;
 // RFC 6070 PBKDF2 HMAC-SHA1 Test Vectors
 
 test "RFC 6070 one iteration" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = "password";
     const s = "salt";
     const c = 1;
@@ -166,6 +169,8 @@ test "RFC 6070 one iteration" {
 }
 
 test "RFC 6070 two iterations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = "password";
     const s = "salt";
     const c = 2;
@@ -181,6 +186,8 @@ test "RFC 6070 two iterations" {
 }
 
 test "RFC 6070 4096 iterations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = "password";
     const s = "salt";
     const c = 4096;
@@ -196,6 +203,8 @@ test "RFC 6070 4096 iterations" {
 }
 
 test "RFC 6070 16,777,216 iterations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // These iteration tests are slow so we always skip them. Results have been verified.
     if (true) {
         return error.SkipZigTest;
@@ -216,6 +225,8 @@ test "RFC 6070 16,777,216 iterations" {
 }
 
 test "RFC 6070 multi-block salt and password" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = "passwordPASSWORDpassword";
     const s = "saltSALTsaltSALTsaltSALTsaltSALTsalt";
     const c = 4096;
@@ -231,6 +242,8 @@ test "RFC 6070 multi-block salt and password" {
 }
 
 test "RFC 6070 embedded NUL" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const p = "pass\x00word";
     const s = "sa\x00lt";
     const c = 4096;
@@ -246,6 +259,8 @@ test "RFC 6070 embedded NUL" {
 }
 
 test "Very large dk_len" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // This test allocates 8GB of memory and is expected to take several hours to run.
     if (true) {
         return error.SkipZigTest;

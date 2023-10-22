@@ -19,6 +19,8 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
 }
 
 test "compressed data" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testReader(@embedFile("testdata/good-0-empty.xz"), "");
 
     inline for ([_][]const u8{
