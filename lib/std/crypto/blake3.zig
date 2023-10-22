@@ -200,7 +200,7 @@ const CompressGeneric = struct {
     }
 };
 
-const compress = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64)
+const compress = if (builtin.cpu.arch == .x86_64)
     CompressVectorized.compress
 else
     CompressGeneric.compress;
@@ -682,8 +682,6 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 }
 
 test "BLAKE3 reference test cases" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var hash_state = Blake3.init(.{});
     const hash = &hash_state;
     var keyed_hash_state = Blake3.init(.{ .key = reference_test.key.* });

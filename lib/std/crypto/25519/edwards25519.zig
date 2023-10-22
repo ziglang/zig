@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
@@ -495,8 +494,6 @@ pub const Edwards25519 = struct {
 const htest = @import("../test.zig");
 
 test "edwards25519 packing/unpacking" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s = [_]u8{170} ++ [_]u8{0} ** 31;
     var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
@@ -533,8 +530,6 @@ test "edwards25519 packing/unpacking" {
 }
 
 test "edwards25519 point addition/subtraction" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var s1: [32]u8 = undefined;
     var s2: [32]u8 = undefined;
     crypto.random.bytes(&s1);
@@ -549,8 +544,6 @@ test "edwards25519 point addition/subtraction" {
 }
 
 test "edwards25519 uniform-to-point" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var r = [32]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
     var p = Edwards25519.fromUniform(r);
     try htest.assertEqual("0691eee3cf70a0056df6bfa03120635636581b5c4ea571dfc680f78c7e0b4137", p.toBytes()[0..]);
@@ -562,8 +555,6 @@ test "edwards25519 uniform-to-point" {
 
 // Test vectors from draft-irtf-cfrg-hash-to-curve-12
 test "edwards25519 hash-to-curve operation" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var p = Edwards25519.fromString(true, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_RO_", "abc");
     try htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895839a", p.toBytes()[0..]);
 
@@ -572,8 +563,6 @@ test "edwards25519 hash-to-curve operation" {
 }
 
 test "edwards25519 implicit reduction of invalid scalars" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s = [_]u8{0} ** 31 ++ [_]u8{255};
     const p1 = try Edwards25519.basePoint.mulPublic(s);
     const p2 = try Edwards25519.basePoint.mul(s);

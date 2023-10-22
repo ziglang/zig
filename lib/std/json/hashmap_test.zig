@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 
 const ArrayHashMap = @import("hashmap.zig").ArrayHashMap;
@@ -19,8 +18,6 @@ const T = struct {
 };
 
 test "parse json hashmap" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\  "abc": {"i": 0, "s": "d"},
@@ -36,8 +33,6 @@ test "parse json hashmap" {
 }
 
 test "parse json hashmap while streaming" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\  "abc": {"i": 0, "s": "d"},
@@ -63,8 +58,6 @@ test "parse json hashmap while streaming" {
 }
 
 test "parse json hashmap duplicate fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -93,8 +86,6 @@ test "parse json hashmap duplicate fields" {
 }
 
 test "stringify json hashmap" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var value = ArrayHashMap(T){};
     defer value.deinit(testing.allocator);
     {
@@ -132,8 +123,6 @@ test "stringify json hashmap" {
 }
 
 test "stringify json hashmap whitespace" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var value = ArrayHashMap(T){};
     defer value.deinit(testing.allocator);
     try value.map.put(testing.allocator, "abc", .{ .i = 0, .s = "d" });
@@ -158,8 +147,6 @@ test "stringify json hashmap whitespace" {
 }
 
 test "json parse from value hashmap" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\  "abc": {"i": 0, "s": "d"},

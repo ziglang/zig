@@ -555,8 +555,6 @@ pub const SealedBox = struct {
 const htest = @import("test.zig");
 
 test "(x)salsa20" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const key = [_]u8{0x69} ** 32;
     const nonce = [_]u8{0x42} ** 8;
     const msg = [_]u8{0} ** 20;
@@ -571,8 +569,6 @@ test "(x)salsa20" {
 }
 
 test "xsalsa20poly1305" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var c: [msg.len]u8 = undefined;
@@ -588,8 +584,6 @@ test "xsalsa20poly1305" {
 }
 
 test "xsalsa20poly1305 secretbox" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
@@ -604,8 +598,6 @@ test "xsalsa20poly1305 secretbox" {
 }
 
 test "xsalsa20poly1305 box" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
@@ -620,8 +612,6 @@ test "xsalsa20poly1305 box" {
 }
 
 test "xsalsa20poly1305 sealedbox" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
@@ -633,8 +623,6 @@ test "xsalsa20poly1305 sealedbox" {
 }
 
 test "secretbox twoblocks" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const key = [_]u8{ 0xc9, 0xc9, 0x4d, 0xcf, 0x68, 0xbe, 0x00, 0xe4, 0x7f, 0xe6, 0x13, 0x26, 0xfc, 0xc4, 0x2f, 0xd0, 0xdb, 0x93, 0x91, 0x1c, 0x09, 0x94, 0x89, 0xe1, 0x1b, 0x88, 0x63, 0x18, 0x86, 0x64, 0x8b, 0x7b };
     const nonce = [_]u8{ 0xa4, 0x33, 0xe9, 0x0a, 0x07, 0x68, 0x6e, 0x9a, 0x2b, 0x6d, 0xd4, 0x59, 0x04, 0x72, 0x3e, 0xd3, 0x8a, 0x67, 0x55, 0xc7, 0x9e, 0x3e, 0x77, 0xdc };
     const msg = [_]u8{'a'} ** 97;

@@ -264,8 +264,6 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
 }
 
 test "zstandard decompression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const uncompressed = @embedFile("testdata/rfc8478.txt");
     const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
     const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");

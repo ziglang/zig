@@ -122,8 +122,6 @@ pub fn nanoTimestamp() i128 {
 }
 
 test "timestamp" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const margin = ns_per_ms * 50;
 
     const time_0 = milliTimestamp();
@@ -321,8 +319,6 @@ pub const Timer = struct {
 };
 
 test "Timer + Instant" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();

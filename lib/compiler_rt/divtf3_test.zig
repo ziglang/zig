@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
 
@@ -31,9 +30,6 @@ fn test__divtf3(a: f128, b: f128, expectedHi: u64, expectedLo: u64) !void {
 }
 
 test "divtf3" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
-
     // NaN / any = NaN
     try test__divtf3(math.nan(f128), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
     // inf / any(except inf and nan) = inf

@@ -8,8 +8,6 @@ const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -71,8 +69,6 @@ test "timer" {
 }
 
 test "statx" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -111,8 +107,6 @@ test "user and group ids" {
 }
 
 test "fadvise" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 

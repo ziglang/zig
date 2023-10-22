@@ -1606,8 +1606,8 @@ test "peer type resolution: const sentinel slice and mutable non-sentinel slice"
 test "peer type resolution: float and comptime-known fixed-width integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     const i: u8 = 100;
     var f: f32 = 1.234;
@@ -2372,7 +2372,7 @@ test "@intFromBool on vector" {
 }
 
 test "numeric coercions with undefined" {
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const from: i32 = undefined;
     var to: f32 = from;
@@ -2383,6 +2383,7 @@ test "numeric coercions with undefined" {
 
 test "15-bit int to float" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a: u15 = 42;
     var b: f32 = @floatFromInt(a);
@@ -2390,11 +2391,11 @@ test "15-bit int to float" {
 }
 
 test "@as does not corrupt values with incompatible representations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     const x: f32 = @as(f16, blk: {
         if (false) {

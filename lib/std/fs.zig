@@ -3244,15 +3244,13 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError
 }
 
 test {
-    if (builtin.zig_backend != .stage2_x86_64) {
-        if (builtin.os.tag != .wasi) {
-            _ = &makeDirAbsolute;
-            _ = &makeDirAbsoluteZ;
-            _ = &copyFileAbsolute;
-            _ = &updateFileAbsolute;
-        }
-        _ = &Dir.copyFile;
+    if (builtin.os.tag != .wasi) {
+        _ = &makeDirAbsolute;
+        _ = &makeDirAbsoluteZ;
+        _ = &copyFileAbsolute;
+        _ = &updateFileAbsolute;
     }
+    _ = &Dir.copyFile;
     _ = @import("fs/test.zig");
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");

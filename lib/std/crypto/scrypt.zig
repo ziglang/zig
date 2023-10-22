@@ -3,7 +3,6 @@
 // https://github.com/Tarsnap/scrypt
 
 const std = @import("std");
-const builtin = @import("builtin");
 const crypto = std.crypto;
 const fmt = std.fmt;
 const io = std.io;
@@ -684,8 +683,6 @@ test "unix-scrypt" {
 }
 
 test "crypt format" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
     const params = try crypt_format.deserialize(crypt_format.HashResult(32), str);
     var buf: [str.len]u8 = undefined;
@@ -694,8 +691,6 @@ test "crypt format" {
 }
 
 test "kdf fast" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const TestVector = struct {
         password: []const u8,
         salt: []const u8,

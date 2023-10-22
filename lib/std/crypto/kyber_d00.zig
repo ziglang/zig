@@ -553,8 +553,6 @@ const inv_ntt_reductions = [_]i16{
 };
 
 test "invNTTReductions bounds" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // Checks whether the reductions proposed by invNTTReductions
     // don't overflow during invNTT().
     var xs = [_]i32{1} ** 256; // start at |x| ≤ q
@@ -658,8 +656,6 @@ fn montReduce(x: i32) i16 {
 }
 
 test "Test montReduce" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
     for (0..1000) |_| {
         const bound = comptime @as(i32, Q) * (1 << 15);
@@ -678,8 +674,6 @@ fn feToMont(x: i16) i16 {
 }
 
 test "Test feToMont" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
         const y = feToMont(@as(i16, @intCast(x)));
@@ -713,8 +707,6 @@ fn feBarrettReduce(x: i16) i16 {
 }
 
 test "Test Barrett reduction" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
         var y1 = feBarrettReduce(@as(i16, @intCast(x)));
@@ -735,8 +727,6 @@ fn csubq(x: i16) i16 {
 }
 
 test "Test csubq" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: i32 = -29439;
     while (x < 1 << 15) : (x += 1) {
         const y1 = csubq(@as(i16, @intCast(x)));
@@ -1476,8 +1466,6 @@ fn cmov(comptime len: usize, dst: *[len]u8, src: [len]u8, b: u1) void {
 }
 
 test "MulHat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
 
     for (0..100) |_| {
@@ -1509,8 +1497,6 @@ test "MulHat" {
 }
 
 test "NTT" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
 
     for (0..1000) |_| {
@@ -1534,8 +1520,6 @@ test "NTT" {
 }
 
 test "Compression" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
     inline for (.{ 1, 4, 5, 10, 11 }) |d| {
         for (0..1000) |_| {
@@ -1548,8 +1532,6 @@ test "Compression" {
 }
 
 test "noise" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1596,8 +1578,6 @@ test "noise" {
 }
 
 test "uniform sampling" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1631,8 +1611,6 @@ test "uniform sampling" {
 }
 
 test "Polynomial packing" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
 
     for (0..1000) |_| {
@@ -1642,8 +1620,6 @@ test "Polynomial packing" {
 }
 
 test "Test inner PKE" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     var pt: [32]u8 = undefined;
     for (&seed, &pt, 0..) |*s, *p, i| {
@@ -1665,8 +1641,6 @@ test "Test inner PKE" {
 }
 
 test "Test happy flow" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [64]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1693,8 +1667,6 @@ test "Test happy flow" {
 const sha2 = crypto.hash.sha2;
 
 test "NIST KAT test" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (.{
         .{ Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547" },
         .{ Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5" },

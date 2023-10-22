@@ -88,8 +88,6 @@ test "chdir smoke test" {
 test "open smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // TODO verify file attributes using `fstat`
 
     var tmp = tmpDir(.{});
@@ -143,8 +141,6 @@ test "open smoke test" {
 
 test "openat smoke test" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
 
@@ -280,8 +276,6 @@ test "link with relative paths" {
 test "linkat with different directories" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
@@ -327,8 +321,6 @@ test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (native_os == .windows) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -348,8 +340,6 @@ test "fstatat" {
 }
 
 test "readlinkat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -384,8 +374,6 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 
 test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var thread_current_id: Thread.Id = undefined;
     const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
@@ -429,9 +417,6 @@ test "cpu count" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
     try testTls();
@@ -519,8 +504,6 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 test "dl_iterate_phdr" {
     if (builtin.object_format != .elf) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
     try expect(counter != 0);
@@ -582,8 +565,6 @@ test "memfd_create" {
 test "mmap" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -695,8 +676,6 @@ test "fcntl" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -737,8 +716,6 @@ test "sync" {
     if (native_os != .linux)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -759,8 +736,6 @@ test "fsync" {
         else => return error.SkipZigTest,
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -779,8 +754,6 @@ test "getrlimit and setrlimit" {
     if (!@hasDecl(os.system, "rlimit")) {
         return error.SkipZigTest;
     }
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
         const resource = @as(os.rlimit_resource, @enumFromInt(field.value));
@@ -823,8 +796,6 @@ test "shutdown socket" {
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)
@@ -903,8 +874,6 @@ test "dup & dup2" {
         else => return error.SkipZigTest,
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -934,8 +903,6 @@ test "dup & dup2" {
 test "writev longer than IOV_MAX" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -952,8 +919,6 @@ test "POSIX file locking with fcntl" {
         // Not POSIX.
         return error.SkipZigTest;
     }
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     if (true) {
         // https://github.com/ziglang/zig/issues/11074
@@ -1017,8 +982,6 @@ test "POSIX file locking with fcntl" {
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1074,8 +1037,6 @@ test "rename smoke test" {
 
 test "access smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1141,8 +1102,6 @@ test "timerfd" {
 }
 
 test "isatty" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1154,8 +1113,6 @@ test "isatty" {
 
 test "read with empty buffer" {
     if (native_os == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1182,8 +1139,6 @@ test "read with empty buffer" {
 test "pread with empty buffer" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1208,8 +1163,6 @@ test "pread with empty buffer" {
 
 test "write with empty buffer" {
     if (native_os == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1236,8 +1189,6 @@ test "write with empty buffer" {
 test "pwrite with empty buffer" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1262,8 +1213,6 @@ test "pwrite with empty buffer" {
 
 test "fchmodat smoke test" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

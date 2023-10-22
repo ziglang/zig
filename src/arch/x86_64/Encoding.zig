@@ -232,7 +232,7 @@ pub const Mnemonic = enum {
     cmp,
     cmps, cmpsb, cmpsd, cmpsq, cmpsw,
     cmpxchg, cmpxchg8b, cmpxchg16b,
-    cpuid, cqo, cwd, cwde,
+    cqo, cwd, cwde,
     div,
     idiv, imul, int3,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
@@ -246,7 +246,7 @@ pub const Mnemonic = enum {
     movsx, movsxd, movzx, mul,
     neg, nop, not,
     @"or",
-    pause, pop, popcnt, push,
+    pop, popcnt, push,
     rcl, rcr, ret, rol, ror,
     sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -258,7 +258,7 @@ pub const Mnemonic = enum {
     stos, stosb, stosd, stosq, stosw,
     @"test", tzcnt,
     ud2,
-    xadd, xchg, xgetbv, xor,
+    xadd, xchg, xor,
     // X87
     fabs, fchs, ffree, fisttp, fld, fst, fstp,
     // MMX

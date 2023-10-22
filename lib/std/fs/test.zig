@@ -124,8 +124,6 @@ fn testWithAllSupportedPathTypes(test_func: anytype) !void {
 }
 
 test "Dir.readLink" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             // Create some targets
@@ -163,8 +161,6 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 }
 
 test "relative symlink to parent directory" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -182,8 +178,6 @@ test "relative symlink to parent directory" {
 }
 
 test "openDir" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const allocator = ctx.arena.allocator();
@@ -202,8 +196,6 @@ test "openDir" {
 test "accessAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -221,8 +213,6 @@ test "accessAbsolute" {
 
 test "openDirAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -262,8 +252,6 @@ test "openDir non-cwd parent .." {
         else => {},
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -284,8 +272,6 @@ test "openDir non-cwd parent .." {
 
 test "readLinkAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -337,8 +323,6 @@ fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void
 }
 
 test "Dir.Iterator" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
@@ -369,8 +353,6 @@ test "Dir.Iterator" {
 }
 
 test "Dir.Iterator many entries" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
@@ -406,8 +388,6 @@ test "Dir.Iterator many entries" {
 }
 
 test "Dir.Iterator twice" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
@@ -441,8 +421,6 @@ test "Dir.Iterator twice" {
 }
 
 test "Dir.Iterator reset" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
@@ -479,8 +457,6 @@ test "Dir.Iterator reset" {
 }
 
 test "Dir.Iterator but dir is deleted during iteration" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -522,8 +498,6 @@ fn contains(entries: *const std.ArrayList(IterableDir.Entry), el: IterableDir.En
 
 test "Dir.realpath smoke test" {
     if (!comptime std.os.isGetFdPathSupportedOnTarget(builtin.os)) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -575,8 +549,6 @@ test "Dir.realpath smoke test" {
 }
 
 test "readAllAlloc" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -613,8 +585,6 @@ test "Dir.statFile" {
     // TODO: Re-enable once https://github.com/ziglang/zig/issues/17034 is solved
     if (builtin.os.tag == .linux and builtin.link_libc and builtin.abi == .gnu) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_file_name = try ctx.transformPath("test_file");
@@ -630,8 +600,6 @@ test "Dir.statFile" {
 }
 
 test "directory operations on files" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_file_name = try ctx.transformPath("test_file");
@@ -660,8 +628,6 @@ test "directory operations on files" {
 test "file operations on directories" {
     // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
     if (builtin.os.tag == .freebsd) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -710,8 +676,6 @@ test "makeOpenPath parent dirs do not exist" {
 }
 
 test "deleteDir" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_dir_path = try ctx.transformPath("test_dir");
@@ -733,8 +697,6 @@ test "deleteDir" {
 }
 
 test "Dir.rename files" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             // Rename on Windows can hit intermittent AccessDenied errors
@@ -777,8 +739,6 @@ test "Dir.rename files" {
 }
 
 test "Dir.rename directories" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             // Rename on Windows can hit intermittent AccessDenied errors
@@ -820,8 +780,6 @@ test "Dir.rename directory onto empty dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_dir_path = try ctx.transformPath("test_dir");
@@ -842,8 +800,6 @@ test "Dir.rename directory onto empty dir" {
 test "Dir.rename directory onto non-empty dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
     if (builtin.os.tag == .windows) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -871,8 +827,6 @@ test "Dir.rename file <-> dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
     if (builtin.os.tag == .windows) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_file_path = try ctx.transformPath("test_file");
@@ -888,8 +842,6 @@ test "Dir.rename file <-> dir" {
 }
 
 test "rename" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp_dir1 = tmpDir(.{});
     defer tmp_dir1.cleanup();
 
@@ -911,8 +863,6 @@ test "rename" {
 
 test "renameAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -972,8 +922,6 @@ test "openSelfExe" {
 }
 
 test "makePath, put some files in it, deleteTree" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const allocator = ctx.arena.allocator();
@@ -990,8 +938,6 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "makePath, put some files in it, deleteTreeMinStackSize" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const allocator = ctx.arena.allocator();
@@ -1009,8 +955,6 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
 
 test "makePath in a directory that no longer exists" {
     if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1043,8 +987,6 @@ fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !vo
 }
 
 test "max file name component lengths" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
 
@@ -1066,8 +1008,6 @@ test "max file name component lengths" {
 }
 
 test "writev, readv" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1110,8 +1050,6 @@ test "writev, readv" {
 }
 
 test "pwritev, preadv" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1153,8 +1091,6 @@ test "pwritev, preadv" {
 }
 
 test "access file" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const dir_path = try ctx.transformPath("os_test_tmp");
@@ -1171,8 +1107,6 @@ test "access file" {
 }
 
 test "sendfile" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1238,8 +1172,6 @@ test "sendfile" {
 }
 
 test "copyRangeAll" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1266,8 +1198,6 @@ test "copyRangeAll" {
 }
 
 test "copyFile" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
@@ -1298,8 +1228,6 @@ fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
 }
 
 test "AtomicFile" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const allocator = ctx.arena.allocator();
@@ -1326,8 +1254,6 @@ test "AtomicFile" {
 test "open file with exclusive nonblocking lock twice" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const filename = try ctx.transformPath("file_nonblocking_lock_test.txt");
@@ -1343,8 +1269,6 @@ test "open file with exclusive nonblocking lock twice" {
 
 test "open file with shared and exclusive nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1362,8 +1286,6 @@ test "open file with shared and exclusive nonblocking lock" {
 test "open file with exclusive and shared nonblocking lock" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const filename = try ctx.transformPath("file_nonblocking_lock_test.txt");
@@ -1378,8 +1300,6 @@ test "open file with exclusive and shared nonblocking lock" {
 }
 
 test "open file with exclusive lock twice, make sure second lock waits" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.single_threaded) return error.SkipZigTest;
 
     if (std.io.is_async) {
@@ -1430,8 +1350,6 @@ test "open file with exclusive lock twice, make sure second lock waits" {
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var random_bytes: [12]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
 
@@ -1465,8 +1383,6 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
 test "walker" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
@@ -1521,8 +1437,6 @@ test "walker" {
 test "walker without fully iterating" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
 
@@ -1545,8 +1459,6 @@ test "walker without fully iterating" {
 
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
@@ -1587,8 +1499,6 @@ test ". and .. in fs.Dir functions" {
 
 test ". and .. in absolute functions" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1635,8 +1545,6 @@ test "chmod" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1659,8 +1567,6 @@ test "chown" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1676,8 +1582,6 @@ test "chown" {
 }
 
 test "File.Metadata" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1695,8 +1599,6 @@ test "File.Metadata" {
 test "File.Permissions" {
     if (builtin.os.tag == .wasi)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1723,8 +1625,6 @@ test "File.Permissions" {
 test "File.PermissionsUnix" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1761,8 +1661,6 @@ test "delete a read-only file on windows" {
     if (builtin.os.tag != .windows)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1792,8 +1690,6 @@ test "delete a read-only file on windows" {
 
 test "delete a setAsCwd directory on Windows" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     // Set tmp dir as current working directory.

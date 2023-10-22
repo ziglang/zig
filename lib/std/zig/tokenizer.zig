@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 
 pub const Token = struct {
     tag: Tag,
@@ -1450,8 +1449,6 @@ test "chars" {
 }
 
 test "invalid token characters" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("#", &.{.invalid});
     try testTokenize("`", &.{.invalid});
     try testTokenize("'c", &.{.invalid});
@@ -1481,8 +1478,6 @@ test "utf8" {
 }
 
 test "invalid utf8" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("//\x80", &.{
         .invalid,
     });
@@ -1573,8 +1568,6 @@ test "pipe and then invalid" {
 }
 
 test "line comment and doc comment" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("//", &.{});
     try testTokenize("// a / b", &.{});
     try testTokenize("// /", &.{});
@@ -1649,8 +1642,6 @@ test "range literals" {
 }
 
 test "number literals decimal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("0", &.{.number_literal});
     try testTokenize("1", &.{.number_literal});
     try testTokenize("2", &.{.number_literal});
@@ -1899,8 +1890,6 @@ test "invalid token with unfinished escape right before eof" {
 }
 
 test "saturating operators" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
     try testTokenize("<<|", &.{.angle_bracket_angle_bracket_left_pipe});
     try testTokenize("<<|=", &.{.angle_bracket_angle_bracket_left_pipe_equal});

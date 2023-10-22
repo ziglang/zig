@@ -1,5 +1,5 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
@@ -484,8 +484,6 @@ pub const Ed25519 = struct {
 };
 
 test "ed25519 key pair creation" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
@@ -495,8 +493,6 @@ test "ed25519 key pair creation" {
 }
 
 test "ed25519 signature" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
@@ -509,8 +505,6 @@ test "ed25519 signature" {
 }
 
 test "ed25519 batch verification" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var i: usize = 0;
     while (i < 100) : (i += 1) {
         const key_pair = try Ed25519.KeyPair.create(null);
@@ -540,8 +534,6 @@ test "ed25519 batch verification" {
 }
 
 test "ed25519 test vectors" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const Vec = struct {
         msg_hex: *const [64:0]u8,
         public_key_hex: *const [64:0]u8,
@@ -644,8 +636,6 @@ test "ed25519 test vectors" {
 }
 
 test "ed25519 with blind keys" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const BlindKeyPair = Ed25519.key_blinding.BlindKeyPair;
 
     // Create a standard Ed25519 key pair
@@ -669,8 +659,6 @@ test "ed25519 with blind keys" {
 }
 
 test "ed25519 signatures with streaming" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const kp = try Ed25519.KeyPair.create(null);
 
     var signer = try kp.signer(null);
@@ -687,8 +675,6 @@ test "ed25519 signatures with streaming" {
 }
 
 test "ed25519 key pair from secret key" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const kp = try Ed25519.KeyPair.create(null);
     const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
     try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());

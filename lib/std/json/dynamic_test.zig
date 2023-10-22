@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -19,8 +18,6 @@ const jsonReader = @import("scanner.zig").reader;
 const JsonReader = @import("scanner.zig").Reader;
 
 test "json.parser.dynamic" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s =
         \\{
         \\  "Image": {
@@ -75,8 +72,6 @@ test "json.parser.dynamic" {
 
 const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out_buffer: [1000]u8 = undefined;
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
@@ -125,16 +120,12 @@ fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
 }
 
 test "parsing empty string gives appropriate error" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
 test "Value.array allocator should still be usable after parsing" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var parsed = try parseFromSlice(Value, std.testing.allocator, "[]", .{});
     defer parsed.deinit();
 
@@ -147,8 +138,6 @@ test "Value.array allocator should still be usable after parsing" {
 }
 
 test "integer after float has proper type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const parsed = try testParse(arena_allocator.allocator(),
@@ -161,8 +150,6 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -195,8 +182,6 @@ test "escaped characters" {
 }
 
 test "Value.jsonStringify" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var vals = [_]Value{
         .{ .integer = 1 },
         .{ .integer = 2 },
@@ -244,8 +229,6 @@ test "Value.jsonStringify" {
 }
 
 test "parseFromValue(std.json.Value,...)" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const str =
         \\{
         \\  "int": 32,
@@ -263,8 +246,6 @@ test "parseFromValue(std.json.Value,...)" {
 }
 
 test "polymorphic parsing" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
     const doc =
         \\{ "type": "div",
@@ -310,8 +291,6 @@ test "polymorphic parsing" {
 }
 
 test "long object value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const value = "01234567890123456789";
     const doc = "{\"key\":\"" ++ value ++ "\"}";
     var fbs = std.io.fixedBufferStream(doc);
@@ -324,8 +303,6 @@ test "long object value" {
 }
 
 test "ParseOptions.max_value_len" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
 
@@ -340,8 +317,6 @@ test "ParseOptions.max_value_len" {
 }
 
 test "many object keys" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\  "k1": "v1",

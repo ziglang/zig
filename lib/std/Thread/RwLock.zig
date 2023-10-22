@@ -297,8 +297,6 @@ test "RwLock - concurrent access" {
     if (builtin.single_threaded)
         return;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const num_writers: usize = 2;
     const num_readers: usize = 4;
     const num_writes: usize = 10000;

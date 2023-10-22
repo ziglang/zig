@@ -261,10 +261,7 @@ inline fn xorWith(x: *Block, y: Block) void {
 const hexToBytes = std.fmt.hexToBytes;
 
 test "AesOcb test vector 1" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -283,10 +280,7 @@ test "AesOcb test vector 1" {
 }
 
 test "AesOcb test vector 2" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -307,10 +301,7 @@ test "AesOcb test vector 2" {
 }
 
 test "AesOcb test vector 3" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -334,10 +325,7 @@ test "AesOcb test vector 3" {
 }
 
 test "AesOcb test vector 4" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;

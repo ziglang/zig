@@ -6,7 +6,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/ilogb.c
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
@@ -109,8 +108,6 @@ test "64" {
 }
 
 test "80" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expect(ilogbX(f80, 0.0) == fp_ilogb0);
     try expect(ilogbX(f80, 0.5) == -1);
     try expect(ilogbX(f80, 0.8923) == -1);
@@ -125,8 +122,6 @@ test "80" {
 }
 
 test "128" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expect(ilogbX(f128, 0.0) == fp_ilogb0);
     try expect(ilogbX(f128, 0.5) == -1);
     try expect(ilogbX(f128, 0.8923) == -1);
@@ -162,8 +157,6 @@ test "64 special" {
 }
 
 test "80 special" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expect(ilogbX(f80, math.inf(f80)) == maxInt(i32));
     try expect(ilogbX(f80, -math.inf(f80)) == maxInt(i32));
     try expect(ilogbX(f80, 0.0) == minInt(i32));
@@ -171,8 +164,6 @@ test "80 special" {
 }
 
 test "128 special" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expect(ilogbX(f128, math.inf(f128)) == maxInt(i32));
     try expect(ilogbX(f128, -math.inf(f128)) == maxInt(i32));
     try expect(ilogbX(f128, 0.0) == minInt(i32));

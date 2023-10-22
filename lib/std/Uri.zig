@@ -685,8 +685,6 @@ test "Special test" {
 }
 
 test "URI escaping" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const input = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
     const expected = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad";
 

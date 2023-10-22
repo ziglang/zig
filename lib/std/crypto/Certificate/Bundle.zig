@@ -318,8 +318,6 @@ const MapContext = struct {
 test "scan for OS-provided certificates" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var bundle: Bundle = .{};
     defer bundle.deinit(std.testing.allocator);
 

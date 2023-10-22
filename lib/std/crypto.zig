@@ -314,8 +314,6 @@ test "CSPRNG" {
 }
 
 test "issue #4532: no index out of bounds" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const types = [_]type{
         hash.Md5,
         hash.Sha1,

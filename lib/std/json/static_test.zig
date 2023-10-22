@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
@@ -372,8 +371,6 @@ test "test all types" {
 }
 
 test "parse" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expectEqual(false, try parseFromSliceLeaky(bool, testing.allocator, "false", .{}));
     try testing.expectEqual(true, try parseFromSliceLeaky(bool, testing.allocator, "true", .{}));
     try testing.expectEqual(@as(u1, 1), try parseFromSliceLeaky(u1, testing.allocator, "1", .{}));
@@ -392,8 +389,6 @@ test "parse" {
 }
 
 test "parse into enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = enum(u32) {
         Foo = 42,
         Bar,
@@ -407,8 +402,6 @@ test "parse into enum" {
 }
 
 test "parse into that allocates a slice" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         // string as string
         const parsed = try parseFromSlice([]u8, testing.allocator, "\"foo\"", .{});
@@ -429,16 +422,12 @@ test "parse into that allocates a slice" {
 }
 
 test "parse into sentinel slice" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const parsed = try parseFromSlice([:0]const u8, testing.allocator, "\"\\n\"", .{});
     defer parsed.deinit();
     try testing.expect(std.mem.eql(u8, parsed.value, "\n"));
 }
 
 test "parse into tagged union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = union(enum) {
         nothing,
         int: i32,
@@ -454,8 +443,6 @@ test "parse into tagged union" {
 }
 
 test "parse into tagged union errors" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = union(enum) {
         nothing,
         int: i32,
@@ -478,8 +465,6 @@ test "parse into tagged union errors" {
 }
 
 test "parse into struct with no fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {};
     const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
     defer parsed.deinit();
@@ -489,8 +474,6 @@ test "parse into struct with no fields" {
 const test_const_value: usize = 123;
 
 test "parse into struct with default const pointer field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct { a: *const usize = &test_const_value };
     const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
     defer parsed.deinit();
@@ -506,8 +489,6 @@ const test_default_str_slice: [2][]const u8 = [_][]const u8{
 };
 
 test "freeing parsed structs with pointers to default values" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         int: *const usize = &test_default_usize,
         int_ptr: *allowzero align(1) const usize = test_default_usize_ptr,
@@ -521,15 +502,11 @@ test "freeing parsed structs with pointers to default values" {
 }
 
 test "parse into struct where destination and source lengths mismatch" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct { a: [2]u8 };
     try testing.expectError(error.LengthMismatch, parseFromSlice(T, testing.allocator, "{\"a\": \"bbb\"}", .{}));
 }
 
 test "parse into struct with misc fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         int: i64,
         float: f64,
@@ -605,8 +582,6 @@ test "parse into struct with misc fields" {
 }
 
 test "parse into struct with strings and arrays with sentinels" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         language: [:0]const u8,
         language_without_sentinel: []const u8,
@@ -635,8 +610,6 @@ test "parse into struct with strings and arrays with sentinels" {
 }
 
 test "parse into struct with duplicate field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const options_first = ParseOptions{ .duplicate_field_behavior = .use_first };
     const options_last = ParseOptions{ .duplicate_field_behavior = .use_last };
 
@@ -656,8 +629,6 @@ test "parse into struct with duplicate field" {
 }
 
 test "parse into struct ignoring unknown fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         int: i64,
         language: []const u8,
@@ -696,8 +667,6 @@ test "parse into struct ignoring unknown fields" {
 }
 
 test "parse into tuple" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const Union = union(enum) {
         char: u8,
         float: f64,
@@ -753,8 +722,6 @@ const ParseIntoRecursiveUnionDefinitionValue = union(enum) {
 };
 
 test "parse into recursive union definition" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         values: ParseIntoRecursiveUnionDefinitionValue,
     };
@@ -776,8 +743,6 @@ const ParseIntoDoubleRecursiveUnionValueSecond = union(enum) {
 };
 
 test "parse into double recursive union definition" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         values: ParseIntoDoubleRecursiveUnionValueFirst,
     };
@@ -789,8 +754,6 @@ test "parse into double recursive union definition" {
 }
 
 test "parse exponential into int" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct { int: i64 };
     const r = try parseFromSliceLeaky(T, testing.allocator, "{ \"int\": 4.2e2 }", .{});
     try testing.expectEqual(@as(i64, 420), r.int);
@@ -799,8 +762,6 @@ test "parse exponential into int" {
 }
 
 test "parseFromTokenSource" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         var scanner = JsonScanner.initCompleteInput(testing.allocator, "123");
         defer scanner.deinit();
@@ -820,14 +781,10 @@ test "parseFromTokenSource" {
 }
 
 test "max_value_len" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expectError(error.ValueTooLong, parseFromSlice([]u8, testing.allocator, "\"0123456789\"", .{ .max_value_len = 5 }));
 }
 
 test "parse into vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         vec_i32: @Vector(4, i32),
         vec_f32: @Vector(2, f32),
@@ -860,8 +817,6 @@ fn assertKey(
     }
 }
 test "json parse partial" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const Inner = struct {
         num: u32,
         yes: bool,
@@ -917,8 +872,6 @@ test "json parse partial" {
 }
 
 test "json parse allocate when streaming" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         not_const: []u8,
         is_const: []const u8,
@@ -949,8 +902,6 @@ test "json parse allocate when streaming" {
 }
 
 test "parse at comptime" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\    "vals": {

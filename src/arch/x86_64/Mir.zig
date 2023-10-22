@@ -327,8 +327,6 @@ pub const Inst = struct {
         /// Compare and exchange
         /// Compare and exchange bytes
         cmpxchg,
-        /// CPU identification
-        cpuid,
         /// Convert doubleword to quadword
         cqo,
         /// Convert word to doubleword
@@ -388,8 +386,6 @@ pub const Inst = struct {
         /// Bitwise logical or of packed single-precision floating-point values
         /// Bitwise logical or of packed double-precision floating-point values
         @"or",
-        /// Spin loop hint
-        pause,
         /// Pop
         pop,
         /// Return the count of number of bits set to 1
@@ -441,8 +437,6 @@ pub const Inst = struct {
         xadd,
         /// Exchange register/memory with register
         xchg,
-        /// Get value of extended control register
-        xgetbv,
         /// Logical exclusive-or
         /// Bitwise logical xor of packed single-precision floating-point values
         /// Bitwise logical xor of packed double-precision floating-point values
