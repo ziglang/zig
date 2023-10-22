@@ -3145,6 +3145,9 @@ fn walkInstruction(
             var args = try self.arena.alloc(DocData.Expr, args_len);
             const body = file.zir.extra[extra.end..];
 
+            try self.repurposed_insts.put(self.arena, @intCast(inst_index), {});
+            defer _ = self.repurposed_insts.remove(@intCast(inst_index));
+
             var i: usize = 0;
             while (i < args_len) : (i += 1) {
                 const arg_end = file.zir.extra[extra.end + i];
