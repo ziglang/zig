@@ -5128,6 +5128,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
+            try http_client.loadDefaultProxies();
+
             var progress: std.Progress = .{ .dont_print_on_dumb = true };
             const root_prog_node = progress.start("Fetch Packages", 0);
             defer root_prog_node.end();
@@ -7038,6 +7040,8 @@ fn cmdFetch(
 
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
+
+    try http_client.loadDefaultProxies();
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const root_prog_node = progress.start("Fetch", 0);

@@ -35,7 +35,8 @@ pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is s
     /// Asserts that `s` is 24 or fewer bytes.
     pub fn parse(s: []const u8) u64 {
         var x: u64 = 0;
-        @memcpy(std.mem.asBytes(&x)[0..s.len], s);
+        const len = @min(s.len, @sizeOf(@TypeOf(x)));
+        @memcpy(std.mem.asBytes(&x)[0..len], s[0..len]);
         return x;
     }
 
@@ -289,14 +290,17 @@ pub const Status = enum(u10) {
 
 pub const TransferEncoding = enum {
     chunked,
+    none,
     // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
 };
 
 pub const ContentEncoding = enum {
     identity,
     compress,
+    @"x-compress",
     deflate,
     gzip,
+    @"x-gzip",
     zstd,
 };
 
