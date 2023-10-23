@@ -903,12 +903,12 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "mod" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testMod();
     try comptime testMod();
 }
 fn testMod() !void {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
     try testing.expect((mod(i32, 5, 3) catch unreachable) == 2);
     try testing.expectError(error.NegativeDenominator, mod(i32, 10, -1));
