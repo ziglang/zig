@@ -141,16 +141,14 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/install_raw_hex",
         .import = @import("standalone/install_raw_hex/build.zig"),
     },
-    // https://github.com/ziglang/zig/issues/17484
-    //.{
-    //    .build_root = "test/standalone/emit_asm_and_bin",
-    //    .import = @import("standalone/emit_asm_and_bin/build.zig"),
-    //},
-    // https://github.com/ziglang/zig/issues/17484
-    //.{
-    //    .build_root = "test/standalone/issue_12588",
-    //    .import = @import("standalone/issue_12588/build.zig"),
-    //},
+   .{
+        .build_root = "test/standalone/emit_asm_and_bin",
+        .import = @import("standalone/emit_asm_and_bin/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/generate_valid_llvm_ir",
+        .import = @import("standalone/generate_valid_llvm_ir/build.zig"),
+    },
     .{
         .build_root = "test/standalone/child_process",
         .import = @import("standalone/child_process/build.zig"),
