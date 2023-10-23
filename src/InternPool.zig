@@ -5059,13 +5059,13 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     assert(child == .u8_type);
                     if (bytes.len != len) {
                         assert(bytes.len == len_including_sentinel);
-                        assert(bytes[@as(usize, @intCast(len))] == ip.indexToKey(sentinel).int.storage.u64);
+                        assert(bytes[@intCast(len)] == ip.indexToKey(sentinel).int.storage.u64);
                     }
                 },
                 .elems => |elems| {
                     if (elems.len != len) {
                         assert(elems.len == len_including_sentinel);
-                        assert(elems[@as(usize, @intCast(len))] == sentinel);
+                        assert(elems[@intCast(len)] == sentinel);
                     }
                 },
                 .repeated_elem => |elem| {
@@ -5168,7 +5168,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             if (child == .u8_type) bytes: {
                 const string_bytes_index = ip.string_bytes.items.len;
-                try ip.string_bytes.ensureUnusedCapacity(gpa, @as(usize, @intCast(len_including_sentinel + 1)));
+                try ip.string_bytes.ensureUnusedCapacity(gpa, @intCast(len_including_sentinel + 1));
                 try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
                 switch (aggregate.storage) {
                     .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes[0..@intCast(len)]),
@@ -5178,15 +5178,15 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             break :bytes;
                         },
                         .int => |int| ip.string_bytes.appendAssumeCapacity(
-                            @as(u8, @intCast(int.storage.u64)),
+                            @intCast(int.storage.u64),
                         ),
                         else => unreachable,
                     },
                     .repeated_elem => |elem| switch (ip.indexToKey(elem)) {
                         .undef => break :bytes,
                         .int => |int| @memset(
-                            ip.string_bytes.addManyAsSliceAssumeCapacity(@as(usize, @intCast(len))),
-                            @as(u8, @intCast(int.storage.u64)),
+                            ip.string_bytes.addManyAsSliceAssumeCapacity(@intCast(len)),
+                            @intCast(int.storage.u64),
                         ),
                         else => unreachable,
                     },
@@ -5194,12 +5194,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 const has_internal_null =
                     std.mem.indexOfScalar(u8, ip.string_bytes.items[string_bytes_index..], 0) != null;
                 if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
-                    @as(u8, @intCast(ip.indexToKey(sentinel).int.storage.u64)),
+                    @intCast(ip.indexToKey(sentinel).int.storage.u64),
                 );
-                const string = if (has_internal_null)
-                    @as(String, @enumFromInt(string_bytes_index))
+                const string: String = if (has_internal_null)
+                    @enumFromInt(string_bytes_index)
                 else
-                    (try ip.getOrPutTrailingString(gpa, @as(usize, @intCast(len_including_sentinel)))).toString();
+                    (try ip.getOrPutTrailingString(gpa, @intCast(len_including_sentinel))).toString();
                 ip.items.appendAssumeCapacity(.{
                     .tag = .bytes,
                     .data = ip.addExtraAssumeCapacity(Bytes{
@@ -7557,7 +7557,7 @@ pub fn getOrPutStringFmt(
     args: anytype,
 ) Allocator.Error!NullTerminatedString {
     // ensure that references to string_bytes in args do not get invalidated
-    const len = @as(usize, @intCast(std.fmt.count(format, args) + 1));
+    const len: usize = @intCast(std.fmt.count(format, args) + 1);
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
     ip.string_bytes.appendAssumeCapacity(0);
@@ -7581,7 +7581,7 @@ pub fn getOrPutTrailingString(
     len: usize,
 ) Allocator.Error!NullTerminatedString {
     const string_bytes = &ip.string_bytes;
-    const str_index = @as(u32, @intCast(string_bytes.items.len - len));
+    const str_index: u32 = @intCast(string_bytes.items.len - len);
     if (len > 0 and string_bytes.getLast() == 0) {
         _ = string_bytes.pop();
     } else {
@@ -7601,6 +7601,33 @@ pub fn getOrPutTrailingString(
         string_bytes.appendAssumeCapacity(0);
         return @enumFromInt(str_index);
     }
+}
+
+/// Uses the last len bytes of ip.string_bytes as the key.
+pub fn getTrailingAggregate(
+    ip: *InternPool,
+    gpa: Allocator,
+    ty: Index,
+    len: usize,
+) Allocator.Error!Index {
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
+    const str: String = @enumFromInt(@intFromEnum(try getOrPutTrailingString(ip, gpa, len)));
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .aggregate = .{
+        .ty = ty,
+        .storage = .{ .bytes = ip.string_bytes.items[@intFromEnum(str)..] },
+    } }, adapter);
+    if (gop.found_existing) return @enumFromInt(gop.index);
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = .bytes,
+        .data = ip.addExtraAssumeCapacity(Bytes{
+            .ty = ty,
+            .bytes = str,
+        }),
+    });
+    return @enumFromInt(ip.items.len - 1);
 }
 
 pub fn getString(ip: *InternPool, s: []const u8) OptionalNullTerminatedString {

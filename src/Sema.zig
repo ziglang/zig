@@ -3739,7 +3739,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
     // The simple strategy failed: we must create a mutable comptime alloc and
     // perform all of the runtime store operations at comptime.
 
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
     defer anon_decl.deinit();
     const decl_index = try anon_decl.finish(elem_ty, try mod.undefValue(elem_ty), ptr_info.flags.alignment);
 
@@ -5454,7 +5454,7 @@ fn storeToInferredAllocComptime(
     // The alloc will turn into a Decl.
     if (try sema.resolveMaybeUndefValAllowVariables(operand)) |operand_val| store: {
         if (operand_val.getVariable(sema.mod) != null) break :store;
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
         defer anon_decl.deinit();
         iac.decl_index = try anon_decl.finish(operand_ty, operand_val, iac.alignment);
         try sema.comptime_mutable_decls.append(iac.decl_index);
@@ -6113,7 +6113,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         else => |e| return e,
     };
     const decl_index = if (operand.val.getFunction(sema.mod)) |function| function.owner_decl else blk: {
-        var anon_decl = try block.startAnonDecl();
+        var anon_decl = try block.startAnonDecl(); // TODO: export value without Decl
         defer anon_decl.deinit();
         break :blk try anon_decl.finish(operand.ty, operand.val, .none);
     };
@@ -13155,7 +13155,8 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.fail(block, operand_src, "file path name cannot be empty", .{});
     }
 
-    const embed_file = mod.embedFile(block.getFileScope(mod), name) catch |err| switch (err) {
+    const src_loc = operand_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+    const val = mod.embedFile(block.getFileScope(mod), name, src_loc) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
@@ -13166,30 +13167,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         },
     };
 
-    var anon_decl = try block.startAnonDecl();
-    defer anon_decl.deinit();
-
-    // TODO instead of using `.bytes`, create a new value tag for pointing at
-    // a `*Module.EmbedFile`. The purpose of this would be:
-    // - If only the length is read and the bytes are not inspected by comptime code,
-    //   there can be an optimization where the codegen backend does a copy_file_range
-    //   into the final binary, and never loads the data into memory.
-    // - When a Decl is destroyed, it can free the `*Module.EmbedFile`.
-    const ty = try mod.arrayType(.{
-        .len = embed_file.bytes.len,
-        .sentinel = .zero_u8,
-        .child = .u8_type,
-    });
-    embed_file.owner_decl = try anon_decl.finish(
-        ty,
-        (try mod.intern(.{ .aggregate = .{
-            .ty = ty.toIntern(),
-            .storage = .{ .bytes = embed_file.bytes },
-        } })).toValue(),
-        .none, // default alignment
-    );
-
-    return sema.analyzeDeclRef(embed_file.owner_decl);
+    return Air.internedToRef(val);
 }
 
 fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
