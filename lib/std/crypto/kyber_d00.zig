@@ -1667,8 +1667,6 @@ test "Test happy flow" {
 const sha2 = crypto.hash.sha2;
 
 test "NIST KAT test" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (.{
         .{ Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547" },
         .{ Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5" },

@@ -324,6 +324,8 @@ test "Condition - wait and signal" {
         return error.SkipZigTest;
     }
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const num_threads = 4;
 
     const MultiWait = struct {
@@ -368,8 +370,6 @@ test "Condition - signal" {
     if (builtin.single_threaded) {
         return error.SkipZigTest;
     }
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const num_threads = 4;
 

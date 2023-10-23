@@ -174,8 +174,6 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
 // https://tools.ietf.org/rfc/rfc1952.txt length=25037 bytes
 // SHA256=164ef0897b4cbec63abf1b57f069f3599bd0fb7c72c2a4dee21bd7e03ec9af67
 test "compressed data" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testReader(
         @embedFile("testdata/rfc1952.txt.gz"),
         @embedFile("testdata/rfc1952.txt"),

@@ -76,9 +76,6 @@ fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
 }
 
 test "subtf3" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .bmi, .lzcnt })) return error.SkipZigTest;
-
     // qNaN - any = qNaN
     try test__subtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 

@@ -494,6 +494,12 @@ pub const Inst = struct {
         mull,
         /// Multiply packed signed integers and store high result
         mulh,
+        /// Shift packed data left logical
+        sll,
+        /// Shift packed data right arithmetic
+        sra,
+        /// Shift packed data right logical
+        srl,
         /// Subtract packed signed integers with signed saturation
         subs,
         /// Subtract packed unsigned integers with unsigned saturation
@@ -592,15 +598,13 @@ pub const Inst = struct {
         movdqu,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
+        /// Shuffle packed doublewords
+        /// Shuffle packed words
         shuf,
         /// Shuffle packed high words
         shufh,
         /// Shuffle packed low words
         shufl,
-        /// Shift packed data right logical
-        /// Shift packed data right logical
-        /// Shift packed data right logical
-        srl,
         /// Unpack high data
         unpckhbw,
         /// Unpack high data
@@ -625,6 +629,9 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Packed align right
+        alignr,
+
         /// Pack with unsigned saturation
         ackusd,
         /// Blend packed single-precision floating-point values
@@ -647,6 +654,29 @@ pub const Inst = struct {
         /// Round packed double-precision floating-point values
         /// Round scalar double-precision floating-point value
         round,
+
+        /// Carry-less multiplication quadword
+        clmulq,
+
+        /// Perform one round of an AES decryption flow
+        aesdec,
+        /// Perform last round of an AES decryption flow
+        aesdeclast,
+        /// Perform one round of an AES encryption flow
+        aesenc,
+        /// Perform last round of an AES encryption flow
+        aesenclast,
+        /// Perform the AES InvMixColumn transformation
+        aesimc,
+        /// AES round key generation assist
+        aeskeygenassist,
+
+        /// Perform an intermediate calculation for the next four SHA256 message dwords
+        sha256msg1,
+        /// Perform a final calculation for the next four SHA256 message dwords
+        sha256msg2,
+        /// Perform two rounds of SHA256 operation
+        sha256rnds2,
 
         /// Load with broadcast floating-point data
         broadcast,

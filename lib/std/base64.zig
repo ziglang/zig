@@ -363,8 +363,6 @@ test "base64" {
 }
 
 test "base64 padding dest overflow" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const input = "foo";
 
     var expect: [128]u8 = undefined;

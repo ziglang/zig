@@ -476,8 +476,6 @@ test "ghash2" {
 }
 
 test "polyval" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const key = [_]u8{0x42} ** 16;
     const m = [_]u8{0x69} ** 256;
 

@@ -71,8 +71,6 @@ test "big.int set negative minimum" {
 }
 
 test "big.int set double-width maximum then zero" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
     defer a.deinit();
     try a.set(@as(DoubleLimb, 0));

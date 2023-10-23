@@ -1007,8 +1007,6 @@ test "cache file and then recall it" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1074,8 +1072,6 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1151,8 +1147,6 @@ test "no file inputs" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1200,8 +1194,6 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

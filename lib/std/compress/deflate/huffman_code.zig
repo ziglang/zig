@@ -360,8 +360,6 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
 }
 
 test "generate a Huffman code from an array of frequencies" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var freqs: [19]u16 = [_]u16{
         8, // 0
         1, // 1
