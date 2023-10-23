@@ -1318,15 +1318,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
             for (self.base.options.system_libs.keys()) |link_lib| {
-                test_path.clearRetainingCapacity();
-                const sep = fs.path.sep_str;
-                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                    lib_dir_path, link_lib,
-                });
-                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
+                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                    continue;
                 _ = try rpath_table.put(lib_dir_path, {});
             }
         }
@@ -1892,7 +1885,7 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
 fn accessLibPath(
     self: *Elf,
     test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    checked_paths: ?*std.ArrayList([]const u8),
     lib_dir_path: []const u8,
     lib_name: []const u8,
     link_mode: ?std.builtin.LinkMode,
@@ -1909,7 +1902,9 @@ fn accessLibPath(
             .Dynamic => target.dynamicLibSuffix(),
         } else "",
     });
-    try checked_paths.append(try self.base.allocator.dupe(u8, test_path.items));
+    if (checked_paths) |cpaths| {
+        try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
+    }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
@@ -2543,19 +2538,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (self.base.options.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(self.base.allocator);
-            defer test_path.deinit();
+            var test_path = std.ArrayList(u8).init(arena);
             for (self.base.options.lib_dirs) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
-                    test_path.clearRetainingCapacity();
-                    const sep = fs.path.sep_str;
-                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                        lib_dir_path, link_lib,
-                    });
-                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                        error.FileNotFound => continue,
-                        else => |e| return e,
-                    };
+                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                        continue;
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
