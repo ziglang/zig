@@ -1054,6 +1054,7 @@ pub fn genTypedValue(
             const payload_type = typed_value.ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
+                const err_int_ty = try mod.errorIntType();
                 switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
                     .err_name => |err_name| return genTypedValue(bin_file, src_loc, .{
                         .ty = err_type,
@@ -1063,8 +1064,8 @@ pub fn genTypedValue(
                         } })).toValue(),
                     }, owner_decl_index),
                     .payload => return genTypedValue(bin_file, src_loc, .{
-                        .ty = Type.err_int,
-                        .val = try mod.intValue(Type.err_int, 0),
+                        .ty = err_int_ty,
+                        .val = try mod.intValue(err_int_ty, 0),
                     }, owner_decl_index),
                 }
             }

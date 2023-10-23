@@ -739,6 +739,7 @@ pub const InitOptions = struct {
     pdb_source_path: ?[]const u8 = null,
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
+    error_limit: ?Module.ErrorInt = null,
 };
 
 fn addModuleTableToCacheHash(
@@ -1432,6 +1433,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
                 .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
+                .error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1),
             };
             try module.init();
 
@@ -2486,6 +2488,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.bin_file.options.skip_linker_dependencies);
         man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
         man.hash.add(mod.emit_h != null);
+        man.hash.add(mod.error_limit);
     }
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);
@@ -2866,6 +2869,10 @@ pub fn totalErrorCount(self: *Compilation) u32 {
                 }
             }
         }
+
+        if (module.global_error_set.entries.len - 1 > module.error_limit) {
+            total += 1;
+        }
     }
 
     // The "no entry point found" error only counts if there are no semantic analysis errors.
@@ -3015,6 +3022,22 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }
         for (module.failed_exports.values()) |value| {
             try addModuleErrorMsg(module, &bundle, value.*);
+        }
+
+        const actual_error_count = module.global_error_set.entries.len - 1;
+        if (actual_error_count > module.error_limit) {
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.printString("module used more errors than possible: used {d}, max {d}", .{
+                    actual_error_count, module.error_limit,
+                }),
+                .notes_len = 1,
+            });
+            const notes_start = try bundle.reserveNotes(1);
+            bundle.extra.items[notes_start] = @intFromEnum(try bundle.addErrorMessage(.{
+                .msg = try bundle.printString("use '--error-limit {d}' to increase limit", .{
+                    actual_error_count,
+                }),
+            }));
         }
     }
 

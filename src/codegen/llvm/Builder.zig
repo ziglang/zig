@@ -159,7 +159,6 @@ pub const Type = enum(u32) {
     none = std.math.maxInt(u32),
     _,
 
-    pub const err_int = Type.i16;
     pub const ptr_amdgpu_constant =
         @field(Type, std.fmt.comptimePrint("ptr{ }", .{AddrSpace.amdgpu.constant}));
 

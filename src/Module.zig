@@ -137,6 +137,9 @@ deletion_set: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
 
+/// Maximum amount of distinct error values, set by --error-limit
+error_limit: ErrorInt,
+
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
 /// previous analysis.
@@ -5020,6 +5023,11 @@ pub fn getErrorValueFromSlice(
     return getErrorValue(mod, interned_name);
 }
 
+pub fn errorSetBits(mod: *Module) u16 {
+    if (mod.error_limit == 0) return 0;
+    return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
+}
+
 pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
     const src_decl = mod.declPtr(block.src_decl);
     return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, block.wip_capture_scope, typed_value);
@@ -5896,6 +5904,10 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
         .signedness = signedness,
         .bits = bits,
     } })).toType();
+}
+
+pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
+    return mod.intType(.unsigned, mod.errorSetBits());
 }
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {

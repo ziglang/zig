@@ -1038,6 +1038,7 @@ pub const DeclGen = struct {
             .error_union => |error_union| {
                 const payload_ty = ty.errorUnionPayload(mod);
                 const error_ty = ty.errorUnionSet(mod);
+                const err_int_ty = try mod.errorIntType();
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     switch (error_union.val) {
                         .err_name => |err_name| return dg.renderValue(
@@ -1051,8 +1052,8 @@ pub const DeclGen = struct {
                         ),
                         .payload => return dg.renderValue(
                             writer,
-                            Type.err_int,
-                            try mod.intValue(Type.err_int, 0),
+                            err_int_ty,
+                            try mod.intValue(err_int_ty, 0),
                             location,
                         ),
                     }
@@ -1087,8 +1088,8 @@ pub const DeclGen = struct {
                     ),
                     .payload => try dg.renderValue(
                         writer,
-                        Type.err_int,
-                        try mod.intValue(Type.err_int, 0),
+                        err_int_ty,
+                        try mod.intValue(err_int_ty, 0),
                         location,
                     ),
                 }
@@ -1244,7 +1245,7 @@ pub const DeclGen = struct {
                     payload_ty,
                     switch (opt.val) {
                         .none => switch (payload_ty.zigTypeTag(mod)) {
-                            .ErrorSet => try mod.intValue(Type.err_int, 0),
+                            .ErrorSet => try mod.intValue(try mod.errorIntType(), 0),
                             .Pointer => try mod.getCoerced(val, payload_ty),
                             else => unreachable,
                         },
@@ -5196,6 +5197,7 @@ fn airIsNull(
     const operand_ty = f.typeOf(un_op);
     const optional_ty = if (is_ptr) operand_ty.childType(mod) else operand_ty;
     const payload_ty = optional_ty.optionalChild(mod);
+    const err_int_ty = try mod.errorIntType();
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod))
         TypedValue{ .ty = Type.bool, .val = Value.true }
@@ -5203,7 +5205,7 @@ fn airIsNull(
         // operand is a regular pointer, test `operand !=/== NULL`
         TypedValue{ .ty = optional_ty, .val = try mod.getCoerced(Value.null, optional_ty) }
     else if (payload_ty.zigTypeTag(mod) == .ErrorSet)
-        TypedValue{ .ty = Type.err_int, .val = try mod.intValue(Type.err_int, 0) }
+        TypedValue{ .ty = err_int_ty, .val = try mod.intValue(err_int_ty, 0) }
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(mod);
@@ -5689,8 +5691,10 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValueDerefMember(writer, operand, .{ .identifier = "error" })
             else
                 try f.writeCValueMember(writer, operand, .{ .identifier = "error" })
-        else
-            try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Initializer);
+        else {
+            const err_int_ty = try mod.errorIntType();
+            try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Initializer);
+        }
     }
     try writer.writeAll(";\n");
     return local;
@@ -5811,12 +5815,13 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const error_union_ty = f.typeOf(ty_op.operand).childType(mod);
 
     const payload_ty = error_union_ty.errorUnionPayload(mod);
+    const err_int_ty = try mod.errorIntType();
 
     // First, set the non-error value.
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try f.writeCValueDeref(writer, operand);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
+        try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Other);
         try writer.writeAll(";\n ");
 
         return operand;
@@ -5824,7 +5829,7 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ty_op.operand});
     try f.writeCValueDeref(writer, operand);
     try writer.writeAll(".error = ");
-    try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
+    try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Other);
     try writer.writeAll(";\n");
 
     // Then return the payload pointer (only if it is used)
@@ -5880,7 +5885,8 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
         else
             try f.writeCValueMember(writer, local, .{ .identifier = "error" });
         try a.assign(f, writer);
-        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
+        const err_int_ty = try mod.errorIntType();
+        try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Other);
         try a.end(f, writer);
     }
     return local;
@@ -5902,6 +5908,7 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
 
+    const err_int_ty = try mod.errorIntType();
     if (!error_ty.errorSetIsEmpty(mod))
         if (payload_ty.hasRuntimeBits(mod))
             if (is_ptr)
@@ -5911,11 +5918,11 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
         else
             try f.writeCValue(writer, operand, .Other)
     else
-        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
+        try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Other);
     try writer.writeByte(' ');
     try writer.writeAll(operator);
     try writer.writeByte(' ');
-    try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
+    try f.object.dg.renderValue(writer, err_int_ty, try mod.intValue(err_int_ty, 0), .Other);
     try writer.writeAll(";\n");
     return local;
 }
