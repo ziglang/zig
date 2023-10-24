@@ -99,6 +99,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnresolved(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
@@ -2783,6 +2784,44 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testUnresolved(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved", opts);
+
+    const obj1 = addObject(b, "a", opts);
+    addCSourceBytes(obj1,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar() {
+        \\  return foo() + 1;
+        \\}
+    , &.{"-ffunction-sections"});
+    obj1.linkLibC();
+
+    const obj2 = addObject(b, "b", opts);
+    addCSourceBytes(obj2,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar();
+        \\int main() {
+        \\  return foo() + bar();
+        \\}
+    , &.{"-ffunction-sections"});
+    obj2.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    exe.addObject(obj1);
+    exe.addObject(obj2);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, &.{
+        "error: undefined symbol: foo",
+        "note: referenced by /?/a.o:.text.bar",
+        "note: referenced by /?/b.o:.text.main",
+    });
+
+    return test_step;
+}
+
 fn testWeakExports(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "weak-exports", opts);
 
@@ -3079,6 +3118,12 @@ fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
     const file = WriteFile.create(b).add("a.s", actual_bytes);
     comp.addAssemblyFile(file);
+}
+
+fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: []const []const u8) void {
+    comp.expect_errors = expected_errors;
+    const bin_file = comp.getEmittedBin();
+    bin_file.addStepDependencies(test_step);
 }
 
 const std = @import("std");
