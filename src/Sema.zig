@@ -5466,19 +5466,24 @@ fn addStrLitNoAlias(sema: *Sema, bytes: []const u8) CompileError!Air.Inst.Ref {
         .ty = array_ty.toIntern(),
         .storage = .{ .bytes = bytes },
     } });
-    const ptr_ty = try sema.ptrType(.{
-        .child = array_ty.toIntern(),
+    return anonDeclRef(sema, val);
+}
+
+fn anonDeclRef(sema: *Sema, val: InternPool.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const ptr_ty = (try sema.ptrType(.{
+        .child = mod.intern_pool.typeOf(val),
         .flags = .{
             .alignment = .none,
             .is_const = true,
             .address_space = .generic,
         },
-    });
+    })).toIntern();
     return Air.internedToRef(try mod.intern(.{ .ptr = .{
-        .ty = ptr_ty.toIntern(),
+        .ty = ptr_ty,
         .addr = .{ .anon_decl = .{
             .val = val,
-            .orig_ty = ptr_ty.toIntern(),
+            .orig_ty = ptr_ty,
         } },
     } }));
 }
@@ -10740,7 +10745,7 @@ const SwitchProngAnalysis = struct {
                     return block.addStructFieldVal(spa.operand, field_index, field_ty);
                 }
             } else if (capture_byref) {
-                return sema.addConstantMaybeRef(block, operand_ty, item_val, true);
+                return anonDeclRef(sema, item_val.toIntern());
             } else {
                 return inline_case_capture;
             }
@@ -13765,10 +13770,10 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const coerced_elem_val = try sema.resolveConstValue(block, .unneeded, coerced_elem_val_inst, undefined);
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
-            return sema.addConstantMaybeRef(block, result_ty, (try mod.intern(.{ .aggregate = .{
+            return sema.addConstantMaybeRef(try mod.intern(.{ .aggregate = .{
                 .ty = result_ty.toIntern(),
                 .storage = .{ .elems = element_vals },
-            } })).toValue(), ptr_addrspace != null);
+            } }), ptr_addrspace != null);
         } else break :rs rhs_src;
     } else lhs_src;
 
@@ -14034,7 +14039,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .storage = .{ .elems = element_vals },
             } });
         };
-        return sema.addConstantMaybeRef(block, result_ty, val.toValue(), ptr_addrspace != null);
+        return sema.addConstantMaybeRef(val, ptr_addrspace != null);
     }
 
     try sema.requireRuntimeBlock(block, src, lhs_src);
@@ -19022,10 +19027,7 @@ fn zirStructInitEmptyResult(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is
 
     if (is_byref) {
         const init_val = (try sema.resolveValue(init_ref)).?;
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        const decl = try anon_decl.finish(init_ty, init_val, .none);
-        return sema.analyzeDeclRef(decl);
+        return anonDeclRef(sema, init_val.toIntern());
     } else {
         return init_ref;
     }
@@ -19248,7 +19250,7 @@ fn zirStructInit(
             } })).toValue();
             const final_val_inst = try sema.coerce(block, result_ty, Air.internedToRef(struct_val.toIntern()), src);
             const final_val = (try sema.resolveValue(final_val_inst)).?;
-            return sema.addConstantMaybeRef(block, resolved_ty, final_val, is_ref);
+            return sema.addConstantMaybeRef(final_val.toIntern(), is_ref);
         }
 
         if (try sema.typeRequiresComptime(resolved_ty)) {
@@ -19408,7 +19410,7 @@ fn finishStructInit(
         } });
         const final_val_inst = try sema.coerce(block, result_ty, Air.internedToRef(struct_val), init_src);
         const final_val = (try sema.resolveValue(final_val_inst)).?;
-        return sema.addConstantMaybeRef(block, result_ty, final_val, is_ref);
+        return sema.addConstantMaybeRef(final_val.toIntern(), is_ref);
     };
 
     if (try sema.typeRequiresComptime(struct_ty)) {
@@ -19561,7 +19563,7 @@ fn structInitAnon(
             .ty = tuple_ty,
             .storage = .{ .elems = values },
         } });
-        return sema.addConstantMaybeRef(block, tuple_ty.toType(), tuple_val.toValue(), is_ref);
+        return sema.addConstantMaybeRef(tuple_val, is_ref);
     };
 
     sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
@@ -19727,7 +19729,8 @@ fn zirArrayInit(
             .storage = .{ .elems = elem_vals },
         } });
         const result_ref = try sema.coerce(block, result_ty, Air.internedToRef(arr_val), src);
-        return sema.addConstantMaybeRef(block, result_ty, (try sema.resolveValue(result_ref)).?, is_ref);
+        const result_val = (try sema.resolveValue(result_ref)).?;
+        return sema.addConstantMaybeRef(result_val.toIntern(), is_ref);
     };
 
     sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
@@ -19846,7 +19849,7 @@ fn arrayInitAnon(
             .ty = tuple_ty,
             .storage = .{ .elems = values },
         } });
-        return sema.addConstantMaybeRef(block, tuple_ty.toType(), tuple_val.toValue(), is_ref);
+        return sema.addConstantMaybeRef(tuple_val, is_ref);
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
@@ -19881,23 +19884,8 @@ fn arrayInitAnon(
     return block.addAggregateInit(tuple_ty.toType(), element_refs);
 }
 
-fn addConstantMaybeRef(
-    sema: *Sema,
-    block: *Block,
-    ty: Type,
-    val: Value,
-    is_ref: bool,
-) !Air.Inst.Ref {
-    if (!is_ref) return Air.internedToRef(val.toIntern());
-
-    var anon_decl = try block.startAnonDecl();
-    defer anon_decl.deinit();
-    const decl = try anon_decl.finish(
-        ty,
-        val,
-        .none, // default alignment
-    );
-    return sema.analyzeDeclRef(decl);
+fn addConstantMaybeRef(sema: *Sema, val: InternPool.Index, is_ref: bool) !Air.Inst.Ref {
+    return if (is_ref) anonDeclRef(sema, val) else Air.internedToRef(val);
 }
 
 fn zirFieldTypeRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
