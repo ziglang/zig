@@ -414,7 +414,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -633,7 +632,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -741,7 +739,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -1103,7 +1100,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1461,7 +1457,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1681,7 +1676,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -2217,7 +2211,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2560,7 +2553,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2754,7 +2746,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,

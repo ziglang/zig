@@ -772,17 +772,12 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         writer: anytype,
         ty: Type,
-        arg_val: Value,
+        val: Value,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const mod = dg.module;
         const ip = &mod.intern_pool;
 
-        var val = arg_val;
-        switch (ip.indexToKey(val.ip_index)) {
-            .runtime_value => |rt| val = rt.val.toValue(),
-            else => {},
-        }
         const target = mod.getTarget();
         const initializer_type: ValueRenderLocation = switch (location) {
             .StaticInitializer => .StaticInitializer,
@@ -1005,7 +1000,7 @@ pub const DeclGen = struct {
             .memoized_call,
             => unreachable,
 
-            .undef, .runtime_value => unreachable, // handled above
+            .undef => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {
                 // non-runtime values
                 .undefined => unreachable,

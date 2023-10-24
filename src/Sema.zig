@@ -2071,25 +2071,18 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
     try block.instructions.insertSlice(gpa, last_arg_index, err_trace_block.instructions.items);
 }
 
-/// May return Value Tags: `variable`, `undef`.
-/// See `resolveConstValue` for an alternative.
-/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
-fn resolveValue(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    air_ref: Air.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!Value {
-    if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
-        if (val.isGenericPoison()) return error.GenericPoison;
-        return val;
-    }
-    return sema.failWithNeededComptime(block, src, reason);
+/// Return the Value corresponding to a given AIR ref, or `null` if it
+/// refers to a runtime value.
+/// InternPool key `variable` is considered a runtime value.
+/// Generic poison causes `error.GenericPoison` to be returned.
+fn resolveMaybeUndefVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
+    const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
+    if (val.isGenericPoison()) return error.GenericPoison;
+    if (sema.mod.intern_pool.isVariable(val.toIntern())) return null;
+    return val;
 }
 
-/// Value Tag `variable` will cause a compile error.
-/// Value Tag `undef` may be returned.
+/// Like `resolveMaybeUndefVal`, but emits an error if the value is not comptime-known.
 fn resolveConstMaybeUndefVal(
     sema: *Sema,
     block: *Block,
@@ -2097,17 +2090,12 @@ fn resolveConstMaybeUndefVal(
     inst: Air.Inst.Ref,
     reason: NeededComptimeReason,
 ) CompileError!Value {
-    if (try sema.resolveMaybeUndefValAllowVariables(inst)) |val| {
-        if (val.isGenericPoison()) return error.GenericPoison;
-        if (sema.mod.intern_pool.isVariable(val.toIntern()))
-            return sema.failWithNeededComptime(block, src, reason);
-        return val;
-    }
-    return sema.failWithNeededComptime(block, src, reason);
+    return try sema.resolveMaybeUndefVal(inst) orelse {
+        return sema.failWithNeededComptime(block, src, reason);
+    };
 }
 
-/// Will not return Value Tags: `variable`, `undef`. Instead they will emit compile errors.
-/// See `resolveValue` for an alternative.
+/// Like `resolveMaybeUndefVal`, but emits an error if the value is not comptime-known or is undefined.
 fn resolveConstValue(
     sema: *Sema,
     block: *Block,
@@ -2115,30 +2103,12 @@ fn resolveConstValue(
     air_ref: Air.Inst.Ref,
     reason: NeededComptimeReason,
 ) CompileError!Value {
-    if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
-        if (val.isGenericPoison()) return error.GenericPoison;
-        if (val.isUndef(sema.mod)) return sema.failWithUseOfUndef(block, src);
-        if (sema.mod.intern_pool.isVariable(val.toIntern()))
-            return sema.failWithNeededComptime(block, src, reason);
-        return val;
-    }
-    return sema.failWithNeededComptime(block, src, reason);
+    const val = try sema.resolveConstMaybeUndefVal(block, src, air_ref, reason);
+    if (val.isUndef(sema.mod)) return sema.failWithUseOfUndef(block, src);
+    return val;
 }
 
-/// Will not return Value Tags: `variable`, `undef`. Instead they will emit compile errors.
-/// Lazy values are recursively resolved.
-fn resolveConstLazyValue(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    air_ref: Air.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!Value {
-    return sema.resolveLazyValue(try sema.resolveConstValue(block, src, air_ref, reason));
-}
-
-/// Value Tag `variable` causes this function to return `null`.
-/// Value Tag `undef` causes this function to return a compile error.
+/// Like `resolveMaybeUndefVal`, but emits an error if the value is comptime-known to be undefined.
 fn resolveDefinedValue(
     sema: *Sema,
     block: *Block,
@@ -2146,44 +2116,24 @@ fn resolveDefinedValue(
     air_ref: Air.Inst.Ref,
 ) CompileError!?Value {
     const mod = sema.mod;
-    if (try sema.resolveMaybeUndefVal(air_ref)) |val| {
-        if (val.isUndef(mod)) {
-            if (block.is_typeof) return null;
-            return sema.failWithUseOfUndef(block, src);
-        }
-        return val;
+    const val = try sema.resolveMaybeUndefVal(air_ref) orelse return null;
+    if (val.isUndef(mod)) {
+        if (block.is_typeof) return null;
+        return sema.failWithUseOfUndef(block, src);
     }
-    return null;
-}
-
-/// Value Tag `variable` causes this function to return `null`.
-/// Value Tag `undef` causes this function to return the Value.
-/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
-fn resolveMaybeUndefVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
-    if (val.isGenericPoison()) return error.GenericPoison;
-    if (val.ip_index != .none and sema.mod.intern_pool.isVariable(val.toIntern())) return null;
     return val;
 }
 
-/// Value Tag `variable` causes this function to return `null`.
-/// Value Tag `undef` causes this function to return the Value.
-/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
-/// Lazy values are recursively resolved.
+/// Like `resolveMaybeUndefVal`, but recursively resolves lazy values.
 fn resolveMaybeUndefLazyVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     return try sema.resolveLazyValue((try sema.resolveMaybeUndefVal(inst)) orelse return null);
 }
 
-/// Value Tag `variable` results in `null`.
-/// Value Tag `undef` results in the Value.
-/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
-/// Value Tag `decl_ref` and `decl_ref_mut` or any nested such value results in `null`.
+/// Like `resolveMaybeUndefVal`, but any pointer value which does not correspond
+/// to a comptime-known integer (e.g. a decl pointer) returns `null`.
 /// Lazy values are recursively resolved.
 fn resolveMaybeUndefValIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
-    if (val.isGenericPoison()) return error.GenericPoison;
-    if (val.ip_index == .none) return val;
-    if (sema.mod.intern_pool.isVariable(val.toIntern())) return null;
+    const val = (try sema.resolveMaybeUndefVal(inst)) orelse return null;
     if (sema.mod.intern_pool.getBackingAddrTag(val.toIntern())) |addr| switch (addr) {
         .decl, .anon_decl, .mut_decl, .comptime_field => return null,
         .int => {},
@@ -2192,22 +2142,8 @@ fn resolveMaybeUndefValIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Va
     return try sema.resolveLazyValue(val);
 }
 
-/// Returns all Value tags including `variable` and `undef`.
+/// Returns all InternPool keys representing values, including `variable`, `undef`, and `generic_poison`.
 fn resolveMaybeUndefValAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    var make_runtime = false;
-    if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(inst, &make_runtime)) |val| {
-        if (make_runtime) return null;
-        return val;
-    }
-    return null;
-}
-
-/// Returns all Value tags including `variable`, `undef` and `runtime_value`.
-fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
-    sema: *Sema,
-    inst: Air.Inst.Ref,
-    make_runtime: *bool,
-) CompileError!?Value {
     assert(inst != .none);
     // First section of indexes correspond to a set number of constant values.
     if (@intFromEnum(inst) < InternPool.static_len) {
@@ -2230,9 +2166,45 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
         }
     };
     const val = ip_index.toValue();
-    if (val.isRuntimeValue(sema.mod)) make_runtime.* = true;
-    if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
+    if (val.isPtrToThreadLocal(sema.mod)) return null;
     return val;
+}
+
+/// Returns a compile error if the value has tag `variable`. See `resolveInstValue` for
+/// a function that does not.
+pub fn resolveInstConst(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    reason: NeededComptimeReason,
+) CompileError!TypedValue {
+    const air_ref = try sema.resolveInst(zir_ref);
+    const val = try sema.resolveConstValue(block, src, air_ref, reason);
+    return .{
+        .ty = sema.typeOf(air_ref),
+        .val = val,
+    };
+}
+
+/// Value Tag may be `undef` or `variable`.
+/// See `resolveInstConst` for an alternative.
+pub fn resolveInstValueAllowVariables(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    reason: NeededComptimeReason,
+) CompileError!TypedValue {
+    const air_ref = try sema.resolveInst(zir_ref);
+    const val = try sema.resolveMaybeUndefValAllowVariables(air_ref) orelse {
+        return sema.failWithNeededComptime(block, src, reason);
+    };
+    if (val.isGenericPoison()) return error.GenericPoison;
+    return .{
+        .ty = sema.typeOf(air_ref),
+        .val = val,
+    };
 }
 
 fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: NeededComptimeReason) CompileError {
@@ -2670,40 +2642,6 @@ fn analyzeAsInt(
     const coerced = try sema.coerce(block, dest_ty, air_ref, src);
     const val = try sema.resolveConstValue(block, src, coerced, reason);
     return (try val.getUnsignedIntAdvanced(mod, sema)).?;
-}
-
-// Returns a compile error if the value has tag `variable`. See `resolveInstValue` for
-// a function that does not.
-pub fn resolveInstConst(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!TypedValue {
-    const air_ref = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstValue(block, src, air_ref, reason);
-    return TypedValue{
-        .ty = sema.typeOf(air_ref),
-        .val = val,
-    };
-}
-
-// Value Tag may be `undef` or `variable`.
-// See `resolveInstConst` for an alternative.
-pub fn resolveInstValue(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!TypedValue {
-    const air_ref = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveValue(block, src, air_ref, reason);
-    return TypedValue{
-        .ty = sema.typeOf(air_ref),
-        .val = val,
-    };
 }
 
 pub fn getStructType(
@@ -3681,7 +3619,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 else => {
                     const decl_index = ptr_val.pointerDecl(mod) orelse break :implicit_ct;
                     const decl_val = mod.declPtr(decl_index).val.toIntern();
-                    if (mod.intern_pool.isRuntimeValue(decl_val)) break :implicit_ct;
+                    if (mod.intern_pool.isVariable(decl_val)) break :implicit_ct;
                 },
             }
         }
@@ -4637,7 +4575,6 @@ fn validateUnionInit(
     var first_block_index = block.instructions.items.len;
     var block_index = block.instructions.items.len - 1;
     var init_val: ?Value = null;
-    var make_runtime = false;
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
         if (Air.indexToRef(store_inst) == field_ptr_ref) break;
@@ -4659,7 +4596,7 @@ fn validateUnionInit(
             ).?
         else
             block_index, first_block_index);
-        init_val = try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(bin_op.rhs, &make_runtime);
+        init_val = try sema.resolveMaybeUndefVal(bin_op.rhs);
         break;
     }
 
@@ -4693,14 +4630,10 @@ fn validateUnionInit(
         }
         block.instructions.shrinkRetainingCapacity(block_index);
 
-        var union_val = try mod.intern(.{ .un = .{
+        const union_val = try mod.intern(.{ .un = .{
             .ty = union_ty.toIntern(),
             .tag = tag_val.toIntern(),
             .val = val.toIntern(),
-        } });
-        if (make_runtime) union_val = try mod.intern(.{ .runtime_value = .{
-            .ty = union_ty.toIntern(),
-            .val = union_val,
         } });
         const union_init = Air.internedToRef(union_val);
         try sema.storePtr2(block, init_src, union_ptr, init_src, union_init, init_src, .store);
@@ -4830,7 +4763,6 @@ fn validateStructInit(
 
     var struct_is_comptime = true;
     var first_block_index = block.instructions.items.len;
-    var make_runtime = false;
 
     const require_comptime = try sema.typeRequiresComptime(struct_ty);
     const air_tags = sema.air_instructions.items(.tag);
@@ -4898,7 +4830,7 @@ fn validateStructInit(
                     ).?
                 else
                     block_index, first_block_index);
-                if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(bin_op.rhs, &make_runtime)) |val| {
+                if (try sema.resolveMaybeUndefVal(bin_op.rhs)) |val| {
                     field_values[i] = val.toIntern();
                 } else if (require_comptime) {
                     const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
@@ -4989,13 +4921,9 @@ fn validateStructInit(
         }
         block.instructions.shrinkRetainingCapacity(block_index);
 
-        var struct_val = try mod.intern(.{ .aggregate = .{
+        const struct_val = try mod.intern(.{ .aggregate = .{
             .ty = struct_ty.toIntern(),
             .storage = .{ .elems = field_values },
-        } });
-        if (make_runtime) struct_val = try mod.intern(.{ .runtime_value = .{
-            .ty = struct_ty.toIntern(),
-            .val = struct_val,
         } });
         const struct_init = Air.internedToRef(struct_val);
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
@@ -5095,7 +5023,6 @@ fn zirValidatePtrArrayInit(
 
     var array_is_comptime = true;
     var first_block_index = block.instructions.items.len;
-    var make_runtime = false;
 
     // Collect the comptime element values in case the array literal ends up
     // being comptime-known.
@@ -5159,7 +5086,7 @@ fn zirValidatePtrArrayInit(
                 ).?
             else
                 block_index, first_block_index);
-            if (try sema.resolveMaybeUndefValAllowVariablesMaybeRuntime(bin_op.rhs, &make_runtime)) |val| {
+            if (try sema.resolveMaybeUndefVal(bin_op.rhs)) |val| {
                 element_vals[i] = val.toIntern();
             } else {
                 array_is_comptime = false;
@@ -5211,13 +5138,9 @@ fn zirValidatePtrArrayInit(
         }
         block.instructions.shrinkRetainingCapacity(block_index);
 
-        var array_val = try mod.intern(.{ .aggregate = .{
+        const array_val = try mod.intern(.{ .aggregate = .{
             .ty = array_ty.toIntern(),
             .storage = .{ .elems = element_vals },
-        } });
-        if (make_runtime) array_val = try mod.intern(.{ .runtime_value = .{
-            .ty = array_ty.toIntern(),
-            .val = array_val,
         } });
         const array_init = Air.internedToRef(array_val);
         try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
@@ -5452,8 +5375,7 @@ fn storeToInferredAllocComptime(
     const operand_ty = sema.typeOf(operand);
     // There will be only one store_to_inferred_ptr because we are running at comptime.
     // The alloc will turn into a Decl.
-    if (try sema.resolveMaybeUndefValAllowVariables(operand)) |operand_val| store: {
-        if (operand_val.getVariable(sema.mod) != null) break :store;
+    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
         var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
         defer anon_decl.deinit();
         iac.decl_index = try anon_decl.finish(operand_ty, operand_val, iac.alignment);
@@ -12049,7 +11971,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         // `item` is already guaranteed to be constant known.
 
         const analyze_body = if (union_originally) blk: {
-            const item_val = sema.resolveConstLazyValue(block, .unneeded, item, undefined) catch unreachable;
+            const unresolved_item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+            const item_val = sema.resolveLazyValue(unresolved_item_val) catch unreachable;
             const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
@@ -16671,7 +16594,7 @@ fn zirClosureCapture(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         .zir_index = inst,
         .index = block.wip_capture_scope,
     };
-    if (try sema.resolveMaybeUndefValAllowVariables(operand)) |val| {
+    if (try sema.resolveMaybeUndefVal(operand)) |val| {
         try mod.comptime_capture_scopes.put(gpa, key, try val.intern(ty, mod));
     } else {
         try mod.runtime_capture_scopes.put(gpa, key, ty.toIntern());
@@ -36644,7 +36567,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .simple_type, // handled above
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .ptr_decl,
             .ptr_anon_decl,

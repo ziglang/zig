@@ -364,7 +364,6 @@ pub const Value = struct {
             .inferred_error_set_type,
 
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -464,7 +463,6 @@ pub const Value = struct {
             .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .runtime_value => |runtime_value| runtime_value.val.toValue().toBigIntAdvanced(space, mod, opt_sema),
                 .int => |int| switch (int.storage) {
                     .u64, .i64, .big_int => int.storage.toBigInt(space),
                     .lazy_align, .lazy_size => |ty| {
@@ -1655,10 +1653,6 @@ pub const Value = struct {
             .int => |int| int.storage == .lazy_size,
             else => false,
         };
-    }
-
-    pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.isRuntimeValue(val.toIntern());
     }
 
     /// Returns true if a Value is backed by a variable

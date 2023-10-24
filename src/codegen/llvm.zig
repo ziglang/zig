@@ -3560,7 +3560,6 @@ pub const Object = struct {
                 .error_set_type, .inferred_error_set_type => try o.errorIntType(),
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -3672,17 +3671,13 @@ pub const Object = struct {
         const ip = &mod.intern_pool;
         const target = mod.getTarget();
 
-        var val = arg_val.toValue();
-        const arg_val_key = ip.indexToKey(arg_val);
-        switch (arg_val_key) {
-            .runtime_value => |rt| val = rt.val.toValue(),
-            else => {},
-        }
+        const val = arg_val.toValue();
+        const val_key = ip.indexToKey(val.toIntern());
+
         if (val.isUndefDeep(mod)) {
-            return o.builder.undefConst(try o.lowerType(arg_val_key.typeOf().toType()));
+            return o.builder.undefConst(try o.lowerType(val_key.typeOf().toType()));
         }
 
-        const val_key = ip.indexToKey(val.toIntern());
         const ty = val_key.typeOf().toType();
         return switch (val_key) {
             .int_type,
@@ -3703,7 +3698,7 @@ pub const Object = struct {
             .inferred_error_set_type,
             => unreachable, // types, not values
 
-            .undef, .runtime_value => unreachable, // handled above
+            .undef => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {
                 .undefined,
                 .void,

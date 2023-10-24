@@ -167,11 +167,7 @@ pub fn generateSymbol(
 
     const mod = bin_file.options.module.?;
     const ip = &mod.intern_pool;
-    var typed_value = arg_tv;
-    switch (ip.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
@@ -206,7 +202,7 @@ pub fn generateSymbol(
         .inferred_error_set_type,
         => unreachable, // types, not values
 
-        .undef, .runtime_value => unreachable, // handled above
+        .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
             .undefined,
             .void,
@@ -970,11 +966,7 @@ pub fn genTypedValue(
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
-    var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     log.debug("genTypedValue: ty = {}, val = {}", .{
         typed_value.ty.fmt(mod),
