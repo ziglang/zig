@@ -158,8 +158,6 @@ fn testRandomEnumValue() !void {
 }
 
 test "Random intLessThan" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(10000);
     try testRandomIntLessThan();
     try comptime testRandomIntLessThan();

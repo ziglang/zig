@@ -102,7 +102,7 @@ pub const Instruction = struct {
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
                 .mem => |mem| switch (mem) {
                     .rip => |rip| {
-                        try writer.print("{s} ptr [rip", .{@tagName(rip.ptr_size)});
+                        try writer.print("{} [rip", .{rip.ptr_size});
                         if (rip.disp != 0) try writer.print(" {c} 0x{x}", .{
                             @as(u8, if (rip.disp < 0) '-' else '+'),
                             @abs(rip.disp),
@@ -110,7 +110,7 @@ pub const Instruction = struct {
                         try writer.writeByte(']');
                     },
                     .sib => |sib| {
-                        try writer.print("{s} ptr ", .{@tagName(sib.ptr_size)});
+                        try writer.print("{} ", .{sib.ptr_size});
 
                         if (mem.isSegmentRegister()) {
                             return writer.print("{s}:0x{x}", .{ @tagName(sib.base.reg), sib.disp });
@@ -222,7 +222,7 @@ pub const Instruction = struct {
         }
 
         switch (data.op_en) {
-            .np, .o => {},
+            .zo, .o => {},
             .i, .d => try encodeImm(inst.ops[0].imm, data.ops[0], encoder),
             .zi, .oi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
             .fd => try encoder.imm64(inst.ops[1].mem.moffs.offset),
@@ -300,7 +300,7 @@ pub const Instruction = struct {
         }
 
         const segment_override: ?Register = switch (op_en) {
-            .i, .zi, .o, .oi, .d, .np => null,
+            .zo, .i, .zi, .o, .oi, .d => null,
             .fd => inst.ops[1].mem.base().reg,
             .td => inst.ops[0].mem.base().reg,
             .rm, .rmi, .rm0 => if (inst.ops[1].isSegmentRegister())
@@ -336,7 +336,7 @@ pub const Instruction = struct {
         rex.w = inst.encoding.data.mode == .long;
 
         switch (op_en) {
-            .np, .i, .zi, .fd, .td, .d => {},
+            .zo, .i, .zi, .fd, .td, .d => {},
             .o, .oi => rex.b = inst.ops[0].reg.isExtended(),
             .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0 => {
                 const r_op = switch (op_en) {
@@ -370,7 +370,7 @@ pub const Instruction = struct {
         vex.w = inst.encoding.data.mode.isLong();
 
         switch (op_en) {
-            .np, .i, .zi, .fd, .td, .d => {},
+            .zo, .i, .zi, .fd, .td, .d => {},
             .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
             .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr => {
                 const r_op = switch (op_en) {

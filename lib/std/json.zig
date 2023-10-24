@@ -24,8 +24,6 @@ test Scanner {
 }
 
 test parseFromSlice {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var parsed_str = try parseFromSlice([]const u8, testing.allocator, "\"a\\u0020b\"", .{});
     defer parsed_str.deinit();
     try testing.expectEqualSlices(u8, "a b", parsed_str.value);
@@ -44,8 +42,6 @@ test Value {
 }
 
 test writeStream {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out = ArrayList(u8).init(testing.allocator);
     defer out.deinit();
     var write_stream = writeStream(out.writer(), .{ .whitespace = .indent_2 });

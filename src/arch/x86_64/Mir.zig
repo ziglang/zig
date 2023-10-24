@@ -394,8 +394,12 @@ pub const Inst = struct {
         pop,
         /// Return the count of number of bits set to 1
         popcnt,
+        /// Pop stack into EFLAGS register
+        popfq,
         /// Push
         push,
+        /// Push EFLAGS register onto the stack
+        pushfq,
         /// Rotate left through carry
         /// Rotate right through carry
         rc,
@@ -458,8 +462,14 @@ pub const Inst = struct {
         istt,
         /// Load floating-point value
         ld,
+        /// Load x87 FPU environment
+        ldenv,
+        /// Store x87 FPU environment
+        nstenv,
         /// Store floating-point value
         st,
+        /// Store x87 FPU environment
+        stenv,
 
         /// Pack with signed saturation
         ackssw,
@@ -504,6 +514,11 @@ pub const Inst = struct {
         subs,
         /// Subtract packed unsigned integers with unsigned saturation
         subus,
+
+        /// Load MXCSR register
+        ldmxcsr,
+        /// Store MXCSR register state
+        stmxcsr,
 
         /// Convert packed doubleword integers to packed single-precision floating-point values
         /// Convert packed doubleword integers to packed double-precision floating-point values
@@ -1079,8 +1094,12 @@ pub const RegisterList = struct {
         return self.bitset.iterator(options);
     }
 
-    pub fn count(self: Self) u32 {
+    pub fn count(self: Self) i32 {
         return @intCast(self.bitset.count());
+    }
+
+    pub fn size(self: Self) i32 {
+        return @intCast(self.bitset.count() * 8);
     }
 };
 

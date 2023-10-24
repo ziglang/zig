@@ -671,8 +671,8 @@ pub const StackIterator = struct {
             if (self.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
+                    defer self.fp = unwind_state.dwarf_context.getFp() catch 0;
                     if (self.next_unwind()) |return_address| {
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;

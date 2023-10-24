@@ -791,8 +791,6 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
 }
 
 test "CrossTarget.parse" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.isGnuLibC()) {
         var cross_target = try CrossTarget.parse(.{});
         cross_target.setGnuLibCVersion(2, 1, 1);

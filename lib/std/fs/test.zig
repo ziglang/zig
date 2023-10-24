@@ -1604,8 +1604,6 @@ test "File.Permissions" {
     if (builtin.os.tag == .wasi)
         return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1631,8 +1629,6 @@ test "File.Permissions" {
 test "File.PermissionsUnix" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

@@ -95,8 +95,6 @@ pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
 }
 
 test "escape invalid identifiers" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expectFmt = std.testing.expectFmt;
     try expectFmt("@\"while\"", "{}", .{fmtId("while")});
     try expectFmt("hello", "{}", .{fmtId("hello")});

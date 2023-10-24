@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const crypto = std.crypto;
 
 const IdentityElementError = crypto.errors.IdentityElementError;
@@ -112,8 +111,6 @@ pub const Curve25519 = struct {
 };
 
 test "curve25519" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var s = [32]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8 };
     const p = try Curve25519.basePoint.clampedMul(s);
     try p.rejectIdentity();
@@ -128,8 +125,6 @@ test "curve25519" {
 }
 
 test "curve25519 small order check" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var s: [32]u8 = [_]u8{1} ++ [_]u8{0} ** 31;
     const small_order_ss: [7][32]u8 = .{
         .{

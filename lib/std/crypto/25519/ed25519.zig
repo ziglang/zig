@@ -484,8 +484,6 @@ pub const Ed25519 = struct {
 };
 
 test "ed25519 key pair creation" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
