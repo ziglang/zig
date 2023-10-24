@@ -76,7 +76,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScriptPathErrors(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
     elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
@@ -101,7 +101,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnresolvedErrors(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnresolvedError(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
@@ -1604,8 +1605,8 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testLdScriptPathErrors(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "ld-script-path-errors", opts);
+fn testLdScriptPathError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-path-error", opts);
 
     const scripts = WriteFile.create(b);
     _ = scripts.add("liba.so", "INPUT(libfoo.so)");
@@ -2834,8 +2835,36 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testUnresolvedErrors(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "unresolved-errors", opts);
+fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unknown-file-type-error", opts);
+
+    const dylib = addSharedLibrary(b, "a", .{
+        .target = .{ .cpu_arch = .x86_64, .os_tag = .macos },
+    });
+    addZigSourceBytes(dylib, "export var foo: i32 = 0;");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.linkLibrary(dylib);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, &.{
+        "unknown file type",
+        "note: while parsing /?/liba.dylib",
+        "undefined symbol: foo",
+        "note: referenced by /?/a.o:.text",
+    });
+
+    return test_step;
+}
+
+fn testUnresolvedError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-error", opts);
 
     const obj1 = addObject(b, "a", opts);
     addCSourceBytes(obj1,
