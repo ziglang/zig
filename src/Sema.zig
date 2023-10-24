@@ -16813,9 +16813,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             .val = .void_value,
         } }))),
         .Fn => {
-            var params_anon_decl = try block.startAnonDecl();
-            defer params_anon_decl.deinit();
-
             const fn_info_decl_index = (try sema.namespaceLookup(
                 block,
                 src,
@@ -16872,23 +16869,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = param_vals.len,
                     .child = param_info_ty.toIntern(),
                 });
-                const new_decl = try params_anon_decl.finish(
-                    new_decl_ty,
-                    (try mod.intern(.{ .aggregate = .{
-                        .ty = new_decl_ty.toIntern(),
-                        .storage = .{ .elems = param_vals },
-                    } })).toValue(),
-                    .none, // default alignment
-                );
+                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                    .ty = new_decl_ty.toIntern(),
+                    .storage = .{ .elems = param_vals },
+                } });
+                const ptr_ty = (try sema.ptrType(.{
+                    .child = param_info_ty.toIntern(),
+                    .flags = .{
+                        .size = .Slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try sema.ptrType(.{
-                        .child = param_info_ty.toIntern(),
-                        .flags = .{
-                            .size = .Slice,
-                            .is_const = true,
-                        },
-                    })).toIntern(),
-                    .addr = .{ .decl = new_decl },
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{
+                        .orig_ty = ptr_ty,
+                        .val = new_decl_val,
+                    } },
                     .len = (try mod.intValue(Type.usize, param_vals.len)).toIntern(),
                 } });
             };
@@ -17133,9 +17130,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .ErrorSet => {
-            var fields_anon_decl = try block.startAnonDecl();
-            defer fields_anon_decl.deinit();
-
             // Get the Error type
             const error_field_ty = t: {
                 const set_field_ty_decl_index = (try sema.namespaceLookup(
@@ -17164,23 +17158,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         // TODO: write something like getCoercedInts to avoid needing to dupe
                         const name = try sema.arena.dupe(u8, ip.stringToSlice(names.get(ip)[i]));
                         const name_val = v: {
-                            var anon_decl = try block.startAnonDecl();
-                            defer anon_decl.deinit();
                             const new_decl_ty = try mod.arrayType(.{
                                 .len = name.len,
                                 .child = .u8_type,
                             });
-                            const new_decl = try anon_decl.finish(
-                                new_decl_ty,
-                                (try mod.intern(.{ .aggregate = .{
-                                    .ty = new_decl_ty.toIntern(),
-                                    .storage = .{ .bytes = name },
-                                } })).toValue(),
-                                .none, // default alignment
-                            );
+                            const new_decl_val = try mod.intern(.{ .aggregate = .{
+                                .ty = new_decl_ty.toIntern(),
+                                .storage = .{ .bytes = name },
+                            } });
                             break :v try mod.intern(.{ .ptr = .{
                                 .ty = .slice_const_u8_type,
-                                .addr = .{ .decl = new_decl },
+                                .addr = .{ .anon_decl = .{
+                                    .val = new_decl_val,
+                                    .orig_ty = .slice_const_u8_type,
+                                } },
                                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                             } });
                         };
@@ -17213,17 +17204,16 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = vals.len,
                     .child = error_field_ty.toIntern(),
                 });
-                const new_decl = try fields_anon_decl.finish(
-                    array_errors_ty,
-                    (try mod.intern(.{ .aggregate = .{
-                        .ty = array_errors_ty.toIntern(),
-                        .storage = .{ .elems = vals },
-                    } })).toValue(),
-                    .none, // default alignment
-                );
+                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                    .ty = array_errors_ty.toIntern(),
+                    .storage = .{ .elems = vals },
+                } });
                 break :v try mod.intern(.{ .ptr = .{
                     .ty = slice_errors_ty.toIntern(),
-                    .addr = .{ .decl = new_decl },
+                    .addr = .{ .anon_decl = .{
+                        .orig_ty = slice_errors_ty.toIntern(),
+                        .val = new_decl_val,
+                    } },
                     .len = (try mod.intValue(Type.usize, vals.len)).toIntern(),
                 } });
             } else .none;
@@ -17271,9 +17261,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Enum => {
             const is_exhaustive = Value.makeBool(ip.indexToKey(ty.toIntern()).enum_type.tag_mode != .nonexhaustive);
 
-            var fields_anon_decl = try block.startAnonDecl();
-            defer fields_anon_decl.deinit();
-
             const enum_field_ty = t: {
                 const enum_field_ty_decl_index = (try sema.namespaceLookup(
                     block,
@@ -17301,23 +17288,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // TODO: write something like getCoercedInts to avoid needing to dupe
                 const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names.get(ip)[i]));
                 const name_val = v: {
-                    var anon_decl = try block.startAnonDecl();
-                    defer anon_decl.deinit();
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
                         .child = .u8_type,
                     });
-                    const new_decl = try anon_decl.finish(
-                        new_decl_ty,
-                        (try mod.intern(.{ .aggregate = .{
-                            .ty = new_decl_ty.toIntern(),
-                            .storage = .{ .bytes = name },
-                        } })).toValue(),
-                        .none, // default alignment
-                    );
+                    const new_decl_val = try mod.intern(.{ .aggregate = .{
+                        .ty = new_decl_ty.toIntern(),
+                        .storage = .{ .bytes = name },
+                    } });
                     break :v try mod.intern(.{ .ptr = .{
                         .ty = .slice_const_u8_type,
-                        .addr = .{ .decl = new_decl },
+                        .addr = .{ .anon_decl = .{
+                            .val = new_decl_val,
+                            .orig_ty = .slice_const_u8_type,
+                        } },
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
@@ -17339,23 +17323,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = enum_field_vals.len,
                     .child = enum_field_ty.toIntern(),
                 });
-                const new_decl = try fields_anon_decl.finish(
-                    fields_array_ty,
-                    (try mod.intern(.{ .aggregate = .{
-                        .ty = fields_array_ty.toIntern(),
-                        .storage = .{ .elems = enum_field_vals },
-                    } })).toValue(),
-                    .none, // default alignment
-                );
+                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                    .ty = fields_array_ty.toIntern(),
+                    .storage = .{ .elems = enum_field_vals },
+                } });
+                const ptr_ty = (try sema.ptrType(.{
+                    .child = enum_field_ty.toIntern(),
+                    .flags = .{
+                        .size = .Slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try sema.ptrType(.{
-                        .child = enum_field_ty.toIntern(),
-                        .flags = .{
-                            .size = .Slice,
-                            .is_const = true,
-                        },
-                    })).toIntern(),
-                    .addr = .{ .decl = new_decl },
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{
+                        .val = new_decl_val,
+                        .orig_ty = ptr_ty,
+                    } },
                     .len = (try mod.intValue(Type.usize, enum_field_vals.len)).toIntern(),
                 } });
             };
@@ -17395,9 +17379,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Union => {
-            var fields_anon_decl = try block.startAnonDecl();
-            defer fields_anon_decl.deinit();
-
             const type_union_ty = t: {
                 const type_union_ty_decl_index = (try sema.namespaceLookup(
                     block,
@@ -17435,23 +17416,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // TODO: write something like getCoercedInts to avoid needing to dupe
                 const name = try sema.arena.dupe(u8, ip.stringToSlice(union_obj.field_names.get(ip)[i]));
                 const name_val = v: {
-                    var anon_decl = try block.startAnonDecl();
-                    defer anon_decl.deinit();
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
                         .child = .u8_type,
                     });
-                    const new_decl = try anon_decl.finish(
-                        new_decl_ty,
-                        (try mod.intern(.{ .aggregate = .{
-                            .ty = new_decl_ty.toIntern(),
-                            .storage = .{ .bytes = name },
-                        } })).toValue(),
-                        .none, // default alignment
-                    );
+                    const new_decl_val = try mod.intern(.{ .aggregate = .{
+                        .ty = new_decl_ty.toIntern(),
+                        .storage = .{ .bytes = name },
+                    } });
                     break :v try mod.intern(.{ .ptr = .{
                         .ty = .slice_const_u8_type,
-                        .addr = .{ .decl = new_decl },
+                        .addr = .{ .anon_decl = .{
+                            .val = new_decl_val,
+                            .orig_ty = .slice_const_u8_type,
+                        } },
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
@@ -17481,23 +17459,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = union_field_vals.len,
                     .child = union_field_ty.toIntern(),
                 });
-                const new_decl = try fields_anon_decl.finish(
-                    array_fields_ty,
-                    (try mod.intern(.{ .aggregate = .{
-                        .ty = array_fields_ty.toIntern(),
-                        .storage = .{ .elems = union_field_vals },
-                    } })).toValue(),
-                    .none, // default alignment
-                );
+                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                    .ty = array_fields_ty.toIntern(),
+                    .storage = .{ .elems = union_field_vals },
+                } });
+                const ptr_ty = (try sema.ptrType(.{
+                    .child = union_field_ty.toIntern(),
+                    .flags = .{
+                        .size = .Slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try sema.ptrType(.{
-                        .child = union_field_ty.toIntern(),
-                        .flags = .{
-                            .size = .Slice,
-                            .is_const = true,
-                        },
-                    })).toIntern(),
-                    .addr = .{ .decl = new_decl },
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{
+                        .orig_ty = ptr_ty,
+                        .val = new_decl_val,
+                    } },
                     .len = (try mod.intValue(Type.usize, union_field_vals.len)).toIntern(),
                 } });
             };
@@ -17543,9 +17521,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Struct => {
-            var fields_anon_decl = try block.startAnonDecl();
-            defer fields_anon_decl.deinit();
-
             const type_struct_ty = t: {
                 const type_struct_ty_decl_index = (try sema.namespaceLookup(
                     block,
@@ -17585,8 +17560,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             const field_ty = anon_struct_type.types.get(ip)[i];
                             const field_val = anon_struct_type.values.get(ip)[i];
                             const name_val = v: {
-                                var anon_decl = try block.startAnonDecl();
-                                defer anon_decl.deinit();
                                 // TODO: write something like getCoercedInts to avoid needing to dupe
                                 const bytes = if (tuple.names.len != 0)
                                     // https://github.com/ziglang/zig/issues/15709
@@ -17597,17 +17570,16 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                     .len = bytes.len,
                                     .child = .u8_type,
                                 });
-                                const new_decl = try anon_decl.finish(
-                                    new_decl_ty,
-                                    (try mod.intern(.{ .aggregate = .{
-                                        .ty = new_decl_ty.toIntern(),
-                                        .storage = .{ .bytes = bytes },
-                                    } })).toValue(),
-                                    .none, // default alignment
-                                );
+                                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                                    .ty = new_decl_ty.toIntern(),
+                                    .storage = .{ .bytes = bytes },
+                                } });
                                 break :v try mod.intern(.{ .ptr = .{
                                     .ty = .slice_const_u8_type,
-                                    .addr = .{ .decl = new_decl },
+                                    .addr = .{ .anon_decl = .{
+                                        .val = new_decl_val,
+                                        .orig_ty = .slice_const_u8_type,
+                                    } },
                                     .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
                                 } });
                             };
@@ -17651,23 +17623,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const field_init = struct_type.fieldInit(ip, i);
                     const field_is_comptime = struct_type.fieldIsComptime(ip, i);
                     const name_val = v: {
-                        var anon_decl = try block.startAnonDecl();
-                        defer anon_decl.deinit();
                         const new_decl_ty = try mod.arrayType(.{
                             .len = name.len,
                             .child = .u8_type,
                         });
-                        const new_decl = try anon_decl.finish(
-                            new_decl_ty,
-                            (try mod.intern(.{ .aggregate = .{
-                                .ty = new_decl_ty.toIntern(),
-                                .storage = .{ .bytes = name },
-                            } })).toValue(),
-                            .none, // default alignment
-                        );
+                        const new_decl_val = try mod.intern(.{ .aggregate = .{
+                            .ty = new_decl_ty.toIntern(),
+                            .storage = .{ .bytes = name },
+                        } });
                         break :v try mod.intern(.{ .ptr = .{
                             .ty = .slice_const_u8_type,
-                            .addr = .{ .decl = new_decl },
+                            .addr = .{ .anon_decl = .{
+                                .val = new_decl_val,
+                                .orig_ty = .slice_const_u8_type,
+                            } },
                             .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                         } });
                     };
@@ -17707,23 +17676,23 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = struct_field_vals.len,
                     .child = struct_field_ty.toIntern(),
                 });
-                const new_decl = try fields_anon_decl.finish(
-                    array_fields_ty,
-                    (try mod.intern(.{ .aggregate = .{
-                        .ty = array_fields_ty.toIntern(),
-                        .storage = .{ .elems = struct_field_vals },
-                    } })).toValue(),
-                    .none, // default alignment
-                );
+                const new_decl_val = try mod.intern(.{ .aggregate = .{
+                    .ty = array_fields_ty.toIntern(),
+                    .storage = .{ .elems = struct_field_vals },
+                } });
+                const ptr_ty = (try sema.ptrType(.{
+                    .child = struct_field_ty.toIntern(),
+                    .flags = .{
+                        .size = .Slice,
+                        .is_const = true,
+                    },
+                })).toIntern();
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = (try sema.ptrType(.{
-                        .child = struct_field_ty.toIntern(),
-                        .flags = .{
-                            .size = .Slice,
-                            .is_const = true,
-                        },
-                    })).toIntern(),
-                    .addr = .{ .decl = new_decl },
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{
+                        .orig_ty = ptr_ty,
+                        .val = new_decl_val,
+                    } },
                     .len = (try mod.intValue(Type.usize, struct_field_vals.len)).toIntern(),
                 } });
             };
@@ -17819,9 +17788,6 @@ fn typeInfoDecls(
     const mod = sema.mod;
     const gpa = sema.gpa;
 
-    var decls_anon_decl = try block.startAnonDecl();
-    defer decls_anon_decl.deinit();
-
     const declaration_ty = t: {
         const declaration_ty_decl_index = (try sema.namespaceLookup(
             block,
@@ -17851,23 +17817,23 @@ fn typeInfoDecls(
         .len = decl_vals.items.len,
         .child = declaration_ty.toIntern(),
     });
-    const new_decl = try decls_anon_decl.finish(
-        array_decl_ty,
-        (try mod.intern(.{ .aggregate = .{
-            .ty = array_decl_ty.toIntern(),
-            .storage = .{ .elems = decl_vals.items },
-        } })).toValue(),
-        .none, // default alignment
-    );
+    const new_decl_val = try mod.intern(.{ .aggregate = .{
+        .ty = array_decl_ty.toIntern(),
+        .storage = .{ .elems = decl_vals.items },
+    } });
+    const ptr_ty = (try sema.ptrType(.{
+        .child = declaration_ty.toIntern(),
+        .flags = .{
+            .size = .Slice,
+            .is_const = true,
+        },
+    })).toIntern();
     return try mod.intern(.{ .ptr = .{
-        .ty = (try sema.ptrType(.{
-            .child = declaration_ty.toIntern(),
-            .flags = .{
-                .size = .Slice,
-                .is_const = true,
-            },
-        })).toIntern(),
-        .addr = .{ .decl = new_decl },
+        .ty = ptr_ty,
+        .addr = .{ .anon_decl = .{
+            .orig_ty = ptr_ty,
+            .val = new_decl_val,
+        } },
         .len = (try mod.intValue(Type.usize, decl_vals.items.len)).toIntern(),
     } });
 }
@@ -17896,25 +17862,22 @@ fn typeInfoNamespaceDecls(
         }
         if (decl.kind != .named or !decl.is_pub) continue;
         const name_val = v: {
-            var anon_decl = try block.startAnonDecl();
-            defer anon_decl.deinit();
             // TODO: write something like getCoercedInts to avoid needing to dupe
             const name = try sema.arena.dupe(u8, ip.stringToSlice(decl.name));
             const new_decl_ty = try mod.arrayType(.{
                 .len = name.len,
                 .child = .u8_type,
             });
-            const new_decl = try anon_decl.finish(
-                new_decl_ty,
-                (try mod.intern(.{ .aggregate = .{
-                    .ty = new_decl_ty.toIntern(),
-                    .storage = .{ .bytes = name },
-                } })).toValue(),
-                .none, // default alignment
-            );
+            const new_decl_val = try mod.intern(.{ .aggregate = .{
+                .ty = new_decl_ty.toIntern(),
+                .storage = .{ .bytes = name },
+            } });
             break :v try mod.intern(.{ .ptr = .{
                 .ty = .slice_const_u8_type,
-                .addr = .{ .decl = new_decl },
+                .addr = .{ .anon_decl = .{
+                    .orig_ty = .slice_const_u8_type,
+                    .val = new_decl_val,
+                } },
                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
             } });
         };
