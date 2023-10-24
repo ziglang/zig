@@ -1214,26 +1214,14 @@ pub const File = struct {
     }
 };
 
-/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
-    /// Relative to the owning package's root_src_dir.
-    /// Memory is stored in gpa, owned by EmbedFile.
-    sub_file_path: []const u8,
-    bytes: [:0]const u8,
+    /// Relative to the owning module's root directory.
+    sub_file_path: InternPool.NullTerminatedString,
+    /// Module that this file is a part of, managed externally.
+    owner: *Package.Module,
     stat: Cache.File.Stat,
-    /// Package that this file is a part of, managed externally.
-    mod: *Package.Module,
-    /// The Decl that was created from the `@embedFile` to own this resource.
-    /// This is how zig knows what other Decl objects to invalidate if the file
-    /// changes on disk.
-    owner_decl: Decl.Index,
-
-    fn destroy(embed_file: *EmbedFile, mod: *Module) void {
-        const gpa = mod.gpa;
-        gpa.free(embed_file.sub_file_path);
-        gpa.free(embed_file.bytes);
-        gpa.destroy(embed_file);
-    }
+    val: InternPool.Index,
+    src_loc: SrcLoc,
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -2532,7 +2520,8 @@ pub fn deinit(mod: *Module) void {
         var it = mod.embed_table.iterator();
         while (it.next()) |entry| {
             gpa.free(entry.key_ptr.*);
-            entry.value_ptr.*.destroy(mod);
+            const ef: *EmbedFile = entry.value_ptr.*;
+            gpa.destroy(ef);
         }
         mod.embed_table.deinit(gpa);
     }
@@ -3543,35 +3532,6 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     func.analysis(ip).state = .queued;
 }
 
-pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // TODO we can potentially relax this if we store some more information along
-    // with decl dependency edges
-    const owner_decl = mod.declPtr(embed_file.owner_decl);
-    for (owner_decl.dependants.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        switch (dep.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => continue, // already doing analysis, ok
-            .outdated => continue, // already queued for update
-
-            .file_failure,
-            .dependency_failure,
-            .sema_failure,
-            .sema_failure_retryable,
-            .liveness_failure,
-            .codegen_failure,
-            .codegen_failure_retryable,
-            .complete,
-            => if (dep.generation != mod.generation) {
-                try mod.markOutdatedDecl(dep_index);
-            },
-        }
-    }
-}
-
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
@@ -4153,7 +4113,12 @@ pub fn importFile(
     };
 }
 
-pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*EmbedFile {
+pub fn embedFile(
+    mod: *Module,
+    cur_file: *File,
+    import_string: []const u8,
+    src_loc: SrcLoc,
+) !InternPool.Index {
     const gpa = mod.gpa;
 
     if (cur_file.mod.deps.get(import_string)) |pkg| {
@@ -4166,13 +4131,17 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
         defer if (!keep_resolved_path) gpa.free(resolved_path);
 
         const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-        errdefer assert(mod.embed_table.remove(resolved_path));
-        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer {
+            assert(mod.embed_table.remove(resolved_path));
+            keep_resolved_path = false;
+        }
+        if (gop.found_existing) return gop.value_ptr.*.val;
+        keep_resolved_path = true;
 
         const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
         errdefer gpa.free(sub_file_path);
 
-        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, &keep_resolved_path, gop);
+        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, gop, src_loc);
     }
 
     // The resolved path is used as the key in the table, to detect if a file
@@ -4189,8 +4158,12 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-    errdefer assert(mod.embed_table.remove(resolved_path));
-    if (gop.found_existing) return gop.value_ptr.*;
+    errdefer {
+        assert(mod.embed_table.remove(resolved_path));
+        keep_resolved_path = false;
+    }
+    if (gop.found_existing) return gop.value_ptr.*.val;
+    keep_resolved_path = true;
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &.{
         cur_file.mod.root.root_dir.path orelse ".",
@@ -4213,7 +4186,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
     };
     errdefer gpa.free(sub_file_path);
 
-    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, &keep_resolved_path, gop);
+    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
 }
 
 /// https://github.com/ziglang/zig/issues/14307
@@ -4222,9 +4195,9 @@ fn newEmbedFile(
     pkg: *Package.Module,
     sub_file_path: []const u8,
     resolved_path: []const u8,
-    keep_resolved_path: *bool,
     gop: std.StringHashMapUnmanaged(*EmbedFile).GetOrPutResult,
-) !*EmbedFile {
+    src_loc: SrcLoc,
+) !InternPool.Index {
     const gpa = mod.gpa;
 
     const new_file = try gpa.create(EmbedFile);
@@ -4239,57 +4212,54 @@ fn newEmbedFile(
         .inode = actual_stat.inode,
         .mtime = actual_stat.mtime,
     };
-    const size_usize = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
-    errdefer gpa.free(bytes);
+    const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
+    const ip = &mod.intern_pool;
+
+    const ptr = try ip.string_bytes.addManyAsSlice(gpa, size);
+    const actual_read = try file.readAll(ptr);
+    if (actual_read != size) return error.UnexpectedEndOfFile;
 
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
         const copied_resolved_path = try gpa.dupe(u8, resolved_path);
         errdefer gpa.free(copied_resolved_path);
         mod.comp.whole_cache_manifest_mutex.lock();
         defer mod.comp.whole_cache_manifest_mutex.unlock();
-        try whole_cache_manifest.addFilePostContents(copied_resolved_path, bytes, stat);
+        try whole_cache_manifest.addFilePostContents(copied_resolved_path, ptr, stat);
     }
 
-    keep_resolved_path.* = true; // It's now owned by embed_table.
+    const array_ty = try ip.get(gpa, .{ .array_type = .{
+        .len = size,
+        .sentinel = .zero_u8,
+        .child = .u8_type,
+    } });
+    const array_val = try ip.getTrailingAggregate(gpa, array_ty, size);
+
+    const ptr_ty = (try mod.ptrType(.{
+        .child = array_ty,
+        .flags = .{
+            .alignment = .none,
+            .is_const = true,
+            .address_space = .generic,
+        },
+    })).toIntern();
+
+    const ptr_val = try ip.get(gpa, .{ .ptr = .{
+        .ty = ptr_ty,
+        .addr = .{ .anon_decl = .{
+            .val = array_val,
+            .orig_ty = ptr_ty,
+        } },
+    } });
+
     gop.value_ptr.* = new_file;
     new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .bytes = bytes,
+        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
+        .owner = pkg,
         .stat = stat,
-        .mod = pkg,
-        .owner_decl = undefined, // Set by Sema immediately after this function returns.
+        .val = ptr_val,
+        .src_loc = src_loc,
     };
-    return new_file;
-}
-
-pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
-    var file = try embed_file.mod.root.openFile(embed_file.sub_file_path, .{});
-    defer file.close();
-
-    const stat = try file.stat();
-
-    const unchanged_metadata =
-        stat.size == embed_file.stat.size and
-        stat.mtime == embed_file.stat.mtime and
-        stat.inode == embed_file.stat.inode;
-
-    if (unchanged_metadata) return;
-
-    const gpa = mod.gpa;
-    const size_usize = std.math.cast(usize, stat.size) orelse return error.Overflow;
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
-    gpa.free(embed_file.bytes);
-    embed_file.bytes = bytes;
-    embed_file.stat = .{
-        .size = stat.size,
-        .mtime = stat.mtime,
-        .inode = stat.inode,
-    };
-
-    mod.comp.mutex.lock();
-    defer mod.comp.mutex.unlock();
-    try mod.comp.work_queue.writeItem(.{ .update_embed_file = embed_file });
+    return ptr_val;
 }
 
 pub fn scanNamespace(

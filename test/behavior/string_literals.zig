@@ -36,11 +36,11 @@ test "@typeName() returns a string literal" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try std.testing.expect(*const [type_name.len:0]u8 == @TypeOf(type_name));
-    try std.testing.expect(std.mem.eql(u8, "behavior.bugs.3779.TestType", type_name));
-    try std.testing.expect(std.mem.eql(u8, "behavior.bugs.3779.TestType", ptr_type_name[0..type_name.len]));
+    try std.testing.expect(std.mem.eql(u8, "behavior.string_literals.TestType", type_name));
+    try std.testing.expect(std.mem.eql(u8, "behavior.string_literals.TestType", ptr_type_name[0..type_name.len]));
 }
 
-const actual_contents = @embedFile("3779_file_to_embed.txt");
+const actual_contents = @embedFile("file_to_embed.txt");
 const ptr_actual_contents: [*:0]const u8 = actual_contents;
 const expected_contents = "hello zig\n";
 
@@ -64,7 +64,7 @@ test "@src() returns a struct containing 0-terminated string slices" {
 
     const src = testFnForSrc();
     try std.testing.expect([:0]const u8 == @TypeOf(src.file));
-    try std.testing.expect(std.mem.endsWith(u8, src.file, "3779.zig"));
+    try std.testing.expect(std.mem.endsWith(u8, src.file, "string_literals.zig"));
     try std.testing.expect([:0]const u8 == @TypeOf(src.fn_name));
     try std.testing.expect(std.mem.endsWith(u8, src.fn_name, "testFnForSrc"));
 
