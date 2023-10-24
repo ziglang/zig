@@ -77,6 +77,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScriptPathErrors(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
@@ -100,7 +101,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnresolved(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnresolvedErrors(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
@@ -1624,6 +1625,33 @@ fn testLdScriptPathErrors(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "mismatched-cpu-architecture-error", opts);
+
+    const obj = addObject(b, "a", .{
+        .target = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
+    });
+    addCSourceBytes(obj, "int foo;", &.{});
+    obj.strip = true;
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, &.{
+        "invalid cpu architecture: expected 'x86_64', but found 'aarch64'",
+        "note: while parsing /?/a.o",
+    });
+
+    return test_step;
+}
+
 fn testLinkingC(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-c", opts);
 
@@ -2806,8 +2834,8 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testUnresolved(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "unresolved", opts);
+fn testUnresolvedErrors(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-errors", opts);
 
     const obj1 = addObject(b, "a", opts);
     addCSourceBytes(obj1,
