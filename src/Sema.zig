@@ -16883,10 +16883,7 @@ fn zirBuiltinSrc(
         // fn_name: [:0]const u8,
         func_name_val,
         // line: u32,
-        try mod.intern(.{ .runtime_value = .{
-            .ty = .u32_type,
-            .val = (try mod.intValue(Type.u32, extra.line + 1)).toIntern(),
-        } }),
+        (try mod.intValue(Type.u32, extra.line + 1)).toIntern(),
         // column: u32,
         (try mod.intValue(Type.u32, extra.column + 1)).toIntern(),
     };
