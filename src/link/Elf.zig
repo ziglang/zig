@@ -543,7 +543,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
         const tight_size = self.shdrs.items.len * shdr_size;
         const increased_size = padToIdeal(tight_size);
-        const test_end = off + increased_size;
+        const test_end = off +| increased_size;
         if (end > off and start < test_end) {
             return test_end;
         }
@@ -552,7 +552,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.shdrs.items) |shdr| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const increased_size = padToIdeal(shdr.sh_size);
-        const test_end = shdr.sh_offset + increased_size;
+        const test_end = shdr.sh_offset +| increased_size;
         if (end > shdr.sh_offset and start < test_end) {
             return test_end;
         }
@@ -561,7 +561,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.phdrs.items) |phdr| {
         if (phdr.p_type != elf.PT_LOAD) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
-        const test_end = phdr.p_offset + increased_size;
+        const test_end = phdr.p_offset +| increased_size;
         if (end > phdr.p_offset and start < test_end) {
             return test_end;
         }
@@ -653,6 +653,7 @@ pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{Ou
         .type = opts.type,
         .flags = opts.flags,
         .addralign = opts.alignment,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
@@ -690,6 +691,7 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
         .info = opts.info,
         .addralign = opts.alignment,
         .entsize = opts.entsize,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     const off = self.findFreeSpace(opts.size, opts.alignment);
@@ -3841,6 +3843,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
 
         if (self.base.options.eh_frame_hdr) {
@@ -3849,6 +3852,7 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -3859,6 +3863,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3880,6 +3885,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3889,12 +3895,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
         self.got_plt_section_index = try self.addSection(.{
             .name = ".got.plt",
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
+            .offset = std.math.maxInt(u64),
         });
         self.rela_plt_section_index = try self.addSection(.{
             .name = ".rela.plt",
@@ -3902,6 +3910,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3911,6 +3920,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3919,6 +3929,7 @@ fn initSections(self: *Elf) !void {
             .name = ".copyrel",
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3937,6 +3948,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3947,6 +3959,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.dynamic_section_index = try self.addSection(.{
             .name = ".dynamic",
@@ -3954,6 +3967,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_DYNAMIC,
             .entsize = @sizeOf(elf.Elf64_Dyn),
             .addralign = @alignOf(elf.Elf64_Dyn),
+            .offset = std.math.maxInt(u64),
         });
         self.dynsymtab_section_index = try self.addSection(.{
             .name = ".dynsym",
@@ -3962,6 +3976,7 @@ fn initSections(self: *Elf) !void {
             .addralign = @alignOf(elf.Elf64_Sym),
             .entsize = @sizeOf(elf.Elf64_Sym),
             .info = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.hash_section_index = try self.addSection(.{
             .name = ".hash",
@@ -3969,12 +3984,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_HASH,
             .addralign = 4,
             .entsize = 4,
+            .offset = std.math.maxInt(u64),
         });
         self.gnu_hash_section_index = try self.addSection(.{
             .name = ".gnu.hash",
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_GNU_HASH,
             .addralign = 8,
+            .offset = std.math.maxInt(u64),
         });
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
@@ -3988,12 +4005,14 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_GNU_VERSYM,
                 .addralign = @alignOf(elf.Elf64_Versym),
                 .entsize = @sizeOf(elf.Elf64_Versym),
+                .offset = std.math.maxInt(u64),
             });
             self.verneed_section_index = try self.addSection(.{
                 .name = ".gnu.version_r",
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_VERNEED,
                 .addralign = @alignOf(elf.Elf64_Verneed),
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -4004,6 +4023,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.strtab_section_index == null) {
@@ -4012,6 +4032,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.shstrtab_section_index == null) {
@@ -4020,6 +4041,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 }
@@ -5651,6 +5673,7 @@ pub const AddSectionOpts = struct {
     info: u32 = 0,
     addralign: u64 = 0,
     entsize: u64 = 0,
+    offset: u64 = 0,
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
@@ -5662,7 +5685,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
         .sh_type = opts.type,
         .sh_flags = opts.flags,
         .sh_addr = 0,
-        .sh_offset = 0,
+        .sh_offset = opts.offset,
         .sh_size = 0,
         .sh_link = opts.link,
         .sh_info = opts.info,
