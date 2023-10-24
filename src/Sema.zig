@@ -1741,7 +1741,7 @@ fn analyzeBodyInner(
                 }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
-                const is_non_err_val = try sema.resolveConstValue(block, operand_src, is_non_err, .{
+                const is_non_err_val = try sema.resolveConstDefinedValue(block, operand_src, is_non_err, .{
                     .needed_comptime_reason = "try operand inside comptime block must be comptime-known",
                     .block_comptime_reason = block.comptime_reason,
                 });
@@ -1767,7 +1767,7 @@ fn analyzeBodyInner(
                 const err_union = try sema.analyzeLoad(block, src, operand, operand_src);
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
-                const is_non_err_val = try sema.resolveConstValue(block, operand_src, is_non_err, .{
+                const is_non_err_val = try sema.resolveConstDefinedValue(block, operand_src, is_non_err, .{
                     .needed_comptime_reason = "try operand inside comptime block must be comptime-known",
                     .block_comptime_reason = block.comptime_reason,
                 });
@@ -1866,7 +1866,7 @@ fn resolveConstBool(
     const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.bool;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
-    const val = try sema.resolveConstValue(block, src, coerced_inst, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
     return val.toBool();
 }
 
@@ -1880,7 +1880,7 @@ pub fn resolveConstString(
     const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.slice_const_u8;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
-    const val = try sema.resolveConstValue(block, src, coerced_inst, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
     return val.toAllocatedBytes(wanted_type, sema.arena, sema.mod);
 }
 
@@ -1894,7 +1894,7 @@ pub fn resolveConstStringIntern(
     const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.slice_const_u8;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
-    const val = try sema.resolveConstValue(block, src, coerced_inst, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
     return val.toIpString(wanted_type, sema.mod);
 }
 
@@ -2024,7 +2024,7 @@ fn analyzeAsType(
 ) !Type {
     const wanted_type = Type.type;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
-    const val = try sema.resolveConstValue(block, src, coerced_inst, .{
+    const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, .{
         .needed_comptime_reason = "types must be comptime-known",
     });
     return val.toType();
@@ -2071,44 +2071,30 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
     try block.instructions.insertSlice(gpa, last_arg_index, err_trace_block.instructions.items);
 }
 
-/// Return the Value corresponding to a given AIR ref, or `null` if it
-/// refers to a runtime value.
+/// Return the Value corresponding to a given AIR ref, or `null` if it refers to a runtime value.
 /// InternPool key `variable` is considered a runtime value.
 /// Generic poison causes `error.GenericPoison` to be returned.
-fn resolveMaybeUndefVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
+fn resolveValue(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
+    const val = (try sema.resolveValueAllowVariables(inst)) orelse return null;
     if (val.isGenericPoison()) return error.GenericPoison;
     if (sema.mod.intern_pool.isVariable(val.toIntern())) return null;
     return val;
 }
 
-/// Like `resolveMaybeUndefVal`, but emits an error if the value is not comptime-known.
-fn resolveConstMaybeUndefVal(
+/// Like `resolveValue`, but emits an error if the value is not comptime-known.
+fn resolveConstValue(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     inst: Air.Inst.Ref,
     reason: NeededComptimeReason,
 ) CompileError!Value {
-    return try sema.resolveMaybeUndefVal(inst) orelse {
+    return try sema.resolveValue(inst) orelse {
         return sema.failWithNeededComptime(block, src, reason);
     };
 }
 
-/// Like `resolveMaybeUndefVal`, but emits an error if the value is not comptime-known or is undefined.
-fn resolveConstValue(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    air_ref: Air.Inst.Ref,
-    reason: NeededComptimeReason,
-) CompileError!Value {
-    const val = try sema.resolveConstMaybeUndefVal(block, src, air_ref, reason);
-    if (val.isUndef(sema.mod)) return sema.failWithUseOfUndef(block, src);
-    return val;
-}
-
-/// Like `resolveMaybeUndefVal`, but emits an error if the value is comptime-known to be undefined.
+/// Like `resolveValue`, but emits an error if the value is comptime-known to be undefined.
 fn resolveDefinedValue(
     sema: *Sema,
     block: *Block,
@@ -2116,7 +2102,7 @@ fn resolveDefinedValue(
     air_ref: Air.Inst.Ref,
 ) CompileError!?Value {
     const mod = sema.mod;
-    const val = try sema.resolveMaybeUndefVal(air_ref) orelse return null;
+    const val = try sema.resolveValue(air_ref) orelse return null;
     if (val.isUndef(mod)) {
         if (block.is_typeof) return null;
         return sema.failWithUseOfUndef(block, src);
@@ -2124,16 +2110,29 @@ fn resolveDefinedValue(
     return val;
 }
 
-/// Like `resolveMaybeUndefVal`, but recursively resolves lazy values.
-fn resolveMaybeUndefLazyVal(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    return try sema.resolveLazyValue((try sema.resolveMaybeUndefVal(inst)) orelse return null);
+/// Like `resolveValue`, but emits an error if the value is not comptime-known or is undefined.
+fn resolveConstDefinedValue(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    air_ref: Air.Inst.Ref,
+    reason: NeededComptimeReason,
+) CompileError!Value {
+    const val = try sema.resolveConstValue(block, src, air_ref, reason);
+    if (val.isUndef(sema.mod)) return sema.failWithUseOfUndef(block, src);
+    return val;
 }
 
-/// Like `resolveMaybeUndefVal`, but any pointer value which does not correspond
+/// Like `resolveValue`, but recursively resolves lazy values before returning.
+fn resolveValueResolveLazy(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
+    return try sema.resolveLazyValue((try sema.resolveValue(inst)) orelse return null);
+}
+
+/// Like `resolveValue`, but any pointer value which does not correspond
 /// to a comptime-known integer (e.g. a decl pointer) returns `null`.
 /// Lazy values are recursively resolved.
-fn resolveMaybeUndefValIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
-    const val = (try sema.resolveMaybeUndefVal(inst)) orelse return null;
+fn resolveValueIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
+    const val = (try sema.resolveValue(inst)) orelse return null;
     if (sema.mod.intern_pool.getBackingAddrTag(val.toIntern())) |addr| switch (addr) {
         .decl, .anon_decl, .mut_decl, .comptime_field => return null,
         .int => {},
@@ -2143,7 +2142,7 @@ fn resolveMaybeUndefValIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Va
 }
 
 /// Returns all InternPool keys representing values, including `variable`, `undef`, and `generic_poison`.
-fn resolveMaybeUndefValAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
+fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     assert(inst != .none);
     // First section of indexes correspond to a set number of constant values.
     if (@intFromEnum(inst) < InternPool.static_len) {
@@ -2180,7 +2179,7 @@ pub fn resolveInstConst(
     reason: NeededComptimeReason,
 ) CompileError!TypedValue {
     const air_ref = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstValue(block, src, air_ref, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, air_ref, reason);
     return .{
         .ty = sema.typeOf(air_ref),
         .val = val,
@@ -2197,7 +2196,7 @@ pub fn resolveInstValueAllowVariables(
     reason: NeededComptimeReason,
 ) CompileError!TypedValue {
     const air_ref = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveMaybeUndefValAllowVariables(air_ref) orelse {
+    const val = try sema.resolveValueAllowVariables(air_ref) orelse {
         return sema.failWithNeededComptime(block, src, reason);
     };
     if (val.isGenericPoison()) return error.GenericPoison;
@@ -2640,7 +2639,7 @@ fn analyzeAsInt(
 ) !u64 {
     const mod = sema.mod;
     const coerced = try sema.coerce(block, dest_ty, air_ref, src);
-    const val = try sema.resolveConstValue(block, src, coerced, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, coerced, reason);
     return (try val.getUnsignedIntAdvanced(mod, sema)).?;
 }
 
@@ -2811,7 +2810,7 @@ fn createAnonymousDeclTypeNamed(
                     // If not then this is a struct type being returned from a non-generic
                     // function and the name doesn't matter since it will later
                     // result in a compile error.
-                    const arg_val = sema.resolveConstMaybeUndefVal(block, .unneeded, arg, undefined) catch
+                    const arg_val = sema.resolveConstValue(block, .unneeded, arg, undefined) catch
                         return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try writer.writeByte(',');
@@ -3055,13 +3054,13 @@ fn zirEnumDecl(
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
             extra_index += 1;
             const tag_inst = try sema.resolveInst(tag_val_ref);
-            last_tag_val = sema.resolveConstValue(block, .unneeded, tag_inst, undefined) catch |err| switch (err) {
+            last_tag_val = sema.resolveConstDefinedValue(block, .unneeded, tag_inst, undefined) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const value_src = mod.fieldSrcLoc(new_decl_index, .{
                         .index = field_i,
                         .range = .value,
                     }).lazy;
-                    _ = try sema.resolveConstValue(block, value_src, tag_inst, .{
+                    _ = try sema.resolveConstDefinedValue(block, value_src, tag_inst, .{
                         .needed_comptime_reason = "enum tag value must be comptime-known",
                     });
                     unreachable;
@@ -3608,7 +3607,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     // If this is already a comptime-known allocation, we don't want to emit an error - the stores
     // were already performed at comptime! Just make the pointer constant as normal.
     implicit_ct: {
-        const ptr_val = try sema.resolveMaybeUndefVal(alloc) orelse break :implicit_ct;
+        const ptr_val = try sema.resolveValue(alloc) orelse break :implicit_ct;
         if (!ptr_val.isComptimeMutablePtr(mod)) {
             // It could still be a constant pointer to a decl.
             switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
@@ -3750,7 +3749,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
                     Air.Bin,
                     tmp_air.instructions.items(.data)[air_ptr].ty_pl.payload,
                 ).data;
-                const idx_val = (try sema.resolveMaybeUndefVal(data.rhs)).?;
+                const idx_val = (try sema.resolveValue(data.rhs)).?;
                 break :blk .{
                     data.lhs,
                     .{ .elem = idx_val.toUnsignedInt(mod) },
@@ -3809,7 +3808,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
                 // store instruction, so we must set the union payload now.
                 const bin_op = sema.air_instructions.items(.data)[store_inst].bin_op;
                 const air_ptr_inst = Air.refToIndex(bin_op.lhs).?;
-                const tag_val = (try sema.resolveMaybeUndefVal(bin_op.rhs)).?;
+                const tag_val = (try sema.resolveValue(bin_op.rhs)).?;
                 const union_ty = sema.typeOf(bin_op.lhs).childType(mod);
                 const payload_ty = union_ty.unionFieldType(tag_val, mod).?;
                 if (try sema.typeHasOnePossibleValue(payload_ty)) |payload_val| {
@@ -3821,7 +3820,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
             .store, .store_safe => {
                 const bin_op = sema.air_instructions.items(.data)[store_inst].bin_op;
                 const air_ptr_inst = Air.refToIndex(bin_op.lhs).?;
-                const store_val = (try sema.resolveMaybeUndefVal(bin_op.rhs)).?;
+                const store_val = (try sema.resolveValue(bin_op.rhs)).?;
                 const new_ptr = ptr_mapping.get(air_ptr_inst).?;
                 try sema.storePtrVal(block, .unneeded, new_ptr.toValue(), store_val, mod.intern_pool.typeOf(store_val.toIntern()).toType());
             },
@@ -3872,7 +3871,7 @@ fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Ai
     const const_ptr_ty = try sema.makePtrTyConst(alloc_ty);
 
     // Detect if a comptime value simply needs to have its type changed.
-    if (try sema.resolveMaybeUndefVal(alloc)) |val| {
+    if (try sema.resolveValue(alloc)) |val| {
         return Air.internedToRef((try sema.mod.getCoerced(val, const_ptr_ty)).toIntern());
     }
 
@@ -4596,7 +4595,7 @@ fn validateUnionInit(
             ).?
         else
             block_index, first_block_index);
-        init_val = try sema.resolveMaybeUndefVal(bin_op.rhs);
+        init_val = try sema.resolveValue(bin_op.rhs);
         break;
     }
 
@@ -4830,7 +4829,7 @@ fn validateStructInit(
                     ).?
                 else
                     block_index, first_block_index);
-                if (try sema.resolveMaybeUndefVal(bin_op.rhs)) |val| {
+                if (try sema.resolveValue(bin_op.rhs)) |val| {
                     field_values[i] = val.toIntern();
                 } else if (require_comptime) {
                     const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
@@ -5086,7 +5085,7 @@ fn zirValidatePtrArrayInit(
                 ).?
             else
                 block_index, first_block_index);
-            if (try sema.resolveMaybeUndefVal(bin_op.rhs)) |val| {
+            if (try sema.resolveValue(bin_op.rhs)) |val| {
                 element_vals[i] = val.toIntern();
             } else {
                 array_is_comptime = false;
@@ -5168,7 +5167,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     }
 
     const elem_ty = operand_ty.elemType2(mod);
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         if (val.isUndef(mod)) {
             return sema.fail(block, src, "cannot dereference undefined value", .{});
         }
@@ -5375,7 +5374,7 @@ fn storeToInferredAllocComptime(
     const operand_ty = sema.typeOf(operand);
     // There will be only one store_to_inferred_ptr because we are running at comptime.
     // The alloc will turn into a Decl.
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
         defer anon_decl.deinit();
         iac.decl_index = try anon_decl.finish(operand_ty, operand_val, iac.alignment);
@@ -5565,7 +5564,7 @@ fn zirCompileLog(
 
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
-        if (try sema.resolveMaybeUndefLazyVal(arg)) |val| {
+        if (try sema.resolveValueResolveLazy(arg)) |val| {
             try writer.print("@as({}, {})", .{
                 arg_ty.fmt(mod), val.fmtValue(arg_ty, mod),
             });
@@ -6479,7 +6478,7 @@ fn lookupInNamespace(
 
 fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?*Decl {
     const mod = sema.mod;
-    const func_val = (try sema.resolveMaybeUndefVal(func_inst)) orelse return null;
+    const func_val = (try sema.resolveValue(func_inst)) orelse return null;
     if (func_val.isUndef(mod)) return null;
     const owner_decl_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
         .extern_func => |extern_func| extern_func.decl,
@@ -7225,7 +7224,7 @@ fn analyzeCall(
     }
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
-        const func_val = try sema.resolveConstValue(block, func_src, func, .{
+        const func_val = try sema.resolveConstDefinedValue(block, func_src, func, .{
             .needed_comptime_reason = "function being called at comptime must be comptime-known",
             .block_comptime_reason = comptime_reason,
         });
@@ -7475,7 +7474,7 @@ fn analyzeCall(
             }
 
             if (should_memoize and is_comptime_call) {
-                const result_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, result, undefined);
+                const result_val = try sema.resolveConstValue(block, .unneeded, result, undefined);
                 const result_interned = try result_val.intern2(sema.fn_ret_ty, mod);
 
                 // Transform ad-hoc inferred error set types into concrete error sets.
@@ -7492,7 +7491,7 @@ fn analyzeCall(
                 break :res2 Air.internedToRef(result_transformed);
             }
 
-            if (try sema.resolveMaybeUndefVal(result)) |result_val| {
+            if (try sema.resolveValue(result)) |result_val| {
                 const result_interned = try result_val.intern2(sema.fn_ret_ty, mod);
                 const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
                 break :res2 Air.internedToRef(result_transformed);
@@ -7532,7 +7531,7 @@ fn analyzeCall(
             ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn = true;
         }
 
-        if (try sema.resolveMaybeUndefVal(func)) |func_val| {
+        if (try sema.resolveValue(func)) |func_val| {
             if (mod.intern_pool.isFuncBody(func_val.toIntern())) {
                 try mod.ensureFuncBodyAnalysisQueued(func_val.toIntern());
             }
@@ -7560,7 +7559,7 @@ fn analyzeCall(
         if (block.wantSafety() and func_ty_info.return_type == .noreturn_type) skip_safety: {
             // Function pointers and extern functions aren't guaranteed to
             // actually be noreturn so we add a safety check for them.
-            if (try sema.resolveMaybeUndefVal(func)) |func_val| {
+            if (try sema.resolveValue(func)) |func_val| {
                 switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
                     .func => break :skip_safety,
                     .ptr => |ptr| switch (ptr.addr) {
@@ -7649,19 +7648,19 @@ fn analyzeInlineCallArg(
             }
             const arg_src = args_info.argSrc(arg_block, arg_i.*);
             if (try ics.callee().typeRequiresComptime(param_ty.toType())) {
-                _ = try ics.caller().resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, .{
+                _ = try ics.caller().resolveConstValue(arg_block, arg_src, casted_arg, .{
                     .needed_comptime_reason = "argument to parameter with comptime-only type must be comptime-known",
                     .block_comptime_reason = param_block.comptime_reason,
                 });
             } else if (!is_comptime_call and zir_tags[inst] == .param_comptime) {
-                _ = try ics.caller().resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, .{
+                _ = try ics.caller().resolveConstValue(arg_block, arg_src, casted_arg, .{
                     .needed_comptime_reason = "parameter is comptime",
                 });
             }
 
             if (is_comptime_call) {
                 ics.callee().inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
-                const arg_val = try ics.caller().resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, .{
+                const arg_val = try ics.caller().resolveConstValue(arg_block, arg_src, casted_arg, .{
                     .needed_comptime_reason = "argument to function being called at comptime must be comptime-known",
                     .block_comptime_reason = param_block.comptime_reason,
                 });
@@ -7683,7 +7682,7 @@ fn analyzeInlineCallArg(
                 ics.callee().inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
             }
 
-            if (try ics.caller().resolveMaybeUndefVal(casted_arg)) |_| {
+            if (try ics.caller().resolveValue(casted_arg)) |_| {
                 param_block.inlining.?.has_comptime_args = true;
             }
 
@@ -7700,7 +7699,7 @@ fn analyzeInlineCallArg(
 
             if (is_comptime_call) {
                 ics.callee().inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
-                const arg_val = try ics.caller().resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, .{
+                const arg_val = try ics.caller().resolveConstValue(arg_block, arg_src, uncasted_arg, .{
                     .needed_comptime_reason = "argument to function being called at comptime must be comptime-known",
                     .block_comptime_reason = param_block.comptime_reason,
                 });
@@ -7720,14 +7719,14 @@ fn analyzeInlineCallArg(
                 memoized_arg_values[arg_i.*] = try resolved_arg_val.intern(ics.caller().typeOf(uncasted_arg), mod);
             } else {
                 if (zir_tags[inst] == .param_anytype_comptime) {
-                    _ = try ics.caller().resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, .{
+                    _ = try ics.caller().resolveConstValue(arg_block, arg_src, uncasted_arg, .{
                         .needed_comptime_reason = "parameter is comptime",
                     });
                 }
                 ics.callee().inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
             }
 
-            if (try ics.caller().resolveMaybeUndefVal(uncasted_arg)) |_| {
+            if (try ics.caller().resolveValue(uncasted_arg)) |_| {
                 param_block.inlining.?.has_comptime_args = true;
             }
 
@@ -7769,7 +7768,7 @@ fn instantiateGenericCall(
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
 
-    const func_val = try sema.resolveConstValue(block, func_src, func, .{
+    const func_val = try sema.resolveConstDefinedValue(block, func_src, func, .{
         .needed_comptime_reason = "generic function being called must be comptime-known",
     });
     const generic_owner = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
@@ -7906,7 +7905,7 @@ fn instantiateGenericCall(
         };
 
         if (arg_is_comptime) {
-            if (try sema.resolveMaybeUndefVal(arg_ref)) |arg_val| {
+            if (try sema.resolveValue(arg_ref)) |arg_val| {
                 comptime_args[arg_index] = arg_val.toIntern();
                 child_sema.inst_map.putAssumeCapacityNoClobber(
                     param_inst,
@@ -7978,7 +7977,7 @@ fn instantiateGenericCall(
     // We've already handled parameters, so don't resolve the whole body. Instead, just
     // do the instructions after the params (i.e. the func itself).
     const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body[args_info.count()..], fn_info.param_body_inst);
-    const callee_index = (child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst, undefined) catch unreachable).toIntern();
+    const callee_index = (child_sema.resolveConstDefinedValue(&child_block, .unneeded, new_func_inst, undefined) catch unreachable).toIntern();
 
     const callee = mod.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
@@ -8229,7 +8228,7 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     try sema.validateArrayElemType(block, elem_type, elem_src);
     const uncasted_sentinel = try sema.resolveInst(extra.sentinel);
     const sentinel = try sema.coerce(block, elem_type, uncasted_sentinel, sentinel_src);
-    const sentinel_val = try sema.resolveConstValue(block, sentinel_src, sentinel, .{
+    const sentinel_val = try sema.resolveConstDefinedValue(block, sentinel_src, sentinel, .{
         .needed_comptime_reason = "array sentinel value must be comptime-known",
     });
     const array_ty = try sema.mod.arrayType(.{
@@ -8328,7 +8327,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     const operand = try sema.coerce(block, Type.anyerror, uncasted_operand, operand_src);
     const err_int_ty = try mod.errorIntType();
 
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         if (val.isUndef(mod)) {
             return mod.undefRef(err_int_ty);
         }
@@ -8501,7 +8500,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return Air.internedToRef((try mod.getCoerced(opv, int_tag_ty)).toIntern());
     }
 
-    if (try sema.resolveMaybeUndefVal(enum_tag)) |enum_tag_val| {
+    if (try sema.resolveValue(enum_tag)) |enum_tag_val| {
         const val = try enum_tag_val.intFromEnum(enum_tag_ty, mod);
         return Air.internedToRef(val.toIntern());
     }
@@ -8524,7 +8523,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
     _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
-    if (try sema.resolveMaybeUndefVal(operand)) |int_val| {
+    if (try sema.resolveValue(operand)) |int_val| {
         if (dest_ty.isNonexhaustiveEnum(mod)) {
             const int_tag_ty = dest_ty.intTagType(mod);
             if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
@@ -9032,7 +9031,7 @@ fn resolveGenericBody(
 
         const uncasted = sema.resolveBody(block, body, func_inst) catch |err| break :err err;
         const result = sema.coerce(block, dest_ty, uncasted, src) catch |err| break :err err;
-        const val = sema.resolveConstValue(block, src, result, reason) catch |err| break :err err;
+        const val = sema.resolveConstDefinedValue(block, src, result, reason) catch |err| break :err err;
         return val;
     };
     switch (err) {
@@ -9846,7 +9845,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         };
         return sema.failWithOwnedErrorMsg(block, msg);
     }
-    if (try sema.resolveMaybeUndefValIntable(operand)) |operand_val| ct: {
+    if (try sema.resolveValueIntable(operand)) |operand_val| ct: {
         if (!is_vector) {
             return Air.internedToRef((try mod.intValue(
                 Type.usize,
@@ -10312,7 +10311,7 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         ),
     }
 
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         if (!is_vector) {
             return Air.internedToRef((try operand_val.floatCast(dest_ty, mod)).toIntern());
         }
@@ -10710,7 +10709,7 @@ const SwitchProngAnalysis = struct {
         const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_node_offset };
 
         if (inline_case_capture != .none) {
-            const item_val = sema.resolveConstValue(block, .unneeded, inline_case_capture, undefined) catch unreachable;
+            const item_val = sema.resolveConstDefinedValue(block, .unneeded, inline_case_capture, undefined) catch unreachable;
             if (operand_ty.zigTypeTag(mod) == .Union) {
                 const field_index: u32 = @intCast(operand_ty.unionTagFieldIndex(item_val, mod).?);
                 const union_obj = mod.typeToUnion(operand_ty).?;
@@ -10767,14 +10766,14 @@ const SwitchProngAnalysis = struct {
         switch (operand_ty.zigTypeTag(mod)) {
             .Union => {
                 const union_obj = mod.typeToUnion(operand_ty).?;
-                const first_item_val = sema.resolveConstValue(block, .unneeded, case_vals[0], undefined) catch unreachable;
+                const first_item_val = sema.resolveConstDefinedValue(block, .unneeded, case_vals[0], undefined) catch unreachable;
 
                 const first_field_index: u32 = mod.unionTagFieldIndex(union_obj, first_item_val).?;
                 const first_field_ty = union_obj.field_types.get(ip)[first_field_index].toType();
 
                 const field_tys = try sema.arena.alloc(Type, case_vals.len);
                 for (case_vals, field_tys) |item, *field_ty| {
-                    const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+                    const item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
                     const field_idx = mod.unionTagFieldIndex(union_obj, item_val).?;
                     field_ty.* = union_obj.field_types.get(ip)[field_idx].toType();
                 }
@@ -11023,7 +11022,7 @@ const SwitchProngAnalysis = struct {
                 }
 
                 if (case_vals.len == 1) {
-                    const item_val = sema.resolveConstValue(block, .unneeded, case_vals[0], undefined) catch unreachable;
+                    const item_val = sema.resolveConstDefinedValue(block, .unneeded, case_vals[0], undefined) catch unreachable;
                     const item_ty = try mod.singleErrorSetType(item_val.getErrorName(mod).unwrap().?);
                     return sema.bitCast(block, item_ty, spa.operand, operand_src, null);
                 }
@@ -11031,7 +11030,7 @@ const SwitchProngAnalysis = struct {
                 var names: InferredErrorSet.NameMap = .{};
                 try names.ensureUnusedCapacity(sema.arena, case_vals.len);
                 for (case_vals) |err| {
-                    const err_val = sema.resolveConstValue(block, .unneeded, err, undefined) catch unreachable;
+                    const err_val = sema.resolveConstDefinedValue(block, .unneeded, err, undefined) catch unreachable;
                     names.putAssumeCapacityNoClobber(err_val.getErrorName(mod).unwrap().?, {});
                 }
                 const error_ty = try mod.errorSetFromUnsortedNames(names.keys());
@@ -11805,7 +11804,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 extra_index += info.body_len;
 
                 const item = case_vals.items[scalar_i];
-                const item_val = sema.resolveConstValue(&child_block, .unneeded, item, undefined) catch unreachable;
+                const item_val = sema.resolveConstDefinedValue(&child_block, .unneeded, item, undefined) catch unreachable;
                 if (operand_val.eql(item_val, operand_ty, sema.mod)) {
                     if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                     return spa.resolveProngComptime(
@@ -11839,7 +11838,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
                 for (items) |item| {
                     // Validation above ensured these will succeed.
-                    const item_val = sema.resolveConstValue(&child_block, .unneeded, item, undefined) catch unreachable;
+                    const item_val = sema.resolveConstDefinedValue(&child_block, .unneeded, item, undefined) catch unreachable;
                     if (operand_val.eql(item_val, operand_ty, sema.mod)) {
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return spa.resolveProngComptime(
@@ -11863,8 +11862,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                     case_val_idx += 2;
 
                     // Validation above ensured these will succeed.
-                    const first_val = sema.resolveConstValue(&child_block, .unneeded, range_items[0], undefined) catch unreachable;
-                    const last_val = sema.resolveConstValue(&child_block, .unneeded, range_items[1], undefined) catch unreachable;
+                    const first_val = sema.resolveConstDefinedValue(&child_block, .unneeded, range_items[0], undefined) catch unreachable;
+                    const last_val = sema.resolveConstDefinedValue(&child_block, .unneeded, range_items[1], undefined) catch unreachable;
                     if ((try sema.compareAll(resolved_operand_val, .gte, first_val, operand_ty)) and
                         (try sema.compareAll(resolved_operand_val, .lte, last_val, operand_ty)))
                     {
@@ -11936,7 +11935,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     }
 
     if (child_block.is_comptime) {
-        _ = try sema.resolveConstValue(&child_block, operand_src, operand, .{
+        _ = try sema.resolveConstDefinedValue(&child_block, operand_src, operand, .{
             .needed_comptime_reason = "condition in comptime switch must be comptime-known",
             .block_comptime_reason = child_block.comptime_reason,
         });
@@ -11971,7 +11970,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         // `item` is already guaranteed to be constant known.
 
         const analyze_body = if (union_originally) blk: {
-            const unresolved_item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+            const unresolved_item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
             const item_val = sema.resolveLazyValue(unresolved_item_val) catch unreachable;
             const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
@@ -12040,8 +12039,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 const item_first_ref = range_items[0];
                 const item_last_ref = range_items[1];
 
-                var item = sema.resolveConstValue(block, .unneeded, item_first_ref, undefined) catch unreachable;
-                const item_last = sema.resolveConstValue(block, .unneeded, item_last_ref, undefined) catch unreachable;
+                var item = sema.resolveConstDefinedValue(block, .unneeded, item_first_ref, undefined) catch unreachable;
+                const item_last = sema.resolveConstDefinedValue(block, .unneeded, item_last_ref, undefined) catch unreachable;
 
                 while (item.compareScalar(.lte, item_last, operand_ty, mod)) : ({
                     // Previous validation has resolved any possible lazy values.
@@ -12098,7 +12097,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                 const analyze_body = if (union_originally) blk: {
-                    const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+                    const item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
                     const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     break :blk field_ty.zigTypeTag(mod) != .NoReturn;
                 } else true;
@@ -12152,7 +12151,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
             const analyze_body = if (union_originally)
                 for (items) |item| {
-                    const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+                    const item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
                     const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
                     if (field_ty.zigTypeTag(mod) != .NoReturn) break true;
                 } else false
@@ -12642,10 +12641,10 @@ fn resolveSwitchItemVal(
         else => |e| return e,
     };
 
-    const maybe_lazy = sema.resolveConstValue(block, .unneeded, item, undefined) catch |err| switch (err) {
+    const maybe_lazy = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch |err| switch (err) {
         error.NeededSourceLocation => {
             const src = switch_prong_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, range_expand);
-            _ = try sema.resolveConstValue(block, src, item, .{
+            _ = try sema.resolveConstDefinedValue(block, src, item, .{
                 .needed_comptime_reason = "switch prong values must be comptime-known",
             });
             unreachable;
@@ -13133,8 +13132,8 @@ fn zirShl(
     // TODO coerce rhs if air_tag is not shl_sat
     const rhs_is_comptime_int = try sema.checkIntType(block, rhs_src, scalar_rhs_ty);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(rhs);
 
     if (maybe_rhs_val) |rhs_val| {
         if (rhs_val.isUndef(mod)) {
@@ -13311,8 +13310,8 @@ fn zirShr(
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
     const scalar_ty = lhs_ty.scalarType(mod);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(rhs);
 
     const runtime_src = if (maybe_rhs_val) |rhs_val| rs: {
         if (rhs_val.isUndef(mod)) {
@@ -13463,8 +13462,8 @@ fn zirBitwise(
     const runtime_src = runtime: {
         // TODO: ask the linker what kind of relocations are available, and
         // in some cases emit a Value that means "this decl's address AND'd with this operand".
-        if (try sema.resolveMaybeUndefValIntable(casted_lhs)) |lhs_val| {
-            if (try sema.resolveMaybeUndefValIntable(casted_rhs)) |rhs_val| {
+        if (try sema.resolveValueIntable(casted_lhs)) |lhs_val| {
+            if (try sema.resolveValueIntable(casted_rhs)) |rhs_val| {
                 const result_val = switch (air_tag) {
                     .bit_and => try lhs_val.bitwiseAnd(rhs_val, resolved_type, sema.arena, mod),
                     .bit_or => try lhs_val.bitwiseOr(rhs_val, resolved_type, sema.arena, mod),
@@ -13503,7 +13502,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         });
     }
 
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         if (val.isUndef(mod)) {
             return mod.undefRef(operand_type);
         } else if (operand_type.zigTypeTag(mod) == .Vector) {
@@ -13673,10 +13672,10 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const rhs_sent = Air.internedToRef(rhs_sent_val.toIntern());
                 const lhs_sent_casted = try sema.coerce(block, resolved_elem_ty, lhs_sent, lhs_src);
                 const rhs_sent_casted = try sema.coerce(block, resolved_elem_ty, rhs_sent, rhs_src);
-                const lhs_sent_casted_val = try sema.resolveConstValue(block, lhs_src, lhs_sent_casted, .{
+                const lhs_sent_casted_val = try sema.resolveConstDefinedValue(block, lhs_src, lhs_sent_casted, .{
                     .needed_comptime_reason = "array sentinel value must be comptime-known",
                 });
-                const rhs_sent_casted_val = try sema.resolveConstValue(block, rhs_src, rhs_sent_casted, .{
+                const rhs_sent_casted_val = try sema.resolveConstDefinedValue(block, rhs_src, rhs_sent_casted, .{
                     .needed_comptime_reason = "array sentinel value must be comptime-known",
                 });
                 if (try sema.valuesEqual(lhs_sent_casted_val, rhs_sent_casted_val, resolved_elem_ty)) {
@@ -13686,7 +13685,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }
             } else {
                 const lhs_sent_casted = try sema.coerce(block, resolved_elem_ty, lhs_sent, lhs_src);
-                const lhs_sent_casted_val = try sema.resolveConstValue(block, lhs_src, lhs_sent_casted, .{
+                const lhs_sent_casted_val = try sema.resolveConstDefinedValue(block, lhs_src, lhs_sent_casted, .{
                     .needed_comptime_reason = "array sentinel value must be comptime-known",
                 });
                 break :s lhs_sent_casted_val;
@@ -13695,7 +13694,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (rhs_info.sentinel) |rhs_sent_val| {
                 const rhs_sent = Air.internedToRef(rhs_sent_val.toIntern());
                 const rhs_sent_casted = try sema.coerce(block, resolved_elem_ty, rhs_sent, rhs_src);
-                const rhs_sent_casted_val = try sema.resolveConstValue(block, rhs_src, rhs_sent_casted, .{
+                const rhs_sent_casted_val = try sema.resolveConstDefinedValue(block, rhs_src, rhs_sent_casted, .{
                     .needed_comptime_reason = "array sentinel value must be comptime-known",
                 });
                 break :s rhs_sent_casted_val;
@@ -13728,12 +13727,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     };
 
     const runtime_src = if (switch (lhs_ty.zigTypeTag(mod)) {
-        .Array, .Struct => try sema.resolveMaybeUndefVal(lhs),
+        .Array, .Struct => try sema.resolveValue(lhs),
         .Pointer => try sema.resolveDefinedValue(block, lhs_src, lhs),
         else => unreachable,
     }) |lhs_val| rs: {
         if (switch (rhs_ty.zigTypeTag(mod)) {
-            .Array, .Struct => try sema.resolveMaybeUndefVal(rhs),
+            .Array, .Struct => try sema.resolveValue(rhs),
             .Pointer => try sema.resolveDefinedValue(block, rhs_src, rhs),
             else => unreachable,
         }) |rhs_val| {
@@ -13755,7 +13754,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try lhs_sub_val.elemValue(mod, lhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, undefined);
+                const coerced_elem_val = try sema.resolveConstValue(block, .unneeded, coerced_elem_val_inst, undefined);
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
             while (elem_i < result_len) : (elem_i += 1) {
@@ -13764,7 +13763,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try rhs_sub_val.elemValue(mod, rhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, undefined);
+                const coerced_elem_val = try sema.resolveConstValue(block, .unneeded, coerced_elem_val_inst, undefined);
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
             return sema.addConstantMaybeRef(block, result_ty, (try mod.intern(.{ .aggregate = .{
@@ -13841,7 +13840,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
                 // has a sentinel, and this code should compute the length based
                 // on the sentinel value.
                 .Slice, .Many => {
-                    const val = try sema.resolveConstValue(block, src, operand, .{
+                    const val = try sema.resolveConstDefinedValue(block, src, operand, .{
                         .needed_comptime_reason = "slice value being concatenated must be comptime-known",
                     });
                     return Type.ArrayInfo{
@@ -14109,7 +14108,7 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     if (rhs_scalar_ty.isAnyFloat()) {
         // We handle float negation here to ensure negative zero is represented in the bits.
-        if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+        if (try sema.resolveValue(rhs)) |rhs_val| {
             if (rhs_val.isUndef(mod)) return mod.undefRef(rhs_ty);
             return Air.internedToRef((try rhs_val.floatNeg(rhs_ty, sema.arena, mod)).toIntern());
         }
@@ -14195,8 +14194,8 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     if ((lhs_ty.zigTypeTag(mod) == .ComptimeFloat and rhs_ty.zigTypeTag(mod) == .ComptimeInt) or
         (lhs_ty.zigTypeTag(mod) == .ComptimeInt and rhs_ty.zigTypeTag(mod) == .ComptimeFloat))
@@ -14360,8 +14359,8 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_exact);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -14527,8 +14526,8 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_floor);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -14638,8 +14637,8 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_trunc);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -14882,8 +14881,8 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .mod_rem);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -15063,8 +15062,8 @@ fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .mod);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -15159,8 +15158,8 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .rem);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
 
     const runtime_src = rs: {
         // For integers:
@@ -15269,8 +15268,8 @@ fn zirOverflowArithmetic(
         return sema.fail(block, src, "expected vector of integers or integer tag type, found '{}'", .{dest_ty.fmt(mod)});
     }
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+    const maybe_lhs_val = try sema.resolveValue(lhs);
+    const maybe_rhs_val = try sema.resolveValue(rhs);
 
     const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
     const overflow_ty = ip.indexToKey(tuple_ty.toIntern()).anon_struct_type.types.get(ip)[1].toType();
@@ -15413,7 +15412,7 @@ fn zirOverflowArithmetic(
     };
 
     if (result.inst != .none) {
-        if (try sema.resolveMaybeUndefVal(result.inst)) |some| {
+        if (try sema.resolveValue(result.inst)) |some| {
             result.wrapped = some;
             result.inst = .none;
         }
@@ -15509,8 +15508,8 @@ fn analyzeArithmetic(
 
     try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, zir_tag);
 
-    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
     const runtime_src: LazySrcLoc, const air_tag: Air.Inst.Tag, const air_tag_safe: Air.Inst.Tag = rs: {
         switch (zir_tag) {
             .add, .add_unsafe => {
@@ -15959,7 +15958,7 @@ fn analyzePtrArithmetic(
     // coerce to isize instead of usize.
     const offset = try sema.coerce(block, Type.usize, uncasted_offset, offset_src);
     const mod = sema.mod;
-    const opt_ptr_val = try sema.resolveMaybeUndefVal(ptr);
+    const opt_ptr_val = try sema.resolveValue(ptr);
     const opt_off_val = try sema.resolveDefinedValue(block, offset_src, offset);
     const ptr_ty = sema.typeOf(ptr);
     const ptr_info = ptr_ty.ptrInfo(mod);
@@ -16265,8 +16264,8 @@ fn zirCmpEq(
 
     if (lhs_ty_tag == .ErrorSet and rhs_ty_tag == .ErrorSet) {
         const runtime_src: LazySrcLoc = src: {
-            if (try sema.resolveMaybeUndefVal(lhs)) |lval| {
-                if (try sema.resolveMaybeUndefVal(rhs)) |rval| {
+            if (try sema.resolveValue(lhs)) |lval| {
+                if (try sema.resolveValue(rhs)) |rval| {
                     if (lval.isUndef(mod) or rval.isUndef(mod)) {
                         return mod.undefRef(Type.bool);
                     }
@@ -16321,7 +16320,7 @@ fn analyzeCmpUnionTag(
     const coerced_tag = try sema.coerce(block, union_tag_ty, tag, tag_src);
     const coerced_union = try sema.coerce(block, union_tag_ty, un, un_src);
 
-    if (try sema.resolveMaybeUndefVal(coerced_tag)) |enum_val| {
+    if (try sema.resolveValue(coerced_tag)) |enum_val| {
         if (enum_val.isUndef(mod)) return mod.undefRef(Type.bool);
         const field_ty = union_ty.unionFieldType(enum_val, mod).?;
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
@@ -16423,9 +16422,9 @@ fn cmpSelf(
     const mod = sema.mod;
     const resolved_type = sema.typeOf(casted_lhs);
     const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveMaybeUndefVal(casted_lhs)) |lhs_val| {
+        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
             if (lhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
-            if (try sema.resolveMaybeUndefVal(casted_rhs)) |rhs_val| {
+            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
                 if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
 
                 if (resolved_type.zigTypeTag(mod) == .Vector) {
@@ -16448,7 +16447,7 @@ fn cmpSelf(
             // For bools, we still check the other operand, because we can lower
             // bool eq/neq more efficiently.
             if (resolved_type.zigTypeTag(mod) == .Bool) {
-                if (try sema.resolveMaybeUndefVal(casted_rhs)) |rhs_val| {
+                if (try sema.resolveValue(casted_rhs)) |rhs_val| {
                     if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
                     return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
                 }
@@ -16594,7 +16593,7 @@ fn zirClosureCapture(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         .zir_index = inst,
         .index = block.wip_capture_scope,
     };
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         try mod.comptime_capture_scopes.put(gpa, key, try val.intern(ty, mod));
     } else {
         try mod.runtime_capture_scopes.put(gpa, key, ty.toIntern());
@@ -18079,7 +18078,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const uncasted_operand = try sema.resolveInst(inst_data.operand);
 
     const operand = try sema.coerce(block, Type.bool, uncasted_operand, operand_src);
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         return if (val.isUndef(mod))
             mod.undefRef(Type.bool)
         else if (val.toBool()) .bool_false else .bool_true;
@@ -18238,7 +18237,7 @@ fn zirIsNonNullPtr(
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     try sema.checkNullableType(block, src, sema.typeOf(ptr).elemType2(mod));
-    if ((try sema.resolveMaybeUndefVal(ptr)) == null) {
+    if ((try sema.resolveValue(ptr)) == null) {
         return block.addUnOp(.is_non_null_ptr, ptr);
     }
     const loaded = try sema.analyzeLoad(block, src, ptr, src);
@@ -18833,7 +18832,7 @@ fn analyzeRet(
 
     if (block.inlining) |inlining| {
         if (block.is_comptime) {
-            _ = try sema.resolveConstMaybeUndefVal(block, src, operand, .{
+            _ = try sema.resolveConstValue(block, src, operand, .{
                 .needed_comptime_reason = "value being returned at comptime must be comptime-known",
             });
             inlining.comptime_result = operand;
@@ -18915,7 +18914,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_i]);
         extra_i += 1;
         const coerced = try sema.coerce(block, elem_ty, try sema.resolveInst(ref), sentinel_src);
-        const val = try sema.resolveConstValue(block, sentinel_src, coerced, .{
+        const val = try sema.resolveConstDefinedValue(block, sentinel_src, coerced, .{
             .needed_comptime_reason = "pointer sentinel value must be comptime-known",
         });
         break :blk val.toIntern();
@@ -18925,7 +18924,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_i]);
         extra_i += 1;
         const coerced = try sema.coerce(block, Type.u32, try sema.resolveInst(ref), align_src);
-        const val = try sema.resolveConstValue(block, align_src, coerced, .{
+        const val = try sema.resolveConstDefinedValue(block, align_src, coerced, .{
             .needed_comptime_reason = "pointer alignment must be comptime-known",
         });
         // Check if this happens to be the lazy alignment of our element type, in
@@ -19073,7 +19072,7 @@ fn zirStructInitEmptyResult(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is
     const init_ref = try sema.coerce(block, init_ty, empty_ref, src);
 
     if (is_byref) {
-        const init_val = (try sema.resolveMaybeUndefVal(init_ref)).?;
+        const init_val = (try sema.resolveValue(init_ref)).?;
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         const decl = try anon_decl.finish(init_ty, init_val, .none);
@@ -19158,7 +19157,7 @@ fn unionInit(
     const field_ty = mod.typeToUnion(union_ty).?.field_types.get(ip)[field_index].toType();
     const init = try sema.coerce(block, field_ty, uncasted_init, init_src);
 
-    if (try sema.resolveMaybeUndefVal(init)) |init_val| {
+    if (try sema.resolveValue(init)) |init_val| {
         const tag_ty = union_ty.unionTagTypeHypothetical(mod);
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
         return Air.internedToRef((try mod.intern(.{ .un = .{
@@ -19247,7 +19246,7 @@ fn zirStructInit(
             const field_ty = resolved_ty.structFieldType(field_index, mod);
             field_inits[field_index] = try sema.coerce(block, field_ty, uncoerced_init, field_src);
             if (!is_packed) if (try resolved_ty.structFieldValueComptime(mod, field_index)) |default_value| {
-                const init_val = (try sema.resolveMaybeUndefVal(field_inits[field_index])) orelse {
+                const init_val = (try sema.resolveValue(field_inits[field_index])) orelse {
                     return sema.failWithNeededComptime(block, field_src, .{
                         .needed_comptime_reason = "value stored in comptime field must be comptime-known",
                     });
@@ -19292,14 +19291,14 @@ fn zirStructInit(
         const uncoerced_init_inst = try sema.resolveInst(item.data.init);
         const init_inst = try sema.coerce(block, field_ty, uncoerced_init_inst, field_src);
 
-        if (try sema.resolveMaybeUndefVal(init_inst)) |val| {
+        if (try sema.resolveValue(init_inst)) |val| {
             const struct_val = (try mod.intern(.{ .un = .{
                 .ty = resolved_ty.toIntern(),
                 .tag = try tag_val.intern(tag_ty, mod),
                 .val = try val.intern(field_ty, mod),
             } })).toValue();
             const final_val_inst = try sema.coerce(block, result_ty, Air.internedToRef(struct_val.toIntern()), src);
-            const final_val = (try sema.resolveMaybeUndefVal(final_val_inst)).?;
+            const final_val = (try sema.resolveValue(final_val_inst)).?;
             return sema.addConstantMaybeRef(block, resolved_ty, final_val, is_ref);
         }
 
@@ -19452,14 +19451,14 @@ fn finishStructInit(
     const runtime_index = opt_runtime_index orelse {
         const elems = try sema.arena.alloc(InternPool.Index, field_inits.len);
         for (elems, field_inits) |*elem, field_init| {
-            elem.* = (sema.resolveMaybeUndefVal(field_init) catch unreachable).?.toIntern();
+            elem.* = (sema.resolveValue(field_init) catch unreachable).?.toIntern();
         }
         const struct_val = try mod.intern(.{ .aggregate = .{
             .ty = struct_ty.toIntern(),
             .storage = .{ .elems = elems },
         } });
         const final_val_inst = try sema.coerce(block, result_ty, Air.internedToRef(struct_val), init_src);
-        const final_val = (try sema.resolveMaybeUndefVal(final_val_inst)).?;
+        const final_val = (try sema.resolveValue(final_val_inst)).?;
         return sema.addConstantMaybeRef(block, result_ty, final_val, is_ref);
     };
 
@@ -19592,7 +19591,7 @@ fn structInitAnon(
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
-            if (try sema.resolveMaybeUndefVal(init)) |init_val| {
+            if (try sema.resolveValue(init)) |init_val| {
                 values[i] = try init_val.intern(field_ty.toType(), mod);
             } else {
                 values[i] = .none;
@@ -19738,7 +19737,7 @@ fn zirArrayInit(
             else => return err,
         };
         if (is_tuple) if (try array_ty.structFieldValueComptime(mod, i)) |field_val| {
-            const init_val = try sema.resolveMaybeUndefVal(dest.*) orelse {
+            const init_val = try sema.resolveValue(dest.*) orelse {
                 const decl = mod.declPtr(block.src_decl);
                 const elem_src = mod.initSrc(src.node_offset.x, decl, i);
                 return sema.failWithNeededComptime(block, elem_src, .{
@@ -19772,14 +19771,14 @@ fn zirArrayInit(
             else
                 array_ty.elemType2(mod);
             // We checked that all args are comptime above.
-            val.* = try ((sema.resolveMaybeUndefVal(arg) catch unreachable).?).intern(elem_ty, mod);
+            val.* = try ((sema.resolveValue(arg) catch unreachable).?).intern(elem_ty, mod);
         }
         const arr_val = try mod.intern(.{ .aggregate = .{
             .ty = array_ty.toIntern(),
             .storage = .{ .elems = elem_vals },
         } });
         const result_ref = try sema.coerce(block, result_ty, Air.internedToRef(arr_val), src);
-        return sema.addConstantMaybeRef(block, result_ty, (try sema.resolveMaybeUndefVal(result_ref)).?, is_ref);
+        return sema.addConstantMaybeRef(block, result_ty, (try sema.resolveValue(result_ref)).?, is_ref);
     };
 
     sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
@@ -19877,7 +19876,7 @@ fn arrayInitAnon(
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
-            if (try sema.resolveMaybeUndefVal(elem)) |val| {
+            if (try sema.resolveValue(elem)) |val| {
                 values[i] = val.toIntern();
             } else {
                 values[i] = .none;
@@ -20100,7 +20099,7 @@ fn zirIntFromBool(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     if (operand_scalar_ty.toIntern() != .bool_type) {
         return sema.fail(block, src, "expected 'bool', found '{}'", .{operand_scalar_ty.zigTypeTag(mod)});
     }
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         if (!is_vector) {
             if (val.isUndef(mod)) return mod.undefRef(Type.u1);
             if (val.toBool()) return Air.internedToRef((try mod.intValue(Type.u1, 1)).toIntern());
@@ -20191,7 +20190,7 @@ fn maybeConstantUnaryMath(
 ) CompileError!?Air.Inst.Ref {
     const mod = sema.mod;
     switch (result_ty.zigTypeTag(mod)) {
-        .Vector => if (try sema.resolveMaybeUndefVal(operand)) |val| {
+        .Vector => if (try sema.resolveValue(operand)) |val| {
             const scalar_ty = result_ty.scalarType(mod);
             const vec_len = result_ty.vectorLen(mod);
             if (val.isUndef(mod))
@@ -20207,7 +20206,7 @@ fn maybeConstantUnaryMath(
                 .storage = .{ .elems = elems },
             } })));
         },
-        else => if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+        else => if (try sema.resolveValue(operand)) |operand_val| {
             if (operand_val.isUndef(mod))
                 return try mod.undefRef(result_ty);
             const result_val = try eval(operand_val, result_ty, sema.arena, sema.mod);
@@ -20262,7 +20261,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.resolveTypeLayout(operand_ty);
     const enum_ty = switch (operand_ty.zigTypeTag(mod)) {
         .EnumLiteral => {
-            const val = try sema.resolveConstValue(block, .unneeded, operand, undefined);
+            const val = try sema.resolveConstDefinedValue(block, .unneeded, operand, undefined);
             const tag_name = ip.indexToKey(val.toIntern()).enum_literal;
             return sema.addStrLit(ip.stringToSlice(tag_name));
         },
@@ -20335,7 +20334,7 @@ fn zirReify(
     const uncasted_operand = try sema.resolveInst(extra.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
-    const val = try sema.resolveConstValue(block, operand_src, type_info, .{
+    const val = try sema.resolveConstDefinedValue(block, operand_src, type_info, .{
         .needed_comptime_reason = "operand to @Type must be comptime-known",
     });
     const union_val = ip.indexToKey(val.toIntern()).un;
@@ -21486,7 +21485,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     _ = try sema.checkIntType(block, src, dest_scalar_ty);
     try sema.checkFloatType(block, operand_src, operand_scalar_ty);
 
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         const result_val = try sema.intFromFloat(block, operand_src, operand_val, operand_ty, dest_ty, .truncate);
         return Air.internedToRef(result_val.toIntern());
     } else if (dest_scalar_ty.zigTypeTag(mod) == .ComptimeInt) {
@@ -21568,7 +21567,7 @@ fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     try sema.checkFloatType(block, src, dest_scalar_ty);
     _ = try sema.checkIntType(block, operand_src, operand_scalar_ty);
 
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         const result_val = try operand_val.floatFromIntAdvanced(sema.arena, operand_ty, dest_ty, mod, sema);
         return Air.internedToRef(result_val.toIntern());
     } else if (dest_scalar_ty.zigTypeTag(mod) == .ComptimeFloat) {
@@ -22158,7 +22157,7 @@ fn ptrCastFull(
 
     // Cannot do @addrSpaceCast at comptime
     if (!flags.addrspace_cast) {
-        if (try sema.resolveMaybeUndefVal(ptr)) |ptr_val| {
+        if (try sema.resolveValue(ptr)) |ptr_val| {
             if (!dest_ty.ptrAllowsZero(mod) and ptr_val.isUndef(mod)) {
                 return sema.failWithUseOfUndef(block, operand_src);
             }
@@ -22286,7 +22285,7 @@ fn zirPtrCastNoDest(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     if (flags.volatile_cast) ptr_info.flags.is_volatile = false;
     const dest_ty = try sema.ptrType(ptr_info);
 
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         return Air.internedToRef((try mod.getCoerced(operand_val, dest_ty)).toIntern());
     }
 
@@ -22356,7 +22355,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
     }
 
-    if (try sema.resolveMaybeUndefValIntable(operand)) |val| {
+    if (try sema.resolveValueIntable(operand)) |val| {
         if (val.isUndef(mod)) return mod.undefRef(dest_ty);
         if (!dest_is_vector) {
             return Air.internedToRef((try mod.getCoerced(
@@ -22407,7 +22406,7 @@ fn zirBitCount(
                 .len = vec_len,
                 .child = result_scalar_ty.toIntern(),
             });
-            if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            if (try sema.resolveValue(operand)) |val| {
                 if (val.isUndef(mod)) return mod.undefRef(result_ty);
 
                 const elems = try sema.arena.alloc(InternPool.Index, vec_len);
@@ -22427,7 +22426,7 @@ fn zirBitCount(
             }
         },
         .Int => {
-            if (try sema.resolveMaybeUndefLazyVal(operand)) |val| {
+            if (try sema.resolveValueResolveLazy(operand)) |val| {
                 if (val.isUndef(mod)) return mod.undefRef(result_scalar_ty);
                 return mod.intRef(result_scalar_ty, comptimeOp(val, operand_ty, mod));
             } else {
@@ -22463,7 +22462,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     switch (operand_ty.zigTypeTag(mod)) {
         .Int => {
-            const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            const runtime_src = if (try sema.resolveValue(operand)) |val| {
                 if (val.isUndef(mod)) return mod.undefRef(operand_ty);
                 const result_val = try val.byteSwap(operand_ty, mod, sema.arena);
                 return Air.internedToRef(result_val.toIntern());
@@ -22473,7 +22472,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return block.addTyOp(.byte_swap, operand_ty, operand);
         },
         .Vector => {
-            const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            const runtime_src = if (try sema.resolveValue(operand)) |val| {
                 if (val.isUndef(mod))
                     return mod.undefRef(operand_ty);
 
@@ -22511,7 +22510,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const mod = sema.mod;
     switch (operand_ty.zigTypeTag(mod)) {
         .Int => {
-            const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            const runtime_src = if (try sema.resolveValue(operand)) |val| {
                 if (val.isUndef(mod)) return mod.undefRef(operand_ty);
                 const result_val = try val.bitReverse(operand_ty, mod, sema.arena);
                 return Air.internedToRef(result_val.toIntern());
@@ -22521,7 +22520,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             return block.addTyOp(.bit_reverse, operand_ty, operand);
         },
         .Vector => {
-            const runtime_src = if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            const runtime_src = if (try sema.resolveValue(operand)) |val| {
                 if (val.isUndef(mod))
                     return mod.undefRef(operand_ty);
 
@@ -22967,8 +22966,8 @@ fn checkSimdBinOp(
         .len = vec_len,
         .lhs = lhs,
         .rhs = rhs,
-        .lhs_val = try sema.resolveMaybeUndefVal(lhs),
-        .rhs_val = try sema.resolveMaybeUndefVal(rhs),
+        .lhs_val = try sema.resolveValue(lhs),
+        .rhs_val = try sema.resolveValue(rhs),
         .result_ty = result_ty,
         .scalar_ty = result_ty.scalarType(mod),
     };
@@ -23054,20 +23053,20 @@ fn resolveExportOptions(
     const visibility_src = sema.maybeOptionsSrc(block, src, "visibility");
 
     const name_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "name"), name_src);
-    const name_val = try sema.resolveConstValue(block, name_src, name_operand, .{
+    const name_val = try sema.resolveConstDefinedValue(block, name_src, name_operand, .{
         .needed_comptime_reason = "name of exported value must be comptime-known",
     });
     const name_ty = Type.slice_const_u8;
     const name = try name_val.toAllocatedBytes(name_ty, sema.arena, mod);
 
     const linkage_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "linkage"), linkage_src);
-    const linkage_val = try sema.resolveConstValue(block, linkage_src, linkage_operand, .{
+    const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_operand, .{
         .needed_comptime_reason = "linkage of exported value must be comptime-known",
     });
     const linkage = mod.toEnum(std.builtin.GlobalLinkage, linkage_val);
 
     const section_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "section"), section_src);
-    const section_opt_val = try sema.resolveConstValue(block, section_src, section_operand, .{
+    const section_opt_val = try sema.resolveConstDefinedValue(block, section_src, section_operand, .{
         .needed_comptime_reason = "linksection of exported value must be comptime-known",
     });
     const section_ty = Type.slice_const_u8;
@@ -23077,7 +23076,7 @@ fn resolveExportOptions(
         null;
 
     const visibility_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "visibility"), visibility_src);
-    const visibility_val = try sema.resolveConstValue(block, visibility_src, visibility_operand, .{
+    const visibility_val = try sema.resolveConstDefinedValue(block, visibility_src, visibility_operand, .{
         .needed_comptime_reason = "visibility of exported value must be comptime-known",
     });
     const visibility = mod.toEnum(std.builtin.SymbolVisibility, visibility_val);
@@ -23112,7 +23111,7 @@ fn resolveBuiltinEnum(
     const ty = try sema.getBuiltinType(name);
     const air_ref = try sema.resolveInst(zir_ref);
     const coerced = try sema.coerce(block, ty, air_ref, src);
-    const val = try sema.resolveConstValue(block, src, coerced, reason);
+    const val = try sema.resolveConstDefinedValue(block, src, coerced, reason);
     return mod.toEnum(@field(std.builtin, name), val);
 }
 
@@ -23202,8 +23201,8 @@ fn zirCmpxchg(
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
-        if (try sema.resolveMaybeUndefVal(expected_value)) |expected_val| {
-            if (try sema.resolveMaybeUndefVal(new_value)) |new_val| {
+        if (try sema.resolveValue(expected_value)) |expected_val| {
+            if (try sema.resolveValue(new_value)) |new_val| {
                 if (expected_val.isUndef(mod) or new_val.isUndef(mod)) {
                     // TODO: this should probably cause the memory stored at the pointer
                     // to become undef as well
@@ -23254,7 +23253,7 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const operand = try sema.resolveInst(extra.rhs);
     const scalar_ty = dest_ty.childType(mod);
     const scalar = try sema.coerce(block, scalar_ty, operand, scalar_src);
-    if (try sema.resolveMaybeUndefVal(scalar)) |scalar_val| {
+    if (try sema.resolveValue(scalar)) |scalar_val| {
         if (scalar_val.isUndef(mod)) return mod.undefRef(dest_ty);
         return Air.internedToRef((try sema.splat(dest_ty, scalar_val)).toIntern());
     }
@@ -23304,7 +23303,7 @@ fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         return sema.fail(block, operand_src, "@reduce operation requires a vector with nonzero length", .{});
     }
 
-    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+    if (try sema.resolveValue(operand)) |operand_val| {
         if (operand_val.isUndef(mod)) return mod.undefRef(scalar_ty);
 
         var accum: Value = try operand_val.elemValue(mod, 0);
@@ -23357,7 +23356,7 @@ fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .child = .i32_type,
     });
     mask = try sema.coerce(block, mask_ty, mask, mask_src);
-    const mask_val = try sema.resolveConstMaybeUndefVal(block, mask_src, mask, .{
+    const mask_val = try sema.resolveConstValue(block, mask_src, mask, .{
         .needed_comptime_reason = "shuffle mask must be comptime-known",
     });
     return sema.analyzeShuffle(block, inst_data.src_node, elem_ty, a, b, mask_val, @intCast(mask_len));
@@ -23457,8 +23456,8 @@ fn analyzeShuffle(
         }
     }
 
-    if (try sema.resolveMaybeUndefVal(a)) |a_val| {
-        if (try sema.resolveMaybeUndefVal(b)) |b_val| {
+    if (try sema.resolveValue(a)) |a_val| {
+        if (try sema.resolveValue(b)) |b_val| {
             const values = try sema.arena.alloc(InternPool.Index, mask_len);
             for (values, 0..) |*value, i| {
                 const mask_elem_val = try mask.elemValue(sema.mod, i);
@@ -23556,9 +23555,9 @@ fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
     const a = try sema.coerce(block, vec_ty, try sema.resolveInst(extra.a), a_src);
     const b = try sema.coerce(block, vec_ty, try sema.resolveInst(extra.b), b_src);
 
-    const maybe_pred = try sema.resolveMaybeUndefVal(pred);
-    const maybe_a = try sema.resolveMaybeUndefVal(a);
-    const maybe_b = try sema.resolveMaybeUndefVal(b);
+    const maybe_pred = try sema.resolveValue(pred);
+    const maybe_a = try sema.resolveValue(a);
+    const maybe_b = try sema.resolveValue(b);
 
     const runtime_src = if (maybe_pred) |pred_val| rs: {
         if (pred_val.isUndef(mod)) return mod.undefRef(vec_ty);
@@ -23704,7 +23703,7 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
-        const maybe_operand_val = try sema.resolveMaybeUndefVal(operand);
+        const maybe_operand_val = try sema.resolveValue(operand);
         const operand_val = maybe_operand_val orelse {
             try sema.checkPtrIsNotComptimeMutable(block, ptr_val, ptr_src, operand_src);
             break :rs operand_src;
@@ -23795,9 +23794,9 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const mulend1 = try sema.coerce(block, ty, try sema.resolveInst(extra.mulend1), mulend1_src);
     const mulend2 = try sema.coerce(block, ty, try sema.resolveInst(extra.mulend2), mulend2_src);
 
-    const maybe_mulend1 = try sema.resolveMaybeUndefVal(mulend1);
-    const maybe_mulend2 = try sema.resolveMaybeUndefVal(mulend2);
-    const maybe_addend = try sema.resolveMaybeUndefVal(addend);
+    const maybe_mulend1 = try sema.resolveValue(mulend1);
+    const maybe_mulend2 = try sema.resolveValue(mulend2);
+    const maybe_addend = try sema.resolveValue(addend);
     const mod = sema.mod;
 
     switch (ty.scalarType(mod).zigTypeTag(mod)) {
@@ -23862,7 +23861,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const modifier_ty = try sema.getBuiltinType("CallModifier");
     const air_ref = try sema.resolveInst(extra.modifier);
     const modifier_ref = try sema.coerce(block, modifier_ty, air_ref, modifier_src);
-    const modifier_val = try sema.resolveConstValue(block, modifier_src, modifier_ref, .{
+    const modifier_val = try sema.resolveConstDefinedValue(block, modifier_src, modifier_ref, .{
         .needed_comptime_reason = "call modifier must be comptime-known",
     });
     var modifier = mod.toEnum(std.builtin.CallModifier, modifier_val);
@@ -24146,7 +24145,7 @@ fn analyzeMinMax(
     for (operands, operand_srcs, 0..) |operand, operand_src, operand_idx| {
         // Resolve the value now to avoid redundant calls to `checkSimdBinOp` - we'll have to call
         // it in the runtime path anyway since the result type may have been refined
-        const unresolved_uncoerced_val = try sema.resolveMaybeUndefVal(operand) orelse continue;
+        const unresolved_uncoerced_val = try sema.resolveValue(operand) orelse continue;
         const uncoerced_val = try sema.resolveLazyValue(unresolved_uncoerced_val);
 
         runtime_known.unset(operand_idx);
@@ -24222,7 +24221,7 @@ fn analyzeMinMax(
         // as possible will allow us to emit more optimal AIR (if all the runtime operands have
         // smaller types than the non-refined comptime type).
 
-        const val = (try sema.resolveMaybeUndefVal(ct_minmax_ref)).?;
+        const val = (try sema.resolveValue(ct_minmax_ref)).?;
         const orig_ty = sema.typeOf(ct_minmax_ref);
 
         if (opt_runtime_idx == null and orig_ty.scalarType(mod).eql(Type.comptime_int, mod)) {
@@ -24257,7 +24256,7 @@ fn analyzeMinMax(
 
     // If the comptime-known part is undef we can avoid emitting actual instructions later
     const known_undef = if (cur_minmax) |operand| blk: {
-        const val = (try sema.resolveMaybeUndefVal(operand)).?;
+        const val = (try sema.resolveValue(operand)).?;
         break :blk val.isUndef(mod);
     } else false;
 
@@ -24631,7 +24630,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         }
 
         if (!ptr_val.isComptimeMutablePtr(mod)) break :rs dest_src;
-        const elem_val = try sema.resolveMaybeUndefVal(elem) orelse break :rs value_src;
+        const elem_val = try sema.resolveValue(elem) orelse break :rs value_src;
         const array_ty = try mod.arrayType(.{
             .child = dest_elem_ty.toIntern(),
             .len = len_u64,
@@ -24736,7 +24735,7 @@ fn zirVarExtended(
         else
             uncasted_init;
 
-        break :blk ((try sema.resolveMaybeUndefVal(init)) orelse {
+        break :blk ((try sema.resolveValue(init)) orelse {
             return sema.failWithNeededComptime(block, init_src, .{
                 .needed_comptime_reason = "container level variable initializers must be comptime-known",
             });
@@ -25097,17 +25096,17 @@ fn resolvePrefetchOptions(
     const cache_src = sema.maybeOptionsSrc(block, src, "cache");
 
     const rw = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "rw"), rw_src);
-    const rw_val = try sema.resolveConstValue(block, rw_src, rw, .{
+    const rw_val = try sema.resolveConstDefinedValue(block, rw_src, rw, .{
         .needed_comptime_reason = "prefetch read/write must be comptime-known",
     });
 
     const locality = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "locality"), locality_src);
-    const locality_val = try sema.resolveConstValue(block, locality_src, locality, .{
+    const locality_val = try sema.resolveConstDefinedValue(block, locality_src, locality, .{
         .needed_comptime_reason = "prefetch locality must be comptime-known",
     });
 
     const cache = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "cache"), cache_src);
-    const cache_val = try sema.resolveConstValue(block, cache_src, cache, .{
+    const cache_val = try sema.resolveConstDefinedValue(block, cache_src, cache, .{
         .needed_comptime_reason = "prefetch cache must be comptime-known",
     });
 
@@ -25176,24 +25175,24 @@ fn resolveExternOptions(
     const thread_local_src = sema.maybeOptionsSrc(block, src, "thread_local");
 
     const name_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "name"), name_src);
-    const name_val = try sema.resolveConstValue(block, name_src, name_ref, .{
+    const name_val = try sema.resolveConstDefinedValue(block, name_src, name_ref, .{
         .needed_comptime_reason = "name of the extern symbol must be comptime-known",
     });
     const name = try name_val.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
 
     const library_name_inst = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "library_name"), library_src);
-    const library_name_val = try sema.resolveConstValue(block, library_src, library_name_inst, .{
+    const library_name_val = try sema.resolveConstDefinedValue(block, library_src, library_name_inst, .{
         .needed_comptime_reason = "library in which extern symbol is must be comptime-known",
     });
 
     const linkage_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "linkage"), linkage_src);
-    const linkage_val = try sema.resolveConstValue(block, linkage_src, linkage_ref, .{
+    const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_ref, .{
         .needed_comptime_reason = "linkage of the extern symbol must be comptime-known",
     });
     const linkage = mod.toEnum(std.builtin.GlobalLinkage, linkage_val);
 
     const is_thread_local = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "is_thread_local"), thread_local_src);
-    const is_thread_local_val = try sema.resolveConstValue(block, thread_local_src, is_thread_local, .{
+    const is_thread_local_val = try sema.resolveConstDefinedValue(block, thread_local_src, is_thread_local, .{
         .needed_comptime_reason = "threadlocality of the extern symbol must be comptime-known",
     });
 
@@ -26419,7 +26418,7 @@ fn fieldPtr(
             }
         },
         .Type => {
-            _ = try sema.resolveConstValue(block, .unneeded, object_ptr, undefined);
+            _ = try sema.resolveConstDefinedValue(block, .unneeded, object_ptr, undefined);
             const result = try sema.analyzeLoad(block, src, object_ptr, object_ptr_src);
             const inner = if (is_pointer_to)
                 try sema.analyzeLoad(block, src, result, object_ptr_src)
@@ -26991,7 +26990,7 @@ fn structFieldVal(
 
             const field_ty = struct_type.field_types.get(ip)[field_index].toType();
 
-            if (try sema.resolveMaybeUndefVal(struct_byval)) |struct_val| {
+            if (try sema.resolveValue(struct_byval)) |struct_val| {
                 if (struct_val.isUndef(mod)) return mod.undefRef(field_ty);
                 if ((try sema.typeHasOnePossibleValue(field_ty))) |opv| {
                     return Air.internedToRef(opv.toIntern());
@@ -27069,7 +27068,7 @@ fn tupleFieldValByIndex(
         return Air.internedToRef(default_value.toIntern());
     }
 
-    if (try sema.resolveMaybeUndefVal(tuple_byval)) |tuple_val| {
+    if (try sema.resolveValue(tuple_byval)) |tuple_val| {
         if ((try sema.typeHasOnePossibleValue(field_ty))) |opv| {
             return Air.internedToRef(opv.toIntern());
         }
@@ -27221,7 +27220,7 @@ fn unionFieldVal(
     const field_ty = union_obj.field_types.get(ip)[field_index].toType();
     const enum_field_index: u32 = @intCast(union_obj.enum_tag_ty.toType().enumFieldIndex(field_name, mod).?);
 
-    if (try sema.resolveMaybeUndefVal(union_byval)) |union_val| {
+    if (try sema.resolveValue(union_byval)) |union_val| {
         if (union_val.isUndef(mod)) return mod.undefRef(field_ty);
 
         const un = ip.indexToKey(union_val.toIntern()).un;
@@ -27303,7 +27302,7 @@ fn elemPtr(
         .Array, .Vector => try sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init, oob_safety),
         .Struct => blk: {
             // Tuple field access.
-            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, .{
+            const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                 .needed_comptime_reason = "tuple field access index must be comptime-known",
             });
             const index: u32 = @intCast(index_val.toUnsignedInt(mod));
@@ -27360,7 +27359,7 @@ fn elemPtrOneLayerOnly(
                 .Array, .Vector => try sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init, oob_safety),
                 .Struct => blk: {
                     assert(child_ty.isTuple(mod));
-                    const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, .{
+                    const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                         .needed_comptime_reason = "tuple field access index must be comptime-known",
                     });
                     const index: u32 = @intCast(index_val.toUnsignedInt(mod));
@@ -27439,7 +27438,7 @@ fn elemVal(
         },
         .Struct => {
             // Tuple field access.
-            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, .{
+            const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                 .needed_comptime_reason = "tuple field access index must be comptime-known",
             });
             const index: u32 = @intCast(index_val.toUnsignedInt(mod));
@@ -27519,7 +27518,7 @@ fn tupleFieldPtr(
         } })));
     }
 
-    if (try sema.resolveMaybeUndefVal(tuple_ptr)) |tuple_ptr_val| {
+    if (try sema.resolveValue(tuple_ptr)) |tuple_ptr_val| {
         return Air.internedToRef((try mod.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
             .addr = .{ .field = .{
@@ -27566,7 +27565,7 @@ fn tupleField(
         return Air.internedToRef(default_value.toIntern()); // comptime field
     }
 
-    if (try sema.resolveMaybeUndefVal(tuple)) |tuple_val| {
+    if (try sema.resolveValue(tuple)) |tuple_val| {
         if (tuple_val.isUndef(mod)) return mod.undefRef(field_ty);
         return Air.internedToRef((try tuple_val.fieldValue(mod, field_index)).toIntern());
     }
@@ -27599,7 +27598,7 @@ fn elemValArray(
         return sema.fail(block, array_src, "indexing into empty array is not allowed", .{});
     }
 
-    const maybe_undef_array_val = try sema.resolveMaybeUndefVal(array);
+    const maybe_undef_array_val = try sema.resolveValue(array);
     // index must be defined since it can access out of bounds
     const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
@@ -27664,7 +27663,7 @@ fn elemPtrArray(
         return sema.fail(block, array_ptr_src, "indexing into empty array is not allowed", .{});
     }
 
-    const maybe_undef_array_ptr_val = try sema.resolveMaybeUndefVal(array_ptr);
+    const maybe_undef_array_ptr_val = try sema.resolveValue(array_ptr);
     // The index must not be undefined since it can be out of bounds.
     const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
         const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(mod));
@@ -27776,7 +27775,7 @@ fn elemPtrSlice(
     const slice_ty = sema.typeOf(slice);
     const slice_sent = slice_ty.sentinel(mod) != null;
 
-    const maybe_undef_slice_val = try sema.resolveMaybeUndefVal(slice);
+    const maybe_undef_slice_val = try sema.resolveValue(slice);
     // The index must not be undefined since it can be out of bounds.
     const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
         const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(mod));
@@ -27888,7 +27887,7 @@ fn coerceExtra(
     if (dest_ty.eql(inst_ty, mod))
         return inst;
 
-    const maybe_inst_val = try sema.resolveMaybeUndefVal(inst);
+    const maybe_inst_val = try sema.resolveValue(inst);
 
     var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
@@ -27958,7 +27957,7 @@ fn coerceExtra(
 
             // Function body to function pointer.
             if (inst_ty.zigTypeTag(mod) == .Fn) {
-                const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
+                const fn_val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
                 const fn_decl = fn_val.pointerDecl(mod).?;
                 const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
@@ -28303,7 +28302,7 @@ fn coerceExtra(
         },
         .Float, .ComptimeFloat => switch (inst_ty.zigTypeTag(mod)) {
             .ComptimeFloat => {
-                const val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
+                const val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
                 const result_val = try val.floatCast(dest_ty, mod);
                 return Air.internedToRef(result_val.toIntern());
             },
@@ -28362,7 +28361,7 @@ fn coerceExtra(
         .Enum => switch (inst_ty.zigTypeTag(mod)) {
             .EnumLiteral => {
                 // enum literal to enum
-                const val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
+                const val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
                 const string = mod.intern_pool.indexToKey(val.toIntern()).enum_literal;
                 const field_index = dest_ty.enumFieldIndex(string, mod) orelse {
                     const msg = msg: {
@@ -29490,7 +29489,7 @@ fn coerceVarArgParam(
             .{},
         ),
         .Fn => blk: {
-            const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
+            const fn_val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
             const fn_decl = fn_val.pointerDecl(mod).?;
             break :blk try sema.analyzeDeclRef(fn_decl);
         },
@@ -29602,7 +29601,7 @@ fn storePtr2(
         error.NotCoercible => unreachable,
         else => |e| return e,
     };
-    const maybe_operand_val = try sema.resolveMaybeUndefVal(operand);
+    const maybe_operand_val = try sema.resolveValue(operand);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
         const operand_val = maybe_operand_val orelse {
@@ -29670,7 +29669,7 @@ fn checkComptimeKnownStore(sema: *Sema, block: *Block, store_inst_ref: Air.Inst.
     const maybe_comptime_alloc = sema.maybe_comptime_allocs.getPtr(maybe_base_alloc) orelse return;
 
     ct: {
-        if (null == try sema.resolveMaybeUndefVal(operand)) break :ct;
+        if (null == try sema.resolveValue(operand)) break :ct;
         if (maybe_comptime_alloc.runtime_index != block.runtime_index) break :ct;
         return maybe_comptime_alloc.stores.append(sema.arena, store_inst);
     }
@@ -29701,7 +29700,7 @@ fn checkKnownAllocPtr(sema: *Sema, base_ptr: Air.Inst.Ref, new_ptr: Air.Inst.Ref
 
             // If the index value is runtime-known, this pointer is also runtime-known, so
             // we must in turn make the alloc value runtime-known.
-            if (null == try sema.resolveMaybeUndefVal(index_ref)) {
+            if (null == try sema.resolveValue(index_ref)) {
                 _ = sema.maybe_comptime_allocs.remove(alloc_inst);
             }
         },
@@ -30711,7 +30710,7 @@ fn bitCast(
         });
     }
 
-    if (try sema.resolveMaybeUndefVal(inst)) |val| {
+    if (try sema.resolveValue(inst)) |val| {
         if (try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0)) |result_val| {
             return Air.internedToRef(result_val.toIntern());
         }
@@ -30817,7 +30816,7 @@ fn coerceArrayPtrToSlice(
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    if (try sema.resolveMaybeUndefVal(inst)) |val| {
+    if (try sema.resolveValue(inst)) |val| {
         const ptr_array_ty = sema.typeOf(inst);
         const array_ty = ptr_array_ty.childType(mod);
         const slice_val = try mod.intern(.{ .ptr = .{
@@ -30895,7 +30894,7 @@ fn coerceCompatiblePtrs(
 ) !Air.Inst.Ref {
     const mod = sema.mod;
     const inst_ty = sema.typeOf(inst);
-    if (try sema.resolveMaybeUndefVal(inst)) |val| {
+    if (try sema.resolveValue(inst)) |val| {
         if (!val.isUndef(mod) and val.isNull(mod) and !dest_ty.isAllowzeroPtr(mod)) {
             return sema.fail(block, inst_src, "null pointer casted to type '{}'", .{dest_ty.fmt(sema.mod)});
         }
@@ -31178,7 +31177,7 @@ fn coerceArrayLike(
     // try coercion of the whole array
     const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
-        if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
+        if (try sema.resolveValue(inst)) |inst_val| {
             // These types share the same comptime value representation.
             return sema.coerceInMemory(inst_val, dest_ty);
         }
@@ -31215,7 +31214,7 @@ fn coerceArrayLike(
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
         ref.* = coerced;
         if (runtime_src == null) {
-            if (try sema.resolveMaybeUndefVal(coerced)) |elem_val| {
+            if (try sema.resolveValue(coerced)) |elem_val| {
                 val.* = try elem_val.intern(dest_elem_ty, mod);
             } else {
                 runtime_src = elem_src;
@@ -31280,7 +31279,7 @@ fn coerceTupleToArray(
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
         ref.* = coerced;
         if (runtime_src == null) {
-            if (try sema.resolveMaybeUndefVal(coerced)) |elem_val| {
+            if (try sema.resolveValue(coerced)) |elem_val| {
                 val.* = try elem_val.intern(dest_elem_ty, mod);
             } else {
                 runtime_src = elem_src;
@@ -31393,7 +31392,7 @@ fn coerceTupleToStruct(
         const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
         if (struct_type.fieldIsComptime(ip, field_index)) {
-            const init_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
+            const init_val = (try sema.resolveValue(coerced)) orelse {
                 return sema.failWithNeededComptime(block, field_src, .{
                     .needed_comptime_reason = "value stored in comptime field must be comptime-known",
                 });
@@ -31405,7 +31404,7 @@ fn coerceTupleToStruct(
             }
         }
         if (runtime_src == null) {
-            if (try sema.resolveMaybeUndefVal(coerced)) |field_val| {
+            if (try sema.resolveValue(coerced)) |field_val| {
                 field_vals[field_index] = field_val.toIntern();
             } else {
                 runtime_src = field_src;
@@ -31521,7 +31520,7 @@ fn coerceTupleToTuple(
         const coerced = try sema.coerce(block, field_ty.toType(), elem_ref, field_src);
         field_refs[field_index] = coerced;
         if (default_val != .none) {
-            const init_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
+            const init_val = (try sema.resolveValue(coerced)) orelse {
                 return sema.failWithNeededComptime(block, field_src, .{
                     .needed_comptime_reason = "value stored in comptime field must be comptime-known",
                 });
@@ -31532,7 +31531,7 @@ fn coerceTupleToTuple(
             }
         }
         if (runtime_src == null) {
-            if (try sema.resolveMaybeUndefVal(coerced)) |field_val| {
+            if (try sema.resolveValue(coerced)) |field_val| {
                 field_vals[field_index] = field_val.toIntern();
             } else {
                 runtime_src = field_src;
@@ -31753,7 +31752,7 @@ fn analyzeRef(
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
 
-    if (try sema.resolveMaybeUndefVal(operand)) |val| {
+    if (try sema.resolveValue(operand)) |val| {
         switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .extern_func => |extern_func| return sema.analyzeDeclRef(extern_func.decl),
             .func => |func| return sema.analyzeDeclRef(func.owner_decl),
@@ -31840,7 +31839,7 @@ fn analyzeSlicePtr(
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const result_ty = slice_ty.slicePtrFieldType(mod);
-    if (try sema.resolveMaybeUndefVal(slice)) |val| {
+    if (try sema.resolveValue(slice)) |val| {
         if (val.isUndef(mod)) return mod.undefRef(result_ty);
         return Air.internedToRef(val.slicePtr(mod).toIntern());
     }
@@ -31855,7 +31854,7 @@ fn analyzeSliceLen(
     slice_inst: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    if (try sema.resolveMaybeUndefVal(slice_inst)) |slice_val| {
+    if (try sema.resolveValue(slice_inst)) |slice_val| {
         if (slice_val.isUndef(mod)) {
             return mod.undefRef(Type.usize);
         }
@@ -31874,7 +31873,7 @@ fn analyzeIsNull(
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const result_ty = Type.bool;
-    if (try sema.resolveMaybeUndefVal(operand)) |opt_val| {
+    if (try sema.resolveValue(operand)) |opt_val| {
         if (opt_val.isUndef(mod)) {
             return mod.undefRef(result_ty);
         }
@@ -31950,7 +31949,7 @@ fn analyzeIsNonErrComptimeOnly(
         return .bool_true;
     }
 
-    const maybe_operand_val = try sema.resolveMaybeUndefVal(operand);
+    const maybe_operand_val = try sema.resolveValue(operand);
 
     // exception if the error union error set is known to be empty,
     // we allow the comparison but always make it comptime-known.
@@ -32171,7 +32170,7 @@ fn analyzeSlice(
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                if (try sema.resolveMaybeUndefVal(end)) |end_val| {
+                if (try sema.resolveValue(end)) |end_val| {
                     const len_s_val = try mod.intValue(
                         Type.usize,
                         array_ty.arrayLenIncludingSentinel(mod),
@@ -32213,7 +32212,7 @@ fn analyzeSlice(
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
-                    if (try sema.resolveMaybeUndefVal(ptr_or_slice)) |slice_val| {
+                    if (try sema.resolveValue(ptr_or_slice)) |slice_val| {
                         if (slice_val.isUndef(mod)) {
                             return sema.fail(block, src, "slice of undefined", .{});
                         }
@@ -32265,7 +32264,7 @@ fn analyzeSlice(
     const sentinel = s: {
         if (sentinel_opt != .none) {
             const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
-            break :s try sema.resolveConstValue(block, sentinel_src, casted, .{
+            break :s try sema.resolveConstDefinedValue(block, sentinel_src, casted, .{
                 .needed_comptime_reason = "slice sentinel must be comptime-known",
             });
         }
@@ -32298,7 +32297,7 @@ fn analyzeSlice(
                 );
             }
             checked_start_lte_end = true;
-            if (try sema.resolveMaybeUndefVal(new_ptr)) |ptr_val| sentinel_check: {
+            if (try sema.resolveValue(new_ptr)) |ptr_val| sentinel_check: {
                 const expected_sentinel = sentinel orelse break :sentinel_check;
                 const start_int = start_val.getUnsignedInt(mod).?;
                 const end_int = end_val.getUnsignedInt(mod).?;
@@ -32387,7 +32386,7 @@ fn analyzeSlice(
             },
         });
 
-        const opt_new_ptr_val = try sema.resolveMaybeUndefVal(new_ptr);
+        const opt_new_ptr_val = try sema.resolveValue(new_ptr);
         const new_ptr_val = opt_new_ptr_val orelse {
             const result = try block.addBitCast(return_ty, new_ptr);
             if (block.wantSafety()) {
@@ -32534,8 +32533,8 @@ fn cmpNumeric(
         uncasted_rhs;
 
     const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveMaybeUndefVal(lhs)) |lhs_val| {
-            if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+        if (try sema.resolveValue(lhs)) |lhs_val| {
+            if (try sema.resolveValue(rhs)) |rhs_val| {
                 // Compare ints: const vs. undefined (or vice versa)
                 if (!lhs_val.isUndef(mod) and (lhs_ty.isInt(mod) or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt(mod) and rhs_val.isUndef(mod)) {
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
@@ -32567,7 +32566,7 @@ fn cmpNumeric(
                 break :src rhs_src;
             }
         } else {
-            if (try sema.resolveMaybeUndefLazyVal(rhs)) |rhs_val| {
+            if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
                 if (!rhs_val.isUndef(mod) and (rhs_ty.isInt(mod) or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt(mod)) {
                     // Compare ints: var vs. const
                     if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
@@ -32634,7 +32633,7 @@ fn cmpNumeric(
     var dest_float_type: ?Type = null;
 
     var lhs_bits: usize = undefined;
-    if (try sema.resolveMaybeUndefLazyVal(lhs)) |lhs_val| {
+    if (try sema.resolveValueResolveLazy(lhs)) |lhs_val| {
         if (lhs_val.isUndef(mod))
             return mod.undefRef(Type.bool);
         if (lhs_val.isNan(mod)) switch (op) {
@@ -32692,7 +32691,7 @@ fn cmpNumeric(
     }
 
     var rhs_bits: usize = undefined;
-    if (try sema.resolveMaybeUndefLazyVal(rhs)) |rhs_val| {
+    if (try sema.resolveValueResolveLazy(rhs)) |rhs_val| {
         if (rhs_val.isUndef(mod))
             return mod.undefRef(Type.bool);
         if (rhs_val.isNan(mod)) switch (op) {
@@ -32884,8 +32883,8 @@ fn cmpVector(
     });
 
     const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveMaybeUndefVal(casted_lhs)) |lhs_val| {
-            if (try sema.resolveMaybeUndefVal(casted_rhs)) |rhs_val| {
+        if (try sema.resolveValue(casted_lhs)) |lhs_val| {
+            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
                 if (lhs_val.isUndef(mod) or rhs_val.isUndef(mod)) {
                     return mod.undefRef(result_ty);
                 }
@@ -32910,7 +32909,7 @@ fn wrapOptional(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    if (try sema.resolveMaybeUndefVal(inst)) |val| {
+    if (try sema.resolveValue(inst)) |val| {
         return Air.internedToRef((try sema.mod.intern(.{ .opt = .{
             .ty = dest_ty.toIntern(),
             .val = val.toIntern(),
@@ -32931,7 +32930,7 @@ fn wrapErrorUnionPayload(
     const mod = sema.mod;
     const dest_payload_ty = dest_ty.errorUnionPayload(mod);
     const coerced = try sema.coerceExtra(block, dest_payload_ty, inst, inst_src, .{ .report_err = false });
-    if (try sema.resolveMaybeUndefVal(coerced)) |val| {
+    if (try sema.resolveValue(coerced)) |val| {
         return Air.internedToRef((try mod.intern(.{ .error_union = .{
             .ty = dest_ty.toIntern(),
             .val = .{ .payload = try val.intern(dest_payload_ty, mod) },
@@ -32953,7 +32952,7 @@ fn wrapErrorUnionSet(
     const ip = &mod.intern_pool;
     const inst_ty = sema.typeOf(inst);
     const dest_err_set_ty = dest_ty.errorUnionSet(mod);
-    if (try sema.resolveMaybeUndefVal(inst)) |val| {
+    if (try sema.resolveValue(inst)) |val| {
         const expected_name = mod.intern_pool.indexToKey(val.toIntern()).err.name;
         switch (dest_err_set_ty.toIntern()) {
             .anyerror_type => {},
@@ -33015,7 +33014,7 @@ fn unionToTag(
     if ((try sema.typeHasOnePossibleValue(enum_ty))) |opv| {
         return Air.internedToRef(opv.toIntern());
     }
-    if (try sema.resolveMaybeUndefVal(un)) |un_val| {
+    if (try sema.resolveValue(un)) |un_val| {
         return Air.internedToRef(un_val.unionTag(mod).?.toIntern());
     }
     try sema.requireRuntimeBlock(block, un_src, null);
@@ -33324,7 +33323,7 @@ fn resolvePeerTypes(
 
     for (instructions, peer_tys, peer_vals) |inst, *ty, *val| {
         ty.* = sema.typeOf(inst);
-        val.* = try sema.resolveMaybeUndefVal(inst);
+        val.* = try sema.resolveValue(inst);
     }
 
     switch (try sema.resolvePeerTypesInner(block, src, peer_tys, peer_vals)) {
@@ -34379,7 +34378,7 @@ fn resolvePeerTypesInner(
                         },
                         else => |e| return e,
                     };
-                    const coerced_val = (try sema.resolveMaybeUndefVal(coerced_inst)) orelse continue;
+                    const coerced_val = (try sema.resolveValue(coerced_inst)) orelse continue;
                     const existing = comptime_val orelse {
                         comptime_val = coerced_val;
                         continue;
@@ -35827,7 +35826,7 @@ fn semaStructFields(
                     },
                     else => |e| return e,
                 };
-                const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
+                const default_val = (try sema.resolveValue(coerced)) orelse {
                     const init_src = mod.fieldSrcLoc(decl_index, .{
                         .index = field_i,
                         .range = .value,
@@ -36270,7 +36269,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
 
 fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Type, tag_ref: Air.Inst.Ref) CompileError!Value {
     const coerced = try sema.coerce(block, int_tag_ty, tag_ref, src);
-    return sema.resolveConstValue(block, src, coerced, .{
+    return sema.resolveConstDefinedValue(block, src, coerced, .{
         .needed_comptime_reason = "enum tag value must be comptime-known",
     });
 }
@@ -36828,7 +36827,7 @@ fn isComptimeKnown(
     sema: *Sema,
     inst: Air.Inst.Ref,
 ) !bool {
-    return (try sema.resolveMaybeUndefVal(inst)) != null;
+    return (try sema.resolveValue(inst)) != null;
 }
 
 fn analyzeComptimeAlloc(
