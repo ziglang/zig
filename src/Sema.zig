@@ -2104,7 +2104,6 @@ fn resolveDefinedValue(
     const mod = sema.mod;
     const val = try sema.resolveValue(air_ref) orelse return null;
     if (val.isUndef(mod)) {
-        if (block.is_typeof) return null;
         return sema.failWithUseOfUndef(block, src);
     }
     return val;
