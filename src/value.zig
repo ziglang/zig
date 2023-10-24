@@ -1655,30 +1655,6 @@ pub const Value = struct {
         };
     }
 
-    /// Returns true if a Value is backed by a variable
-    pub fn isVariable(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => true,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isVariable(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isVariable(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isVariable(mod),
-            },
-            else => false,
-        };
-    }
-
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
         const backing_decl = mod.intern_pool.getBackingDecl(val.toIntern()).unwrap() orelse return false;
         const variable = mod.declPtr(backing_decl).getOwnedVariable(mod) orelse return false;
