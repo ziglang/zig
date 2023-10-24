@@ -62,10 +62,11 @@ const ar_hdr = extern struct {
     }
 };
 
-pub fn isArchive(file: std.fs.File) bool {
+pub fn isArchive(path: []const u8) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
     const reader = file.reader();
     const magic = reader.readBytesNoEof(Archive.SARMAG) catch return false;
-    defer file.seekTo(0) catch {};
     if (!mem.eql(u8, &magic, ARMAG)) return false;
     return true;
 }

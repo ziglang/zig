@@ -75,6 +75,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
@@ -1564,6 +1565,38 @@ fn testLinkOrder(b: *Build, opts: Options) *Step {
         check.checkNotPresent("libb.so");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testLdScript(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script", opts);
+
+    const dso = addSharedLibrary(b, "bar", opts);
+    addCSourceBytes(dso, "int foo() { return 42; }", &.{});
+
+    const scripts = WriteFile.create(b);
+    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+    _ = scripts.add("libfoo.so", "GROUP(AS_NEEDED(-lbar))");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\int foo();
+        \\int main() {
+        \\  return foo() - 42;
+        \\}
+    , &.{});
+    exe.linkSystemLibrary2("a", .{});
+    exe.addLibraryPath(scripts.getDirectory());
+    exe.addLibraryPath(dso.getEmittedBinDirectory());
+    exe.addRPath(dso.getEmittedBinDirectory());
+    exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
