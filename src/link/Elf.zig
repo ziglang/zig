@@ -289,17 +289,22 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
         const image_base = self.calcImageBase();
-        const ehdr_size: u64 = switch (self.ptr_width) {
+        const ehsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
         };
-        const reserved: u64 = 2 * self.page_size;
+        const phsize: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Phdr),
+            .p64 => @sizeOf(elf.Elf64_Phdr),
+        };
+        const max_nphdrs = comptime getMaxNumberOfPhdrs();
+        const reserved: u64 = mem.alignForward(u64, padToIdeal(max_nphdrs * phsize), self.page_size);
         self.phdr_table_index = try self.addPhdr(.{
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + ehdr_size,
-            .offset = ehdr_size,
+            .addr = image_base + ehsize,
+            .offset = ehsize,
             .filesz = reserved,
             .memsz = reserved,
         });
@@ -309,8 +314,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .@"align" = self.page_size,
             .addr = image_base,
             .offset = 0,
-            .filesz = reserved + ehdr_size,
-            .memsz = reserved + ehdr_size,
+            .filesz = reserved + ehsize,
+            .memsz = reserved + ehsize,
         });
     }
 
@@ -713,6 +718,8 @@ pub fn initMetadata(self: *Elf) !void {
     const ptr_size = self.ptrWidthBytes();
     const ptr_bit_width = self.base.options.target.ptrBitWidth();
     const is_linux = self.base.options.target.os.tag == .linux;
+
+    comptime assert(number_of_zig_segments == 5);
 
     if (self.phdr_zig_load_re_index == null) {
         self.phdr_zig_load_re_index = try self.allocateSegment(.{
@@ -4053,6 +4060,8 @@ fn initSections(self: *Elf) !void {
 }
 
 fn initSpecialPhdrs(self: *Elf) !void {
+    comptime assert(max_number_of_special_phdrs == 5);
+
     if (self.interp_section_index != null) {
         self.phdr_interp_index = try self.addPhdr(.{
             .type = elf.PT_INTERP,
@@ -4641,6 +4650,21 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
     return out_flags;
 }
 
+/// Returns maximum number of program headers that may be emitted by the linker.
+/// (This is an upper bound so that we can reserve enough space for the header and progam header
+/// table without running out of space and being forced to move things around.)
+fn getMaxNumberOfPhdrs() u64 {
+    // First, assume we compile Zig's source incrementally, this gives us:
+    var num: u64 = number_of_zig_segments;
+    // Next, the estimated maximum number of segments the linker can emit for input sections are:
+    num += max_number_of_object_segments;
+    // Next, any other non-loadable program headers, including TLS, DYNAMIC, GNU_STACK, GNU_EH_FRAME, INTERP:
+    num += max_number_of_special_phdrs;
+    // Finally, PHDR program header and corresponding read-only load segment:
+    num += 2;
+    return num;
+}
+
 /// Calculates how many segments (PT_LOAD progam headers) are required
 /// to cover the set of sections.
 /// We permit a maximum of 3**2 number of segments.
@@ -4677,11 +4701,12 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
     const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
     const available_space = self.allocatedSize(phdr_table.p_offset);
 
-    if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
-        // TODO in this case, we have two options:
+    if (needed_size > available_space) {
+        // In this case, we have two options:
         // 1. increase the available padding for EHDR + PHDR table so that we don't overflow it
-        //    (I think we are in good position to estimate required size without running out of space)
+        //    (revisit getMaxNumberOfPhdrs())
         // 2. shift everything in file to free more space for EHDR + PHDR table
+        // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
         var err = try self.addErrorWithNotes(1);
         try err.addMsg(self, "fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
         try err.addNote(self, "required 0x{x}, available 0x{x}", .{ needed_size, available_space });
@@ -4734,7 +4759,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // with `findFreeSpace` mechanics than anything else.
     const Cover = std.ArrayList(u16);
     const gpa = self.base.allocator;
-    var covers: [9]Cover = undefined;
+    var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
         cover.* = Cover.init(gpa);
     }
@@ -6264,6 +6289,15 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
     }
     return i;
 }
+
+/// The following three values are only observed at compile-time and used to emit a compile error
+/// to remind the programmer to update expected maximum numbers of different program header types
+/// so that we reserve enough space for the program header table up-front.
+/// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
+/// more special-purpose program headers.
+const number_of_zig_segments = 5;
+const max_number_of_object_segments = 9;
+const max_number_of_special_phdrs = 5;
 
 const default_entry_addr = 0x8000000;
 
