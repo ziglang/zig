@@ -48,7 +48,7 @@ phdr_zig_load_zerofill_index: ?u16 = null,
 /// PT_PHDR
 phdr_table_index: ?u16 = null,
 /// PT_LOAD for PHDR table
-/// We add this special load segment to ensure the PHDR table is always
+/// We add this special load segment to ensure the EHDR and PHDR table are always
 /// loaded into memory.
 phdr_table_load_index: ?u16 = null,
 /// PT_INTERP
@@ -289,22 +289,28 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
         const image_base = self.calcImageBase();
-        const offset: u64 = switch (self.ptr_width) {
+        const ehdr_size: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
         };
+        const reserved: u64 = 2 * self.page_size;
         self.phdr_table_index = try self.addPhdr(.{
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + offset,
-            .offset = offset,
+            .addr = image_base + ehdr_size,
+            .offset = ehdr_size,
+            .filesz = reserved,
+            .memsz = reserved,
         });
         self.phdr_table_load_index = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
             .addr = image_base,
+            .offset = 0,
+            .filesz = reserved + ehdr_size,
+            .memsz = reserved + ehdr_size,
         });
     }
 
@@ -870,10 +876,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
-        // Must move the entire section.
-        const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.shstrtab.getAssumeExists(shdr.sh_name),
@@ -1602,7 +1608,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.setVersionSymtab();
     try self.updateSectionSizes();
 
-    self.allocatePhdrTable();
+    try self.allocatePhdrTable();
     try self.allocateAllocSections();
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
@@ -4655,30 +4661,35 @@ fn calcNumberOfSegments(self: *Elf) usize {
 }
 
 /// Allocates PHDR table in virtual memory and in file.
-fn allocatePhdrTable(self: *Elf) void {
+fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
     const new_load_segments = self.calcNumberOfSegments();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
+    const ehsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Ehdr),
+        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    };
     const phsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
+    const available_space = self.allocatedSize(phdr_table.p_offset);
 
     if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
-        phdr_table.p_offset = 0;
-        phdr_table.p_offset = self.findFreeSpace(needed_size, phdr_table.p_align);
+        // TODO in this case, we have two options:
+        // 1. increase the available padding for EHDR + PHDR table so that we don't overflow it
+        //    (I think we are in good position to estimate required size without running out of space)
+        // 2. shift everything in file to free more space for EHDR + PHDR table
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
+        try err.addNote(self, "required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
 
-    phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-    const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-    phdr_table_load.p_filesz = load_align_offset + needed_size;
-    phdr_table_load.p_memsz = load_align_offset + needed_size;
-
+    phdr_table_load.p_filesz = needed_size + ehsize;
+    phdr_table_load.p_memsz = needed_size + ehsize;
     phdr_table.p_filesz = needed_size;
-    phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-    phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
     phdr_table.p_memsz = needed_size;
 }
 
