@@ -106,6 +106,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
 
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
+
         try cflags.append("-nostdinc++");
         try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-std=c++14");
@@ -129,6 +132,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(tsan_include_path);
 
         try cflags.append("-nostdinc++");
         try cflags.append("-fvisibility-inlines-hidden");
@@ -248,13 +254,13 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 }
 
 const tsan_sources = [_][]const u8{
-    "tsan_clock.cpp",
     "tsan_debugging.cpp",
     "tsan_external.cpp",
     "tsan_fd.cpp",
     "tsan_flags.cpp",
     "tsan_ignoreset.cpp",
     "tsan_interceptors_posix.cpp",
+    "tsan_interceptors_memintrinsics.cpp",
     "tsan_interface.cpp",
     "tsan_interface_ann.cpp",
     "tsan_interface_atomic.cpp",
@@ -263,9 +269,11 @@ const tsan_sources = [_][]const u8{
     "tsan_md5.cpp",
     "tsan_mman.cpp",
     "tsan_mutexset.cpp",
+    "tsan_new_delete.cpp",
     "tsan_preinit.cpp",
     "tsan_report.cpp",
     "tsan_rtl.cpp",
+    "tsan_rtl_access.cpp",
     "tsan_rtl_mutex.cpp",
     "tsan_rtl_proc.cpp",
     "tsan_rtl_report.cpp",
@@ -274,6 +282,7 @@ const tsan_sources = [_][]const u8{
     "tsan_suppressions.cpp",
     "tsan_symbolize.cpp",
     "tsan_sync.cpp",
+    "tsan_vector_clock.cpp",
 };
 
 const darwin_tsan_sources = [_][]const u8{
@@ -286,10 +295,13 @@ const darwin_tsan_sources = [_][]const u8{
 const unix_tsan_sources = [_][]const u8{
     "tsan_platform_linux.cpp",
     "tsan_platform_posix.cpp",
+    "tsan_platform_windows.cpp",
 };
 
 const sanitizer_common_sources = [_][]const u8{
+    "sancov_flags.cpp",
     "sanitizer_allocator.cpp",
+    "sanitizer_chained_origin_depot.cpp",
     "sanitizer_common.cpp",
     "sanitizer_deadlock_detector1.cpp",
     "sanitizer_deadlock_detector2.cpp",
@@ -321,15 +333,22 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_procmaps_linux.cpp",
     "sanitizer_procmaps_mac.cpp",
     "sanitizer_procmaps_solaris.cpp",
+    "sanitizer_range.cpp",
+    "sanitizer_stack_store.cpp",
     "sanitizer_solaris.cpp",
     "sanitizer_stoptheworld_fuchsia.cpp",
     "sanitizer_stoptheworld_mac.cpp",
+    "sanitizer_stoptheworld_win.cpp",
     "sanitizer_suppressions.cpp",
     "sanitizer_termination.cpp",
+    "sanitizer_thread_arg_retval.cpp",
     "sanitizer_thread_registry.cpp",
     "sanitizer_tls_get_addr.cpp",
     "sanitizer_type_traits.cpp",
     "sanitizer_win.cpp",
+    "sanitizer_win_dll_thunk.cpp",
+    "sanitizer_win_dynamic_runtime_thunk.cpp",
+    "sanitizer_win_weak_interception.cpp",
 };
 
 const sanitizer_nolibc_sources = [_][]const u8{
