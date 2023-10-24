@@ -761,8 +761,11 @@ const FileType = enum {
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
+        if (ascii.endsWithIgnoreCase(file_path, ".tgz")) return .@"tar.gz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.gz")) return .@"tar.gz";
+        if (ascii.endsWithIgnoreCase(file_path, ".txz")) return .@"tar.xz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
+        if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         return null;
     }
