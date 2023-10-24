@@ -1318,15 +1318,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
             for (self.base.options.system_libs.keys()) |link_lib| {
-                test_path.clearRetainingCapacity();
-                const sep = fs.path.sep_str;
-                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                    lib_dir_path, link_lib,
-                });
-                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
+                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                    continue;
                 _ = try rpath_table.put(lib_dir_path, {});
             }
         }
@@ -1392,11 +1385,33 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (self.base.options.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
             try system_libs.ensureUnusedCapacity(flags.len);
+
+            var test_path = std.ArrayList(u8).init(arena);
+            var checked_paths = std.ArrayList([]const u8).init(arena);
+
             for (flags) |flag| {
-                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so", .{
-                    lc.crt_dir.?, fs.path.sep, flag["-l".len..],
-                });
-                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+                checked_paths.clearRetainingCapacity();
+                const lib_name = flag["-l".len..];
+
+                success: {
+                    if (!self.isStatic()) {
+                        if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                            break :success;
+                    }
+                    if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                        break :success;
+
+                    try self.reportMissingLibraryError(
+                        checked_paths.items,
+                        "missing system library: '{s}' was not found",
+                        .{lib_name},
+                    );
+
+                    continue;
+                }
+
+                const resolved_path = try arena.dupe(u8, test_path.items);
+                system_libs.appendAssumeCapacity(.{ .path = resolved_path });
             }
         } else if (target.isGnuLibC()) {
             try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
@@ -1422,10 +1437,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (system_libs.items) |lib| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        const in_file = std.fs.cwd().openFile(lib.path, .{}) catch |err| {
-            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
-            continue;
-        };
+        const in_file = try std.fs.cwd().openFile(lib.path, .{});
         defer in_file.close();
         self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
             try self.handleAndReportParseError(lib.path, err, &parse_ctx);
@@ -1832,15 +1844,6 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
                     if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
                         break :success;
                 }
-
-                try self.reportMissingLibraryError(
-                    checked_paths.items,
-                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
-                    .{
-                        lib.path,
-                        scr_obj.path,
-                    },
-                );
             } else {
                 var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
                 if (fs.realpath(scr_obj.path, &buffer)) |path| {
@@ -1854,16 +1857,17 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
                     if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
                         break :success;
                 }
-
-                try self.reportMissingLibraryError(
-                    checked_paths.items,
-                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
-                    .{
-                        lib.path,
-                        scr_obj.path,
-                    },
-                );
             }
+
+            try self.reportMissingLibraryError(
+                checked_paths.items,
+                "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                .{
+                    lib.path,
+                    scr_obj.path,
+                },
+            );
+            continue;
         }
 
         const full_path = test_path.items;
@@ -1881,7 +1885,7 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
 fn accessLibPath(
     self: *Elf,
     test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    checked_paths: ?*std.ArrayList([]const u8),
     lib_dir_path: []const u8,
     lib_name: []const u8,
     link_mode: ?std.builtin.LinkMode,
@@ -1898,7 +1902,9 @@ fn accessLibPath(
             .Dynamic => target.dynamicLibSuffix(),
         } else "",
     });
-    try checked_paths.append(try self.base.allocator.dupe(u8, test_path.items));
+    if (checked_paths) |cpaths| {
+        try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
+    }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
@@ -2532,19 +2538,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (self.base.options.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(self.base.allocator);
-            defer test_path.deinit();
+            var test_path = std.ArrayList(u8).init(arena);
             for (self.base.options.lib_dirs) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
-                    test_path.clearRetainingCapacity();
-                    const sep = fs.path.sep_str;
-                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                        lib_dir_path, link_lib,
-                    });
-                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                        error.FileNotFound => continue,
-                        else => |e| return e,
-                    };
+                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                        continue;
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
