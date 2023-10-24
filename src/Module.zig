@@ -4131,13 +4131,17 @@ pub fn embedFile(
         defer if (!keep_resolved_path) gpa.free(resolved_path);
 
         const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-        errdefer assert(mod.embed_table.remove(resolved_path));
+        errdefer {
+            assert(mod.embed_table.remove(resolved_path));
+            keep_resolved_path = false;
+        }
         if (gop.found_existing) return gop.value_ptr.*.val;
+        keep_resolved_path = true;
 
         const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
         errdefer gpa.free(sub_file_path);
 
-        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, &keep_resolved_path, gop, src_loc);
+        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, gop, src_loc);
     }
 
     // The resolved path is used as the key in the table, to detect if a file
@@ -4154,8 +4158,12 @@ pub fn embedFile(
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-    errdefer assert(mod.embed_table.remove(resolved_path));
+    errdefer {
+        assert(mod.embed_table.remove(resolved_path));
+        keep_resolved_path = false;
+    }
     if (gop.found_existing) return gop.value_ptr.*.val;
+    keep_resolved_path = true;
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &.{
         cur_file.mod.root.root_dir.path orelse ".",
@@ -4178,7 +4186,7 @@ pub fn embedFile(
     };
     errdefer gpa.free(sub_file_path);
 
-    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, &keep_resolved_path, gop, src_loc);
+    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
 }
 
 /// https://github.com/ziglang/zig/issues/14307
@@ -4187,7 +4195,6 @@ fn newEmbedFile(
     pkg: *Package.Module,
     sub_file_path: []const u8,
     resolved_path: []const u8,
-    keep_resolved_path: *bool,
     gop: std.StringHashMapUnmanaged(*EmbedFile).GetOrPutResult,
     src_loc: SrcLoc,
 ) !InternPool.Index {
@@ -4244,7 +4251,6 @@ fn newEmbedFile(
         } },
     } });
 
-    keep_resolved_path.* = true; // It's now owned by embed_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
