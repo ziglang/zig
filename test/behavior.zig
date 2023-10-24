@@ -55,7 +55,6 @@ test {
     _ = @import("behavior/bugs/3384.zig");
     _ = @import("behavior/bugs/3586.zig");
     _ = @import("behavior/bugs/3742.zig");
-    _ = @import("behavior/bugs/3779.zig");
     _ = @import("behavior/bugs/4328.zig");
     _ = @import("behavior/bugs/4560.zig");
     _ = @import("behavior/bugs/4769_a.zig");
@@ -209,6 +208,7 @@ test {
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/src.zig");
+    _ = @import("behavior/string_literals.zig");
     _ = @import("behavior/struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
