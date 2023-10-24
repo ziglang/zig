@@ -2751,8 +2751,6 @@ test "formatType max_depth" {
 }
 
 test "positional" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expectFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
     try expectFmt("0 0", "{0} {0}", .{@as(usize, 0)});

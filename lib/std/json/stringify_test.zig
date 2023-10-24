@@ -100,8 +100,6 @@ fn getJsonObject(allocator: std.mem.Allocator) !Value {
 }
 
 test "stringify null optional fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const MyStruct = struct {
         optional: ?[]const u8 = null,
         required: []const u8 = "something",
@@ -123,8 +121,6 @@ test "stringify null optional fields" {
 }
 
 test "stringify basic types" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("false", false, .{});
     try testStringify("true", true, .{});
     try testStringify("null", @as(?u8, null), .{});
@@ -141,8 +137,6 @@ test "stringify basic types" {
 }
 
 test "stringify string" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("\"hello\"", "hello", .{});
     try testStringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{});
     try testStringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{ .escape_unicode = true });
@@ -167,16 +161,12 @@ test "stringify string" {
 }
 
 test "stringify many-item sentinel-terminated string" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("\"hello\"", @as([*:0]const u8, "hello"), .{});
     try testStringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), .{ .escape_unicode = true });
     try testStringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), .{ .escape_unicode = true });
 }
 
 test "stringify enums" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const E = enum {
         foo,
         bar,
@@ -186,15 +176,11 @@ test "stringify enums" {
 }
 
 test "stringify enum literals" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("\"foo\"", .foo, .{});
     try testStringify("\"bar\"", .bar, .{});
 }
 
 test "stringify tagged unions" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = union(enum) {
         nothing,
         foo: u32,
@@ -206,8 +192,6 @@ test "stringify tagged unions" {
 }
 
 test "stringify struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("{\"foo\":42}", struct {
         foo: u32,
     }{ .foo = 42 }, .{});
@@ -230,8 +214,6 @@ test "emit_strings_as_arrays" {
 }
 
 test "stringify struct with indentation" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify(
         \\{
         \\    "foo": 42,
@@ -277,8 +259,6 @@ test "stringify struct with indentation" {
 }
 
 test "stringify struct with void field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("{\"foo\":42}", struct {
         foo: u32,
         bar: void = {},
@@ -286,8 +266,6 @@ test "stringify struct with void field" {
 }
 
 test "stringify array of structs" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const MyStruct = struct {
         foo: u32,
     };
@@ -299,8 +277,6 @@ test "stringify array of structs" {
 }
 
 test "stringify struct with custom stringifier" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("[\"something special\",42]", struct {
         foo: u32,
         const Self = @This();
@@ -315,16 +291,12 @@ test "stringify struct with custom stringifier" {
 }
 
 test "stringify vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("[1,1]", @as(@Vector(2, u32), @splat(1)), .{});
     try testStringify("\"AA\"", @as(@Vector(2, u8), @splat('A')), .{});
     try testStringify("[65,65]", @as(@Vector(2, u8), @splat('A')), .{ .emit_strings_as_arrays = true });
 }
 
 test "stringify tuple" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, .{});
 }
 
@@ -411,8 +383,6 @@ fn testStringifyArbitraryDepth(expected: []const u8, value: anytype, options: St
 }
 
 test "stringify alloc" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const expected =
         \\{"foo":"bar","answer":42,"my_friend":"sammy"}
@@ -424,8 +394,6 @@ test "stringify alloc" {
 }
 
 test "comptime stringify" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     comptime testStringifyMaxDepth("false", false, .{}, null) catch unreachable;
     comptime testStringifyMaxDepth("false", false, .{}, 0) catch unreachable;
     comptime testStringifyArbitraryDepth("false", false, .{}) catch unreachable;
@@ -446,8 +414,6 @@ test "comptime stringify" {
 }
 
 test "print" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
@@ -479,8 +445,6 @@ test "print" {
 }
 
 test "nonportable numbers" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });
 }

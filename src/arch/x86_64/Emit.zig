@@ -19,18 +19,18 @@ pub const Error = Lower.Error || error{
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {
-        const mir_index = @as(Mir.Inst.Index, @intCast(mir_i));
+        const mir_index: Mir.Inst.Index = @intCast(mir_i);
         try emit.code_offset_mapping.putNoClobber(
             emit.lower.allocator,
             mir_index,
-            @as(u32, @intCast(emit.code.items.len)),
+            @intCast(emit.code.items.len),
         );
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset = @as(u32, @intCast(emit.code.items.len));
+            const start_offset: u32 = @intCast(emit.code.items.len);
             try lowered_inst.encode(emit.code.writer(), .{});
-            const end_offset = @as(u32, @intCast(emit.code.items.len));
+            const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
@@ -39,7 +39,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .source = start_offset,
                     .target = target,
                     .offset = end_offset - 4,
-                    .length = @as(u5, @intCast(end_offset - start_offset)),
+                    .length = @intCast(end_offset - start_offset),
                 }),
                 .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
                     // Add relocation to the decl.
@@ -220,7 +220,7 @@ const Reloc = struct {
     /// Target of the relocation.
     target: Mir.Inst.Index,
     /// Offset of the relocation within the instruction.
-    offset: usize,
+    offset: u32,
     /// Length of the instruction.
     length: u5,
 };

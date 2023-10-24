@@ -2156,5 +2156,6 @@ pub fn hex64(x: u64) [16]u8 {
 }
 
 test {
+    _ = Cache;
     _ = Step;
 }

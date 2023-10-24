@@ -15,8 +15,6 @@ const native_endian = builtin.target.cpu.arch.endian();
 const tmpDir = std.testing.tmpDir;
 
 test "write a file, read it, then delete it" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -110,8 +108,6 @@ test "BitStreams with File Stream" {
 }
 
 test "File seek ops" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -139,8 +135,6 @@ test "File seek ops" {
 }
 
 test "setEndPos" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 

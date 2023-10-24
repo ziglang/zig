@@ -705,8 +705,6 @@ test "std.PriorityDequeue: fromOwnedSlice trivial case 1" {
 }
 
 test "std.PriorityDequeue: fromOwnedSlice" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     const queue_items = try testing.allocator.dupe(u32, items[0..]);
     var queue = PDQ.fromOwnedSlice(testing.allocator, queue_items[0..], {});

@@ -1,6 +1,5 @@
 const std = @import("./std.zig");
 const assert = std.debug.assert;
-const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 
@@ -497,15 +496,11 @@ fn testUtf16CountCodepoints() !void {
 }
 
 test "utf16 count codepoints" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testUtf16CountCodepoints();
     try comptime testUtf16CountCodepoints();
 }
 
 test "utf8 encode" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8Encode();
     try testUtf8Encode();
 }
@@ -532,8 +527,6 @@ fn testUtf8Encode() !void {
 }
 
 test "utf8 encode error" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8EncodeError();
     try testUtf8EncodeError();
 }
@@ -550,8 +543,6 @@ fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) !void {
 }
 
 test "utf8 iterator on ascii" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8IteratorOnAscii();
     try testUtf8IteratorOnAscii();
 }
@@ -572,8 +563,6 @@ fn testUtf8IteratorOnAscii() !void {
 }
 
 test "utf8 view bad" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8ViewBad();
     try testUtf8ViewBad();
 }
@@ -584,8 +573,6 @@ fn testUtf8ViewBad() !void {
 }
 
 test "utf8 view ok" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8ViewOk();
     try testUtf8ViewOk();
 }
@@ -606,8 +593,6 @@ fn testUtf8ViewOk() !void {
 }
 
 test "validate slice" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testValidateSlice();
     try testValidateSlice();
 
@@ -648,8 +633,6 @@ fn testValidateSlice() !void {
 }
 
 test "valid utf8" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testValidUtf8();
     try testValidUtf8();
 }
@@ -669,8 +652,6 @@ fn testValidUtf8() !void {
 }
 
 test "invalid utf8 continuation bytes" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testInvalidUtf8ContinuationBytes();
     try testInvalidUtf8ContinuationBytes();
 }
@@ -703,8 +684,6 @@ fn testInvalidUtf8ContinuationBytes() !void {
 }
 
 test "overlong utf8 codepoint" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testOverlongUtf8Codepoint();
     try testOverlongUtf8Codepoint();
 }
@@ -718,8 +697,6 @@ fn testOverlongUtf8Codepoint() !void {
 }
 
 test "misc invalid utf8" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testMiscInvalidUtf8();
     try testMiscInvalidUtf8();
 }
@@ -735,8 +712,6 @@ fn testMiscInvalidUtf8() !void {
 }
 
 test "utf8 iterator peeking" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try comptime testUtf8Peeking();
     try testUtf8Peeking();
 }
@@ -821,8 +796,6 @@ pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
 }
 
 test "utf16leToUtf8" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var utf16le: [2]u16 = undefined;
     const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
@@ -935,8 +908,6 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
 }
 
 test "utf8ToUtf16Le" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var utf16le: [2]u16 = [_]u16{0} ** 2;
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
@@ -955,8 +926,6 @@ test "utf8ToUtf16Le" {
 }
 
 test "utf8ToUtf16LeWithNull" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "𐐷");
         defer testing.allocator.free(utf16);
@@ -1015,8 +984,6 @@ fn testCalcUtf16LeLen() !void {
 }
 
 test "calculate utf16 string length of given utf8 string in u16" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCalcUtf16LeLen();
     try comptime testCalcUtf16LeLen();
 }
@@ -1050,8 +1017,6 @@ pub fn fmtUtf16le(utf16le: []const u16) std.fmt.Formatter(formatUtf16le) {
 }
 
 test "fmtUtf16le" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expectFmt = std.testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral(""))});
     try expectFmt("foo", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("foo"))});
@@ -1065,8 +1030,6 @@ test "fmtUtf16le" {
 }
 
 test "utf8ToUtf16LeStringLiteral" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x41),
@@ -1127,8 +1090,6 @@ fn testUtf8CountCodepoints() !void {
 }
 
 test "utf8 count codepoints" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testUtf8CountCodepoints();
     try comptime testUtf8CountCodepoints();
 }
@@ -1145,8 +1106,6 @@ fn testUtf8ValidCodepoint() !void {
 }
 
 test "utf8 valid codepoint" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testUtf8ValidCodepoint();
     try comptime testUtf8ValidCodepoint();
 }

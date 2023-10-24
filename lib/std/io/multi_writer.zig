@@ -36,7 +36,6 @@ pub fn multiWriter(streams: anytype) MultiWriter(@TypeOf(streams)) {
 const testing = std.testing;
 
 test "MultiWriter" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var f = try tmp.dir.createFile("t.txt", .{});

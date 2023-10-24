@@ -351,16 +351,12 @@ test "phc format - encoding/decoding" {
 }
 
 test "phc format - empty input string" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s = "";
     const v = deserialize(struct { alg_id: []const u8 }, s);
     try std.testing.expectError(Error.InvalidEncoding, v);
 }
 
 test "phc format - hash without salt" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s = "$scrypt";
     const v = deserialize(struct { alg_id: []const u8, hash: BinValue(16) }, s);
     try std.testing.expectError(Error.InvalidEncoding, v);

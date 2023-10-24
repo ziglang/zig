@@ -137,8 +137,6 @@ test "x25519 rfc7748 one iteration" {
 }
 
 test "x25519 rfc7748 1,000 iterations" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // These iteration tests are slow so we always skip them. Results have been verified.
     if (true) {
         return error.SkipZigTest;
@@ -161,8 +159,6 @@ test "x25519 rfc7748 1,000 iterations" {
 }
 
 test "x25519 rfc7748 1,000,000 iterations" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (true) {
         return error.SkipZigTest;
     }

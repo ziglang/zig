@@ -392,8 +392,6 @@ test "parse" {
 }
 
 test "parse into enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = enum(u32) {
         Foo = 42,
         Bar,
@@ -478,8 +476,6 @@ test "parse into tagged union errors" {
 }
 
 test "parse into struct with no fields" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {};
     const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
     defer parsed.deinit();
@@ -949,8 +945,6 @@ test "json parse allocate when streaming" {
 }
 
 test "parse at comptime" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\    "vals": {

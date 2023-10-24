@@ -491,8 +491,6 @@ pub const Response = struct {
     }
 
     test parseInt3 {
-        if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
         const expectEqual = testing.expectEqual;
         try expectEqual(@as(u10, 0), parseInt3("000".*));
         try expectEqual(@as(u10, 418), parseInt3("418".*));

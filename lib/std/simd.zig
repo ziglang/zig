@@ -13,7 +13,7 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
             if (T == bool and std.Target.x86.featureSetHas(cpu.features, .prefer_mask_registers)) return 64;
-            if (std.Target.x86.featureSetHas(cpu.features, .avx512f) and !std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
+            if (builtin.zig_backend != .stage2_x86_64 and std.Target.x86.featureSetHas(cpu.features, .avx512f) and !std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
             if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .mmx, .@"3dnow" })) break :blk 64;
@@ -62,10 +62,15 @@ pub fn suggestVectorSize(comptime T: type) ?comptime_int {
 test "suggestVectorSizeForCpu works with signed and unsigned values" {
     comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
     comptime cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.avx512f));
+    comptime cpu.features.populateDependencies(&std.Target.x86.all_features);
+    const expected_size: usize = switch (builtin.zig_backend) {
+        .stage2_x86_64 => 8,
+        else => 16,
+    };
     const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
     const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
-    try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
-    try std.testing.expectEqual(@as(usize, 16), signed_integer_size);
+    try std.testing.expectEqual(expected_size, unsigned_integer_size);
+    try std.testing.expectEqual(expected_size, signed_integer_size);
 }
 
 fn vectorLength(comptime VectorType: type) comptime_int {
