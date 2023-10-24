@@ -171,6 +171,9 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
             }
         }
 
+        // only possible if uri consists of only `userinfo@`
+        if (start_of_host >= authority.len) break :a;
+
         var end_of_host: usize = authority.len;
 
         if (authority[start_of_host] == '[') { // IPv6
