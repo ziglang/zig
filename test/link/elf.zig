@@ -76,6 +76,7 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScriptPathErrors(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
@@ -1598,6 +1599,27 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLdScriptPathErrors(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-path-errors", opts);
+
+    const scripts = WriteFile.create(b);
+    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.linkSystemLibrary2("a", .{});
+    exe.addLibraryPath(scripts.getDirectory());
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, &.{
+        "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
+        "note: tried libfoo.so",
+        "note: tried /?/libfoo.so",
+    });
 
     return test_step;
 }
