@@ -1353,10 +1353,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (positionals.items) |obj| {
-        const in_file = try std.fs.cwd().openFile(obj.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
@@ -1437,9 +1435,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (system_libs.items) |lib| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        const in_file = try std.fs.cwd().openFile(lib.path, .{});
-        defer in_file.close();
-        self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
+        self.parseLibrary(lib, false, &parse_ctx) catch |err|
             try self.handleAndReportParseError(lib.path, err, &parse_ctx);
     }
 
@@ -1456,10 +1452,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     for (positionals.items) |obj| {
-        const in_file = try std.fs.cwd().openFile(obj.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
@@ -1679,51 +1673,40 @@ const ParseError = error{
     InvalidCharacter,
 } || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
-fn parsePositional(
-    self: *Elf,
-    in_file: std.fs.File,
-    path: []const u8,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parsePositional(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    if (Object.isObject(in_file)) {
-        try self.parseObject(in_file, path, ctx);
+    if (try Object.isObject(path)) {
+        try self.parseObject(path, ctx);
     } else {
-        try self.parseLibrary(in_file, .{ .path = path }, must_link, ctx);
+        try self.parseLibrary(.{ .path = path }, must_link, ctx);
     }
 }
 
-fn parseLibrary(
-    self: *Elf,
-    in_file: std.fs.File,
-    lib: SystemLib,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (Archive.isArchive(in_file)) {
-        try self.parseArchive(in_file, lib.path, must_link, ctx);
-    } else if (SharedObject.isSharedObject(in_file)) {
-        try self.parseSharedObject(in_file, lib, ctx);
+    if (try Archive.isArchive(lib.path)) {
+        try self.parseArchive(lib.path, must_link, ctx);
+    } else if (try SharedObject.isSharedObject(lib.path)) {
+        try self.parseSharedObject(lib, ctx);
     } else {
         // TODO if the script has a top-level comment identifying it as GNU ld script,
         // then report parse errors. Otherwise return UnknownFileType.
-        self.parseLdScript(in_file, lib, ctx) catch |err| switch (err) {
+        self.parseLdScript(lib, ctx) catch |err| switch (err) {
             else => return error.UnknownFileType,
         };
     }
 }
 
-fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
+fn parseObject(self: *Elf, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
@@ -1740,17 +1723,13 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseArchive(
-    self: *Elf,
-    in_file: std.fs.File,
-    path: []const u8,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
     defer archive.deinit(gpa);
@@ -1773,16 +1752,13 @@ fn parseArchive(
     }
 }
 
-fn parseSharedObject(
-    self: *Elf,
-    in_file: std.fs.File,
-    lib: SystemLib,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
@@ -1801,11 +1777,13 @@ fn parseSharedObject(
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
@@ -1871,11 +1849,8 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
         }
 
         const full_path = test_path.items;
-        const scr_file = try std.fs.cwd().openFile(full_path, .{});
-        defer scr_file.close();
-
         var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parseLibrary(scr_file, .{
+        self.parseLibrary(.{
             .needed = scr_obj.needed,
             .path = full_path,
         }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
@@ -1893,14 +1868,16 @@ fn accessLibPath(
     const sep = fs.path.sep_str;
     const target = self.base.options.target;
     test_path.clearRetainingCapacity();
+    const prefix = if (link_mode != null) "lib" else "";
+    const suffix = if (link_mode) |mode| switch (mode) {
+        .Static => target.staticLibSuffix(),
+        .Dynamic => target.dynamicLibSuffix(),
+    } else "";
     try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
         lib_dir_path,
-        target.libPrefix(),
+        prefix,
         lib_name,
-        if (link_mode) |mode| switch (mode) {
-            .Static => target.staticLibSuffix(),
-            .Dynamic => target.dynamicLibSuffix(),
-        } else "",
+        suffix,
     });
     if (checked_paths) |cpaths| {
         try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
