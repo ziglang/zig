@@ -644,11 +644,7 @@ const DeclGen = struct {
         const result_ty_ref = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
 
-        var val = arg_val;
-        switch (ip.indexToKey(val.toIntern())) {
-            .runtime_value => |rt| val = rt.val.toValue(),
-            else => {},
-        }
+        const val = arg_val;
 
         log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(ty, mod) });
         if (val.isUndefDeep(mod)) {
@@ -674,7 +670,7 @@ const DeclGen = struct {
             .inferred_error_set_type,
             => unreachable, // types, not values
 
-            .undef, .runtime_value => unreachable, // handled above
+            .undef => unreachable, // handled above
 
             .variable,
             .extern_func,

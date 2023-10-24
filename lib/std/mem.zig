@@ -3666,7 +3666,13 @@ fn ReverseIterator(comptime T: type) type {
         @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
     const Element = std.meta.Elem(Pointer);
-    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
+    const ElementPointer = @Type(.{ .Pointer = ptr: {
+        var ptr = @typeInfo(Pointer).Pointer;
+        ptr.size = .One;
+        ptr.child = Element;
+        ptr.sentinel = null;
+        break :ptr ptr;
+    } });
     return struct {
         ptr: Pointer,
         index: usize,

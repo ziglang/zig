@@ -3757,7 +3757,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, .{
+    const decl_tv = try sema.resolveInstValueAllowVariables(&block_scope, init_src, result_ref, .{
         .needed_comptime_reason = "global variable initializer must be comptime-known",
     });
 

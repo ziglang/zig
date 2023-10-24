@@ -237,7 +237,6 @@ pub const Key = union(enum) {
     /// Typed `undefined`. This will never be `none`; untyped `undefined` is represented
     /// via `simple_value` and has a named `Index` tag for it.
     undef: Index,
-    runtime_value: TypeValue,
     simple_value: SimpleValue,
     variable: Variable,
     extern_func: ExternFunc,
@@ -1181,8 +1180,6 @@ pub const Key = union(enum) {
                 .payload => |y| Hash.hash(seed + 1, asBytes(&x.ty) ++ asBytes(&y)),
             },
 
-            .runtime_value => |x| Hash.hash(seed, asBytes(&x.val)),
-
             inline .opaque_type,
             .enum_type,
             .variable,
@@ -1412,10 +1409,6 @@ pub const Key = union(enum) {
             .undef => |a_info| {
                 const b_info = b.undef;
                 return a_info == b_info;
-            },
-            .runtime_value => |a_info| {
-                const b_info = b.runtime_value;
-                return a_info.val == b_info.val;
             },
             .opt => |a_info| {
                 const b_info = b.opt;
@@ -1703,8 +1696,7 @@ pub const Key = union(enum) {
             .func_type,
             => .type_type,
 
-            inline .runtime_value,
-            .ptr,
+            inline .ptr,
             .int,
             .float,
             .opt,
@@ -2138,7 +2130,6 @@ pub const Index = enum(u32) {
         },
 
         undef: DataIsIndex,
-        runtime_value: struct { data: *Tag.TypeValue },
         simple_value: struct { data: SimpleValue },
         ptr_decl: struct { data: *PtrDecl },
         ptr_mut_decl: struct { data: *PtrMutDecl },
@@ -2580,10 +2571,6 @@ pub const Tag = enum(u8) {
     /// `data` is `Index` of the type.
     /// Untyped `undefined` is stored instead via `simple_value`.
     undef,
-    /// A wrapper for values which are comptime-known but should
-    /// semantically be runtime-known.
-    /// data is extra index of `TypeValue`.
-    runtime_value,
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
@@ -2795,7 +2782,6 @@ pub const Tag = enum(u8) {
             .type_function => TypeFunction,
 
             .undef => unreachable,
-            .runtime_value => TypeValue,
             .simple_value => unreachable,
             .ptr_decl => PtrDecl,
             .ptr_mut_decl => PtrMutDecl,
@@ -3730,7 +3716,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .type_function => .{ .func_type = ip.extraFuncType(data) },
 
         .undef => .{ .undef = @as(Index, @enumFromInt(data)) },
-        .runtime_value => .{ .runtime_value = ip.extraData(Tag.TypeValue, data) },
         .opt_null => .{ .opt = .{
             .ty = @as(Index, @enumFromInt(data)),
             .val = .none,
@@ -4554,13 +4539,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             ip.items.appendAssumeCapacity(.{
                 .tag = .undef,
                 .data = @intFromEnum(ty),
-            });
-        },
-        .runtime_value => |runtime_value| {
-            assert(runtime_value.ty == ip.typeOf(runtime_value.val));
-            ip.items.appendAssumeCapacity(.{
-                .tag = .runtime_value,
-                .data = try ip.addExtra(gpa, runtime_value),
             });
         },
 
@@ -7237,7 +7215,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             },
 
             .undef => 0,
-            .runtime_value => @sizeOf(Tag.TypeValue),
             .simple_type => 0,
             .simple_value => 0,
             .ptr_decl => @sizeOf(PtrDecl),
@@ -7370,7 +7347,6 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .type_union,
             .type_function,
             .undef,
-            .runtime_value,
             .ptr_decl,
             .ptr_mut_decl,
             .ptr_anon_decl,
@@ -7793,7 +7769,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .ptr_slice,
             .opt_payload,
             .error_union_payload,
-            .runtime_value,
             .int_small,
             .int_lazy_align,
             .int_lazy_size,
@@ -7904,10 +7879,6 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
 
 pub fn isUndef(ip: *const InternPool, val: Index) bool {
     return val == .undef or ip.items.items(.tag)[@intFromEnum(val)] == .undef;
-}
-
-pub fn isRuntimeValue(ip: *const InternPool, val: Index) bool {
-    return ip.items.items(.tag)[@intFromEnum(val)] == .runtime_value;
 }
 
 pub fn isVariable(ip: *const InternPool, val: Index) bool {
@@ -8116,7 +8087,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .ptr_decl,
             .ptr_mut_decl,

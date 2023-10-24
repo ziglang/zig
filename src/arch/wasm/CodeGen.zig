@@ -3224,16 +3224,11 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
 
 /// This function is intended to assert that `isByRef` returns `false` for `ty`.
 /// However such an assertion fails on the behavior tests currently.
-fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
+fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     // TODO: enable this assertion
     //assert(!isByRef(ty, mod));
     const ip = &mod.intern_pool;
-    var val = arg_val;
-    switch (ip.indexToKey(val.ip_index)) {
-        .runtime_value => |rt| val = rt.val.toValue(),
-        else => {},
-    }
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
 
     switch (ip.indexToKey(val.ip_index)) {
@@ -3255,7 +3250,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .inferred_error_set_type,
         => unreachable, // types, not values
 
-        .undef, .runtime_value => unreachable, // handled above
+        .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
             .undefined,
             .void,

@@ -364,7 +364,6 @@ pub const Value = struct {
             .inferred_error_set_type,
 
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -464,7 +463,6 @@ pub const Value = struct {
             .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .runtime_value => |runtime_value| runtime_value.val.toValue().toBigIntAdvanced(space, mod, opt_sema),
                 .int => |int| switch (int.storage) {
                     .u64, .i64, .big_int => int.storage.toBigInt(space),
                     .lazy_align, .lazy_size => |ty| {
@@ -1653,34 +1651,6 @@ pub const Value = struct {
     pub fn isLazySize(val: Value, mod: *Module) bool {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| int.storage == .lazy_size,
-            else => false,
-        };
-    }
-
-    pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.isRuntimeValue(val.toIntern());
-    }
-
-    /// Returns true if a Value is backed by a variable
-    pub fn isVariable(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => true,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isVariable(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isVariable(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isVariable(mod),
-            },
             else => false,
         };
     }
