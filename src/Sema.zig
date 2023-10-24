@@ -16813,7 +16813,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             .val = .void_value,
         } }))),
         .Fn => {
-            // TODO: look into memoizing this result.
             var params_anon_decl = try block.startAnonDecl();
             defer params_anon_decl.deinit();
 
@@ -17270,7 +17269,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Enum => {
-            // TODO: look into memoizing this result.
             const is_exhaustive = Value.makeBool(ip.indexToKey(ty.toIntern()).enum_type.tag_mode != .nonexhaustive);
 
             var fields_anon_decl = try block.startAnonDecl();
@@ -17397,8 +17395,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Union => {
-            // TODO: look into memoizing this result.
-
             var fields_anon_decl = try block.startAnonDecl();
             defer fields_anon_decl.deinit();
 
@@ -17547,8 +17543,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Struct => {
-            // TODO: look into memoizing this result.
-
             var fields_anon_decl = try block.startAnonDecl();
             defer fields_anon_decl.deinit();
 
@@ -17781,8 +17775,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             } })));
         },
         .Opaque => {
-            // TODO: look into memoizing this result.
-
             const type_opaque_ty = t: {
                 const type_opaque_ty_decl_index = (try sema.namespaceLookup(
                     block,
