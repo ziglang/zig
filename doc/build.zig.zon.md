@@ -30,7 +30,7 @@ String. Optional.
 
 [semver](https://semver.org/)
 
-This is currently advisory only; the compiler does does not yet do anything
+This is currently advisory only; the compiler does not yet do anything
 with this version.
 
 #### `url`
