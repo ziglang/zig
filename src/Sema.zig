@@ -5474,13 +5474,13 @@ fn addStrLitNoAlias(sema: *Sema, bytes: []const u8) CompileError!Air.Inst.Ref {
             .address_space = .generic,
         },
     });
-    return Air.internedToRef((try mod.intern(.{ .ptr = .{
+    return Air.internedToRef(try mod.intern(.{ .ptr = .{
         .ty = ptr_ty.toIntern(),
         .addr = .{ .anon_decl = .{
             .val = val,
             .orig_ty = ptr_ty.toIntern(),
         } },
-    } })));
+    } }));
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16724,54 +16724,49 @@ fn zirBuiltinSrc(
     const src = LazySrcLoc.nodeOffset(extra.node);
     if (sema.func_index == .none) return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = mod.funcOwnerDeclPtr(sema.func_index);
+    const ip = &mod.intern_pool;
+    const gpa = sema.gpa;
 
-    const func_name_val = blk: {
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        // TODO: write something like getCoercedInts to avoid needing to dupe
-        const name = try sema.arena.dupe(u8, mod.intern_pool.stringToSlice(fn_owner_decl.name));
-        const new_decl_ty = try mod.arrayType(.{
-            .len = name.len,
+    const func_name_val = v: {
+        // This dupe prevents InternPool string pool memory from being reallocated
+        // while a reference exists.
+        const bytes = try sema.arena.dupe(u8, ip.stringToSlice(fn_owner_decl.name));
+        const array_ty = try ip.get(gpa, .{ .array_type = .{
+            .len = bytes.len,
             .sentinel = .zero_u8,
             .child = .u8_type,
-        });
-        const new_decl = try anon_decl.finish(
-            new_decl_ty,
-            (try mod.intern(.{ .aggregate = .{
-                .ty = new_decl_ty.toIntern(),
-                .storage = .{ .bytes = name },
-            } })).toValue(),
-            .none, // default alignment
-        );
-        break :blk try mod.intern(.{ .ptr = .{
+        } });
+        break :v try ip.get(gpa, .{ .ptr = .{
             .ty = .slice_const_u8_sentinel_0_type,
-            .addr = .{ .decl = new_decl },
-            .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
+            .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
+            .addr = .{ .anon_decl = .{
+                .orig_ty = .slice_const_u8_sentinel_0_type,
+                .val = try ip.get(gpa, .{ .aggregate = .{
+                    .ty = array_ty,
+                    .storage = .{ .bytes = bytes },
+                } }),
+            } },
         } });
     };
 
-    const file_name_val = blk: {
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
+    const file_name_val = v: {
         // The compiler must not call realpath anywhere.
-        const name = try fn_owner_decl.getFileScope(mod).fullPathZ(sema.arena);
-        const new_decl_ty = try mod.arrayType(.{
-            .len = name.len,
+        const bytes = try fn_owner_decl.getFileScope(mod).fullPathZ(sema.arena);
+        const array_ty = try ip.get(gpa, .{ .array_type = .{
+            .len = bytes.len,
             .sentinel = .zero_u8,
             .child = .u8_type,
-        });
-        const new_decl = try anon_decl.finish(
-            new_decl_ty,
-            (try mod.intern(.{ .aggregate = .{
-                .ty = new_decl_ty.toIntern(),
-                .storage = .{ .bytes = name },
-            } })).toValue(),
-            .none, // default alignment
-        );
-        break :blk try mod.intern(.{ .ptr = .{
+        } });
+        break :v try ip.get(gpa, .{ .ptr = .{
             .ty = .slice_const_u8_sentinel_0_type,
-            .addr = .{ .decl = new_decl },
-            .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
+            .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
+            .addr = .{ .anon_decl = .{
+                .orig_ty = .slice_const_u8_sentinel_0_type,
+                .val = try ip.get(gpa, .{ .aggregate = .{
+                    .ty = array_ty,
+                    .storage = .{ .bytes = bytes },
+                } }),
+            } },
         } });
     };
 
