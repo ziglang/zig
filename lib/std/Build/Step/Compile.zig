@@ -2410,6 +2410,19 @@ fn checkCompileErrors(self: *Compile) !void {
                 continue;
             }
         }
+        // We scan for /?/ in expected line and if there is a match, we match everything
+        // up to and after /?/.
+        const expect_line_trim = mem.trim(u8, expect_line, " ");
+        if (mem.indexOf(u8, expect_line_trim, "/?/")) |exp_index| {
+            const actual_line_trim = mem.trim(u8, actual_line, " ");
+            const exp_lhs = expect_line_trim[0..exp_index];
+            const exp_rhs = expect_line_trim[exp_index + "/?/".len ..];
+            if (mem.startsWith(u8, actual_line_trim, exp_lhs) and mem.endsWith(u8, actual_line_trim, exp_rhs)) {
+                try expected_generated.appendSlice(actual_line);
+                try expected_generated.append('\n');
+                continue;
+            }
+        }
         try expected_generated.appendSlice(expect_line);
         try expected_generated.append('\n');
     }
