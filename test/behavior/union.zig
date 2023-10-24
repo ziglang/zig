@@ -1868,3 +1868,16 @@ test "reinterpret packed union inside packed struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
+
+test "union field is a pointer to an aligned version of itself" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const E = union {
+        next: *align(1) @This(),
+    };
+    var e: E = undefined;
+    e = .{ .next = &e };
+
+    try expect(&e == e.next);
+}

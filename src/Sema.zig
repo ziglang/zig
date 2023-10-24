@@ -3193,6 +3193,7 @@ fn zirUnionDecl(
                 .any_aligned_fields = small.any_aligned_fields,
                 .requires_comptime = .unknown,
                 .assumed_runtime_bits = false,
+                .assumed_pointer_aligned = false,
                 .alignment = .none,
             },
             .decl = new_decl_index,
@@ -20963,6 +20964,7 @@ fn zirReify(
                     .any_aligned_fields = any_aligned_fields,
                     .requires_comptime = .unknown,
                     .assumed_runtime_bits = false,
+                    .assumed_pointer_aligned = false,
                     .alignment = .none,
                 },
                 .field_types = union_fields.items(.type),
@@ -34914,7 +34916,10 @@ pub fn resolveUnionAlignment(
         // We'll guess "pointer-aligned", if the union has an
         // underaligned pointer field then some allocations
         // might require explicit alignment.
-        return Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+        union_type.flagsPtr(ip).assumed_pointer_aligned = true;
+        const result = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+        union_type.flagsPtr(ip).alignment = result;
+        return result;
     }
 
     try sema.resolveTypeFieldsUnion(ty, union_type);
@@ -35034,6 +35039,18 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
             sema.gpa,
             mod.declPtr(union_obj.decl).srcLoc(mod),
             "union layout depends on it having runtime bits",
+            .{},
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    }
+
+    if (union_obj.flagsPtr(ip).assumed_pointer_aligned and
+        alignment.compareStrict(.neq, Alignment.fromByteUnits(@divExact(mod.getTarget().ptrBitWidth(), 8))))
+    {
+        const msg = try Module.ErrorMsg.create(
+            sema.gpa,
+            mod.declPtr(union_obj.decl).srcLoc(mod),
+            "union layout depends on being pointer aligned",
             .{},
         );
         return sema.failWithOwnedErrorMsg(null, msg);
