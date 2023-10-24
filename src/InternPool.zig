@@ -690,13 +690,13 @@ pub const Key = union(enum) {
         /// The returned pointer expires with any addition to the `InternPool`.
         pub fn size(self: @This(), ip: *InternPool) *u32 {
             const size_field_index = std.meta.fieldIndex(Tag.TypeUnion, "size").?;
-            return @ptrCast(&ip.extra.items[self.extra_index + size_field_index]);
+            return &ip.extra.items[self.extra_index + size_field_index];
         }
 
         /// The returned pointer expires with any addition to the `InternPool`.
         pub fn padding(self: @This(), ip: *InternPool) *u32 {
             const padding_field_index = std.meta.fieldIndex(Tag.TypeUnion, "padding").?;
-            return @ptrCast(&ip.extra.items[self.extra_index + padding_field_index]);
+            return &ip.extra.items[self.extra_index + padding_field_index];
         }
 
         pub fn haveFieldTypes(self: @This(), ip: *const InternPool) bool {
@@ -2965,9 +2965,9 @@ pub const Tag = enum(u8) {
     /// 1. field align: Alignment for each field; declaration order
     pub const TypeUnion = struct {
         flags: Flags,
-        // Only valid after .have_layout
+        /// Only valid after .have_layout
         size: u32,
-        // Only valid after .have_layout
+        /// Only valid after .have_layout
         padding: u32,
         decl: Module.Decl.Index,
         namespace: Module.Namespace.Index,
@@ -2983,8 +2983,9 @@ pub const Tag = enum(u8) {
             status: UnionType.Status,
             requires_comptime: RequiresComptime,
             assumed_runtime_bits: bool,
+            assumed_pointer_aligned: bool,
             alignment: Alignment,
-            _: u15 = 0,
+            _: u14 = 0,
         };
     };
 
