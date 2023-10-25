@@ -456,6 +456,54 @@ pub const ET = enum(u16) {
 };
 
 /// All integers are native endian.
+pub const SectionHeader = struct {
+    name: u32,
+    type: u32,
+    flags: u64,
+    addr: u64,
+    offset: u64,
+    size: u64,
+    link: u32,
+    info: u32,
+    addralign: u64,
+    entsize: u64,
+
+    pub fn parse(shdr_buf: *align(@alignOf(Elf64_Shdr)) const [@sizeOf(Elf64_Shdr)]u8, elf_header: *const Header) !SectionHeader {
+        if (shdr_buf.len < elf_header.shentsize) return error.InvalidElfFile;
+
+        const shdr32 = @as(*const Elf32_Shdr, @ptrCast(shdr_buf));
+        const shdr64 = @as(*const Elf64_Shdr, @ptrCast(shdr_buf));
+
+        const is_64 = elf_header.is_64;
+        const endian = elf_header.endian;
+
+        const name = int(is_64, shdr32.sh_name, shdr64.sh_name, endian);
+        const @"type" = int(is_64, shdr32.sh_type, shdr64.sh_type, endian);
+        const flags = int(is_64, shdr32.sh_flags, shdr64.sh_flags, endian);
+        const addr = int(is_64, shdr32.sh_addr, shdr64.sh_addr, endian);
+        const offset = int(is_64, shdr32.sh_offset, shdr64.sh_offset, endian);
+        const size = int(is_64, shdr32.sh_size, shdr64.sh_size, endian);
+        const link = int(is_64, shdr32.sh_link, shdr64.sh_link, endian);
+        const info = int(is_64, shdr32.sh_info, shdr64.sh_info, endian);
+        const addralign = int(is_64, shdr32.sh_addralign, shdr64.sh_addralign, endian);
+        const entsize = int(is_64, shdr32.sh_entsize, shdr64.sh_entsize, endian);
+
+        return @as(SectionHeader, .{
+            .name = name,
+            .type = @"type",
+            .flags = flags,
+            .addr = addr,
+            .offset = offset,
+            .size = size,
+            .link = link,
+            .info = info,
+            .addralign = addralign,
+            .entsize = entsize,
+        });
+    }
+};
+
+/// All integers are native endian.
 pub const Header = struct {
     endian: std.builtin.Endian,
     machine: EM,
@@ -487,7 +535,7 @@ pub const Header = struct {
         var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
         try parse_source.seekableStream().seekTo(0);
         try parse_source.reader().readNoEof(&hdr_buf);
-        return Header.parse(&hdr_buf);
+        return try Header.parse(&hdr_buf);
     }
 
     pub fn parse(hdr_buf: *align(@alignOf(Elf64_Ehdr)) const [@sizeOf(Elf64_Ehdr)]u8) !Header {
@@ -518,14 +566,14 @@ pub const Header = struct {
             .endian = endian,
             .machine = machine,
             .is_64 = is_64,
-            .entry = int(is_64, need_bswap, hdr32.e_entry, hdr64.e_entry),
-            .phoff = int(is_64, need_bswap, hdr32.e_phoff, hdr64.e_phoff),
-            .shoff = int(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff),
-            .phentsize = int(is_64, need_bswap, hdr32.e_phentsize, hdr64.e_phentsize),
-            .phnum = int(is_64, need_bswap, hdr32.e_phnum, hdr64.e_phnum),
-            .shentsize = int(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize),
-            .shnum = int(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum),
-            .shstrndx = int(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx),
+            .entry = int(is_64, hdr32.e_entry, hdr64.e_entry, endian),
+            .phoff = int(is_64, hdr32.e_phoff, hdr64.e_phoff, endian),
+            .shoff = int(is_64, hdr32.e_shoff, hdr64.e_shoff, endian),
+            .phentsize = int(is_64, hdr32.e_phentsize, hdr64.e_phentsize, endian),
+            .phnum = int(is_64, hdr32.e_phnum, hdr64.e_phnum, endian),
+            .shentsize = int(is_64, hdr32.e_shentsize, hdr64.e_shentsize, endian),
+            .shnum = int(is_64, hdr32.e_shnum, hdr64.e_shnum, endian),
+            .shstrndx = int(is_64, hdr32.e_shstrndx, hdr64.e_shstrndx, endian),
         });
     }
 };
@@ -632,24 +680,8 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     };
 }
 
-pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
-    if (is_64) {
-        if (need_bswap) {
-            return @byteSwap(int_64);
-        } else {
-            return int_64;
-        }
-    } else {
-        return int32(need_bswap, int_32, @TypeOf(int_64));
-    }
-}
-
-pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
-    if (need_bswap) {
-        return @byteSwap(int_32);
-    } else {
-        return int_32;
-    }
+pub fn int(is_64: bool, int_32: anytype, int_64: anytype, elf_endian: std.builtin.Endian) @TypeOf(int_64) {
+    return mem.toNative(@TypeOf(int_64), if (is_64) int_64 else int_32, elf_endian);
 }
 
 pub const EI_NIDENT = 16;
