@@ -161,8 +161,6 @@ test "setEndPos" {
 }
 
 test "updateTimes" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 

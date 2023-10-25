@@ -1460,8 +1460,6 @@ test "walker without fully iterating" {
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;
@@ -1501,8 +1499,6 @@ test ". and .. in fs.Dir functions" {
 
 test ". and .. in absolute functions" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

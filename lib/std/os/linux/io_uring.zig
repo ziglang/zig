@@ -2204,8 +2204,6 @@ test "sendmsg/recvmsg" {
 test "timeout (after a relative time)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,

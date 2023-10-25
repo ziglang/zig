@@ -1182,8 +1182,6 @@ test "big.int div single-single with rem" {
 }
 
 test "big.int div multi-single no rem" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var op1: u128 = 0xffffeeeeddddcccc;
     var op2: u128 = 34;
 
@@ -1203,8 +1201,6 @@ test "big.int div multi-single no rem" {
 }
 
 test "big.int div multi-single with rem" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var op1: u128 = 0xffffeeeeddddcccf;
     var op2: u128 = 34;
 
@@ -1224,8 +1220,6 @@ test "big.int div multi-single with rem" {
 }
 
 test "big.int div multi>2-single" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var op1: u128 = 0xfefefefefefefefefefefefefefefefe;
     var op2: u128 = 0xefab8;
 
@@ -1405,8 +1399,6 @@ test "big.int div trunc single-single -/-" {
 }
 
 test "big.int divTrunc #15535" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var one = try Managed.initSet(testing.allocator, 1);
     defer one.deinit();
     var x = try Managed.initSet(testing.allocator, std.math.pow(u128, 2, 64));
@@ -1949,8 +1941,6 @@ test "big.int truncate multi to multi signed" {
 }
 
 test "big.int truncate negative multi to single" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, -@as(SignedDoubleLimb, maxInt(Limb) + 1));
     defer a.deinit();
 
@@ -2362,8 +2352,6 @@ test "big.int bitwise xor simple" {
 }
 
 test "big.int bitwise xor multi-limb" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var x: DoubleLimb = maxInt(Limb) + 1;
     var y: DoubleLimb = maxInt(Limb);
     var a = try Managed.initSet(testing.allocator, x);
@@ -2538,8 +2526,6 @@ test "big.int var args" {
 }
 
 test "big.int gcd non-one small" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 17);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 97);
@@ -2553,8 +2539,6 @@ test "big.int gcd non-one small" {
 }
 
 test "big.int gcd non-one medium" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 4864);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 3458);
@@ -2568,8 +2552,6 @@ test "big.int gcd non-one medium" {
 }
 
 test "big.int gcd non-one large" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 0xffffffffffffffff);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 0xffffffffffffffff7777);
@@ -2602,8 +2584,6 @@ test "big.int gcd large multi-limb result" {
 }
 
 test "big.int gcd one large" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 1897056385327307);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 2251799813685248);
