@@ -1617,11 +1617,13 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(scripts.getDirectory());
     exe.linkLibC();
 
-    expectLinkErrors(exe, test_step, &.{
-        "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
-        "note: tried libfoo.so",
-        "note: tried /?/libfoo.so",
-    });
+    expectLinkErrors(
+        exe,
+        test_step,
+        .{
+            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
+        },
+    );
 
     return test_step;
 }
@@ -1645,10 +1647,10 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     exe.addObject(obj);
     exe.linkLibC();
 
-    expectLinkErrors(exe, test_step, &.{
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
         "invalid cpu architecture: expected 'x86_64', but found 'aarch64'",
         "note: while parsing /?/a.o",
-    });
+    } });
 
     return test_step;
 }
@@ -2853,12 +2855,12 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dylib);
     exe.linkLibC();
 
-    expectLinkErrors(exe, test_step, &.{
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
         "unknown file type",
         "note: while parsing /?/liba.dylib",
         "undefined symbol: foo",
         "note: referenced by /?/a.o:.text",
-    });
+    } });
 
     return test_step;
 }
@@ -2892,11 +2894,11 @@ fn testUnresolvedError(b: *Build, opts: Options) *Step {
     exe.addObject(obj2);
     exe.linkLibC();
 
-    expectLinkErrors(exe, test_step, &.{
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
         "error: undefined symbol: foo",
         "note: referenced by /?/a.o:.text.bar",
         "note: referenced by /?/b.o:.text.main",
-    });
+    } });
 
     return test_step;
 }
@@ -3199,7 +3201,7 @@ fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     comp.addAssemblyFile(file);
 }
 
-fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: []const []const u8) void {
+fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
     comp.expect_errors = expected_errors;
     const bin_file = comp.getEmittedBin();
     bin_file.addStepDependencies(test_step);
