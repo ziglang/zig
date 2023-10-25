@@ -2978,7 +2978,7 @@ pub const Node = struct {
         assign_mul,
         /// `lhs /= rhs`. main_token is op.
         assign_div,
-        /// `lhs *= rhs`. main_token is op.
+        /// `lhs %= rhs`. main_token is op.
         assign_mod,
         /// `lhs += rhs`. main_token is op.
         assign_add,
