@@ -3556,7 +3556,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                         .gpa = gpa,
                         .module = module,
                         .error_msg = null,
-                        .decl_index = decl_index.toOptional(),
+                        .pass = .{ .decl = decl_index },
                         .is_naked_fn = false,
                         .fwd_decl = fwd_decl.toManaged(gpa),
                         .ctypes = .{},
