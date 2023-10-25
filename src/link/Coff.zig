@@ -1461,7 +1461,6 @@ pub fn updateDeclExports(
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -1505,7 +1504,7 @@ pub fn updateDeclExports(
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
-        sym.value = decl_sym.value;
+        sym.value = atom.getSymbol(self).value;
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(self.text_section_index.? + 1));
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
