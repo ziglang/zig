@@ -5955,6 +5955,12 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
     return lookup_gop.value_ptr.*;
 }
 
+pub fn zigModulePtr(self: *Elf) *ZigModule {
+    assert(self.zig_module_index != null);
+    const file_ptr = self.file(self.zig_module_index.?).?;
+    return file_ptr.zig_module;
+}
+
 const GetOrCreateComdatGroupOwnerResult = struct {
     found_existing: bool,
     index: ComdatGroupOwner.Index,

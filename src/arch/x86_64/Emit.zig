@@ -78,31 +78,41 @@ pub fn emitMir(emit: *Emit) Error!void {
                 } else return emit.fail("TODO implement extern reloc for {s}", .{
                     @tagName(emit.bin_file.tag),
                 }),
+                .linker_reloc => |data| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const sym = elf_file.symbol(elf_file.zigModulePtr().symbol(data.sym_index));
+                    if (emit.bin_file.options.pic) {
+                        const r_type: u32 = if (sym.flags.has_zig_got)
+                            link.File.Elf.R_X86_64_ZIG_GOTPCREL
+                        else if (sym.flags.has_got)
+                            std.elf.R_X86_64_GOTPCREL
+                        else
+                            std.elf.R_X86_64_PC32;
+                        try atom.addReloc(elf_file, .{
+                            .r_offset = end_offset - 4,
+                            .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                            .r_addend = -4,
+                        });
+                    } else {
+                        const r_type: u32 = if (sym.flags.has_zig_got)
+                            link.File.Elf.R_X86_64_ZIG_GOT32
+                        else if (sym.flags.has_got)
+                            std.elf.R_X86_64_GOT32
+                        else
+                            std.elf.R_X86_64_32;
+                        try atom.addReloc(elf_file, .{
+                            .r_offset = end_offset - 4,
+                            .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                            .r_addend = 0,
+                        });
+                    }
+                } else unreachable,
                 .linker_got,
-                .linker_extern_got,
                 .linker_direct,
-                .linker_direct_got,
                 .linker_import,
                 .linker_tlv,
-                => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
-                    const r_type: u32 = switch (lowered_relocs[0].target) {
-                        .linker_direct_got => link.File.Elf.R_X86_64_ZIG_GOT32,
-                        .linker_got => link.File.Elf.R_X86_64_ZIG_GOTPCREL,
-                        .linker_extern_got => std.elf.R_X86_64_GOTPCREL,
-                        .linker_direct => std.elf.R_X86_64_PC32,
-                        else => unreachable,
-                    };
-                    const r_addend: i64 = switch (lowered_relocs[0].target) {
-                        .linker_direct_got => 0,
-                        .linker_got, .linker_extern_got, .linker_direct => -4,
-                        else => unreachable,
-                    };
-                    const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
-                    try atom_ptr.addReloc(elf_file, .{
-                        .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
-                        .r_addend = r_addend,
-                    });
+                => |symbol| if (emit.bin_file.cast(link.File.Elf)) |_| {
+                    unreachable;
                 } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
