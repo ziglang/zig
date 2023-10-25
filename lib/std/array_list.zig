@@ -277,7 +277,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Remove the element at index `i`, shift elements after index
-        /// `i` forward, and return the removed element.
+        /// `i` back, and return the removed element.
         /// Asserts the array has at least one item.
         /// Invalidates pointers to end of list.
         /// This operation is O(N).
