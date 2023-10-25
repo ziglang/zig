@@ -5470,6 +5470,10 @@ fn addStrLitNoAlias(sema: *Sema, bytes: []const u8) CompileError!Air.Inst.Ref {
 }
 
 fn anonDeclRef(sema: *Sema, val: InternPool.Index) CompileError!Air.Inst.Ref {
+    return Air.internedToRef(try refValue(sema, val));
+}
+
+fn refValue(sema: *Sema, val: InternPool.Index) CompileError!InternPool.Index {
     const mod = sema.mod;
     const ptr_ty = (try sema.ptrType(.{
         .child = mod.intern_pool.typeOf(val),
@@ -5479,13 +5483,13 @@ fn anonDeclRef(sema: *Sema, val: InternPool.Index) CompileError!Air.Inst.Ref {
             .address_space = .generic,
         },
     })).toIntern();
-    return Air.internedToRef(try mod.intern(.{ .ptr = .{
+    return mod.intern(.{ .ptr = .{
         .ty = ptr_ty,
         .addr = .{ .anon_decl = .{
             .val = val,
             .orig_ty = ptr_ty,
         } },
-    } }));
+    } });
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -17031,7 +17035,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // is_allowzero: bool,
                 Value.makeBool(info.flags.is_allowzero).toIntern(),
                 // sentinel: ?*const anyopaque,
-                (try sema.optRefValue(block, info.child.toType(), switch (info.sentinel) {
+                (try sema.optRefValue(switch (info.sentinel) {
                     .none => null,
                     else => info.sentinel.toValue(),
                 })).toIntern(),
@@ -17066,7 +17070,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // child: type,
                 info.elem_type.toIntern(),
                 // sentinel: ?*const anyopaque,
-                (try sema.optRefValue(block, info.elem_type, info.sentinel)).toIntern(),
+                (try sema.optRefValue(info.sentinel)).toIntern(),
             };
             return Air.internedToRef((try mod.intern(.{ .un = .{
                 .ty = type_info_ty.toIntern(),
@@ -17593,7 +17597,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                             const is_comptime = field_val != .none;
                             const opt_default_val = if (is_comptime) field_val.toValue() else null;
-                            const default_val_ptr = try sema.optRefValue(block, field_ty.toType(), opt_default_val);
+                            const default_val_ptr = try sema.optRefValue(opt_default_val);
                             const struct_field_fields = .{
                                 // name: []const u8,
                                 name_val,
@@ -17647,7 +17651,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     };
 
                     const opt_default_val = if (field_init == .none) null else field_init.toValue();
-                    const default_val_ptr = try sema.optRefValue(block, field_ty, opt_default_val);
+                    const default_val_ptr = try sema.optRefValue(opt_default_val);
                     const alignment = switch (struct_type.layout) {
                         .Packed => .none,
                         else => try sema.structFieldAlignment(
@@ -21367,28 +21371,9 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ty = try sema.resolveType(block, ty_src, inst_data.operand);
 
-    var anon_decl = try block.startAnonDecl();
-    defer anon_decl.deinit();
-
     var bytes = std.ArrayList(u8).init(sema.arena);
-    defer bytes.deinit();
     try ty.print(bytes.writer(), mod);
-
-    const decl_ty = try mod.arrayType(.{
-        .len = bytes.items.len,
-        .sentinel = .zero_u8,
-        .child = .u8_type,
-    });
-    const new_decl = try anon_decl.finish(
-        decl_ty,
-        (try mod.intern(.{ .aggregate = .{
-            .ty = decl_ty.toIntern(),
-            .storage = .{ .bytes = bytes.items },
-        } })).toValue(),
-        .none, // default alignment
-    );
-
-    return sema.analyzeDeclRef(new_decl);
+    return addStrLitNoAlias(sema, bytes.items);
 }
 
 fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -26271,13 +26256,8 @@ fn fieldPtr(
     switch (inner_ty.zigTypeTag(mod)) {
         .Array => {
             if (ip.stringEqlSlice(field_name, "len")) {
-                var anon_decl = try block.startAnonDecl();
-                defer anon_decl.deinit();
-                return sema.analyzeDeclRef(try anon_decl.finish(
-                    Type.usize,
-                    try mod.intValue(Type.usize, inner_ty.arrayLen(mod)),
-                    .none, // default alignment
-                ));
+                const int_val = try mod.intValue(Type.usize, inner_ty.arrayLen(mod));
+                return anonDeclRef(sema, int_val.toIntern());
             } else {
                 return sema.fail(
                     block,
@@ -26386,20 +26366,14 @@ fn fieldPtr(
                         else => unreachable,
                     }
 
-                    var anon_decl = try block.startAnonDecl();
-                    defer anon_decl.deinit();
                     const error_set_type = if (!child_type.isAnyError(mod))
                         child_type
                     else
                         try mod.singleErrorSetType(field_name);
-                    return sema.analyzeDeclRef(try anon_decl.finish(
-                        error_set_type,
-                        (try mod.intern(.{ .err = .{
-                            .ty = error_set_type.toIntern(),
-                            .name = field_name,
-                        } })).toValue(),
-                        .none, // default alignment
-                    ));
+                    return anonDeclRef(sema, try mod.intern(.{ .err = .{
+                        .ty = error_set_type.toIntern(),
+                        .name = field_name,
+                    } }));
                 },
                 .Union => {
                     if (child_type.getNamespaceIndex(mod).unwrap()) |namespace| {
@@ -26411,13 +26385,8 @@ fn fieldPtr(
                     if (child_type.unionTagType(mod)) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name, mod)) |field_index| {
                             const field_index_u32: u32 = @intCast(field_index);
-                            var anon_decl = try block.startAnonDecl();
-                            defer anon_decl.deinit();
-                            return sema.analyzeDeclRef(try anon_decl.finish(
-                                enum_ty,
-                                try mod.enumValueFieldIndex(enum_ty, field_index_u32),
-                                .none, // default alignment
-                            ));
+                            const idx_val = try mod.enumValueFieldIndex(enum_ty, field_index_u32);
+                            return anonDeclRef(sema, idx_val.toIntern());
                         }
                     }
                     return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
@@ -26432,13 +26401,8 @@ fn fieldPtr(
                         return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                     };
                     const field_index_u32: u32 = @intCast(field_index);
-                    var anon_decl = try block.startAnonDecl();
-                    defer anon_decl.deinit();
-                    return sema.analyzeDeclRef(try anon_decl.finish(
-                        child_type,
-                        try mod.enumValueFieldIndex(child_type, field_index_u32),
-                        .none, // default alignment
-                    ));
+                    const idx_val = try mod.enumValueFieldIndex(child_type, field_index_u32);
+                    return anonDeclRef(sema, idx_val.toIntern());
                 },
                 .Struct, .Opaque => {
                     if (child_type.getNamespaceIndex(mod).unwrap()) |namespace| {
@@ -31607,31 +31571,13 @@ fn ensureFuncBodyAnalyzed(sema: *Sema, func: InternPool.Index) CompileError!void
     };
 }
 
-fn refValue(sema: *Sema, block: *Block, ty: Type, val: Value) !Value {
-    const mod = sema.mod;
-    var anon_decl = try block.startAnonDecl();
-    defer anon_decl.deinit();
-    const decl = try anon_decl.finish(
-        ty,
-        val,
-        .none, // default alignment
-    );
-    try sema.maybeQueueFuncBodyAnalysis(decl);
-    try mod.declareDeclDependency(sema.owner_decl_index, decl);
-    const result = try mod.intern(.{ .ptr = .{
-        .ty = (try mod.singleConstPtrType(ty)).toIntern(),
-        .addr = .{ .decl = decl },
-    } });
-    return result.toValue();
-}
-
-fn optRefValue(sema: *Sema, block: *Block, ty: Type, opt_val: ?Value) !Value {
+fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     const mod = sema.mod;
     const ptr_anyopaque_ty = try mod.singleConstPtrType(Type.anyopaque);
     return (try mod.intern(.{ .opt = .{
         .ty = (try mod.optionalType(ptr_anyopaque_ty.toIntern())).toIntern(),
         .val = if (opt_val) |val| (try mod.getCoerced(
-            try sema.refValue(block, ty, val),
+            (try sema.refValue(val.toIntern())).toValue(),
             ptr_anyopaque_ty,
         )).toIntern() else .none,
     } })).toValue();
@@ -31693,15 +31639,8 @@ fn analyzeRef(
         switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .extern_func => |extern_func| return sema.analyzeDeclRef(extern_func.decl),
             .func => |func| return sema.analyzeDeclRef(func.owner_decl),
-            else => {},
+            else => return anonDeclRef(sema, val.toIntern()),
         }
-        var anon_decl = try block.startAnonDecl();
-        defer anon_decl.deinit();
-        return sema.analyzeDeclRef(try anon_decl.finish(
-            operand_ty,
-            val,
-            .none, // default alignment
-        ));
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -36786,7 +36725,7 @@ fn analyzeComptimeAlloc(
         },
     });
 
-    var anon_decl = try block.startAnonDecl();
+    var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
     defer anon_decl.deinit();
 
     const decl_index = try anon_decl.finish(
