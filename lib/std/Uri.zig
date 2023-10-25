@@ -171,6 +171,9 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
             }
         }
 
+        // only possible if uri consists of only `userinfo@`
+        if (start_of_host >= authority.len) break :a;
+
         var end_of_host: usize = authority.len;
 
         if (authority[start_of_host] == '[') { // IPv6
@@ -565,6 +568,7 @@ test "authority" {
     try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://userinfo@hostname")).host.?);
     try std.testing.expectEqualSlices(u8, "userinfo", (try parse("scheme://userinfo@hostname")).user.?);
     try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@hostname")).password);
+    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@")).host);
 
     try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://user:password@hostname")).host.?);
     try std.testing.expectEqualSlices(u8, "user", (try parse("scheme://user:password@hostname")).user.?);
