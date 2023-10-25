@@ -739,6 +739,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86 or
+        (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) or
         builtin.zig_backend == .stage2_riscv64 or
         builtin.zig_backend == .stage2_sparc64 or
         builtin.zig_backend == .stage2_spirv64)
@@ -807,6 +808,13 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             std.os.abort();
         },
         .cuda, .amdhsa => std.os.abort(),
+        .plan9 => {
+            var status: [std.os.plan9.ERRMAX]u8 = undefined;
+            const len = @min(msg.len, status.len - 1);
+            @memcpy(status[0..len], msg[0..len]);
+            status[len] = 0;
+            std.os.plan9.exits(status[0..len :0]);
+        },
         else => {
             const first_trace_addr = ret_addr orelse @returnAddress();
             std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
