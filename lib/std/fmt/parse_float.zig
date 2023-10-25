@@ -84,8 +84,6 @@ test "fmt.parseFloat nan and inf" {
 }
 
 test "fmt.parseFloat #11169" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expectEqual(try parseFloat(f128, "9007199254740993.0"), 9007199254740993.0);
 }
 
@@ -162,8 +160,6 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
 test "fmt.parseFloat hex.f128" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expectEqual(try parseFloat(f128, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f128, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f128, "0x10p+10"), 16384.0);

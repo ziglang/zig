@@ -850,7 +850,7 @@ fn genDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
-    decl_index: Module.Decl.Index,
+    ptr_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
@@ -859,6 +859,12 @@ fn genDeclRef(
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
+    const ptr_decl = mod.declPtr(ptr_decl_index);
+    const decl_index = switch (mod.intern_pool.indexToKey(try ptr_decl.internValue(mod))) {
+        .func => |func| func.owner_decl,
+        .extern_func => |extern_func| extern_func.decl,
+        else => ptr_decl_index,
+    };
     const decl = mod.declPtr(decl_index);
 
     if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {

@@ -821,8 +821,6 @@ test "crypto.chacha20 test vector sunscreen" {
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
 test "crypto.chacha20 test vector 1" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0x76, 0xb8, 0xe0, 0xad, 0xa0, 0xf1, 0x3d, 0x90,
         0x40, 0x5d, 0x6a, 0xe5, 0x53, 0x86, 0xbd, 0x28,
@@ -857,8 +855,6 @@ test "crypto.chacha20 test vector 1" {
 }
 
 test "crypto.chacha20 test vector 2" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0x45, 0x40, 0xf0, 0x5a, 0x9f, 0x1f, 0xb2, 0x96,
         0xd7, 0x73, 0x6e, 0x7b, 0x20, 0x8e, 0x3c, 0x96,
@@ -893,8 +889,6 @@ test "crypto.chacha20 test vector 2" {
 }
 
 test "crypto.chacha20 test vector 3" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0xde, 0x9c, 0xba, 0x7b, 0xf3, 0xd6, 0x9e, 0xf5,
         0xe7, 0x86, 0xdc, 0x63, 0x97, 0x3f, 0x65, 0x3a,
@@ -929,8 +923,6 @@ test "crypto.chacha20 test vector 3" {
 }
 
 test "crypto.chacha20 test vector 4" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0xef, 0x3f, 0xdf, 0xd6, 0xc6, 0x15, 0x78, 0xfb,
         0xf5, 0xcf, 0x35, 0xbd, 0x3d, 0xd3, 0x3b, 0x80,
@@ -965,8 +957,6 @@ test "crypto.chacha20 test vector 4" {
 }
 
 test "crypto.chacha20 test vector 5" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_result = [_]u8{
         0xf7, 0x98, 0xa1, 0x89, 0xf1, 0x95, 0xe6, 0x69,
         0x82, 0x10, 0x5f, 0xfb, 0x64, 0x0b, 0xb7, 0x75,

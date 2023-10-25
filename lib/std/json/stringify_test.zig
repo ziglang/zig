@@ -198,8 +198,6 @@ test "stringify struct" {
 }
 
 test "emit_strings_as_arrays" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // Should only affect string values, not object keys.
     try testStringify("{\"foo\":\"bar\"}", .{ .foo = "bar" }, .{});
     try testStringify("{\"foo\":[98,97,114]}", .{ .foo = "bar" }, .{ .emit_strings_as_arrays = true });

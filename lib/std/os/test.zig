@@ -509,8 +509,6 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 test "dl_iterate_phdr" {
     if (builtin.object_format != .elf) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
     try expect(counter != 0);
@@ -803,8 +801,6 @@ test "shutdown socket" {
 test "sigaction" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)

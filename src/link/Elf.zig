@@ -48,7 +48,7 @@ phdr_zig_load_zerofill_index: ?u16 = null,
 /// PT_PHDR
 phdr_table_index: ?u16 = null,
 /// PT_LOAD for PHDR table
-/// We add this special load segment to ensure the PHDR table is always
+/// We add this special load segment to ensure the EHDR and PHDR table are always
 /// loaded into memory.
 phdr_table_load_index: ?u16 = null,
 /// PT_INTERP
@@ -289,22 +289,33 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
         const image_base = self.calcImageBase();
-        const offset: u64 = switch (self.ptr_width) {
+        const ehsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
         };
+        const phsize: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Phdr),
+            .p64 => @sizeOf(elf.Elf64_Phdr),
+        };
+        const max_nphdrs = comptime getMaxNumberOfPhdrs();
+        const reserved: u64 = mem.alignForward(u64, padToIdeal(max_nphdrs * phsize), self.page_size);
         self.phdr_table_index = try self.addPhdr(.{
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + offset,
-            .offset = offset,
+            .addr = image_base + ehsize,
+            .offset = ehsize,
+            .filesz = reserved,
+            .memsz = reserved,
         });
         self.phdr_table_load_index = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
             .addr = image_base,
+            .offset = 0,
+            .filesz = reserved + ehsize,
+            .memsz = reserved + ehsize,
         });
     }
 
@@ -543,7 +554,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
         const tight_size = self.shdrs.items.len * shdr_size;
         const increased_size = padToIdeal(tight_size);
-        const test_end = off + increased_size;
+        const test_end = off +| increased_size;
         if (end > off and start < test_end) {
             return test_end;
         }
@@ -552,7 +563,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.shdrs.items) |shdr| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const increased_size = padToIdeal(shdr.sh_size);
-        const test_end = shdr.sh_offset + increased_size;
+        const test_end = shdr.sh_offset +| increased_size;
         if (end > shdr.sh_offset and start < test_end) {
             return test_end;
         }
@@ -561,7 +572,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.phdrs.items) |phdr| {
         if (phdr.p_type != elf.PT_LOAD) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
-        const test_end = phdr.p_offset + increased_size;
+        const test_end = phdr.p_offset +| increased_size;
         if (end > phdr.p_offset and start < test_end) {
             return test_end;
         }
@@ -653,6 +664,7 @@ pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{Ou
         .type = opts.type,
         .flags = opts.flags,
         .addralign = opts.alignment,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
@@ -690,6 +702,7 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
         .info = opts.info,
         .addralign = opts.alignment,
         .entsize = opts.entsize,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     const off = self.findFreeSpace(opts.size, opts.alignment);
@@ -705,6 +718,8 @@ pub fn initMetadata(self: *Elf) !void {
     const ptr_size = self.ptrWidthBytes();
     const ptr_bit_width = self.base.options.target.ptrBitWidth();
     const is_linux = self.base.options.target.os.tag == .linux;
+
+    comptime assert(number_of_zig_segments == 5);
 
     if (self.phdr_zig_load_re_index == null) {
         self.phdr_zig_load_re_index = try self.allocateSegment(.{
@@ -868,10 +883,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
-        // Must move the entire section.
-        const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.shstrtab.getAssumeExists(shdr.sh_name),
@@ -1600,7 +1615,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.setVersionSymtab();
     try self.updateSectionSizes();
 
-    self.allocatePhdrTable();
+    try self.allocatePhdrTable();
     try self.allocateAllocSections();
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
@@ -3841,6 +3856,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
 
         if (self.base.options.eh_frame_hdr) {
@@ -3849,6 +3865,7 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -3859,6 +3876,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3880,6 +3898,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3889,12 +3908,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
         self.got_plt_section_index = try self.addSection(.{
             .name = ".got.plt",
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
+            .offset = std.math.maxInt(u64),
         });
         self.rela_plt_section_index = try self.addSection(.{
             .name = ".rela.plt",
@@ -3902,6 +3923,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3911,6 +3933,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3919,6 +3942,7 @@ fn initSections(self: *Elf) !void {
             .name = ".copyrel",
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3937,6 +3961,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3947,6 +3972,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.dynamic_section_index = try self.addSection(.{
             .name = ".dynamic",
@@ -3954,6 +3980,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_DYNAMIC,
             .entsize = @sizeOf(elf.Elf64_Dyn),
             .addralign = @alignOf(elf.Elf64_Dyn),
+            .offset = std.math.maxInt(u64),
         });
         self.dynsymtab_section_index = try self.addSection(.{
             .name = ".dynsym",
@@ -3962,6 +3989,7 @@ fn initSections(self: *Elf) !void {
             .addralign = @alignOf(elf.Elf64_Sym),
             .entsize = @sizeOf(elf.Elf64_Sym),
             .info = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.hash_section_index = try self.addSection(.{
             .name = ".hash",
@@ -3969,12 +3997,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_HASH,
             .addralign = 4,
             .entsize = 4,
+            .offset = std.math.maxInt(u64),
         });
         self.gnu_hash_section_index = try self.addSection(.{
             .name = ".gnu.hash",
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_GNU_HASH,
             .addralign = 8,
+            .offset = std.math.maxInt(u64),
         });
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
@@ -3988,12 +4018,14 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_GNU_VERSYM,
                 .addralign = @alignOf(elf.Elf64_Versym),
                 .entsize = @sizeOf(elf.Elf64_Versym),
+                .offset = std.math.maxInt(u64),
             });
             self.verneed_section_index = try self.addSection(.{
                 .name = ".gnu.version_r",
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_VERNEED,
                 .addralign = @alignOf(elf.Elf64_Verneed),
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -4004,6 +4036,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.strtab_section_index == null) {
@@ -4012,6 +4045,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.shstrtab_section_index == null) {
@@ -4020,11 +4054,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 }
 
 fn initSpecialPhdrs(self: *Elf) !void {
+    comptime assert(max_number_of_special_phdrs == 5);
+
     if (self.interp_section_index != null) {
         self.phdr_interp_index = try self.addPhdr(.{
             .type = elf.PT_INTERP,
@@ -4613,6 +4650,21 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
     return out_flags;
 }
 
+/// Returns maximum number of program headers that may be emitted by the linker.
+/// (This is an upper bound so that we can reserve enough space for the header and progam header
+/// table without running out of space and being forced to move things around.)
+fn getMaxNumberOfPhdrs() u64 {
+    // First, assume we compile Zig's source incrementally, this gives us:
+    var num: u64 = number_of_zig_segments;
+    // Next, the estimated maximum number of segments the linker can emit for input sections are:
+    num += max_number_of_object_segments;
+    // Next, any other non-loadable program headers, including TLS, DYNAMIC, GNU_STACK, GNU_EH_FRAME, INTERP:
+    num += max_number_of_special_phdrs;
+    // Finally, PHDR program header and corresponding read-only load segment:
+    num += 2;
+    return num;
+}
+
 /// Calculates how many segments (PT_LOAD progam headers) are required
 /// to cover the set of sections.
 /// We permit a maximum of 3**2 number of segments.
@@ -4633,30 +4685,36 @@ fn calcNumberOfSegments(self: *Elf) usize {
 }
 
 /// Allocates PHDR table in virtual memory and in file.
-fn allocatePhdrTable(self: *Elf) void {
+fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
     const new_load_segments = self.calcNumberOfSegments();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
+    const ehsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Ehdr),
+        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    };
     const phsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
+    const available_space = self.allocatedSize(phdr_table.p_offset);
 
-    if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
-        phdr_table.p_offset = 0;
-        phdr_table.p_offset = self.findFreeSpace(needed_size, phdr_table.p_align);
+    if (needed_size > available_space) {
+        // In this case, we have two options:
+        // 1. increase the available padding for EHDR + PHDR table so that we don't overflow it
+        //    (revisit getMaxNumberOfPhdrs())
+        // 2. shift everything in file to free more space for EHDR + PHDR table
+        // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
+        try err.addNote(self, "required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
 
-    phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-    const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-    phdr_table_load.p_filesz = load_align_offset + needed_size;
-    phdr_table_load.p_memsz = load_align_offset + needed_size;
-
+    phdr_table_load.p_filesz = needed_size + ehsize;
+    phdr_table_load.p_memsz = needed_size + ehsize;
     phdr_table.p_filesz = needed_size;
-    phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-    phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
     phdr_table.p_memsz = needed_size;
 }
 
@@ -4701,7 +4759,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // with `findFreeSpace` mechanics than anything else.
     const Cover = std.ArrayList(u16);
     const gpa = self.base.allocator;
-    var covers: [9]Cover = undefined;
+    var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
         cover.* = Cover.init(gpa);
     }
@@ -5651,6 +5709,7 @@ pub const AddSectionOpts = struct {
     info: u32 = 0,
     addralign: u64 = 0,
     entsize: u64 = 0,
+    offset: u64 = 0,
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
@@ -5662,7 +5721,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
         .sh_type = opts.type,
         .sh_flags = opts.flags,
         .sh_addr = 0,
-        .sh_offset = 0,
+        .sh_offset = opts.offset,
         .sh_size = 0,
         .sh_link = opts.link,
         .sh_info = opts.info,
@@ -6230,6 +6289,15 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
     }
     return i;
 }
+
+/// The following three values are only observed at compile-time and used to emit a compile error
+/// to remind the programmer to update expected maximum numbers of different program header types
+/// so that we reserve enough space for the program header table up-front.
+/// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
+/// more special-purpose program headers.
+const number_of_zig_segments = 5;
+const max_number_of_object_segments = 9;
+const max_number_of_special_phdrs = 5;
 
 const default_entry_addr = 0x8000000;
 

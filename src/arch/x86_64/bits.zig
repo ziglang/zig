@@ -470,6 +470,7 @@ pub const Memory = union(enum) {
     };
 
     pub const PtrSize = enum {
+        none,
         byte,
         word,
         dword,
@@ -508,6 +509,7 @@ pub const Memory = union(enum) {
 
         pub fn bitSize(s: PtrSize) u64 {
             return switch (s) {
+                .none => 0,
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -517,6 +519,17 @@ pub const Memory = union(enum) {
                 .yword => 256,
                 .zword => 512,
             };
+        }
+
+        pub fn format(
+            s: PtrSize,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            if (s == .none) return;
+            try writer.writeAll(@tagName(s));
+            try writer.writeAll(" ptr");
         }
     };
 

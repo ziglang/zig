@@ -42,8 +42,6 @@ pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.C) i128 {
 }
 
 test "test_divmodti4" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const cases = [_][4]i128{
         [_]i128{ 0, 1, 0, 0 },
         [_]i128{ 0, -1, 0, 0 },

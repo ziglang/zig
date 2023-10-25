@@ -1006,7 +1006,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         // TODO get std lib tests passing for other self-hosted backends.
         if ((test_target.target.getCpuArch() != .x86_64 or
-            test_target.target.getObjectFormat() != .elf) and
+            test_target.target.getOsTag() != .linux) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 

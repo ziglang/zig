@@ -166,7 +166,7 @@ pub fn format(
     for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
-        .np, .fd, .td, .i, .zi, .d => {},
+        .zo, .fd, .td, .i, .zi, .d => {},
         .o, .oi => {
             const tag = switch (encoding.data.ops[0]) {
                 .r8 => "rb",
@@ -203,7 +203,7 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
+        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -246,7 +246,7 @@ pub const Mnemonic = enum {
     movsx, movsxd, movzx, mul,
     neg, nop, not,
     @"or",
-    pause, pop, popcnt, push,
+    pause, pop, popcnt, popfq, push, pushfq,
     rcl, rcr, ret, rol, ror,
     sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -260,7 +260,7 @@ pub const Mnemonic = enum {
     ud2,
     xadd, xchg, xgetbv, xor,
     // X87
-    fabs, fchs, ffree, fisttp, fld, fst, fstp,
+    fabs, fchs, ffree, fisttp, fld, fldenv, fnstenv, fst, fstenv, fstp,
     // MMX
     movd, movq,
     packssdw, packsswb, packuswb,
@@ -280,6 +280,7 @@ pub const Mnemonic = enum {
     cmpps, cmpss,
     cvtpi2ps, cvtps2pi, cvtsi2ss, cvtss2si, cvttps2pi, cvttss2si,
     divps, divss,
+    ldmxcsr,
     maxps, maxss,
     minps, minss,
     movaps, movhlps, movlhps,
@@ -291,6 +292,7 @@ pub const Mnemonic = enum {
     pmaxsw, pmaxub, pminsw, pminub, pmovmskb,
     shufps,
     sqrtps, sqrtss,
+    stmxcsr,
     subps, subss,
     ucomiss,
     xorps,
@@ -358,6 +360,7 @@ pub const Mnemonic = enum {
     vdivpd, vdivps, vdivsd, vdivss,
     vextractf128, vextractps,
     vinsertf128, vinsertps,
+    vldmxcsr,
     vmaxpd, vmaxps, vmaxsd, vmaxss,
     vminpd, vminps, vminsd, vminss,
     vmovapd, vmovaps,
@@ -397,6 +400,7 @@ pub const Mnemonic = enum {
     vroundpd, vroundps, vroundsd, vroundss,
     vshufpd, vshufps,
     vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
+    vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
     vxorpd, vxorps,
     // F16C
@@ -411,7 +415,7 @@ pub const Mnemonic = enum {
 
 pub const OpEn = enum {
     // zig fmt: off
-    np,
+    zo,
     o, oi,
     i, zi,
     d, m,
@@ -481,6 +485,7 @@ pub const Op = enum {
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
                 .sib, .rip => switch (mem.bitSize()) {
+                    0 => .m,
                     8 => .m8,
                     16 => .m16,
                     32 => .m32,
@@ -610,7 +615,7 @@ pub const Op = enum {
             .imm8s, .imm16s, .imm32s,
             .rel8, .rel16, .rel32,
             .unity,
-            =>  true,
+            => true,
             else => false,
         };
         // zig fmt: on
@@ -626,7 +631,7 @@ pub const Op = enum {
             .mm_m64,
             .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
-            =>  true,
+            => true,
             else => false,
         };
         // zig fmt: on
@@ -657,7 +662,7 @@ pub const Op = enum {
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
-            .m, .o16, .o32, .o64 => unreachable,
+            .o16, .o32, .o64 => unreachable,
             .moffs, .sreg => return op == target,
             .none => switch (target) {
                 .o16, .o32, .o64, .none => return true,

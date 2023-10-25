@@ -598,8 +598,6 @@ test "xsalsa20poly1305 secretbox" {
 }
 
 test "xsalsa20poly1305 box" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
@@ -614,8 +612,6 @@ test "xsalsa20poly1305 box" {
 }
 
 test "xsalsa20poly1305 sealedbox" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;

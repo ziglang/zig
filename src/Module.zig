@@ -5846,7 +5846,8 @@ pub const Feature = enum {
 pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
     return switch (feature) {
         .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
-            mod.comp.bin_file.options.use_llvm,
+            mod.comp.bin_file.options.use_llvm or
+            mod.comp.bin_file.options.target.cpu.arch == .x86_64,
         .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
             mod.comp.bin_file.options.use_llvm,
         .safety_check_formatted => mod.comp.bin_file.options.target.ofmt == .c or
