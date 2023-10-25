@@ -5015,41 +5015,62 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         defer if (cleanup_build_dir) |*dir| dir.close();
 
         const cwd_path = try process.getCwdAlloc(arena);
-        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else Package.build_zig_basename;
-        const build_root: Compilation.Directory = blk: {
+        var build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else Package.build_zig_basename;
+        const build_root: Compilation.Directory = build_root: {
             if (build_file) |bf| {
                 if (fs.path.dirname(bf)) |dirname| {
                     const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
                         fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
                     };
                     cleanup_build_dir = dir;
-                    break :blk .{ .path = dirname, .handle = dir };
+                    break :build_root .{ .path = dirname, .handle = dir };
                 }
 
-                break :blk .{ .path = null, .handle = fs.cwd() };
+                break :build_root .{ .path = null, .handle = fs.cwd() };
             }
             // Search up parent directories until we find build.zig.
             var dirname: []const u8 = cwd_path;
+            var found_build_root: ?Compilation.Directory = null;
             while (true) {
-                const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
-                if (fs.cwd().access(joined_path, .{})) |_| {
-                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
-                        fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
-                    };
-                    break :blk .{ .path = dirname, .handle = dir };
-                } else |err| switch (err) {
-                    error.FileNotFound => {
-                        dirname = fs.path.dirname(dirname) orelse {
-                            std.log.info("{s}", .{
-                                \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
-                                \\or see `zig --help` for more options.
-                            });
-                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                if (found_build_root == null) {
+                    if (fs.cwd().access(try fs.path.join(arena, &.{ dirname, build_zig_basename }), .{})) |_| {
+                        const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                            fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
                         };
-                        continue;
-                    },
-                    else => |e| return e,
+                        cleanup_build_dir = dir;
+                        found_build_root = .{ .path = dirname, .handle = dir };
+                    } else |err| switch (err) {
+                        error.FileNotFound => {},
+                        else => |e| return e,
+                    }
                 }
+                if (fs.cwd().access(try fs.path.join(arena, &.{ dirname, Package.Manifest.basename }), .{})) |_| {
+                    if (found_build_root) |*build_root| {
+                        const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                            fatal("unable to open directory while searching for build.zig.zon file, '{s}': {s}", .{ dirname, @errorName(err) });
+                        };
+                        build_zig_basename = try fs.path.relative(arena, dirname, try fs.path.join(arena, &.{ build_root.path.?, build_zig_basename }));
+                        if (cleanup_build_dir) |*cleanup_dir| cleanup_dir.close();
+                        cleanup_build_dir = dir;
+                        break :build_root .{ .path = dirname, .handle = dir };
+                    }
+                    std.log.info("{s}", .{
+                        \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                        \\or see `zig --help` for more options.
+                    });
+                    fatal("No 'build.zig' file found, in the current directory or any parent directories up to a 'build.zig.zon' file.", .{});
+                } else |err| switch (err) {
+                    error.FileNotFound => {},
+                    else => |e| if (found_build_root) |build_root| break :build_root build_root else return e,
+                }
+                dirname = fs.path.dirname(dirname) orelse {
+                    if (found_build_root) |build_root| break :build_root build_root;
+                    std.log.info("{s}", .{
+                        \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                        \\or see `zig --help` for more options.
+                    });
+                    fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                };
             }
         };
         child_argv.items[argv_index_build_file] = build_root.path orelse cwd_path;
