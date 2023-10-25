@@ -76,6 +76,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
@@ -99,6 +101,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnresolvedError(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
@@ -1601,6 +1605,56 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLdScriptPathError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-path-error", opts);
+
+    const scripts = WriteFile.create(b);
+    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.linkSystemLibrary2("a", .{});
+    exe.addLibraryPath(scripts.getDirectory());
+    exe.linkLibC();
+
+    expectLinkErrors(
+        exe,
+        test_step,
+        .{
+            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
+        },
+    );
+
+    return test_step;
+}
+
+fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "mismatched-cpu-architecture-error", opts);
+
+    const obj = addObject(b, "a", .{
+        .target = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
+    });
+    addCSourceBytes(obj, "int foo;", &.{});
+    obj.strip = true;
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "invalid cpu architecture: expected 'x86_64', but found 'aarch64'",
+        "note: while parsing /?/a.o",
+    } });
+
+    return test_step;
+}
+
 fn testLinkingC(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-c", opts);
 
@@ -2783,6 +2837,72 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unknown-file-type-error", opts);
+
+    const dylib = addSharedLibrary(b, "a", .{
+        .target = .{ .cpu_arch = .x86_64, .os_tag = .macos },
+    });
+    addZigSourceBytes(dylib, "export var foo: i32 = 0;");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.linkLibrary(dylib);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "unknown file type",
+        "note: while parsing /?/liba.dylib",
+        "undefined symbol: foo",
+        "note: referenced by /?/a.o:.text",
+    } });
+
+    return test_step;
+}
+
+fn testUnresolvedError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-error", opts);
+
+    const obj1 = addObject(b, "a", opts);
+    addCSourceBytes(obj1,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar() {
+        \\  return foo() + 1;
+        \\}
+    , &.{"-ffunction-sections"});
+    obj1.linkLibC();
+
+    const obj2 = addObject(b, "b", opts);
+    addCSourceBytes(obj2,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar();
+        \\int main() {
+        \\  return foo() + bar();
+        \\}
+    , &.{"-ffunction-sections"});
+    obj2.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    exe.addObject(obj1);
+    exe.addObject(obj2);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "error: undefined symbol: foo",
+        "note: referenced by /?/a.o:.text.bar",
+        "note: referenced by /?/b.o:.text.main",
+    } });
+
+    return test_step;
+}
+
 fn testWeakExports(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "weak-exports", opts);
 
@@ -3079,6 +3199,12 @@ fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
     const file = WriteFile.create(b).add("a.s", actual_bytes);
     comp.addAssemblyFile(file);
+}
+
+fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
+    comp.expect_errors = expected_errors;
+    const bin_file = comp.getEmittedBin();
+    bin_file.addStepDependencies(test_step);
 }
 
 const std = @import("std");

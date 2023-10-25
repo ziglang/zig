@@ -204,10 +204,10 @@ use_llvm: ?bool,
 use_lld: ?bool,
 
 /// This is an advanced setting that can change the intent of this Compile step.
-/// If this slice has nonzero length, it means that this Compile step exists to
+/// If this value is non-null, it means that this Compile step exists to
 /// check for compile errors and return *success* if they match, and failure
 /// otherwise.
-expect_errors: []const []const u8 = &.{},
+expect_errors: ?ExpectedCompileErrors = null,
 
 emit_directory: ?*GeneratedFile,
 
@@ -219,6 +219,11 @@ generated_implib: ?*GeneratedFile,
 generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
+
+pub const ExpectedCompileErrors = union(enum) {
+    contains: []const u8,
+    exact: []const []const u8,
+};
 
 pub const CSourceFiles = struct {
     dependency: ?*std.Build.Dependency,
@@ -2131,7 +2136,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            assert(self.expect_errors.len != 0);
+            assert(self.expect_errors != null);
             try checkCompileErrors(self);
             return;
         },
@@ -2390,39 +2395,70 @@ fn checkCompileErrors(self: *Compile) !void {
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
+    const expect_errors = self.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
-    for (self.expect_errors) |expect_line| {
-        const actual_line = actual_line_it.next() orelse {
-            try expected_generated.appendSlice(expect_line);
-            try expected_generated.append('\n');
-            continue;
-        };
-        if (mem.endsWith(u8, actual_line, expect_line)) {
-            try expected_generated.appendSlice(actual_line);
-            try expected_generated.append('\n');
-            continue;
-        }
-        if (mem.startsWith(u8, expect_line, ":?:?: ")) {
-            if (mem.endsWith(u8, actual_line, expect_line[":?:?: ".len..])) {
-                try expected_generated.appendSlice(actual_line);
-                try expected_generated.append('\n');
-                continue;
-            }
-        }
-        try expected_generated.appendSlice(expect_line);
-        try expected_generated.append('\n');
-    }
-
-    if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
-    return self.step.fail(
-        \\
-        \\========= expected: =====================
-        \\{s}
-        \\========= but found: ====================
-        \\{s}
-        \\=========================================
-    , .{ expected_generated.items, actual_stderr });
+    switch (expect_errors) {
+        .contains => |expect_line| {
+            while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return self.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_stderr });
+        },
+        .exact => |expect_lines| {
+            for (expect_lines) |expect_line| {
+                const actual_line = actual_line_it.next() orelse {
+                    try expected_generated.appendSlice(expect_line);
+                    try expected_generated.append('\n');
+                    continue;
+                };
+                if (matchCompileError(actual_line, expect_line)) {
+                    try expected_generated.appendSlice(actual_line);
+                    try expected_generated.append('\n');
+                    continue;
+                }
+                try expected_generated.appendSlice(expect_line);
+                try expected_generated.append('\n');
+            }
+
+            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+
+            return self.step.fail(
+                \\
+                \\========= expected: =====================
+                \\{s}
+                \\========= but found: ====================
+                \\{s}
+                \\=========================================
+            , .{ expected_generated.items, actual_stderr });
+        },
+    }
+}
+
+fn matchCompileError(actual: []const u8, expected: []const u8) bool {
+    if (mem.endsWith(u8, actual, expected)) return true;
+    if (mem.startsWith(u8, expected, ":?:?: ")) {
+        if (mem.endsWith(u8, actual, expected[":?:?: ".len..])) return true;
+    }
+    // We scan for /?/ in expected line and if there is a match, we match everything
+    // up to and after /?/.
+    const expected_trim = mem.trim(u8, expected, " ");
+    if (mem.indexOf(u8, expected_trim, "/?/")) |index| {
+        const actual_trim = mem.trim(u8, actual, " ");
+        const lhs = expected_trim[0..index];
+        const rhs = expected_trim[index + "/?/".len ..];
+        if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
+    }
+    return false;
 }
