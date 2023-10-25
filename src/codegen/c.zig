@@ -1290,11 +1290,14 @@ pub const DeclGen = struct {
                             var index: usize = 0;
                             while (index < ai.len) : (index += 1) {
                                 const elem_val = try val.elemValue(mod, index);
-                                const elem_val_u8 = if (elem_val.isUndef(mod)) undefPattern(u8) else @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+                                const elem_val_u8: u8 = if (elem_val.isUndef(mod))
+                                    undefPattern(u8)
+                                else
+                                    @intCast(elem_val.toUnsignedInt(mod));
                                 try literal.writeChar(elem_val_u8);
                             }
                             if (ai.sentinel) |s| {
-                                const s_u8 = @as(u8, @intCast(s.toUnsignedInt(mod)));
+                                const s_u8: u8 = @intCast(s.toUnsignedInt(mod));
                                 if (s_u8 != 0) try literal.writeChar(s_u8);
                             }
                             try literal.end();
@@ -1304,7 +1307,10 @@ pub const DeclGen = struct {
                             while (index < ai.len) : (index += 1) {
                                 if (index != 0) try writer.writeByte(',');
                                 const elem_val = try val.elemValue(mod, index);
-                                const elem_val_u8 = if (elem_val.isUndef(mod)) undefPattern(u8) else @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+                                const elem_val_u8: u8 = if (elem_val.isUndef(mod))
+                                    undefPattern(u8)
+                                else
+                                    @intCast(elem_val.toUnsignedInt(mod));
                                 try writer.print("'\\x{x}'", .{elem_val_u8});
                             }
                             if (ai.sentinel) |s| {
