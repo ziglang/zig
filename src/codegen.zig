@@ -904,6 +904,7 @@ fn genDeclRef(
             else
                 null;
             const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
+            elf_file.symbol(elf_file.zigModulePtr().symbol(sym_index)).flags.needs_got = true;
             return GenResult.mcv(.{ .lea_symbol = sym_index });
         }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);

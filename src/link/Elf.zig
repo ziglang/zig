@@ -3333,7 +3333,8 @@ pub fn updateDecl(
         const variable = decl.getOwnedVariable(mod).?;
         const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
-        _ = try self.getGlobalSymbol(name, lib_name);
+        const esym_index = try self.getGlobalSymbol(name, lib_name);
+        self.symbol(self.zigModulePtr().symbol(esym_index)).flags.needs_got = true;
         return;
     }
 
