@@ -278,20 +278,20 @@ pub const Target = struct {
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 14, .minor = 0, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         else => unreachable,
@@ -299,19 +299,19 @@ pub const Target = struct {
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 6, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 1, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
                             .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
@@ -323,7 +323,7 @@ pub const Target = struct {
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8, .patch = 0 },
-                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 4, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
