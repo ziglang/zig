@@ -764,8 +764,6 @@ test "y_number_simple_real.json" {
     try ok("[123.456789]");
 }
 test "y_object.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"asd\":\"sdf\", \"dfg\":\"fgh\"}");
 }
 test "y_object_basic.json" {
@@ -787,13 +785,9 @@ test "y_object_escaped_null_in_key.json" {
     try ok("{\"foo\\u0000bar\": 42}");
 }
 test "y_object_extreme_numbers.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{ \"min\": -1.0e+28, \"max\": 1.0e+28 }");
 }
 test "y_object_long_strings.json" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try ok("{\"x\":[{\"id\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}], \"id\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}");
 }
 test "y_object_simple.json" {

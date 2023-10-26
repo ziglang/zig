@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
@@ -786,7 +785,7 @@ test "max_value_len" {
 }
 
 test "parse into vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const T = struct {
         vec_i32: @Vector(4, i32),

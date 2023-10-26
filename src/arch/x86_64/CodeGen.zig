@@ -2293,7 +2293,11 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
     }
 }
 
-fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
+fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) !void {
+    for (value.getRegs()) |reg| try self.register_manager.getReg(reg, inst);
+}
+
+fn getValueIfFree(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
     for (value.getRegs()) |reg| if (self.register_manager.isRegFree(reg))
         self.register_manager.getRegAssumeFree(reg, inst);
 }
@@ -2341,7 +2345,7 @@ fn finishAirResult(self: *Self, inst: Air.Inst.Index, result: MCValue) void {
         // In some cases, an operand may be reused as the result.
         // If that operand died and was a register, it was freed by
         // processDeath, so we have to "re-allocate" the register.
-        self.getValue(result, inst);
+        self.getValueIfFree(result, inst);
     }
     self.finishAirBookkeeping();
 }
@@ -11017,7 +11021,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     if (std.debug.runtime_safety) assert(self.inst_tracking.getIndex(inst).? == inst_tracking_i);
     const tracking = &self.inst_tracking.values()[inst_tracking_i];
     if (self.liveness.isUnused(inst)) try tracking.die(self, inst);
-    self.getValue(tracking.short, inst);
+    self.getValueIfFree(tracking.short, inst);
     self.finishAirBookkeeping();
 }
 
@@ -11131,7 +11135,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const dst_mcv = if (first_br) try self.allocRegOrMem(br.block_inst, true) else dst: {
-            self.getValue(block_tracking.short, br.block_inst);
+            try self.getValue(block_tracking.short, br.block_inst);
             break :dst block_tracking.short;
         };
         try self.genCopy(block_ty, dst_mcv, src_mcv);

@@ -4661,10 +4661,8 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
-    switch (builtin.zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.

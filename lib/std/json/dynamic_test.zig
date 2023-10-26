@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -19,8 +18,6 @@ const jsonReader = @import("scanner.zig").reader;
 const JsonReader = @import("scanner.zig").Reader;
 
 test "json.parser.dynamic" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s =
         \\{
         \\  "Image": {
@@ -75,8 +72,6 @@ test "json.parser.dynamic" {
 
 const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out_buffer: [1000]u8 = undefined;
 
     var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
@@ -143,8 +138,6 @@ test "Value.array allocator should still be usable after parsing" {
 }
 
 test "integer after float has proper type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const parsed = try testParse(arena_allocator.allocator(),
@@ -157,8 +150,6 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -238,8 +229,6 @@ test "Value.jsonStringify" {
 }
 
 test "parseFromValue(std.json.Value,...)" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const str =
         \\{
         \\  "int": 32,
@@ -328,8 +317,6 @@ test "ParseOptions.max_value_len" {
 }
 
 test "many object keys" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const doc =
         \\{
         \\  "k1": "v1",
