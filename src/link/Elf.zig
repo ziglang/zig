@@ -484,46 +484,51 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
     return vaddr;
 }
 
-pub fn lowerAnonDecl(self: *Elf, decl_val: InternPool.Index, decl_align: InternPool.Alignment, src_loc: Module.SrcLoc) !codegen.Result {
-    // This is basically the same as lowerUnnamedConst.
-    // example:
-    // const ty = mod.intern_pool.typeOf(decl_val).toType();
-    // const val = decl_val.toValue();
-    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
-    // It doesn't have an owner decl because it's just an unnamed constant that might
-    // be used by more than one function, however, its address is being used so we need
-    // to put it in some location.
-    // ...
+pub fn lowerAnonDecl(
+    self: *Elf,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const ty = mod.intern_pool.typeOf(decl_val).toType();
-    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    const required_alignment = switch (decl_align) {
+    const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),
-        else => decl_align,
+        else => explicit_alignment,
     };
-    if (!gop.found_existing or
-        required_alignment.order(self.symbol(gop.value_ptr.*).atom(self).?.alignment).compare(.gt))
-    {
-        const val = decl_val.toValue();
-        const tv = TypedValue{ .ty = ty, .val = val };
-        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
-        defer gpa.free(name);
-        const res = self.lowerConst(name, tv, required_alignment, self.zig_rodata_section_index.?, src_loc) catch |err| switch (err) {
-            else => {
-                // TODO improve error message
-                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
-                    @errorName(err),
-                });
-                return .{ .fail = em };
-            },
-        };
-        const sym_index = switch (res) {
-            .ok => |sym_index| sym_index,
-            .fail => |em| return .{ .fail = em },
-        };
-        gop.value_ptr.* = sym_index;
+    if (self.anon_decls.get(decl_val)) |sym_index| {
+        const existing_alignment = self.symbol(sym_index).atom(self).?.alignment;
+        if (decl_alignment.order(existing_alignment).compare(.lte))
+            return .ok;
     }
+
+    const val = decl_val.toValue();
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        name,
+        tv,
+        decl_alignment,
+        self.zig_rodata_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to lower constant value: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const sym_index = switch (res) {
+        .ok => |sym_index| sym_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, sym_index);
     return .ok;
 }
 

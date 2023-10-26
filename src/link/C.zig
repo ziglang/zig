@@ -158,9 +158,7 @@ pub fn updateFunc(
     const decl_index = func.owner_decl;
     const decl = module.declPtr(decl_index);
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{};
-    }
+    if (!gop.found_existing) gop.value_ptr.* = .{};
     const ctypes = &gop.value_ptr.ctypes;
     const lazy_fns = &gop.value_ptr.lazy_fns;
     const fwd_decl = &self.fwd_decl_buf;
@@ -180,7 +178,7 @@ pub fn updateFunc(
                 .gpa = gpa,
                 .module = module,
                 .error_msg = null,
-                .decl_index = decl_index.toOptional(),
+                .pass = .{ .decl = decl_index },
                 .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
@@ -235,7 +233,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
             .gpa = gpa,
             .module = module,
             .error_msg = null,
-            .decl_index = .none,
+            .pass = .{ .anon = anon_decl },
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = .{},
@@ -302,7 +300,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .gpa = gpa,
             .module = module,
             .error_msg = null,
-            .decl_index = decl_index.toOptional(),
+            .pass = .{ .decl = decl_index },
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
@@ -438,14 +436,14 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         // We need to flush lazy ctypes after flushing all decls but before flushing any decl ctypes.
         // This ensures that every lazy CType.Index exactly matches the global CType.Index.
         assert(f.ctypes.count() == 0);
-        try self.flushCTypes(&f, .none, f.lazy_ctypes);
+        try self.flushCTypes(&f, .flush, f.lazy_ctypes);
 
-        for (self.anon_decls.values()) |decl_block| {
-            try self.flushCTypes(&f, .none, decl_block.ctypes);
+        for (self.anon_decls.keys(), self.anon_decls.values()) |anon_decl, decl_block| {
+            try self.flushCTypes(&f, .{ .anon = anon_decl }, decl_block.ctypes);
         }
 
         for (self.decl_table.keys(), self.decl_table.values()) |decl_index, decl_block| {
-            try self.flushCTypes(&f, decl_index.toOptional(), decl_block.ctypes);
+            try self.flushCTypes(&f, .{ .decl = decl_index }, decl_block.ctypes);
         }
     }
 
@@ -516,7 +514,7 @@ const FlushDeclError = error{
 fn flushCTypes(
     self: *C,
     f: *Flush,
-    decl_index: Module.Decl.OptionalIndex,
+    pass: codegen.DeclGen.Pass,
     decl_ctypes: codegen.CType.Store,
 ) FlushDeclError!void {
     const gpa = self.base.allocator;
@@ -591,7 +589,7 @@ fn flushCTypes(
             writer,
             global_ctypes.set,
             global_idx,
-            decl_index,
+            pass,
             decl_ctypes.set,
             decl_idx,
             gop.found_existing,
@@ -610,7 +608,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
             .gpa = gpa,
             .module = self.base.options.module.?,
             .error_msg = null,
-            .decl_index = .none,
+            .pass = .flush,
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
@@ -652,7 +650,7 @@ fn flushLazyFn(
             .gpa = gpa,
             .module = self.base.options.module.?,
             .error_msg = null,
-            .decl_index = .none,
+            .pass = .flush,
             .is_naked_fn = false,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
