@@ -7,7 +7,7 @@ const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) callconv(.Inline) bool;
 
-pub inline fn multiTrait(comptime traits: anytype) TraitFn {
+pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             inline for (traits) |t|
@@ -42,7 +42,7 @@ test "multiTrait" {
     try testing.expect(!isVector(u8));
 }
 
-pub inline fn hasFn(comptime name: []const u8) TraitFn {
+pub fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             if (!isContainer(T)) return false;
@@ -64,7 +64,7 @@ test "hasFn" {
     try testing.expect(!hasFn("useless")(u8));
 }
 
-pub inline fn hasField(comptime name: []const u8) TraitFn {
+pub fn hasField(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             const fields = switch (@typeInfo(T)) {
@@ -96,7 +96,7 @@ test "hasField" {
     try testing.expect(!hasField("value")(u8));
 }
 
-pub inline fn is(comptime id: std.builtin.TypeId) TraitFn {
+pub fn is(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             return id == @typeInfo(T);
@@ -113,7 +113,7 @@ test "is" {
     try testing.expect(!is(.Optional)(anyerror));
 }
 
-pub inline fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
+pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             if (!isSingleItemPtr(T)) return false;
@@ -129,7 +129,7 @@ test "isPtrTo" {
     try testing.expect(!isPtrTo(.Struct)(**struct {}));
 }
 
-pub inline fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
+pub fn isSliceOf(comptime id: std.builtin.TypeId) TraitFn {
     const Closure = struct {
         pub inline fn trait(comptime T: type) bool {
             if (!isSlice(T)) return false;
