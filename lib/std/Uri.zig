@@ -173,7 +173,7 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
         var end_of_host: usize = authority.len;
 
-        if (authority[start_of_host] == '[') { // IPv6
+        if (authority.len > start_of_host and authority[start_of_host] == '[') { // IPv6
             end_of_host = std.mem.lastIndexOf(u8, authority, "]") orelse return error.InvalidFormat;
             end_of_host += 1;
 

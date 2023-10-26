@@ -1045,9 +1045,15 @@ pub fn loadDefaultProxies(client: *Client) !void {
             break :http;
         defer client.allocator.free(content);
 
-        const uri = try Uri.parse(content);
+        const uri = Uri.parse(content) catch
+            Uri.parseWithoutScheme(content) catch
+            break :http;
 
-        const protocol = protocol_map.get(uri.scheme) orelse break :http; // Unknown scheme, ignore
+        const protocol = if (uri.scheme.len == 0)
+            .plain // No scheme, assume http://
+        else
+            protocol_map.get(uri.scheme) orelse break :http; // Unknown scheme, ignore
+
         const host = if (uri.host) |host| try client.allocator.dupe(u8, host) else break :http; // Missing host, ignore
         client.http_proxy = .{
             .allocator = client.allocator,
@@ -1062,16 +1068,16 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null and uri.password != null) {
-            const prefix_len = "Basic ".len;
+            const prefix = "Basic ";
 
             const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
             defer client.allocator.free(unencoded);
 
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix_len);
+            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
             defer client.allocator.free(buffer);
 
-            const result = std.base64.standard.Encoder.encode(buffer[prefix_len..], unencoded);
-            @memcpy(buffer[0..prefix_len], "Basic ");
+            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
+            @memcpy(buffer[0..prefix.len], prefix);
 
             try client.http_proxy.?.headers.append("proxy-authorization", result);
         }
@@ -1090,11 +1096,17 @@ pub fn loadDefaultProxies(client: *Client) !void {
             break :https;
         defer client.allocator.free(content);
 
-        const uri = try Uri.parse(content);
+        const uri = Uri.parse(content) catch
+            Uri.parseWithoutScheme(content) catch
+            break :https;
 
-        const protocol = protocol_map.get(uri.scheme) orelse break :https; // Unknown scheme, ignore
+        const protocol = if (uri.scheme.len == 0)
+            .plain // No scheme, assume http://
+        else
+            protocol_map.get(uri.scheme) orelse break :https; // Unknown scheme, ignore
+
         const host = if (uri.host) |host| try client.allocator.dupe(u8, host) else break :https; // Missing host, ignore
-        client.http_proxy = .{
+        client.https_proxy = .{
             .allocator = client.allocator,
             .headers = .{ .allocator = client.allocator },
 
@@ -1107,16 +1119,16 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null and uri.password != null) {
-            const prefix_len = "Basic ".len;
+            const prefix = "Basic ";
 
             const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
             defer client.allocator.free(unencoded);
 
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix_len);
+            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
             defer client.allocator.free(buffer);
 
-            const result = std.base64.standard.Encoder.encode(buffer[prefix_len..], unencoded);
-            @memcpy(buffer[0..prefix_len], "Basic ");
+            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
+            @memcpy(buffer[0..prefix.len], prefix);
 
             try client.https_proxy.?.headers.append("proxy-authorization", result);
         }
