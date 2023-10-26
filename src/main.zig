@@ -3774,7 +3774,9 @@ fn serve(
                     try comp.makeBinFileWritable();
                 }
 
-                {
+                if (builtin.single_threaded) {
+                    try comp.update(main_progress_node);
+                } else {
                     var reset: std.Thread.ResetEvent = .{};
 
                     var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
@@ -4920,6 +4922,17 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
+        var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+            EnvVar.ZIG_VERBOSE_LINK.isSet();
+        var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+            EnvVar.ZIG_VERBOSE_CC.isSet();
+        var verbose_air = false;
+        var verbose_intern_pool = false;
+        var verbose_generic_instances = false;
+        var verbose_llvm_ir: ?[]const u8 = null;
+        var verbose_llvm_bc: ?[]const u8 = null;
+        var verbose_cimport = false;
+        var verbose_llvm_cpu_features = false;
         var fetch_only = false;
 
         const argv_index_exe = child_argv.items.len;
@@ -4956,7 +4969,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        try child_argv.appendSlice(&.{ arg, args[i] });
                         continue;
                     } else if (mem.eql(u8, arg, "--build-runner")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -4974,22 +4987,52 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         override_global_cache_dir = args[i];
                         continue;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
-                        try child_argv.append(arg);
                         reference_trace = 256;
                     } else if (mem.eql(u8, arg, "--fetch")) {
                         fetch_only = true;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                        try child_argv.append(arg);
                         const num = arg["-freference-trace=".len..];
                         reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                             fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-                        try child_argv.append(arg);
                         reference_trace = null;
+                    } else if (mem.eql(u8, arg, "--debug-log")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        try child_argv.appendSlice(args[i .. i + 2]);
+                        i += 1;
+                        if (!build_options.enable_logging) {
+                            std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                        } else {
+                            try log_scopes.append(gpa, args[i]);
+                        }
+                        continue;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        try child_argv.append(arg);
-                        debug_compile_errors = true;
+                        if (!crash_report.is_enabled) {
+                            std.log.warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
+                        } else {
+                            debug_compile_errors = true;
+                        }
+                    } else if (mem.eql(u8, arg, "--verbose-link")) {
+                        verbose_link = true;
+                    } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                        verbose_cc = true;
+                    } else if (mem.eql(u8, arg, "--verbose-air")) {
+                        verbose_air = true;
+                    } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
+                        verbose_intern_pool = true;
+                    } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
+                        verbose_generic_instances = true;
+                    } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                        verbose_llvm_ir = "-";
+                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
+                        verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
+                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
+                        verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
+                    } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                        verbose_cimport = true;
+                    } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
+                        verbose_llvm_cpu_features = true;
                     } else if (mem.eql(u8, arg, "--seed")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
@@ -5264,6 +5307,15 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
+            .verbose_cc = verbose_cc,
+            .verbose_link = verbose_link,
+            .verbose_air = verbose_air,
+            .verbose_intern_pool = verbose_intern_pool,
+            .verbose_generic_instances = verbose_generic_instances,
+            .verbose_llvm_ir = verbose_llvm_ir,
+            .verbose_llvm_bc = verbose_llvm_bc,
+            .verbose_cimport = verbose_cimport,
+            .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,
