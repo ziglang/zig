@@ -1210,7 +1210,8 @@ pub fn io_uring_prep_nop(sqe: *linux.io_uring_sqe) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1228,7 +1229,8 @@ pub fn io_uring_prep_fsync(sqe: *linux.io_uring_sqe, fd: os.fd_t, flags: u32) vo
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1253,7 +1255,8 @@ pub fn io_uring_prep_rw(
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1397,7 +1400,8 @@ pub fn io_uring_prep_close(sqe: *linux.io_uring_sqe, fd: os.fd_t) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1425,7 +1429,8 @@ pub fn io_uring_prep_timeout_remove(sqe: *linux.io_uring_sqe, timeout_user_data:
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1485,7 +1490,8 @@ pub fn io_uring_prep_fallocate(
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1657,7 +1663,8 @@ test "nop" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     }, sqe.*);
 
     try testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
@@ -2028,7 +2035,8 @@ test "openat" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     }, sqe_openat.*);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
