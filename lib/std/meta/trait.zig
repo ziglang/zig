@@ -145,6 +145,49 @@ test "isSliceOf" {
     try testing.expect(!isSliceOf(.Struct)([][]struct {}));
 }
 
+/// Returns true if the function takes its enclosing container type as the first argument
+pub fn isMethod(comptime name: []const u8) TraitFn {
+    const Closure = struct {
+        pub fn trait (comptime T: type) bool {
+            if (!comptime isContainer(T)) return false;
+            if (!comptime @hasDecl(T, name)) return false;
+            const DeclType = @TypeOf(@field(T, name));
+            switch (@typeInfo(DeclType)) {
+                .Fn => |f| {
+                    if (f.params.len == 0) return false;
+                    const Type = f.params[0].type orelse return false;
+                    switch (@typeInfo(Type)) {
+                        .Pointer => |ptr| {
+                            return ptr.child == T and ptr.size == .One;
+                        },
+                        else => return Type == T,
+                    }
+                },
+                else => return false,
+            }
+        }
+    };
+    return Closure.trait;
+}
+
+test "isMethod" {
+    const TestStruct = struct {
+        pub fn firstFn(data: anytype) void { _ = data; }
+        pub fn secondFn(self: @This()) void { _ = self; }
+        pub fn thirdFn(self: *const @This()) void { _ = self; }
+        fn fourthFn(slice: []@This()) void { _ = slice; }
+        fn fifthFn(self: *@This()) void { _ = self; }
+        fn sixthFn() void {}
+    };
+
+    try testing.expect(isMethod("firstFn")(TestStruct) == false);
+    try testing.expect(isMethod("secondFn")(TestStruct));
+    try testing.expect(isMethod("thirdFn")(TestStruct));
+    try testing.expect(isMethod("fourthFn")(TestStruct) == false);
+    try testing.expect(isMethod("fifthFn")(TestStruct));
+    try testing.expect(isMethod("sixthFn")(TestStruct) == false);
+}
+
 ///////////Strait trait Fns
 
 //@TODO:
