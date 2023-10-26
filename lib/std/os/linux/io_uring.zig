@@ -415,10 +415,10 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `splice(2)`
     /// Either `fd_in` or `fd_out` must be a pipe.
-    /// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to -1.
-    /// If `fd_in` does not refer to a pipe and `off_in` is -1, then `len` are read
+    /// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to std.math.maxInt(u64).
+    /// If `fd_in` does not refer to a pipe and `off_in` is maxInt(u64), then `len` are read
     /// from `fd_in` starting from the file offset, which is incremented by the number of bytes read.
-    /// If `fd_in` does not refer to a pipe and `off_in` is not -1, then the starting offset of `fd_in` will be `off_in`.
+    /// If `fd_in` does not refer to a pipe and `off_in` is not maxInt(u64), then the starting offset of `fd_in` will be `off_in`.
     /// This splice operation can be used to implement sendfile by splicing to an intermediate pipe first,
     /// then splice to the final destination. In fact, the implementation of sendfile in kernel uses splice internally.
     ///
@@ -427,7 +427,7 @@ pub const IO_Uring = struct {
     /// See https://github.com/axboe/liburing/issues/291
     ///
     /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-    pub fn splice(self: *IO_Uring, user_data: u64, fd_in: os.fd_t, off_in: i64, fd_out: os.fd_t, off_out: i64, len: usize) !*linux.io_uring_sqe {
+    pub fn splice(self: *IO_Uring, user_data: u64, fd_in: os.fd_t, off_in: u64, fd_out: os.fd_t, off_out: u64, len: usize) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_splice(sqe, fd_in, off_in, fd_out, off_out, len);
         sqe.user_data = user_data;
@@ -1268,9 +1268,9 @@ pub fn io_uring_prep_write(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []cons
     io_uring_prep_rw(.WRITE, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
 }
 
-pub fn io_uring_prep_splice(sqe: *linux.io_uring_sqe, fd_in: os.fd_t, off_in: i64, fd_out: os.fd_t, off_out: i64, len: usize) void {
-    io_uring_prep_rw(.SPLICE, sqe, fd_out, undefined, len, @bitCast(off_out));
-    sqe.addr = @bitCast(off_in);
+pub fn io_uring_prep_splice(sqe: *linux.io_uring_sqe, fd_in: os.fd_t, off_in: u64, fd_out: os.fd_t, off_out: u64, len: usize) void {
+    io_uring_prep_rw(.SPLICE, sqe, fd_out, undefined, len, off_out);
+    sqe.addr = off_in;
     sqe.splice_fd_in = fd_in;
 }
 
@@ -1888,17 +1888,17 @@ test "splice/read" {
     _ = try file_src.write(&buffer_write);
 
     var fds = try os.pipe();
-    const pipe_offset: i64 = -1;
+    const pipe_offset: u64 = std.math.maxInt(u64);
 
     const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
     try testing.expectEqual(linux.IORING_OP.SPLICE, sqe_splice_to_pipe.opcode);
     try testing.expectEqual(@as(u64, 0), sqe_splice_to_pipe.addr);
-    try testing.expectEqual(@as(u64, @bitCast((pipe_offset))), sqe_splice_to_pipe.off);
+    try testing.expectEqual(pipe_offset, sqe_splice_to_pipe.off);
     sqe_splice_to_pipe.flags |= linux.IOSQE_IO_LINK;
 
     const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len);
     try testing.expectEqual(linux.IORING_OP.SPLICE, sqe_splice_from_pipe.opcode);
-    try testing.expectEqual(@as(u64, @bitCast(pipe_offset)), sqe_splice_from_pipe.addr);
+    try testing.expectEqual(pipe_offset, sqe_splice_from_pipe.addr);
     try testing.expectEqual(@as(u64, 10), sqe_splice_from_pipe.off);
     sqe_splice_from_pipe.flags |= linux.IOSQE_IO_LINK;
 
