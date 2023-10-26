@@ -827,8 +827,8 @@ pub const GenResult = union(enum) {
         memory: u64,
         /// Reference to memory location but deferred until linker allocated the Decl in memory.
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
-        load_memory: u32,
-        lea_memory: u32,
+        load_symbol: u32,
+        lea_symbol: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -904,12 +904,12 @@ fn genDeclRef(
             else
                 null;
             const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
-            return GenResult.mcv(.{ .lea_memory = sym_index });
+            return GenResult.mcv(.{ .lea_symbol = sym_index });
         }
         const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-        return GenResult.mcv(.{ .lea_memory = sym.esym_index });
+        return GenResult.mcv(.{ .lea_symbol = sym.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -945,7 +945,7 @@ fn genUnnamedConst(
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const local = elf_file.symbol(local_sym_index);
-        return GenResult.mcv(.{ .load_memory = local.esym_index });
+        return GenResult.mcv(.{ .load_symbol = local.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {

@@ -195,9 +195,9 @@ pub const MCValue = union(enum) {
     memory: u64,
     /// The value is in memory at an address not-yet-allocated by the linker.
     /// This traditionally corresponds to a relocation emitted in a relocatable object file.
-    load_memory: u32,
+    load_symbol: u32,
     /// The address of the memory location not-yet-allocated by the linker.
-    lea_memory: u32,
+    lea_symbol: u32,
     /// The value is in memory at a constant offset from the address in a register.
     indirect: RegisterOffset,
     /// The value is in memory.
@@ -298,7 +298,7 @@ pub const MCValue = union(enum) {
             .register_pair,
             .register_offset,
             .register_overflow,
-            .lea_memory,
+            .lea_symbol,
             .lea_direct,
             .lea_got,
             .lea_tlv,
@@ -315,7 +315,7 @@ pub const MCValue = union(enum) {
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .load_frame => |frame_addr| .{ .lea_frame = frame_addr },
-            .load_memory => |sym_index| .{ .lea_memory = sym_index },
+            .load_symbol => |sym_index| .{ .lea_symbol = sym_index },
         };
     }
 
@@ -334,7 +334,7 @@ pub const MCValue = union(enum) {
             .load_got,
             .load_tlv,
             .load_frame,
-            .load_memory,
+            .load_symbol,
             .reserved_frame,
             .air_ref,
             => unreachable, // not dereferenceable
@@ -345,7 +345,7 @@ pub const MCValue = union(enum) {
             .lea_got => |sym_index| .{ .load_got = sym_index },
             .lea_tlv => |sym_index| .{ .load_tlv = sym_index },
             .lea_frame => |frame_addr| .{ .load_frame = frame_addr },
-            .lea_memory => |sym_index| .{ .load_memory = sym_index },
+            .lea_symbol => |sym_index| .{ .load_symbol = sym_index },
         };
     }
 
@@ -370,8 +370,8 @@ pub const MCValue = union(enum) {
             .load_tlv,
             .lea_tlv,
             .load_frame,
-            .load_memory,
-            .lea_memory,
+            .load_symbol,
+            .lea_symbol,
             => switch (off) {
                 0 => mcv,
                 else => unreachable, // not offsettable
@@ -408,8 +408,8 @@ pub const MCValue = union(enum) {
             .lea_frame,
             .reserved_frame,
             .air_ref,
-            .load_memory,
-            .lea_memory,
+            .load_symbol,
+            .lea_symbol,
             => unreachable,
             .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
                 Memory.sib(ptr_size, .{ .base = .{ .reg = .ds }, .disp = small_addr })
@@ -453,8 +453,8 @@ pub const MCValue = union(enum) {
             .lea_frame => |pl| try writer.print("{} + 0x{x}", .{ pl.index, pl.off }),
             .reserved_frame => |pl| try writer.print("(dead:{})", .{pl}),
             .air_ref => |pl| try writer.print("(air:0x{x})", .{@intFromEnum(pl)}),
-            .load_memory => |pl| try writer.print("[mem:{d}]", .{pl}),
-            .lea_memory => |pl| try writer.print("mem:{d}", .{pl}),
+            .load_symbol => |pl| try writer.print("[mem:{d}]", .{pl}),
+            .lea_symbol => |pl| try writer.print("mem:{d}", .{pl}),
         }
     }
 };
@@ -480,8 +480,8 @@ const InstTracking = struct {
             .lea_tlv,
             .load_frame,
             .lea_frame,
-            .load_memory,
-            .lea_memory,
+            .load_symbol,
+            .lea_symbol,
             => result,
             .dead,
             .reserved_frame,
@@ -541,8 +541,8 @@ const InstTracking = struct {
             .lea_tlv,
             .load_frame,
             .lea_frame,
-            .load_memory,
-            .lea_memory,
+            .load_symbol,
+            .lea_symbol,
             => self.long,
             .dead,
             .eflags,
@@ -577,8 +577,8 @@ const InstTracking = struct {
             .load_tlv,
             .lea_tlv,
             .lea_frame,
-            .load_memory,
-            .lea_memory,
+            .load_symbol,
+            .lea_symbol,
             => assert(std.meta.eql(self.long, target.long)),
             .load_frame,
             .reserved_frame,
@@ -4731,12 +4731,12 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
             Memory.sib(.qword, .{ .base = .{ .frame = frame_addr.index }, .disp = frame_addr.off }),
         ),
         .memory,
-        .load_memory,
+        .load_symbol,
         .load_direct,
         .load_got,
         .load_tlv,
         => try self.genSetReg(addr_reg, Type.usize, array.address()),
-        .lea_memory, .lea_direct, .lea_tlv => unreachable,
+        .lea_symbol, .lea_direct, .lea_tlv => unreachable,
         else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
     }
 
@@ -6329,7 +6329,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerErro
         .immediate,
         .register,
         .register_offset,
-        .lea_memory,
+        .lea_symbol,
         .lea_direct,
         .lea_got,
         .lea_tlv,
@@ -6337,7 +6337,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) InnerErro
         => try self.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
         .memory,
         .indirect,
-        .load_memory,
+        .load_symbol,
         .load_direct,
         .load_got,
         .load_tlv,
@@ -6478,7 +6478,7 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
         .immediate,
         .register,
         .register_offset,
-        .lea_memory,
+        .lea_symbol,
         .lea_direct,
         .lea_got,
         .lea_tlv,
@@ -6486,7 +6486,7 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
         => try self.genCopy(src_ty, ptr_mcv.deref(), src_mcv),
         .memory,
         .indirect,
-        .load_memory,
+        .load_symbol,
         .load_direct,
         .load_got,
         .load_tlv,
@@ -6919,11 +6919,11 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.FixedTag, dst_ty: Type, dst_mcv: MC
         .lea_frame,
         .reserved_frame,
         .air_ref,
-        .lea_memory,
+        .lea_symbol,
         => unreachable, // unmodifiable destination
         .register => |dst_reg| try self.asmRegister(mir_tag, registerAlias(dst_reg, abi_size)),
         .register_pair => unreachable, // unimplemented
-        .memory, .load_memory, .load_got, .load_direct, .load_tlv => {
+        .memory, .load_symbol, .load_got, .load_direct, .load_tlv => {
             const addr_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
@@ -7975,8 +7975,8 @@ fn genBinOp(
                         .immediate,
                         .eflags,
                         .register_offset,
-                        .load_memory,
-                        .lea_memory,
+                        .load_symbol,
+                        .lea_symbol,
                         .load_direct,
                         .lea_direct,
                         .load_got,
@@ -8033,8 +8033,8 @@ fn genBinOp(
                         .register_pair,
                         .register_offset,
                         .register_overflow,
-                        .load_memory,
-                        .lea_memory,
+                        .load_symbol,
+                        .lea_symbol,
                         .load_direct,
                         .lea_direct,
                         .load_got,
@@ -9168,7 +9168,7 @@ fn genBinOpMir(
         .lea_got,
         .lea_tlv,
         .lea_frame,
-        .lea_memory,
+        .lea_symbol,
         .reserved_frame,
         .air_ref,
         => unreachable, // unmodifiable destination
@@ -9251,8 +9251,8 @@ fn genBinOpMir(
                     .register_offset,
                     .memory,
                     .indirect,
-                    .load_memory,
-                    .lea_memory,
+                    .load_symbol,
+                    .lea_symbol,
                     .load_direct,
                     .lea_direct,
                     .load_got,
@@ -9287,7 +9287,7 @@ fn genBinOpMir(
                         switch (src_mcv) {
                             .eflags,
                             .register_offset,
-                            .lea_memory,
+                            .lea_symbol,
                             .lea_direct,
                             .lea_got,
                             .lea_tlv,
@@ -9303,7 +9303,7 @@ fn genBinOpMir(
                                 );
                             },
                             .memory,
-                            .load_memory,
+                            .load_symbol,
                             .load_direct,
                             .load_got,
                             .load_tlv,
@@ -9326,13 +9326,13 @@ fn genBinOpMir(
                 }
             }
         },
-        .memory, .indirect, .load_memory, .load_got, .load_direct, .load_tlv, .load_frame => {
+        .memory, .indirect, .load_symbol, .load_got, .load_direct, .load_tlv, .load_frame => {
             const OpInfo = ?struct { addr_reg: Register, addr_lock: RegisterLock };
             const limb_abi_size: u32 = @min(abi_size, 8);
 
             const dst_info: OpInfo = switch (dst_mcv) {
                 else => unreachable,
-                .memory, .load_memory, .load_got, .load_direct, .load_tlv => dst: {
+                .memory, .load_symbol, .load_got, .load_direct, .load_tlv => dst: {
                     const dst_addr_reg =
                         (try self.register_manager.allocReg(null, abi.RegisterClass.gp)).to64();
                     const dst_addr_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
@@ -9369,14 +9369,14 @@ fn genBinOpMir(
                 .lea_tlv,
                 .load_frame,
                 .lea_frame,
-                .lea_memory,
+                .lea_symbol,
                 => null,
-                .memory, .load_memory, .load_got, .load_direct, .load_tlv => src: {
+                .memory, .load_symbol, .load_got, .load_direct, .load_tlv => src: {
                     switch (resolved_src_mcv) {
                         .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr))) != null and
                             math.cast(i32, @as(i64, @bitCast(addr)) + abi_size - limb_abi_size) != null)
                             break :src null,
-                        .load_memory, .load_got, .load_direct, .load_tlv => {},
+                        .load_symbol, .load_got, .load_direct, .load_tlv => {},
                         else => unreachable,
                     }
 
@@ -9418,7 +9418,7 @@ fn genBinOpMir(
                     Memory.PtrSize.fromSize(limb_abi_size),
                     switch (dst_mcv) {
                         .memory,
-                        .load_memory,
+                        .load_symbol,
                         .load_got,
                         .load_direct,
                         .load_tlv,
@@ -9500,8 +9500,8 @@ fn genBinOpMir(
                     .eflags,
                     .memory,
                     .indirect,
-                    .load_memory,
-                    .lea_memory,
+                    .load_symbol,
+                    .lea_symbol,
                     .load_direct,
                     .lea_direct,
                     .load_got,
@@ -9519,7 +9519,7 @@ fn genBinOpMir(
                             },
                             .eflags,
                             .register_offset,
-                            .lea_memory,
+                            .lea_symbol,
                             .lea_direct,
                             .lea_got,
                             .lea_tlv,
@@ -9570,7 +9570,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
         .eflags,
         .register_offset,
         .register_overflow,
-        .lea_memory,
+        .lea_symbol,
         .lea_direct,
         .lea_got,
         .lea_tlv,
@@ -9617,8 +9617,8 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 },
                 .register_offset,
                 .eflags,
-                .load_memory,
-                .lea_memory,
+                .load_symbol,
+                .lea_symbol,
                 .load_direct,
                 .lea_direct,
                 .load_got,
@@ -9661,7 +9661,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
             }
         },
         .register_pair => unreachable, // unimplemented
-        .memory, .indirect, .load_memory, .load_direct, .load_got, .load_tlv, .load_frame => {
+        .memory, .indirect, .load_symbol, .load_direct, .load_got, .load_tlv, .load_frame => {
             const tmp_reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
             const tmp_mcv = MCValue{ .register = tmp_reg };
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -9761,7 +9761,7 @@ fn genVarDbgInfo(
                 //    .offset = -off,
                 //} },
                 .memory => |address| .{ .memory = address },
-                .load_memory => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } }, // TODO
+                .load_symbol => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } }, // TODO
                 .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
                 .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
                 .immediate => |x| .{ .immediate = x },
@@ -10013,7 +10013,7 @@ fn genCall(self: *Self, info: union(enum) {
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         if (self.bin_file.options.pic) {
-                            try self.genSetReg(.rax, Type.usize, .{ .lea_memory = sym.esym_index });
+                            try self.genSetReg(.rax, Type.usize, .{ .lea_symbol = sym.esym_index });
                             try self.asmRegister(.{ ._, .call }, .rax);
                         } else {
                             _ = try self.addInst(.{
@@ -10245,12 +10245,12 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                     .lea_got,
                                     .lea_tlv,
                                     .lea_frame,
-                                    .lea_memory,
+                                    .lea_symbol,
                                     .reserved_frame,
                                     .air_ref,
                                     => unreachable,
                                     .register_pair, .load_frame => null,
-                                    .memory, .load_memory, .load_got, .load_direct, .load_tlv => dst: {
+                                    .memory, .load_symbol, .load_got, .load_direct, .load_tlv => dst: {
                                         switch (resolved_dst_mcv) {
                                             .memory => |addr| if (math.cast(
                                                 i32,
@@ -10259,7 +10259,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                                 i32,
                                                 @as(i64, @bitCast(addr)) + abi_size - 8,
                                             ) != null) break :dst null,
-                                            .load_memory, .load_got, .load_direct, .load_tlv => {},
+                                            .load_symbol, .load_got, .load_direct, .load_tlv => {},
                                             else => unreachable,
                                         }
 
@@ -10300,7 +10300,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                     .register_offset,
                                     .register_overflow,
                                     .indirect,
-                                    .lea_memory,
+                                    .lea_symbol,
                                     .lea_direct,
                                     .lea_got,
                                     .lea_tlv,
@@ -10309,7 +10309,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                     .air_ref,
                                     => unreachable,
                                     .register_pair, .load_frame => null,
-                                    .memory, .load_memory, .load_got, .load_direct, .load_tlv => src: {
+                                    .memory, .load_symbol, .load_got, .load_direct, .load_tlv => src: {
                                         switch (resolved_src_mcv) {
                                             .memory => |addr| if (math.cast(
                                                 i32,
@@ -10318,7 +10318,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                                                 i32,
                                                 @as(i64, @bitCast(addr)) + abi_size - 8,
                                             ) != null) break :src null,
-                                            .load_memory, .load_got, .load_direct, .load_tlv => {},
+                                            .load_symbol, .load_got, .load_direct, .load_tlv => {},
                                             else => unreachable,
                                         }
 
@@ -10743,7 +10743,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .lea_got,
         .lea_tlv,
         .lea_frame,
-        .lea_memory,
+        .lea_symbol,
         .reserved_frame,
         .air_ref,
         => unreachable,
@@ -10767,7 +10767,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         },
 
         .memory,
-        .load_memory,
+        .load_symbol,
         .load_got,
         .load_direct,
         .load_tlv,
@@ -11365,7 +11365,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
                     break :arg input_mcv,
                 .indirect, .load_frame => break :arg input_mcv,
-                .load_memory, .load_direct, .load_got, .load_tlv => {},
+                .load_symbol, .load_direct, .load_got, .load_tlv => {},
                 else => {
                     const temp_mcv = try self.allocTempRegOrMem(ty, false);
                     try self.genCopy(ty, temp_mcv, input_mcv);
@@ -11627,8 +11627,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_got = sym_index }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
-                    .lea_memory => |sym_index| if (mem.eql(u8, modifier, "P"))
-                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_memory = sym_index }) }
+                    .lea_symbol => |sym_index| if (mem.eql(u8, modifier, "P"))
+                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_symbol = sym_index }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
@@ -12186,7 +12186,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
         .lea_got,
         .lea_tlv,
         .lea_frame,
-        .lea_memory,
+        .lea_symbol,
         .reserved_frame,
         .air_ref,
         => unreachable, // unmodifiable destination
@@ -12242,7 +12242,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
                         class_ty,
                         .{ .register = src_regs[dst_reg_i] },
                     ),
-                    .load_memory => {
+                    .load_symbol => {
                         const addr_reg = try self.copyToTmpRegister(Type.usize, src_mcv.address());
                         const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
                         defer self.register_manager.unlockReg(addr_lock);
@@ -12263,11 +12263,11 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
             }
         },
         .indirect => |reg_off| try self.genSetMem(.{ .reg = reg_off.reg }, reg_off.off, ty, src_mcv),
-        .memory, .load_memory, .load_direct, .load_got, .load_tlv => {
+        .memory, .load_symbol, .load_direct, .load_got, .load_tlv => {
             switch (dst_mcv) {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
                     return self.genSetMem(.{ .reg = .ds }, small_addr, ty, src_mcv),
-                .load_memory, .load_direct, .load_got, .load_tlv => {},
+                .load_symbol, .load_direct, .load_got, .load_tlv => {},
                 else => unreachable,
             }
 
@@ -12443,7 +12443,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 else => unreachable,
             },
         )),
-        .memory, .load_memory, .load_direct, .load_got, .load_tlv => {
+        .memory, .load_symbol, .load_direct, .load_got, .load_tlv => {
             switch (src_mcv) {
                 .memory => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |small_addr|
                     return (try self.moveStrategy(
@@ -12473,7 +12473,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     .segment, .mmx => unreachable,
                     .x87, .sse => {},
                 },
-                .load_memory, .load_got, .load_tlv => {},
+                .load_symbol, .load_got, .load_tlv => {},
                 else => unreachable,
             }
 
@@ -12487,7 +12487,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .{ .reg = addr_reg } }),
             );
         },
-        .lea_memory, .lea_direct, .lea_got => |sym_index| {
+        .lea_symbol, .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const sym = elf_file.symbol(elf_file.zigModulePtr().symbol(sym_index));
@@ -12675,8 +12675,8 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
         .lea_tlv,
         .load_frame,
         .lea_frame,
-        .load_memory,
-        .lea_memory,
+        .load_symbol,
+        .lea_symbol,
         => switch (abi_size) {
             0 => {},
             1, 2, 4, 8 => {
@@ -12767,8 +12767,8 @@ fn genLazySymbolRef(
 
         if (self.bin_file.options.pic) {
             switch (tag) {
-                .lea, .call => try self.genSetReg(reg, Type.usize, .{ .lea_memory = sym.esym_index }),
-                .mov => try self.genSetReg(reg, Type.usize, .{ .load_memory = sym.esym_index }),
+                .lea, .call => try self.genSetReg(reg, Type.usize, .{ .lea_symbol = sym.esym_index }),
+                .mov => try self.genSetReg(reg, Type.usize, .{ .load_symbol = sym.esym_index }),
                 else => unreachable,
             }
             switch (tag) {
@@ -14742,8 +14742,8 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .undef => .undef,
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
-            .load_memory => |sym_index| .{ .load_memory = sym_index },
-            .lea_memory => |sym_index| .{ .lea_memory = sym_index },
+            .load_symbol => |sym_index| .{ .load_symbol = sym_index },
+            .lea_symbol => |sym_index| .{ .lea_symbol = sym_index },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
