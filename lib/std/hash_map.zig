@@ -722,6 +722,9 @@ pub fn HashMapUnmanaged(
         /// `max_load_percentage`.
         available: Size = 0,
 
+        /// Used to detect memory safety violations.
+        mutation_lock: std.debug.SafetyLock = .{},
+
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
         const minimal_capacity = 8;
@@ -884,11 +887,20 @@ pub fn HashMapUnmanaged(
             };
         }
 
+        pub fn lockMutation(self: *Self) void {
+            self.mutation_lock.lock();
+        }
+
+        pub fn unlockMutation(self: *Self) void {
+            self.mutation_lock.unlock();
+        }
+
         fn isUnderMaxLoadPercentage(size: Size, cap: Size) bool {
             return size * 100 < max_load_percentage * cap;
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.mutation_lock.assertUnlocked();
             self.deallocate(allocator);
             self.* = undefined;
         }
@@ -905,6 +917,8 @@ pub fn HashMapUnmanaged(
             return ensureTotalCapacityContext(self, allocator, new_size, undefined);
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_size: Size, ctx: Context) Allocator.Error!void {
+            self.mutation_lock.lock();
+            defer self.mutation_lock.unlock();
             if (new_size > self.size)
                 try self.growIfNeeded(allocator, new_size - self.size, ctx);
         }
@@ -919,14 +933,18 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
+            self.mutation_lock.lock();
+            defer self.mutation_lock.unlock();
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = @as(u32, @truncate((self.capacity() * max_load_percentage) / 100));
+                self.available = @truncate((self.capacity() * max_load_percentage) / 100);
             }
         }
 
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            self.mutation_lock.lock();
+            defer self.mutation_lock.unlock();
             self.deallocate(allocator);
             self.size = 0;
             self.available = 0;
@@ -997,9 +1015,11 @@ pub fn HashMapUnmanaged(
             return self.putNoClobberContext(allocator, key, value, undefined);
         }
         pub fn putNoClobberContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) Allocator.Error!void {
-            assert(!self.containsContext(key, ctx));
-            try self.growIfNeeded(allocator, 1, ctx);
-
+            {
+                self.mutation_lock.lock();
+                defer self.mutation_lock.unlock();
+                try self.growIfNeeded(allocator, 1, ctx);
+            }
             self.putAssumeCapacityNoClobberContext(key, value, ctx);
         }
 
@@ -1028,7 +1048,7 @@ pub fn HashMapUnmanaged(
 
             const hash = ctx.hash(key);
             const mask = self.capacity() - 1;
-            var idx = @as(usize, @truncate(hash & mask));
+            var idx: usize = @truncate(hash & mask);
 
             var metadata = self.metadata.? + idx;
             while (metadata[0].isUsed()) {
@@ -1280,17 +1300,21 @@ pub fn HashMapUnmanaged(
             return self.getOrPutContextAdapted(allocator, key, key_ctx, undefined);
         }
         pub fn getOrPutContextAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype, ctx: Context) Allocator.Error!GetOrPutResult {
-            self.growIfNeeded(allocator, 1, ctx) catch |err| {
-                // If allocation fails, try to do the lookup anyway.
-                // If we find an existing item, we can return it.
-                // Otherwise return the error, we could not add another.
-                const index = self.getIndex(key, key_ctx) orelse return err;
-                return GetOrPutResult{
-                    .key_ptr = &self.keys()[index],
-                    .value_ptr = &self.values()[index],
-                    .found_existing = true,
+            {
+                self.mutation_lock.lock();
+                defer self.mutation_lock.unlock();
+                self.growIfNeeded(allocator, 1, ctx) catch |err| {
+                    // If allocation fails, try to do the lookup anyway.
+                    // If we find an existing item, we can return it.
+                    // Otherwise return the error, we could not add another.
+                    const index = self.getIndex(key, key_ctx) orelse return err;
+                    return GetOrPutResult{
+                        .key_ptr = &self.keys()[index],
+                        .value_ptr = &self.values()[index],
+                        .found_existing = true,
+                    };
                 };
-            };
+            }
             return self.getOrPutAssumeCapacityAdapted(key, key_ctx);
         }
 
@@ -1495,6 +1519,7 @@ pub fn HashMapUnmanaged(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.mutation_lock.assertUnlocked();
             const result = self.*;
             self.* = .{};
             return result;
@@ -1506,28 +1531,28 @@ pub fn HashMapUnmanaged(
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
 
-            var map = Self{};
+            var map: Self = .{};
             defer map.deinit(allocator);
+            map.mutation_lock.lock();
             try map.allocate(allocator, new_cap);
             map.initMetadatas();
             map.available = @truncate((new_cap * max_load_percentage) / 100);
 
             if (self.size != 0) {
                 const old_capacity = self.capacity();
-                var i: Size = 0;
-                var metadata = self.metadata.?;
-                const keys_ptr = self.keys();
-                const values_ptr = self.values();
-                while (i < old_capacity) : (i += 1) {
-                    if (metadata[i].isUsed()) {
-                        map.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], ctx);
-                        if (map.size == self.size)
-                            break;
-                    }
+                for (
+                    self.metadata.?[0..old_capacity],
+                    self.keys()[0..old_capacity],
+                    self.values()[0..old_capacity],
+                ) |m, k, v| {
+                    if (!m.isUsed()) continue;
+                    map.putAssumeCapacityNoClobberContext(k, v, ctx);
+                    if (map.size == self.size) break;
                 }
             }
 
             self.size = 0;
+            self.mutation_lock = .{ .state = .unlocked };
             std.mem.swap(Self, self, &map);
         }
 
