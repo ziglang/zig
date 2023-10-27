@@ -169,6 +169,7 @@ test {
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
+    _ = @import("behavior/globals.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
@@ -252,7 +253,6 @@ test {
         builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .stage2_spirv64)
     {
-        _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
