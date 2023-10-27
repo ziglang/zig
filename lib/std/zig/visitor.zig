@@ -13,35 +13,17 @@ pub const VisitResult = enum(u8) {
 fn assertNodeIndexValid(ast: *const Ast, child: Index, parent: Index) void {
     if (child == 0 or child >= ast.nodes.len) {
         const tag = ast.nodes.items(.tag)[parent];
-        std.log.err("zig: ast.visit child index {} from parent {} {} is out of range or will create a loop", .{
-            child, parent, tag
-        });
+        std.log.err("zig: ast.visit child index {} from parent {} {} is out of range or will create a loop", .{ child, parent, tag });
         unreachable;
     }
 }
 
-pub fn visit(
-    ast: *const Ast,
-    parent: Index,
-    comptime T: type,
-    callback: *const fn (ast: *const Ast, node: Index, parent: Index, data: T) VisitResult,
-    data: T
-) void {
+pub fn visit(ast: *const Ast, parent: Index, comptime T: type, callback: *const fn (ast: *const Ast, node: Index, parent: Index, data: T) VisitResult, data: T) void {
     const tag = ast.nodes.items(.tag)[parent];
     const d = ast.nodes.items(.data)[parent];
     switch (tag) {
         // Leaf nodes have no children
-        .@"continue",
-        .string_literal,
-        .multiline_string_literal,
-        .char_literal,
-        .number_literal,
-        .enum_literal,
-        .anyframe_literal,
-        .unreachable_literal,
-        .error_value,
-        .error_set_decl,
-        .identifier => {},
+        .@"continue", .string_literal, .multiline_string_literal, .char_literal, .number_literal, .enum_literal, .anyframe_literal, .unreachable_literal, .error_value, .error_set_decl, .identifier => {},
 
         // Recurse to both lhs and rhs, neither are optional
         .for_simple,
@@ -122,27 +104,7 @@ pub fn visit(
             }
         },
         // Only walk data lhs
-        .asm_simple,
-        .asm_output,
-        .asm_input,
-        .bool_not,
-        .negation,
-        .bit_not,
-        .negation_wrap,
-        .address_of,
-        .@"try",
-        .@"await",
-        .optional_type,
-        .deref,
-        .@"comptime",
-        .@"nosuspend",
-        .@"resume",
-        .@"return",
-        .@"suspend",
-        .@"usingnamespace",
-        .field_access,
-        .unwrap_optional,
-        .grouped_expression => if (d.lhs != 0) {
+        .asm_simple, .asm_output, .asm_input, .bool_not, .negation, .bit_not, .negation_wrap, .address_of, .@"try", .@"await", .optional_type, .deref, .@"comptime", .@"nosuspend", .@"resume", .@"return", .@"suspend", .@"usingnamespace", .field_access, .unwrap_optional, .grouped_expression => if (d.lhs != 0) {
             const child = d.lhs;
             assertNodeIndexValid(ast, child, parent);
             switch (callback(ast, child, parent, data)) {
@@ -153,11 +115,7 @@ pub fn visit(
         },
 
         // Only walk data rhs
-        .@"defer",
-        .@"errdefer",
-        .@"break",
-        .anyframe_type,
-        .test_decl => if (d.rhs != 0) {
+        .@"defer", .@"errdefer", .@"break", .anyframe_type, .test_decl => if (d.rhs != 0) {
             const child = d.rhs;
             assertNodeIndexValid(ast, child, parent);
             switch (callback(ast, child, parent, data)) {
@@ -219,18 +177,7 @@ pub fn visit(
             }
         },
         // For these walk all sub list nodes in extra data
-        .struct_init_dot,
-        .struct_init_dot_comma,
-        .builtin_call,
-        .builtin_call_comma,
-        .container_decl,
-        .container_decl_trailing,
-        .tagged_union,
-        .tagged_union_trailing,
-        .array_init_dot,
-        .array_init_dot_comma,
-        .block,
-        .block_semicolon => {
+        .struct_init_dot, .struct_init_dot_comma, .builtin_call, .builtin_call_comma, .container_decl, .container_decl_trailing, .tagged_union, .tagged_union_trailing, .array_init_dot, .array_init_dot_comma, .block, .block_semicolon => {
             for (ast.extra_data[d.lhs..d.rhs]) |child| {
                 assertNodeIndexValid(ast, child, parent);
                 switch (callback(ast, child, parent, data)) {
@@ -244,20 +191,7 @@ pub fn visit(
         // Special nodes
 
         // Visit lhs and rhs as sub range
-        .call,
-        .call_comma,
-        .async_call,
-        .async_call_comma,
-        .container_decl_arg,
-        .container_decl_arg_trailing,
-        .tagged_union_enum_tag,
-        .tagged_union_enum_tag_trailing,
-        .@"switch",
-        .switch_comma,
-        .array_init,
-        .array_init_comma,
-        .struct_init,
-        .struct_init_comma => {
+        .call, .call_comma, .async_call, .async_call_comma, .container_decl_arg, .container_decl_arg_trailing, .tagged_union_enum_tag, .tagged_union_enum_tag_trailing, .@"switch", .switch_comma, .array_init, .array_init_comma, .struct_init, .struct_init_comma => {
             {
                 const child = d.lhs;
                 assertNodeIndexValid(ast, child, parent);
@@ -552,7 +486,6 @@ fn visitAll(ast: *const Ast, child: Index, parent: Index, nodes: *std.ArrayList(
     return .Break;
 }
 
-
 fn testVisit(source: [:0]const u8, tag: Tag) !void {
     const allocator = std.testing.allocator;
     var ast = try Ast.parse(allocator, source, .zig);
@@ -783,7 +716,6 @@ test "basic-visit" {
     try testVisit("const e = error{a} ! error{b};", .error_union);
 }
 
-
 test "all-visit" {
     // Visit all source in the zig lib source tree
     const allocator = std.testing.allocator;
@@ -792,18 +724,15 @@ test "all-visit" {
     defer dir.close();
     var walker = try dir.walk(allocator);
     defer walker.deinit();
-    const buffer_size = 20*1000*1024; // 20MB
+    const buffer_size = 20 * 1000 * 1024; // 20MB
     while (try walker.next()) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".zig")) {
             errdefer std.log.warn("{s}", .{entry.path});
             const file = try entry.dir.openFile(entry.basename, .{});
-            const source = try file.readToEndAllocOptions(
-                allocator, buffer_size, null, 4, 0
-            );
+            const source = try file.readToEndAllocOptions(allocator, buffer_size, null, 4, 0);
             defer allocator.free(source);
             defer file.close();
             try testVisit(source, .root);
         }
     }
 }
-

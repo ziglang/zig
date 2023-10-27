@@ -124,13 +124,7 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
 pub const VisitResult = @import("./visitor.zig").VisitResult;
 
 /// Visit child nodes
-pub fn visit(
-    tree: *const Ast,
-    parent: Node.Index,
-    comptime T: type,
-    callback: *const fn (ast: *const Ast, node: Node.Index, parent: Node.Index, data: T) VisitResult,
-    data: T
-) void {
+pub fn visit(tree: *const Ast, parent: Node.Index, comptime T: type, callback: *const fn (ast: *const Ast, node: Node.Index, parent: Node.Index, data: T) VisitResult, data: T) void {
     return @import("./visitor.zig").visit(tree, parent, T, callback, data);
 }
 
