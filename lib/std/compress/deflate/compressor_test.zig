@@ -238,8 +238,6 @@ test "very long sparse chunk" {
 }
 
 test "compressor reset" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     for (std.enums.values(deflate.Compression)) |c| {
         try testWriterReset(c, null);
         try testWriterReset(c, "dict");

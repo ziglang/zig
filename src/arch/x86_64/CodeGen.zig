@@ -10627,8 +10627,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_cond_br = self.liveness.getCondBr(inst);
 
-    const reloc = try self.genCondBrMir(cond_ty, cond);
-
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
@@ -10638,6 +10636,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     self.scope_generation += 1;
     const state = try self.saveState();
+    const reloc = try self.genCondBrMir(cond_ty, cond);
 
     for (liveness_cond_br.then_deaths) |death| try self.processDeath(death);
     try self.genBody(then_body);

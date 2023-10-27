@@ -436,7 +436,7 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 }
 
 test "vector prefix scan" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     if (comptime builtin.cpu.arch.isMIPS()) {
         return error.SkipZigTest;

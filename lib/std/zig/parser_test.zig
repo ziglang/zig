@@ -2086,8 +2086,6 @@ test "zig fmt: multiline string with backslash at end of line" {
 }
 
 test "zig fmt: multiline string parameter in fn call with trailing comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    try stdout.print(
@@ -4605,8 +4603,6 @@ test "zig fmt: allow line break before field access" {
 }
 
 test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    z.display_message_dialog(

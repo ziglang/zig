@@ -543,8 +543,6 @@ test "big.rational set" {
 }
 
 test "big.rational setFloat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -570,8 +568,6 @@ test "big.rational setFloat" {
 }
 
 test "big.rational setFloatString" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -583,8 +579,6 @@ test "big.rational setFloatString" {
 }
 
 test "big.rational toFloat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -598,8 +592,6 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var prng = std.rand.DefaultPrng.init(0x5EED);
