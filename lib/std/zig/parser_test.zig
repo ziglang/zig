@@ -748,8 +748,6 @@ test "zig fmt: anon literal in array" {
 }
 
 test "zig fmt: alignment in anonymous literal" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const a = .{
         \\    "U",     "L",     "F",
@@ -1953,8 +1951,6 @@ test "zig fmt: struct literal containing a multiline expression" {
 }
 
 test "zig fmt: array literal with hint" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const a = []u8{
         \\    1, 2, //
@@ -2032,8 +2028,6 @@ test "zig fmt: array literal with hint" {
 }
 
 test "zig fmt: array literal vertical column alignment" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const a = []u8{
         \\    1000, 200,
@@ -2266,8 +2260,6 @@ test "zig fmt: slice align" {
 }
 
 test "zig fmt: add trailing comma to array literal" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\comptime {
         \\    return []u16{'m', 's', 'y', 's', '-' // hi
@@ -3803,8 +3795,6 @@ test "zig fmt: fix single statement if/for/while line breaks" {
 }
 
 test "zig fmt: anon struct/array literal in if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const a = if (cond) .{
@@ -4699,8 +4689,6 @@ test "zig fmt: regression test for #8974" {
 }
 
 test "zig fmt: allow trailing line comments to do manual array formatting" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    self.code.appendSliceAssumeCapacity(&[_]u8{
@@ -4739,8 +4727,6 @@ test "zig fmt: allow trailing line comments to do manual array formatting" {
 }
 
 test "zig fmt: multiline string literals should play nice with array initializers" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn main() void {
         \\    var a = .{.{.{.{.{.{.{.{

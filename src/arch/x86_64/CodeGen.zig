@@ -13366,6 +13366,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
             defer self.register_manager.unlockReg(len_lock);
 
             try self.genSetReg(len_reg, Type.usize, len);
+            try self.asmRegisterRegister(.{ ._, .@"test" }, len_reg, len_reg);
 
             const skip_reloc = try self.asmJccReloc(.z, undefined);
             try self.store(slice_ptr_ty, ptr, src_val);
