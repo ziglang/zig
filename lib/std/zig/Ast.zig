@@ -3220,6 +3220,7 @@ pub const Node = struct {
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
+        /// The cont expression part `: (a)` may be omitted.
         @"while",
         /// `for (lhs) rhs`.
         for_simple,
