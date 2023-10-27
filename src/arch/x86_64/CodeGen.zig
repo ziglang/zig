@@ -9553,6 +9553,7 @@ fn genBinOpMir(
 fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError!void {
     const mod = self.bin_file.options.module.?;
     const abi_size: u32 = @intCast(dst_ty.abiSize(mod));
+    try self.spillEflagsIfOccupied();
     switch (dst_mcv) {
         .none,
         .unreach,

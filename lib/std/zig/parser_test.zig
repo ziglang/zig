@@ -26,8 +26,6 @@ test "zig fmt: tuple struct" {
 }
 
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    asm volatile (""
@@ -46,8 +44,6 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
 }
 
 test "zig fmt: remove trailing comma at the end of assembly clobber" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\fn foo() void {
         \\    asm volatile (""
@@ -70,8 +66,6 @@ test "zig fmt: remove trailing comma at the end of assembly clobber" {
 }
 
 test "zig fmt: respect line breaks in struct field value declaration" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const Foo = struct {
         \\    bar: u32 =
@@ -226,8 +220,6 @@ test "zig fmt: file ends in comment after var decl" {
 }
 
 test "zig fmt: if statement" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    if (optional()) |some|
@@ -326,8 +318,6 @@ test "zig fmt: decl between fields" {
 }
 
 test "zig fmt: errdefer with payload" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() anyerror!void {
         \\    errdefer |a| x += 1;
@@ -341,8 +331,6 @@ test "zig fmt: errdefer with payload" {
 }
 
 test "zig fmt: nosuspend block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() anyerror!void {
         \\    nosuspend {
@@ -354,8 +342,6 @@ test "zig fmt: nosuspend block" {
 }
 
 test "zig fmt: nosuspend await" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    x = nosuspend await y;
@@ -376,8 +362,6 @@ test "zig fmt: container declaration, single line" {
 }
 
 test "zig fmt: container declaration, one item, multi line trailing comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    comptime {
@@ -391,8 +375,6 @@ test "zig fmt: container declaration, one item, multi line trailing comma" {
 }
 
 test "zig fmt: container declaration, no trailing comma on separate line" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test "" {
         \\    comptime {
@@ -519,8 +501,6 @@ test "zig fmt: remove empty lines at start/end of container decl" {
 }
 
 test "zig fmt: remove empty lines at start/end of block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test {
         \\
@@ -541,8 +521,6 @@ test "zig fmt: remove empty lines at start/end of block" {
 }
 
 test "zig fmt: allow empty line before comment at start of block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\
@@ -606,8 +584,6 @@ test "zig fmt: comptime struct field" {
 }
 
 test "zig fmt: break from block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const a = blk: {
         \\    break :blk 42;
@@ -640,8 +616,6 @@ test "zig fmt: c pointer type" {
 }
 
 test "zig fmt: builtin call with trailing comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() void {
         \\    @breakpoint();
@@ -657,8 +631,6 @@ test "zig fmt: builtin call with trailing comma" {
 }
 
 test "zig fmt: asm expression with comptime content" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    asm ("foo" ++ "bar");
@@ -683,8 +655,6 @@ test "zig fmt: asm expression with comptime content" {
 }
 
 test "zig fmt: array types last token" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [40]u32;
@@ -698,8 +668,6 @@ test "zig fmt: array types last token" {
 }
 
 test "zig fmt: sentinel-terminated array type" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
         \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
@@ -709,8 +677,6 @@ test "zig fmt: sentinel-terminated array type" {
 }
 
 test "zig fmt: sentinel-terminated slice type" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn toSlice(self: Buffer) [:0]u8 {
         \\    return self.list.toSlice()[0..self.len()];
@@ -802,8 +768,6 @@ test "zig fmt: alignment in anonymous literal" {
 }
 
 test "zig fmt: anon struct literal 0 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{};
@@ -813,8 +777,6 @@ test "zig fmt: anon struct literal 0 element" {
 }
 
 test "zig fmt: anon struct literal 1 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b };
@@ -824,8 +786,6 @@ test "zig fmt: anon struct literal 1 element" {
 }
 
 test "zig fmt: anon struct literal 1 element comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -837,8 +797,6 @@ test "zig fmt: anon struct literal 1 element comma" {
 }
 
 test "zig fmt: anon struct literal 2 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b, .c = d };
@@ -848,8 +806,6 @@ test "zig fmt: anon struct literal 2 element" {
 }
 
 test "zig fmt: anon struct literal 2 element comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -862,8 +818,6 @@ test "zig fmt: anon struct literal 2 element comma" {
 }
 
 test "zig fmt: anon struct literal 3 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b, .c = d, .e = f };
@@ -873,8 +827,6 @@ test "zig fmt: anon struct literal 3 element" {
 }
 
 test "zig fmt: anon struct literal 3 element comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -888,8 +840,6 @@ test "zig fmt: anon struct literal 3 element comma" {
 }
 
 test "zig fmt: struct literal 0 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{};
@@ -899,8 +849,6 @@ test "zig fmt: struct literal 0 element" {
 }
 
 test "zig fmt: struct literal 1 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b };
@@ -910,8 +858,6 @@ test "zig fmt: struct literal 1 element" {
 }
 
 test "zig fmt: Unicode code point literal larger than u8" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -923,8 +869,6 @@ test "zig fmt: Unicode code point literal larger than u8" {
 }
 
 test "zig fmt: struct literal 2 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b, .c = d };
@@ -934,8 +878,6 @@ test "zig fmt: struct literal 2 element" {
 }
 
 test "zig fmt: struct literal 2 element comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -948,8 +890,6 @@ test "zig fmt: struct literal 2 element comma" {
 }
 
 test "zig fmt: struct literal 3 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b, .c = d, .e = f };
@@ -959,8 +899,6 @@ test "zig fmt: struct literal 3 element" {
 }
 
 test "zig fmt: struct literal 3 element comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -974,8 +912,6 @@ test "zig fmt: struct literal 3 element comma" {
 }
 
 test "zig fmt: anon list literal 1 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{a};
@@ -996,8 +932,6 @@ test "zig fmt: anon list literal 1 element comma" {
 }
 
 test "zig fmt: anon list literal 2 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{ a, b };
@@ -1019,8 +953,6 @@ test "zig fmt: anon list literal 2 element comma" {
 }
 
 test "zig fmt: anon list literal 3 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = .{ a, b, c };
@@ -1045,8 +977,6 @@ test "zig fmt: anon list literal 3 element comma" {
 }
 
 test "zig fmt: array literal 0 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [_]u32{};
@@ -1056,8 +986,6 @@ test "zig fmt: array literal 0 element" {
 }
 
 test "zig fmt: array literal 1 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [_]u32{a};
@@ -1078,8 +1006,6 @@ test "zig fmt: array literal 1 element comma" {
 }
 
 test "zig fmt: array literal 2 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [_]u32{ a, b };
@@ -1101,8 +1027,6 @@ test "zig fmt: array literal 2 element comma" {
 }
 
 test "zig fmt: array literal 3 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [_]u32{ a, b, c };
@@ -1125,8 +1049,6 @@ test "zig fmt: array literal 3 element comma" {
 }
 
 test "zig fmt: sentinel array literal 1 element" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const x = [_:9000]u32{a};
@@ -1156,8 +1078,6 @@ test "zig fmt: slices with spaces in bounds" {
 }
 
 test "zig fmt: block in slice expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const a = b[{
         \\    _ = x;
@@ -1176,8 +1096,6 @@ test "zig fmt: block in slice expression" {
 }
 
 test "zig fmt: async function" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub const Server = struct {
         \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.Async) void,
@@ -1190,8 +1108,6 @@ test "zig fmt: async function" {
 }
 
 test "zig fmt: whitespace fixes" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
         \\    const hi = x;
@@ -1204,8 +1120,6 @@ test "zig fmt: whitespace fixes" {
 }
 
 test "zig fmt: while else err prong with no block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    const result = while (returnError()) |value| {
@@ -1235,8 +1149,6 @@ test "zig fmt: tagged union with enum values" {
 }
 
 test "zig fmt: tagged union enum tag last token" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const U = union(enum(u32)) {};
@@ -1572,8 +1484,6 @@ test "zig fmt: doc and line comment following 'zig fmt: on'" {
 }
 
 test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test "" {
         \\    const x = 42;
@@ -1600,8 +1510,6 @@ test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
 }
 
 test "zig fmt: 'zig fmt: on' indentation is unchanged" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn initOptionsAndLayouts(output: *Output, context: *Context) !void {
         \\    // zig fmt: off
@@ -1644,8 +1552,6 @@ test "zig fmt: spaces around slice operator" {
 }
 
 test "zig fmt: async call in if condition" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    if (async b()) {
@@ -1657,8 +1563,6 @@ test "zig fmt: async call in if condition" {
 }
 
 test "zig fmt: 2nd arg multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64",
@@ -1687,8 +1591,6 @@ test "zig fmt: 2nd arg multiline string" {
 }
 
 test "zig fmt: 2nd arg multiline string many args" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64",
@@ -1700,8 +1602,6 @@ test "zig fmt: 2nd arg multiline string many args" {
 }
 
 test "zig fmt: final arg multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64", "Hello, world!\n",
@@ -1713,8 +1613,6 @@ test "zig fmt: final arg multiline string" {
 }
 
 test "zig fmt: if condition wraps" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\comptime {
         \\    if (cond and
@@ -1796,8 +1694,6 @@ test "zig fmt: if condition wraps" {
 }
 
 test "zig fmt: if condition has line break but must not wrap" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    if (self.user_input_options.put(
@@ -1822,8 +1718,6 @@ test "zig fmt: if condition has line break but must not wrap" {
 }
 
 test "zig fmt: if condition has line break but must not wrap (no fn call comma)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    if (self.user_input_options.put(name, UserInputOption{
@@ -1845,8 +1739,6 @@ test "zig fmt: if condition has line break but must not wrap (no fn call comma)"
 }
 
 test "zig fmt: function call with multiline argument" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    self.user_input_options.put(name, UserInputOption{
@@ -1859,8 +1751,6 @@ test "zig fmt: function call with multiline argument" {
 }
 
 test "zig fmt: if-else with comment before else" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
@@ -1879,8 +1769,6 @@ test "zig fmt: if-else with comment before else" {
 }
 
 test "zig fmt: if nested" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn foo() void {
         \\    return if ((aInt & bInt) >= 0)
@@ -1904,8 +1792,6 @@ test "zig fmt: if nested" {
 }
 
 test "zig fmt: respect line breaks in if-else" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    return if (cond) a else b;
@@ -1925,8 +1811,6 @@ test "zig fmt: respect line breaks in if-else" {
 }
 
 test "zig fmt: respect line breaks after infix operators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    self.crc =
@@ -1990,8 +1874,6 @@ test "zig fmt: switch comment after prong" {
 }
 
 test "zig fmt: struct literal no trailing comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const a = foo{ .x = 1, .y = 2 };
         \\const a = foo{ .x = 1,
@@ -2010,8 +1892,6 @@ test "zig fmt: struct literal no trailing comma" {
 }
 
 test "zig fmt: struct literal containing a multiline expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const a = A{ .x = if (f1()) 10 else 20 };
         \\const a = A{ .x = if (f1()) 10 else 20, };
@@ -2201,8 +2081,6 @@ test "zig fmt: array literal vertical column alignment" {
 }
 
 test "zig fmt: multiline string with backslash at end of line" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    err(
@@ -2234,8 +2112,6 @@ test "zig fmt: multiline string parameter in fn call with trailing comma" {
 }
 
 test "zig fmt: trailing comma on fn call" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    var module = try Module.create(
@@ -2249,8 +2125,6 @@ test "zig fmt: trailing comma on fn call" {
 }
 
 test "zig fmt: multi line arguments without last comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\pub fn foo(
         \\    a: usize,
@@ -2312,8 +2186,6 @@ test "zig fmt: extra newlines at the end" {
 }
 
 test "zig fmt: simple asm" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\comptime {
         \\    asm volatile (
@@ -2351,8 +2223,6 @@ test "zig fmt: simple asm" {
 }
 
 test "zig fmt: nested struct literal with one item" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const a = foo{
         \\    .item = bar{ .a = b },
@@ -2439,8 +2309,6 @@ test "zig fmt: line comment after doc comment" {
 }
 
 test "zig fmt: bit field alignment" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    assert(@TypeOf(&blah.b) == *align(1:3:6) const u3);
@@ -2472,8 +2340,6 @@ test "zig fmt: float literal with exponent" {
 }
 
 test "zig fmt: if-else end of comptime" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    if (a) {
@@ -2487,8 +2353,6 @@ test "zig fmt: if-else end of comptime" {
 }
 
 test "zig fmt: nested blocks" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    {
@@ -2504,8 +2368,6 @@ test "zig fmt: nested blocks" {
 }
 
 test "zig fmt: block with same line comment after end brace" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    {
@@ -2517,8 +2379,6 @@ test "zig fmt: block with same line comment after end brace" {
 }
 
 test "zig fmt: statements with comment between" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    a = b;
@@ -2530,8 +2390,6 @@ test "zig fmt: statements with comment between" {
 }
 
 test "zig fmt: statements with empty line between" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    a = b;
@@ -2551,8 +2409,6 @@ test "zig fmt: ptr deref operator and unwrap optional operator" {
 }
 
 test "zig fmt: comment after if before another if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "aoeu" {
         \\    // comment
@@ -2575,8 +2431,6 @@ test "zig fmt: comment after if before another if" {
 }
 
 test "zig fmt: line comment between if block and else keyword" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
@@ -2598,8 +2452,6 @@ test "zig fmt: line comment between if block and else keyword" {
 }
 
 test "zig fmt: same line comments in expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "aoeu" {
         \\    const x = ( // a
@@ -2640,8 +2492,6 @@ test "zig fmt: add comma on last switch prong" {
 }
 
 test "zig fmt: same-line comment after a statement" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    a = b;
@@ -2687,8 +2537,6 @@ test "zig fmt: same-line comment after switch prong" {
 }
 
 test "zig fmt: same-line comment after non-block if expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\comptime {
         \\    if (sr > n_uword_bits - 1) // d > r
@@ -2699,8 +2547,6 @@ test "zig fmt: same-line comment after non-block if expression" {
 }
 
 test "zig fmt: same-line comment on comptime expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
@@ -2710,8 +2556,6 @@ test "zig fmt: same-line comment on comptime expression" {
 }
 
 test "zig fmt: switch with empty body" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    foo() catch |err| switch (err) {};
@@ -2721,8 +2565,6 @@ test "zig fmt: switch with empty body" {
 }
 
 test "zig fmt: line comments in struct initializer" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    return Self{
@@ -2745,8 +2587,6 @@ test "zig fmt: line comments in struct initializer" {
 }
 
 test "zig fmt: first line comment in struct initializer" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
@@ -2815,8 +2655,6 @@ test "zig fmt: union(enum(u32)) with assigned enum values" {
 }
 
 test "zig fmt: resume from suspend block" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    suspend {
@@ -2902,8 +2740,6 @@ test "zig fmt: comments before global variables" {
 }
 
 test "zig fmt: comments in statements" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "std" {
         \\    // statement comment
@@ -2931,8 +2767,6 @@ test "zig fmt: comments before test decl" {
 }
 
 test "zig fmt: preserve spacing" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const std = @import("std");
         \\
@@ -3001,8 +2835,6 @@ test "zig fmt: alignment" {
 }
 
 test "zig fmt: C main" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn main(argc: c_int, argv: **u8) c_int {
         \\    const a = b;
@@ -3012,8 +2844,6 @@ test "zig fmt: C main" {
 }
 
 test "zig fmt: return" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo(argc: c_int, argv: **u8) c_int {
         \\    return 0;
@@ -3076,8 +2906,6 @@ test "zig fmt: slice attributes" {
 }
 
 test "zig fmt: test declaration" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "test name" {
         \\    const a = 1;
@@ -3088,8 +2916,6 @@ test "zig fmt: test declaration" {
 }
 
 test "zig fmt: infix operators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    var i = undefined;
@@ -3142,8 +2968,6 @@ test "zig fmt: infix operators" {
 }
 
 test "zig fmt: precedence" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "precedence" {
         \\    a!b();
@@ -3176,8 +3000,6 @@ test "zig fmt: precedence" {
 }
 
 test "zig fmt: prefix operators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "prefix operators" {
         \\    try return --%~!&0;
@@ -3187,8 +3009,6 @@ test "zig fmt: prefix operators" {
 }
 
 test "zig fmt: call expression" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "test calls" {
         \\    a();
@@ -3208,8 +3028,6 @@ test "zig fmt: anytype type" {
 }
 
 test "zig fmt: functions" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\extern fn puts(s: *const u8) c_int;
         \\extern "c" fn puts(s: *const u8) c_int;
@@ -3234,8 +3052,6 @@ test "zig fmt: functions" {
 }
 
 test "zig fmt: multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "" {
         \\    const s1 =
@@ -3254,8 +3070,6 @@ test "zig fmt: multiline string" {
 }
 
 test "zig fmt: values" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "values" {
         \\    1;
@@ -3275,8 +3089,6 @@ test "zig fmt: values" {
 }
 
 test "zig fmt: indexing" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "test index" {
         \\    a[0];
@@ -3297,8 +3109,6 @@ test "zig fmt: indexing" {
 }
 
 test "zig fmt: struct declaration" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const S = struct {
         \\    const Self = @This();
@@ -3405,8 +3215,6 @@ test "zig fmt: union declaration" {
 }
 
 test "zig fmt: arrays" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "test array" {
         \\    const a: [2]u8 = [2]u8{
@@ -3425,8 +3233,6 @@ test "zig fmt: arrays" {
 }
 
 test "zig fmt: container initializers" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const a0 = []u8{};
         \\const a1 = []u8{1};
@@ -3447,8 +3253,6 @@ test "zig fmt: container initializers" {
 }
 
 test "zig fmt: catch" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "catch" {
         \\    const a: anyerror!u8 = 0;
@@ -3464,8 +3268,6 @@ test "zig fmt: catch" {
 }
 
 test "zig fmt: blocks" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "blocks" {
         \\    {
@@ -3488,8 +3290,6 @@ test "zig fmt: blocks" {
 }
 
 test "zig fmt: switch" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "switch" {
         \\    switch (0) {
@@ -3545,8 +3345,6 @@ test "zig fmt: switch" {
 }
 
 test "zig fmt: switch multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "switch multiline string" {
         \\    const x: u32 = 0;
@@ -3578,8 +3376,6 @@ test "zig fmt: switch multiline string" {
 }
 
 test "zig fmt: while" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "while" {
         \\    while (10 < 1) unreachable;
@@ -3655,8 +3451,6 @@ test "zig fmt: while" {
 }
 
 test "zig fmt: for" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "for" {
         \\    for (a) |v| {
@@ -3758,8 +3552,6 @@ test "zig fmt: for" {
 }
 
 test "zig fmt: for if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    for (a) |x| if (x) f(x);
@@ -3785,8 +3577,6 @@ test "zig fmt: for if" {
 }
 
 test "zig fmt: if for" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    if (a) for (x) |x| f(x);
@@ -3812,8 +3602,6 @@ test "zig fmt: if for" {
 }
 
 test "zig fmt: while if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    while (a) if (x) f(x);
@@ -3839,8 +3627,6 @@ test "zig fmt: while if" {
 }
 
 test "zig fmt: if while" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    if (a) while (x) : (cont) f(x);
@@ -3866,8 +3652,6 @@ test "zig fmt: if while" {
 }
 
 test "zig fmt: while for" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    while (a) for (x) |x| f(x);
@@ -3893,8 +3677,6 @@ test "zig fmt: while for" {
 }
 
 test "zig fmt: for while" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    for (a) |a| while (x) |x| f(x);
@@ -3920,8 +3702,6 @@ test "zig fmt: for while" {
 }
 
 test "zig fmt: if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "if" {
         \\    if (10 < 0) {
@@ -3971,8 +3751,6 @@ test "zig fmt: if" {
 }
 
 test "zig fmt: fix single statement if/for/while line breaks" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test {
         \\    if (cond) a
@@ -4051,8 +3829,6 @@ test "zig fmt: anon struct/array literal in if" {
 }
 
 test "zig fmt: defer" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "defer" {
         \\    var i: usize = 0;
@@ -4073,8 +3849,6 @@ test "zig fmt: defer" {
 }
 
 test "zig fmt: comptime" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn a() u8 {
         \\    return 5;
@@ -4114,8 +3888,6 @@ test "zig fmt: comptime" {
 }
 
 test "zig fmt: fn type" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn a(i: u8) u8 {
         \\    return i + 1;
@@ -4129,8 +3901,6 @@ test "zig fmt: fn type" {
 }
 
 test "zig fmt: inline asm" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
@@ -4145,8 +3915,6 @@ test "zig fmt: inline asm" {
 }
 
 test "zig fmt: async functions" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn simpleAsyncFn() void {
         \\    const a = async a.b();
@@ -4175,8 +3943,6 @@ test "zig fmt: nosuspend" {
 }
 
 test "zig fmt: Block after if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    if (true) {
@@ -4208,8 +3974,6 @@ test "zig fmt: string identifier" {
 }
 
 test "zig fmt: error return" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn err() anyerror {
         \\    call();
@@ -4220,8 +3984,6 @@ test "zig fmt: error return" {
 }
 
 test "zig fmt: comptime block in container" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn container() type {
         \\    return struct {
@@ -4237,8 +3999,6 @@ test "zig fmt: comptime block in container" {
 }
 
 test "zig fmt: inline asm parameter alignment" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() void {
         \\    asm volatile (
@@ -4277,8 +4037,6 @@ test "zig fmt: inline asm parameter alignment" {
 }
 
 test "zig fmt: multiline string in array" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const Foo = [][]const u8{
         \\    \\aaa
@@ -4304,8 +4062,6 @@ test "zig fmt: multiline string in array" {
 }
 
 test "zig fmt: if type expr" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const mycond = true;
         \\pub fn foo() if (mycond) i32 else void {
@@ -4334,8 +4090,6 @@ test "zig fmt: comment after empty comment" {
 }
 
 test "zig fmt: line comment in array" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test "a" {
         \\    var arr = [_]u32{
@@ -4394,8 +4148,6 @@ test "zig fmt: comment after params" {
 }
 
 test "zig fmt: comment in array initializer/access" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "a" {
         \\    var a = x{ //aa
@@ -4432,8 +4184,6 @@ test "zig fmt: comment in array initializer/access" {
 }
 
 test "zig fmt: comments at several places in struct init" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\var bar = Bar{
         \\    .x = 10, // test
@@ -4657,8 +4407,6 @@ test "zig fmt: integer literals with underscore separators" {
 }
 
 test "zig fmt: hex literals with underscore separators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
         \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
@@ -4682,8 +4430,6 @@ test "zig fmt: hex literals with underscore separators" {
 }
 
 test "zig fmt: decimal float literals with underscore separators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\pub fn main() void {
         \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+20_00.00_10e+4;
@@ -4701,8 +4447,6 @@ test "zig fmt: decimal float literals with underscore separators" {
 }
 
 test "zig fmt: hexadeciaml float literals with underscore separators" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
@@ -4727,8 +4471,6 @@ test "zig fmt: C var args" {
 }
 
 test "zig fmt: Only indent multiline string literals in function calls" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test "zig fmt:" {
         \\    try testTransform(
@@ -4746,8 +4488,6 @@ test "zig fmt: Only indent multiline string literals in function calls" {
 }
 
 test "zig fmt: Don't add extra newline after if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
         \\    if (cwd().symLink(existing_path, new_path, .{})) {
@@ -4759,8 +4499,6 @@ test "zig fmt: Don't add extra newline after if" {
 }
 
 test "zig fmt: comments in ternary ifs" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const x = if (true) {
         \\    1;
@@ -4780,8 +4518,6 @@ test "zig fmt: comments in ternary ifs" {
 }
 
 test "zig fmt: while statement in blockless if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() void {
         \\    const zoom_node = if (focused_node == layout_first)
@@ -4831,8 +4567,6 @@ test "zig fmt: test comments in field access chain" {
 }
 
 test "zig fmt: allow line break before field access" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    const w = foo.bar().zippy(zag).iguessthisisok();
@@ -4908,8 +4642,6 @@ test "zig fmt: Indent comma correctly after multiline string literals in arg lis
 }
 
 test "zig fmt: Control flow statement as body of blockless if" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn main() void {
         \\    const zoom_node = if (focused_node == layout_first)
@@ -4945,8 +4677,6 @@ test "zig fmt: Control flow statement as body of blockless if" {
 }
 
 test "zig fmt: regression test for #5722" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn sendViewTags(self: Self) void {
         \\    var it = ViewStack(View).iterator(self.output.views.first, std.math.maxInt(u32));
@@ -5077,8 +4807,6 @@ test "zig fmt: multiline string literals should play nice with array initializer
 }
 
 test "zig fmt: use of comments and multiline string literals may force the parameters over multiple lines" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn makeMemUndefined(qzz: []u8) i1 {
         \\    cases.add( // fixed bug foo
@@ -5119,8 +4847,6 @@ test "zig fmt: use of comments and multiline string literals may force the param
 }
 
 test "zig fmt: single argument trailing commas in @builtins()" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn foo(qzz: []u8) i1 {
         \\    @panic(
@@ -5154,8 +4880,6 @@ test "zig fmt: trailing comma should force multiline 1 column" {
 }
 
 test "zig fmt: function params should align nicely" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\pub fn foo() void {
         \\    cases.addRuntimeSafety("slicing operator with sentinel",
@@ -5212,8 +4936,6 @@ test "zig fmt: remove trailing whitespace after doc comment" {
 }
 
 test "zig fmt: for loop with ptr payload and index" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    for (self.entries.items, 0..) |*item, i| {}
@@ -5226,8 +4948,6 @@ test "zig fmt: for loop with ptr payload and index" {
 }
 
 test "zig fmt: proper indent line comment after multi-line single expr while loop" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    while (a) : (b)
@@ -5241,8 +4961,6 @@ test "zig fmt: proper indent line comment after multi-line single expr while loo
 }
 
 test "zig fmt: function with labeled block as return type" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() t: {
         \\    break :t bar;
@@ -5265,8 +4983,6 @@ test "zig fmt: extern function with missing param name" {
 }
 
 test "zig fmt: line comment after multiline single expr if statement with multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    if (foo)
@@ -5299,8 +5015,6 @@ test "zig fmt: line comment after multiline single expr if statement with multil
 }
 
 test "zig fmt: respect extra newline between fn and pub usingnamespace" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\fn foo() void {
         \\    bar();
@@ -5425,8 +5139,6 @@ test "zig fmt: insert trailing comma if comments in array init" {
 }
 
 test "zig fmt: make single-line if no trailing comma" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test "function call no trailing comma" {
         \\    foo(
@@ -5606,8 +5318,6 @@ test "zig fmt: missing const/var before local variable" {
 }
 
 test "zig fmt: while continue expr" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\test {
         \\    while (i > 0)
@@ -5627,8 +5337,6 @@ test "zig fmt: while continue expr" {
 }
 
 test "zig fmt: canonicalize symbols (simple)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const val_normal: Normal = .{};
         \\const @"val_unesc_me": @"UnescMe" = .{};
@@ -5778,8 +5486,6 @@ test "zig fmt: canonicalize symbols (simple)" {
 
 // Contextually unescape when shadowing primitive types and values.
 test "zig fmt: canonicalize symbols (primitive types)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const @"anyopaque" = struct {
         \\    @"u8": @"type" = true,
@@ -5889,8 +5595,6 @@ test "zig fmt: canonicalize symbols (primitive types)" {
 
 // Never unescape names spelled like keywords.
 test "zig fmt: canonicalize symbols (keywords)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const @"enum" = struct {
         \\    @"error": @"struct" = true,
@@ -5918,8 +5622,6 @@ test "zig fmt: canonicalize symbols (keywords)" {
 }
 
 test "zig fmt: no space before newline before multiline string" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testCanonical(
         \\const S = struct {
         \\    text: []const u8,
@@ -5950,8 +5652,6 @@ test "zig fmt: no space before newline before multiline string" {
 
 // Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
 test "zig fmt: canonicalize symbols (character escapes)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\const @"\x46\x6f\x6f\x64" = struct {
         \\    @"\x62\x61\x72\x6E": @"\x43\x72\x61\x62" = false,
@@ -5994,8 +5694,6 @@ test "zig fmt: canonicalize symbols (character escapes)" {
 }
 
 test "zig fmt: canonicalize symbols (asm)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testTransform(
         \\test "asm" {
         \\    const @"null" = usize;
