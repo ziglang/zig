@@ -414,6 +414,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         => ._,
         .linker_reloc => {
             if (lower.bin_file.options.pic) {
+                assert(inst.data.rx.fixes == ._);
                 const reg = inst.data.rx.r1;
                 const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
                 _ = lower.reloc(.{ .linker_reloc = extra });
@@ -435,6 +436,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
                         });
                     },
                     .lea => {
+                        assert(inst.data.rx.fixes == ._);
                         const reg = inst.data.rx.r1;
                         const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
                         try lower.emit(.none, .mov, &.{
@@ -443,6 +445,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
                         });
                     },
                     .mov => {
+                        assert(inst.data.rx.fixes == ._);
                         const reg = inst.data.rx.r1;
                         const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
                         _ = lower.reloc(.{ .linker_reloc = extra });
