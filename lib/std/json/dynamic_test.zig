@@ -339,6 +339,17 @@ test "many object keys" {
     try testing.expectEqualStrings("v5", parsed.value.object.get("k5").?.string);
 }
 
+test "negative zero" {
+    const doc = "-0";
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expect(parsed.value.float == 0 and std.math.signbit(parsed.value.float));
+}
+
 fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
     return JsonReader(16, @TypeOf(io_reader)).init(allocator, io_reader);
 }
