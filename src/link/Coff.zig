@@ -1075,7 +1075,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -1195,7 +1195,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -1409,12 +1409,12 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Coff,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) link.File.UpdateDeclExportsError!void {
+) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1425,7 +1425,11 @@ pub fn updateDeclExports(
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (exports) |exp| {
-            const exported_decl = mod.declPtr(exp.exported_decl);
+            const exported_decl_index = switch (exp.exported) {
+                .decl_index => |i| i,
+                .value => continue,
+            };
+            const exported_decl = mod.declPtr(exported_decl_index);
             if (exported_decl.getOwnedFunction(mod) == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
@@ -1452,12 +1456,19 @@ pub fn updateDeclExports(
         }
     }
 
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement COFF linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);

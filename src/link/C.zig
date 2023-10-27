@@ -753,14 +753,14 @@ pub fn flushEmitH(module: *Module) !void {
     try file.pwritevAll(all_buffers.items, 0);
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *C,
     module: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
     _ = exports;
-    _ = decl_index;
+    _ = exported;
     _ = module;
     _ = self;
 }

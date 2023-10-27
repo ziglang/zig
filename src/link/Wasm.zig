@@ -1786,19 +1786,26 @@ pub fn deleteDeclExport(wasm: *Wasm, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     wasm: *Wasm,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (wasm.base.options.emit == null) return;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement Wasm linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
@@ -1816,7 +1823,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exp.exported_decl);
+        const exported_decl_index = switch (exp.exported) {
+            .value => {
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    "Unimplemented: exporting a named constant value",
+                    .{},
+                ));
+                continue;
+            },
+            .decl_index => |i| i,
+        };
+        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exported_decl_index);
         const exported_atom = wasm.getAtom(exported_atom_index);
         const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();

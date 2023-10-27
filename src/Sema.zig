@@ -6026,6 +6026,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
     const src = inst_data.src();
@@ -6035,12 +6036,21 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .needed_comptime_reason = "export target must be comptime-known",
     });
     const options = try sema.resolveExportOptions(block, options_src, extra.options);
-    const decl_index = if (operand.val.getFunction(sema.mod)) |function| function.owner_decl else blk: {
-        var anon_decl = try block.startAnonDecl(); // TODO: export value without Decl
-        defer anon_decl.deinit();
-        break :blk try anon_decl.finish(operand.ty, operand.val, .none);
-    };
-    try sema.analyzeExport(block, src, options, decl_index);
+    if (options.linkage == .Internal)
+        return;
+    if (operand.val.getFunction(mod)) |function| {
+        const decl_index = function.owner_decl;
+        return sema.analyzeExport(block, src, options, decl_index);
+    }
+
+    try addExport(mod, .{
+        .opts = options,
+        .src = src,
+        .owner_decl = sema.owner_decl_index,
+        .src_decl = block.src_decl,
+        .exported = .{ .value = operand.val.toIntern() },
+        .status = .in_progress,
+    });
 }
 
 pub fn analyzeExport(
@@ -6050,12 +6060,11 @@ pub fn analyzeExport(
     options: Module.Export.Options,
     exported_decl_index: Decl.Index,
 ) !void {
-    const Export = Module.Export;
+    const gpa = sema.gpa;
     const mod = sema.mod;
 
-    if (options.linkage == .Internal) {
+    if (options.linkage == .Internal)
         return;
-    }
 
     try mod.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
@@ -6063,7 +6072,7 @@ pub fn analyzeExport(
     if (!try sema.validateExternType(exported_decl.ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unable to export type '{}'", .{exported_decl.ty.fmt(mod)});
-            errdefer msg.destroy(sema.gpa);
+            errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
             try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), exported_decl.ty, .other);
@@ -6083,38 +6092,45 @@ pub fn analyzeExport(
     try mod.markDeclAlive(exported_decl);
     try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
 
-    const gpa = sema.gpa;
-
-    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
-    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
-
-    const new_export = try gpa.create(Export);
-    errdefer gpa.destroy(new_export);
-
-    new_export.* = .{
+    try addExport(mod, .{
         .opts = options,
         .src = src,
         .owner_decl = sema.owner_decl_index,
         .src_decl = block.src_decl,
-        .exported_decl = exported_decl_index,
+        .exported = .{ .decl_index = exported_decl_index },
         .status = .in_progress,
-    };
+    });
+}
 
-    // Add to export_owners table.
-    const eo_gop = mod.export_owners.getOrPutAssumeCapacity(sema.owner_decl_index);
-    if (!eo_gop.found_existing) {
-        eo_gop.value_ptr.* = .{};
-    }
+fn addExport(mod: *Module, export_init: Module.Export) error{OutOfMemory}!void {
+    const gpa = mod.gpa;
+
+    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
+    try mod.value_exports.ensureUnusedCapacity(gpa, 1);
+    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
+
+    const new_export = try gpa.create(Module.Export);
+    errdefer gpa.destroy(new_export);
+
+    new_export.* = export_init;
+
+    const eo_gop = mod.export_owners.getOrPutAssumeCapacity(export_init.owner_decl);
+    if (!eo_gop.found_existing) eo_gop.value_ptr.* = .{};
     try eo_gop.value_ptr.append(gpa, new_export);
     errdefer _ = eo_gop.value_ptr.pop();
 
-    // Add to exported_decl table.
-    const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl_index);
-    if (!de_gop.found_existing) {
-        de_gop.value_ptr.* = .{};
+    switch (export_init.exported) {
+        .decl_index => |decl_index| {
+            const de_gop = mod.decl_exports.getOrPutAssumeCapacity(decl_index);
+            if (!de_gop.found_existing) de_gop.value_ptr.* = .{};
+            try de_gop.value_ptr.append(gpa, new_export);
+        },
+        .value => |value| {
+            const ve_gop = mod.value_exports.getOrPutAssumeCapacity(value);
+            if (!ve_gop.found_existing) ve_gop.value_ptr.* = .{};
+            try ve_gop.value_ptr.append(gpa, new_export);
+        },
     }
-    try de_gop.value_ptr.append(gpa, new_export);
-    errdefer _ = de_gop.value_ptr.pop();
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {

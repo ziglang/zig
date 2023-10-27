@@ -70,6 +70,8 @@ local_zir_cache: Compilation.Directory,
 /// The Export memory is owned by the `export_owners` table; the slice itself
 /// is owned by this table. The slice is guaranteed to not be empty.
 decl_exports: std.AutoArrayHashMapUnmanaged(Decl.Index, ArrayListUnmanaged(*Export)) = .{},
+/// Same as `decl_exports` but for exported constant values.
+value_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, ArrayListUnmanaged(*Export)) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -244,6 +246,13 @@ pub const GlobalEmitH = struct {
 
 pub const ErrorInt = u32;
 
+pub const Exported = union(enum) {
+    /// The Decl being exported. Note this is *not* the Decl performing the export.
+    decl_index: Decl.Index,
+    /// Constant value being exported.
+    value: InternPool.Index,
+};
+
 pub const Export = struct {
     opts: Options,
     src: LazySrcLoc,
@@ -252,8 +261,7 @@ pub const Export = struct {
     /// The Decl containing the export statement.  Inline function calls
     /// may cause this to be different from the owner_decl.
     src_decl: Decl.Index,
-    /// The Decl being exported. Note this is *not* the Decl performing the export.
-    exported_decl: Decl.Index,
+    exported: Exported,
     status: enum {
         in_progress,
         failed,
@@ -2575,6 +2583,11 @@ pub fn deinit(mod: *Module) void {
     }
     mod.decl_exports.deinit(gpa);
 
+    for (mod.value_exports.values()) |*export_list| {
+        export_list.deinit(gpa);
+    }
+    mod.value_exports.deinit(gpa);
+
     for (mod.export_owners.values()) |*value| {
         freeExportList(gpa, value);
     }
@@ -4620,36 +4633,49 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
     var export_owners = (mod.export_owners.fetchSwapRemove(decl_index) orelse return).value;
 
     for (export_owners.items) |exp| {
-        if (mod.decl_exports.getPtr(exp.exported_decl)) |value_ptr| {
-            // Remove exports with owner_decl matching the regenerating decl.
-            const list = value_ptr.items;
-            var i: usize = 0;
-            var new_len = list.len;
-            while (i < new_len) {
-                if (list[i].owner_decl == decl_index) {
-                    mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
-                    new_len -= 1;
-                } else {
-                    i += 1;
+        switch (exp.exported) {
+            .decl_index => |exported_decl_index| {
+                if (mod.decl_exports.getPtr(exported_decl_index)) |export_list| {
+                    // Remove exports with owner_decl matching the regenerating decl.
+                    const list = export_list.items;
+                    var i: usize = 0;
+                    var new_len = list.len;
+                    while (i < new_len) {
+                        if (list[i].owner_decl == decl_index) {
+                            mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
+                            new_len -= 1;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    export_list.shrinkAndFree(mod.gpa, new_len);
+                    if (new_len == 0) {
+                        assert(mod.decl_exports.swapRemove(exported_decl_index));
+                    }
                 }
-            }
-            value_ptr.shrinkAndFree(mod.gpa, new_len);
-            if (new_len == 0) {
-                assert(mod.decl_exports.swapRemove(exp.exported_decl));
-            }
+            },
+            .value => |value| {
+                if (mod.value_exports.getPtr(value)) |export_list| {
+                    // Remove exports with owner_decl matching the regenerating decl.
+                    const list = export_list.items;
+                    var i: usize = 0;
+                    var new_len = list.len;
+                    while (i < new_len) {
+                        if (list[i].owner_decl == decl_index) {
+                            mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
+                            new_len -= 1;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    export_list.shrinkAndFree(mod.gpa, new_len);
+                    if (new_len == 0) {
+                        assert(mod.value_exports.swapRemove(value));
+                    }
+                }
+            },
         }
-        if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteDeclExport(decl_index, exp.opts.name);
-        }
-        if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
-            try macho.deleteDeclExport(decl_index, exp.opts.name);
-        }
-        if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
-            wasm.deleteDeclExport(decl_index);
-        }
-        if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
-            coff.deleteDeclExport(decl_index, exp.opts.name);
-        }
+        try mod.comp.bin_file.deleteDeclExport(decl_index, exp.opts.name);
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
         }
@@ -5503,48 +5529,63 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
 /// reporting compile errors. In this function we emit exported symbol collision
 /// errors and communicate exported symbols to the linker backend.
 pub fn processExports(mod: *Module) !void {
-    const gpa = mod.gpa;
     // Map symbol names to `Export` for name collision detection.
-    var symbol_exports: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, *Export) = .{};
-    defer symbol_exports.deinit(gpa);
+    var symbol_exports: SymbolExports = .{};
+    defer symbol_exports.deinit(mod.gpa);
 
-    var it = mod.decl_exports.iterator();
-    while (it.next()) |entry| {
-        const exported_decl = entry.key_ptr.*;
-        const exports = entry.value_ptr.items;
-        for (exports) |new_export| {
-            const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
-            if (gop.found_existing) {
-                new_export.status = .failed_retryable;
-                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-                const src_loc = new_export.getSrcLoc(mod);
-                const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
-                    new_export.opts.name.fmt(&mod.intern_pool),
-                });
-                errdefer msg.destroy(gpa);
-                const other_export = gop.value_ptr.*;
-                const other_src_loc = other_export.getSrcLoc(mod);
-                try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
-                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-                new_export.status = .failed;
-            } else {
-                gop.value_ptr.* = new_export;
-            }
-        }
-        mod.comp.bin_file.updateDeclExports(mod, exported_decl, exports) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                const new_export = exports[0];
-                new_export.status = .failed_retryable;
-                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-                const src_loc = new_export.getSrcLoc(mod);
-                const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
-                    @errorName(err),
-                });
-                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-            },
-        };
+    for (mod.decl_exports.keys(), mod.decl_exports.values()) |exported_decl, exports_list| {
+        const exported: Exported = .{ .decl_index = exported_decl };
+        try processExportsInner(mod, &symbol_exports, exported, exports_list.items);
     }
+
+    for (mod.value_exports.keys(), mod.value_exports.values()) |exported_value, exports_list| {
+        const exported: Exported = .{ .value = exported_value };
+        try processExportsInner(mod, &symbol_exports, exported, exports_list.items);
+    }
+}
+
+const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, *Export);
+
+fn processExportsInner(
+    mod: *Module,
+    symbol_exports: *SymbolExports,
+    exported: Exported,
+    exports: []const *Export,
+) error{OutOfMemory}!void {
+    const gpa = mod.gpa;
+
+    for (exports) |new_export| {
+        const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
+        if (gop.found_existing) {
+            new_export.status = .failed_retryable;
+            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(mod);
+            const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
+                new_export.opts.name.fmt(&mod.intern_pool),
+            });
+            errdefer msg.destroy(gpa);
+            const other_export = gop.value_ptr.*;
+            const other_src_loc = other_export.getSrcLoc(mod);
+            try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
+            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+            new_export.status = .failed;
+        } else {
+            gop.value_ptr.* = new_export;
+        }
+    }
+    mod.comp.bin_file.updateExports(mod, exported, exports) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            const new_export = exports[0];
+            new_export.status = .failed_retryable;
+            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(mod);
+            const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
+                @errorName(err),
+            });
+            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+        },
+    };
 }
 
 pub fn populateTestFunctions(
