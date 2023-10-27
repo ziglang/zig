@@ -121,6 +121,19 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
     return @import("./render.zig").renderTree(buffer, tree);
 }
 
+pub const VisitResult = @import("./visitor.zig").VisitResult;
+
+/// Visit child nodes
+pub fn visit(
+    tree: *const Ast,
+    parent: Node.Index,
+    comptime T: type,
+    callback: *const fn (ast: *const Ast, node: Node.Index, parent: Node.Index, data: T) VisitResult,
+    data: T
+) void {
+    return @import("./visitor.zig").visit(tree, parent, T, callback, data);
+}
+
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
