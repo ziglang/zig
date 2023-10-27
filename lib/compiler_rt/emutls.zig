@@ -138,7 +138,7 @@ const ObjectArray = struct {
                 @memset(data[0..size], 0);
             }
 
-            self.slots[index] = @ptrCast(data);
+            self.slots[index] = data;
         }
 
         return self.slots[index].?;
