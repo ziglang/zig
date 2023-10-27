@@ -10013,7 +10013,7 @@ fn genCall(self: *Self, info: union(enum) {
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         if (self.bin_file.options.pic) {
-                            try self.genSetReg(.rax, Type.usize, .{ .lea_symbol = sym.esym_index });
+                            try self.genSetReg(.rax, Type.usize, .{ .load_symbol = sym.esym_index });
                             try self.asmRegister(.{ ._, .call }, .rax);
                         } else {
                             _ = try self.addInst(.{
@@ -12766,7 +12766,7 @@ fn genLazySymbolRef(
 
         if (self.bin_file.options.pic) {
             switch (tag) {
-                .lea, .call => try self.genSetReg(reg, Type.usize, .{ .lea_symbol = sym.esym_index }),
+                .lea, .call => try self.genSetReg(reg, Type.usize, .{ .load_symbol = sym.esym_index }),
                 .mov => try self.genSetReg(reg, Type.usize, .{ .load_symbol = sym.esym_index }),
                 else => unreachable,
             }
@@ -12782,7 +12782,7 @@ fn genLazySymbolRef(
             };
             switch (tag) {
                 .lea, .mov => _ = try self.addInst(.{
-                    .tag = tag,
+                    .tag = .mov,
                     .ops = .linker_reloc,
                     .data = .{ .rx = .{
                         .r1 = reg.to64(),
@@ -14686,7 +14686,6 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
             .ty = ty,
             .val = ip_index.toValue(),
         });
-        std.debug.print("genTypedValue: {any}\n", .{mcv});
         if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(mcv);
         break :mcv gop.value_ptr.short;
     };
