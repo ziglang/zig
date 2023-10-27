@@ -1144,26 +1144,40 @@ pub const Object = struct {
 
         for (mod.decl_exports.keys(), mod.decl_exports.values()) |decl_index, export_list| {
             const global = object.decl_map.get(decl_index) orelse continue;
-            const global_base = global.toConst().getBase(&object.builder);
-            for (export_list.items) |exp| {
-                // Detect if the LLVM global has already been created as an extern. In such
-                // case, we need to replace all uses of it with this exported global.
-                const exp_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
+            try resolveGlobalCollisions(object, global, export_list.items);
+        }
 
-                const other_global = object.builder.getGlobal(exp_name) orelse continue;
-                if (other_global.toConst().getBase(&object.builder) == global_base) continue;
+        for (mod.value_exports.keys(), mod.value_exports.values()) |val, export_list| {
+            const global = object.anon_decl_map.get(val) orelse continue;
+            try resolveGlobalCollisions(object, global, export_list.items);
+        }
+    }
 
-                try global.takeName(other_global, &object.builder);
-                try other_global.replace(global, &object.builder);
-                // Problem: now we need to replace in the decl_map that
-                // the extern decl index points to this new global. However we don't
-                // know the decl index.
-                // Even if we did, a future incremental update to the extern would then
-                // treat the LLVM global as an extern rather than an export, so it would
-                // need a way to check that.
-                // This is a TODO that needs to be solved when making
-                // the LLVM backend support incremental compilation.
-            }
+    fn resolveGlobalCollisions(
+        object: *Object,
+        global: Builder.Global.Index,
+        export_list: []const *Module.Export,
+    ) !void {
+        const mod = object.module;
+        const global_base = global.toConst().getBase(&object.builder);
+        for (export_list) |exp| {
+            // Detect if the LLVM global has already been created as an extern. In such
+            // case, we need to replace all uses of it with this exported global.
+            const exp_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
+
+            const other_global = object.builder.getGlobal(exp_name) orelse continue;
+            if (other_global.toConst().getBase(&object.builder) == global_base) continue;
+
+            try global.takeName(other_global, &object.builder);
+            try other_global.replace(global, &object.builder);
+            // Problem: now we need to replace in the decl_map that
+            // the extern decl index points to this new global. However we don't
+            // know the decl index.
+            // Even if we did, a future incremental update to the extern would then
+            // treat the LLVM global as an extern rather than an export, so it would
+            // need a way to check that.
+            // This is a TODO that needs to be solved when making
+            // the LLVM backend support incremental compilation.
         }
     }
 
@@ -1642,7 +1656,7 @@ pub const Object = struct {
 
         try fg.wip.finish();
 
-        try o.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+        try o.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -1662,18 +1676,22 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
-        try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+        try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
     }
 
-    pub fn updateDeclExports(
+    pub fn updateExports(
         self: *Object,
         mod: *Module,
-        decl_index: Module.Decl.Index,
+        exported: Module.Exported,
         exports: []const *Module.Export,
-    ) !void {
+    ) link.File.UpdateExportsError!void {
+        const decl_index = switch (exported) {
+            .decl_index => |i| i,
+            .value => |val| return updateExportedValue(self, mod, val, exports),
+        };
         const gpa = mod.gpa;
         // If the module does not already have the function, we ignore this function call
-        // because we call `updateDeclExports` at the end of `updateFunc` and `updateDecl`.
+        // because we call `updateExports` at the end of `updateFunc` and `updateDecl`.
         const global_index = self.decl_map.get(decl_index) orelse return;
         const decl = mod.declPtr(decl_index);
         if (decl.isExtern(mod)) {
@@ -1733,8 +1751,7 @@ pub const Object = struct {
                 mod.intern_pool.stringToSlice(exports[0].opts.name),
             );
             try global_index.rename(main_exp_name, &self.builder);
-            global_index.setUnnamedAddr(.default, &self.builder);
-            if (mod.wantDllExports()) global_index.setDllStorageClass(.dllexport, &self.builder);
+
             if (self.di_map.get(decl)) |di_node| {
                 const main_exp_name_slice = main_exp_name.slice(&self.builder).?;
                 if (try decl.isFunction(mod)) {
@@ -1755,55 +1772,12 @@ pub const Object = struct {
                     di_global.replaceLinkageName(linkage_name);
                 }
             }
-            global_index.setLinkage(switch (exports[0].opts.linkage) {
-                .Internal => unreachable,
-                .Strong => .external,
-                .Weak => .weak_odr,
-                .LinkOnce => .linkonce_odr,
-            }, &self.builder);
-            global_index.setVisibility(switch (exports[0].opts.visibility) {
-                .default => .default,
-                .hidden => .hidden,
-                .protected => .protected,
-            }, &self.builder);
-            if (mod.intern_pool.stringToSliceUnwrap(exports[0].opts.section)) |section|
-                switch (global_index.ptrConst(&self.builder).kind) {
-                    inline .variable, .function => |impl_index| impl_index.setSection(
-                        try self.builder.string(section),
-                        &self.builder,
-                    ),
-                    .alias, .replaced => unreachable,
-                };
+
             if (decl.val.getVariable(mod)) |decl_var| if (decl_var.is_threadlocal)
                 global_index.ptrConst(&self.builder).kind
                     .variable.setThreadLocal(.generaldynamic, &self.builder);
 
-            // If a Decl is exported more than one time (which is rare),
-            // we add aliases for all but the first export.
-            // TODO LLVM C API does not support deleting aliases.
-            // The planned solution to this is https://github.com/ziglang/zig/issues/13265
-            // Until then we iterate over existing aliases and make them point
-            // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
-            for (exports[1..]) |exp| {
-                const exp_name = try self.builder.string(mod.intern_pool.stringToSlice(exp.opts.name));
-                if (self.builder.getGlobal(exp_name)) |global| {
-                    switch (global.ptrConst(&self.builder).kind) {
-                        .alias => |alias| {
-                            alias.setAliasee(global_index.toConst(), &self.builder);
-                            continue;
-                        },
-                        .variable, .function => {},
-                        .replaced => unreachable,
-                    }
-                }
-                const alias_index = try self.builder.addAlias(
-                    .empty,
-                    global_index.typeOf(&self.builder),
-                    .default,
-                    global_index.toConst(),
-                );
-                try alias_index.rename(exp_name, &self.builder);
-            }
+            return updateExportedGlobal(self, mod, global_index, exports);
         } else {
             const fqn = try self.builder.string(
                 mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod)),
@@ -1821,6 +1795,100 @@ pub const Object = struct {
                     &self.builder,
                 );
             }
+        }
+    }
+
+    fn updateExportedValue(
+        o: *Object,
+        mod: *Module,
+        exported_value: InternPool.Index,
+        exports: []const *Module.Export,
+    ) link.File.UpdateExportsError!void {
+        const gpa = mod.gpa;
+        const main_exp_name = try o.builder.string(
+            mod.intern_pool.stringToSlice(exports[0].opts.name),
+        );
+        const global_index = i: {
+            const gop = try o.anon_decl_map.getOrPut(gpa, exported_value);
+            if (gop.found_existing) {
+                const global_index = gop.value_ptr.*;
+                try global_index.rename(main_exp_name, &o.builder);
+                break :i global_index;
+            }
+            const llvm_addr_space = toLlvmAddressSpace(.generic, o.target);
+            const variable_index = try o.builder.addVariable(
+                main_exp_name,
+                try o.lowerType(mod.intern_pool.typeOf(exported_value).toType()),
+                llvm_addr_space,
+            );
+            const global_index = variable_index.ptrConst(&o.builder).global;
+            gop.value_ptr.* = global_index;
+            // This line invalidates `gop`.
+            const init_val = o.lowerValue(exported_value) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.CodegenFail => return error.AnalysisFail,
+            };
+            try variable_index.setInitializer(init_val, &o.builder);
+            break :i global_index;
+        };
+        return updateExportedGlobal(o, mod, global_index, exports);
+    }
+
+    fn updateExportedGlobal(
+        o: *Object,
+        mod: *Module,
+        global_index: Builder.Global.Index,
+        exports: []const *Module.Export,
+    ) link.File.UpdateExportsError!void {
+        global_index.setUnnamedAddr(.default, &o.builder);
+        if (mod.wantDllExports()) global_index.setDllStorageClass(.dllexport, &o.builder);
+        global_index.setLinkage(switch (exports[0].opts.linkage) {
+            .Internal => unreachable,
+            .Strong => .external,
+            .Weak => .weak_odr,
+            .LinkOnce => .linkonce_odr,
+        }, &o.builder);
+        global_index.setVisibility(switch (exports[0].opts.visibility) {
+            .default => .default,
+            .hidden => .hidden,
+            .protected => .protected,
+        }, &o.builder);
+        if (mod.intern_pool.stringToSliceUnwrap(exports[0].opts.section)) |section|
+            switch (global_index.ptrConst(&o.builder).kind) {
+                .variable => |impl_index| impl_index.setSection(
+                    try o.builder.string(section),
+                    &o.builder,
+                ),
+                .function => unreachable,
+                .alias => unreachable,
+                .replaced => unreachable,
+            };
+
+        // If a Decl is exported more than one time (which is rare),
+        // we add aliases for all but the first export.
+        // TODO LLVM C API does not support deleting aliases.
+        // The planned solution to this is https://github.com/ziglang/zig/issues/13265
+        // Until then we iterate over existing aliases and make them point
+        // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
+        for (exports[1..]) |exp| {
+            const exp_name = try o.builder.string(mod.intern_pool.stringToSlice(exp.opts.name));
+            if (o.builder.getGlobal(exp_name)) |global| {
+                switch (global.ptrConst(&o.builder).kind) {
+                    .alias => |alias| {
+                        alias.setAliasee(global_index.toConst(), &o.builder);
+                        continue;
+                    },
+                    .variable, .function => {},
+                    .replaced => unreachable,
+                }
+            }
+            const alias_index = try o.builder.addAlias(
+                .empty,
+                global_index.typeOf(&o.builder),
+                .default,
+                global_index.toConst(),
+            );
+            try alias_index.rename(exp_name, &o.builder);
         }
     }
 

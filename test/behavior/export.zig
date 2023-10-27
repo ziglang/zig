@@ -72,6 +72,8 @@ test "exporting using field access" {
 }
 
 test "exporting comptime-known value" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     const x: u32 = 10;
     @export(x, .{ .name = "exporting_comptime_known_value_foo" });
     const S = struct {
@@ -81,6 +83,8 @@ test "exporting comptime-known value" {
 }
 
 test "exporting comptime var" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     comptime var x: u32 = 5;
     @export(x, .{ .name = "exporting_comptime_var_foo" });
     x = 7; // modifying this now shouldn't change anything

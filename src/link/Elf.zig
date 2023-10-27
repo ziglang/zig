@@ -3306,7 +3306,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(
@@ -3388,7 +3388,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
@@ -3555,16 +3555,16 @@ fn lowerConst(
     return .{ .ok = sym_index };
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Elf,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) link.File.UpdateDeclExportsError!void {
+) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -3573,6 +3573,13 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement ELF linker code for exporting a constant value");
+        },
+    };
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);

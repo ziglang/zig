@@ -1670,7 +1670,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     const global_is_weak = global_sym.sect() and (global_sym.weakDef() or global_sym.pext());
 
     if (sym_is_strong and global_is_strong) {
-        // TODO redo this logic with corresponding logic in updateDeclExports to avoid this
+        // TODO redo this logic with corresponding logic in updateExports to avoid this
         // ugly check.
         if (self.mode == .zld) {
             try self.reportSymbolCollision(global, current);
@@ -2180,7 +2180,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -2340,7 +2340,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -2529,7 +2529,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
         );
     }
 
-    try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
 
     // 2. Create a TLV descriptor.
     const init_atom_sym_loc = init_atom.getSymbolWithLoc();
@@ -2670,17 +2670,17 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: Module.De
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *MachO,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) File.UpdateDeclExportsError!void {
+) File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object|
-        return llvm_object.updateDeclExports(mod, decl_index, exports);
+        return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -2689,6 +2689,13 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement MachO linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
