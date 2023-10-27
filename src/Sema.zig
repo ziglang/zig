@@ -6034,13 +6034,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const operand = try sema.resolveInstConst(block, operand_src, extra.operand, .{
         .needed_comptime_reason = "export target must be comptime-known",
     });
-    const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
-        error.NeededSourceLocation => {
-            _ = try sema.resolveExportOptions(block, options_src, extra.options);
-            unreachable;
-        },
-        else => |e| return e,
-    };
+    const options = try sema.resolveExportOptions(block, options_src, extra.options);
     const decl_index = if (operand.val.getFunction(sema.mod)) |function| function.owner_decl else blk: {
         var anon_decl = try block.startAnonDecl(); // TODO: export value without Decl
         defer anon_decl.deinit();
