@@ -196,8 +196,6 @@ pub const Poly1305 = struct {
 };
 
 test "poly1305 rfc7439 vector1" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expected_mac = "\xa8\x06\x1d\xc1\x30\x51\x36\xc6\xc2\x2b\x8b\xaf\x0c\x01\x27\xa9";
 
     const msg = "Cryptographic Forum Research Group";

@@ -4740,6 +4740,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
     // TODO we could allocate register here, but need to expect addr register and potentially
     // offset register.
+    try self.spillEflagsIfOccupied();
     const dst_mcv = try self.allocRegOrMem(inst, false);
     try self.genBinOpMir(
         .{ ._, .add },
@@ -14884,6 +14885,7 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
         .bits = @intCast(ty.bitSize(mod)),
     };
     const max_reg_bit_width = Register.rax.bitSize();
+    try self.spillEflagsIfOccupied();
     switch (int_info.signedness) {
         .signed => {
             const shift: u6 = @intCast(max_reg_bit_width - int_info.bits);

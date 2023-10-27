@@ -350,8 +350,6 @@ const TestTreap = Treap(u64, std.math.order);
 const TestNode = TestTreap.Node;
 
 test "std.Treap: insert, find, replace, remove" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var treap = TestTreap{};
     var nodes: [10]TestNode = undefined;
 
