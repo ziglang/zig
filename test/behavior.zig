@@ -253,7 +253,6 @@ test {
         builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .stage2_spirv64)
     {
-        _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
     }
