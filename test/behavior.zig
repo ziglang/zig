@@ -189,6 +189,7 @@ test {
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
+    _ = @import("behavior/nan.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/packed-struct.zig");
@@ -253,7 +254,6 @@ test {
         builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .stage2_spirv64)
     {
-        _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
     }
 }
