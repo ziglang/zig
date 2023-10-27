@@ -96,7 +96,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     } else {
                         const r_type: u32 = if (sym.flags.has_zig_got)
                             link.File.Elf.R_X86_64_ZIG_GOT32
-                        else if (sym.flags.has_got)
+                        else if (sym.flags.needs_got)
                             std.elf.R_X86_64_GOT32
                         else
                             std.elf.R_X86_64_32;

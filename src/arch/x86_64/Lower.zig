@@ -415,7 +415,49 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
-    try lower.emit(switch (fixes) {
+    if (inst.ops == .linker_reloc) {
+        if (lower.bin_file.options.pic) {
+            const reg = inst.data.rx.r1;
+            const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+            _ = lower.reloc(.{ .linker_reloc = extra });
+            const mnemonic: Mnemonic = switch (inst.tag) {
+                .mov => .mov,
+                .lea => .lea,
+                else => unreachable,
+            };
+            try lower.emit(.none, mnemonic, &.{
+                .{ .reg = reg },
+                .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
+            });
+        } else {
+            switch (inst.tag) {
+                .call => {
+                    _ = lower.reloc(.{ .linker_reloc = inst.data.reloc });
+                    try lower.emit(.none, .call, &.{
+                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
+                    });
+                },
+                .lea => {
+                    const reg = inst.data.rx.r1;
+                    const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+                    try lower.emit(.none, .mov, &.{
+                        .{ .reg = reg },
+                        .{ .imm = lower.reloc(.{ .linker_reloc = extra }) },
+                    });
+                },
+                .mov => {
+                    const reg = inst.data.rx.r1;
+                    const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+                    _ = lower.reloc(.{ .linker_reloc = extra });
+                    try lower.emit(.none, .mov, &.{
+                        .{ .reg = reg },
+                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
+                    });
+                },
+                else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
+            }
+        }
+    } else try lower.emit(switch (fixes) {
         inline else => |tag| comptime if (std.mem.indexOfScalar(u8, @tagName(tag), ' ')) |space|
             @field(Prefix, @tagName(tag)[0..space])
         else
@@ -544,45 +586,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .extern_fn_reloc => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
-        .linker_reloc => ops: {
-            if (lower.bin_file.options.pic) {
-                const reg = inst.data.rx.r1;
-                const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-                _ = lower.reloc(.{ .linker_reloc = extra });
-                break :ops &.{
-                    .{ .reg = reg },
-                    .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
-                };
-            } else {
-                switch (inst.tag) {
-                    .call => {
-                        _ = lower.reloc(.{ .linker_reloc = inst.data.reloc });
-                        break :ops &.{
-                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                        };
-                    },
-                    .mov => {
-                        const reg = inst.data.rx.r1;
-                        const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-                        _ = lower.reloc(.{ .linker_reloc = extra });
-                        break :ops &.{
-                            .{ .reg = reg },
-                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                        };
-                    },
-                    .lea => {
-                        const reg = inst.data.rx.r1;
-                        const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-                        _ = lower.reloc(.{ .linker_reloc = extra });
-                        break :ops &.{
-                            .{ .reg = reg },
-                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                        };
-                    },
-                    else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-                }
-            }
-        },
+        .linker_reloc => unreachable,
         .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
             const reg = inst.data.rx.r1;
             const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;

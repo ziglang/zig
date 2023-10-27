@@ -6176,7 +6176,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_symbol, .lea_symbol, .load_tlv => unreachable, // TODO
+            .load_symbol, .load_tlv => unreachable, // TODO
         },
         .fail => |msg| {
             self.err_msg = msg;

@@ -453,8 +453,8 @@ pub const MCValue = union(enum) {
             .lea_frame => |pl| try writer.print("{} + 0x{x}", .{ pl.index, pl.off }),
             .reserved_frame => |pl| try writer.print("(dead:{})", .{pl}),
             .air_ref => |pl| try writer.print("(air:0x{x})", .{@intFromEnum(pl)}),
-            .load_symbol => |pl| try writer.print("[mem:{d}]", .{pl}),
-            .lea_symbol => |pl| try writer.print("mem:{d}", .{pl}),
+            .load_symbol => |pl| try writer.print("[symbol:{d}]", .{pl}),
+            .lea_symbol => |pl| try writer.print("symbol:{d}", .{pl}),
         }
     }
 };
@@ -11627,8 +11627,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_got = sym_index }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
-                    .lea_symbol => |sym_index| if (mem.eql(u8, modifier, "P"))
-                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_symbol = sym_index }) }
+                    .load_symbol => |sym_index| if (mem.eql(u8, modifier, "P"))
+                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .load_symbol = sym_index }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
@@ -12489,10 +12489,9 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         },
         .lea_symbol, .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const sym = elf_file.symbol(elf_file.zigModulePtr().symbol(sym_index));
+            if (self.bin_file.cast(link.File.Elf)) |_| {
                 _ = try self.addInst(.{
-                    .tag = if (sym.flags.has_zig_got) .mov else .lea,
+                    .tag = .lea,
                     .ops = .linker_reloc,
                     .data = .{ .rx = .{
                         .r1 = dst_reg.to64(),
@@ -12783,7 +12782,7 @@ fn genLazySymbolRef(
             };
             switch (tag) {
                 .lea, .mov => _ = try self.addInst(.{
-                    .tag = .mov,
+                    .tag = tag,
                     .ops = .linker_reloc,
                     .data = .{ .rx = .{
                         .r1 = reg.to64(),
@@ -12795,15 +12794,6 @@ fn genLazySymbolRef(
                     .ops = .linker_reloc,
                     .data = .{ .reloc = reloc },
                 }),
-                else => unreachable,
-            }
-            switch (tag) {
-                .lea, .call => {},
-                .mov => try self.asmRegisterMemory(
-                    .{ ._, tag },
-                    reg.to64(),
-                    Memory.sib(.qword, .{ .base = .{ .reg = reg.to64() } }),
-                ),
                 else => unreachable,
             }
         }
@@ -14692,10 +14682,12 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     } else mcv: {
         const ip_index = Air.refToInterned(ref).?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
-        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(try self.genTypedValue(.{
+        const mcv = try self.genTypedValue(.{
             .ty = ty,
             .val = ip_index.toValue(),
-        }));
+        });
+        std.debug.print("genTypedValue: {any}\n", .{mcv});
+        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(mcv);
         break :mcv gop.value_ptr.short;
     };
 
@@ -14743,7 +14735,6 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
             .load_symbol => |sym_index| .{ .load_symbol = sym_index },
-            .lea_symbol => |sym_index| .{ .lea_symbol = sym_index },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
