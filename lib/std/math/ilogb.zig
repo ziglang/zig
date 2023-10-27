@@ -6,7 +6,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/ilogb.c
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
@@ -109,7 +108,7 @@ test "64" {
 }
 
 test "80" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try expect(ilogbX(f80, 0.0) == fp_ilogb0);
     try expect(ilogbX(f80, 0.5) == -1);

@@ -3248,9 +3248,7 @@ test {
         _ = &makeDirAbsolute;
         _ = &makeDirAbsoluteZ;
         _ = &copyFileAbsolute;
-        if (builtin.zig_backend != .stage2_x86_64) {
-            _ = &updateFileAbsolute;
-        }
+        _ = &updateFileAbsolute;
     }
     _ = &Dir.copyFile;
     _ = @import("fs/test.zig");

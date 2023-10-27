@@ -514,8 +514,6 @@ test "big.rational extractLowBits" {
 }
 
 test "big.rational set" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -545,8 +543,6 @@ test "big.rational set" {
 }
 
 test "big.rational setFloat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -572,8 +568,6 @@ test "big.rational setFloat" {
 }
 
 test "big.rational setFloatString" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -585,8 +579,6 @@ test "big.rational setFloatString" {
 }
 
 test "big.rational toFloat" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -600,8 +592,6 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var prng = std.rand.DefaultPrng.init(0x5EED);
@@ -615,8 +605,6 @@ test "big.rational set/to Float round-trip" {
 }
 
 test "big.rational copy" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -681,8 +669,6 @@ test "big.rational abs" {
 }
 
 test "big.rational swap" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -707,8 +693,6 @@ test "big.rational swap" {
 }
 
 test "big.rational order" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -724,8 +708,6 @@ test "big.rational order" {
 }
 
 test "big.rational order/orderAbs with negative" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -738,8 +720,6 @@ test "big.rational order/orderAbs with negative" {
 }
 
 test "big.rational add single-limb" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -755,8 +735,6 @@ test "big.rational add single-limb" {
 }
 
 test "big.rational add" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -773,8 +751,6 @@ test "big.rational add" {
 }
 
 test "big.rational sub" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -791,8 +767,6 @@ test "big.rational sub" {
 }
 
 test "big.rational mul" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var b = try Rational.init(testing.allocator);
@@ -809,8 +783,6 @@ test "big.rational mul" {
 }
 
 test "big.rational div" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         var a = try Rational.init(testing.allocator);
         defer a.deinit();

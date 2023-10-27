@@ -295,8 +295,6 @@ const Arg = struct {
 test Options {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 

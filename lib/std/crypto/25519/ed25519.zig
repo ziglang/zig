@@ -685,8 +685,6 @@ test "ed25519 signatures with streaming" {
 }
 
 test "ed25519 key pair from secret key" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const kp = try Ed25519.KeyPair.create(null);
     const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
     try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());

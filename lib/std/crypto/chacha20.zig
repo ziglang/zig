@@ -1029,8 +1029,6 @@ test "crypto.chacha20 test vector 5" {
 }
 
 test "seal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         const m = "";
         const ad = "";
@@ -1081,8 +1079,6 @@ test "seal" {
 }
 
 test "open" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         const c = [_]u8{ 0xa0, 0x78, 0x4d, 0x7a, 0x47, 0x16, 0xf3, 0xfe, 0xb4, 0xf6, 0x4e, 0x7f, 0x4b, 0x39, 0xbf, 0x4 };
         const ad = "";
@@ -1147,8 +1143,6 @@ test "open" {
 }
 
 test "crypto.xchacha20" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const key = [_]u8{69} ** 32;
     const nonce = [_]u8{42} ** 24;
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";

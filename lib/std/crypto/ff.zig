@@ -6,7 +6,7 @@
 //! Parts of that code was ported from the BSD-licensed crypto/internal/bigmod/nat.go file in the Go language, itself inspired from BearSSL.
 
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
@@ -14,6 +14,7 @@ const meta = std.meta;
 const testing = std.testing;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
+const Endian = std.builtin.Endian;
 
 // A Limb is a single digit in a big integer.
 const Limb = usize;
@@ -27,7 +28,7 @@ const t_bits: usize = @bitSizeOf(Limb) - carry_bits;
 // A TLimb is a Limb that is truncated to t_bits.
 const TLimb = meta.Int(.unsigned, t_bits);
 
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 // A WideLimb is a Limb that is twice as wide as a normal Limb.
 const WideLimb = struct {
@@ -128,7 +129,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
         }
 
         /// Encodes a big integer into a byte array.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             if (bytes.len == 0) {
                 if (self.isZero()) return;
                 return error.Overflow;
@@ -175,7 +176,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
         }
 
         /// Creates a new big integer from a byte array.
-        pub fn fromBytes(bytes: []const u8, comptime endian: builtin.Endian) OverflowError!Self {
+        pub fn fromBytes(bytes: []const u8, comptime endian: Endian) OverflowError!Self {
             if (bytes.len == 0) return Self.zero;
             var shift: usize = 0;
             var out = Self.zero;
@@ -335,7 +336,7 @@ fn Fe_(comptime bits: comptime_int) type {
         }
 
         /// Creates a field element from a byte string.
-        pub fn fromBytes(m: Modulus(bits), bytes: []const u8, comptime endian: builtin.Endian) (OverflowError || FieldElementError)!Self {
+        pub fn fromBytes(m: Modulus(bits), bytes: []const u8, comptime endian: Endian) (OverflowError || FieldElementError)!Self {
             const v = try FeUint.fromBytes(bytes, endian);
             var fe = Self{ .v = v };
             try m.shrink(&fe);
@@ -344,7 +345,7 @@ fn Fe_(comptime bits: comptime_int) type {
         }
 
         /// Converts the field element to a byte string.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             return self.v.toBytes(bytes, endian);
         }
 
@@ -458,13 +459,13 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         }
 
         /// Creates a new modulus from a byte string.
-        pub fn fromBytes(bytes: []const u8, comptime endian: builtin.Endian) (InvalidModulusError || OverflowError)!Self {
+        pub fn fromBytes(bytes: []const u8, comptime endian: Endian) (InvalidModulusError || OverflowError)!Self {
             const v = try FeUint.fromBytes(bytes, endian);
             return try Self.fromUint(v);
         }
 
         /// Serializes the modulus to a byte string.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             return self.v.toBytes(bytes, endian);
         }
 
@@ -658,7 +659,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
 
         // Returns x^e (mod m), with the exponent provided as a byte string.
         // `public` must be set to `false` if the exponent it secret.
-        fn powWithEncodedExponentInternal(self: Self, x: Fe, e: []const u8, endian: builtin.Endian, comptime public: bool) NullExponentError!Fe {
+        fn powWithEncodedExponentInternal(self: Self, x: Fe, e: []const u8, endian: Endian, comptime public: bool) NullExponentError!Fe {
             var acc: u8 = 0;
             for (e) |b| acc |= b;
             if (acc == 0) return error.NullExponent;
@@ -801,7 +802,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// doesn't have to be created if a serialized representation is already available.
         ///
         /// If the exponent is public, `powWithEncodedPublicExponent()` can be used instead for a slight speedup.
-        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) NullExponentError!Fe {
+        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: Endian) NullExponentError!Fe {
             return self.powWithEncodedExponentInternal(x, e, endian, false);
         }
 
@@ -810,7 +811,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// doesn't have to be created if a serialized representation is already available.
         ///
         /// If the exponent is secret, `powWithEncodedExponent` must be used instead.
-        pub fn powWithEncodedPublicExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) NullExponentError!Fe {
+        pub fn powWithEncodedPublicExponent(self: Self, x: Fe, e: []const u8, endian: Endian) NullExponentError!Fe {
             return self.powWithEncodedExponentInternal(x, e, endian, true);
         }
     };
@@ -912,10 +913,8 @@ const ct_unprotected = struct {
 };
 
 test {
-    switch (@import("builtin").zig_backend) {
-        .stage2_c, .stage2_x86_64 => return error.SkipZigTest,
-        else => {},
-    }
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const M = Modulus(256);
     const m = try M.fromPrimitive(u256, 3429938563481314093726330772853735541133072814650493833233);

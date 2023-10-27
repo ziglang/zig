@@ -1069,8 +1069,6 @@ var deflate_tests = [_]DeflateTest{
 };
 
 test "deflate" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     for (deflate_tests) |dt| {
         var output = ArrayList(u8).init(testing.allocator);
         defer output.deinit();

@@ -34,8 +34,6 @@ fn testHighLevelDynamicParser(s: []const u8) !void {
 
 // Additional tests not part of test JSONTestSuite.
 test "y_trailing_comma_after_empty" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try roundTrip(
         \\{"1":[],"2":{},"3":"4"}
     );

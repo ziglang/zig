@@ -264,8 +264,6 @@ test "sanity checks" {
 }
 
 test "compress data" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = testing.allocator;
     const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 

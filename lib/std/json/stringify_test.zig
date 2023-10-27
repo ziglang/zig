@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
 
@@ -16,8 +15,6 @@ const writeStreamMaxDepth = @import("stringify.zig").writeStreamMaxDepth;
 const writeStreamArbitraryDepth = @import("stringify.zig").writeStreamArbitraryDepth;
 
 test "json write stream" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var out_buf: [1024]u8 = undefined;
     var slice_stream = std.io.fixedBufferStream(&out_buf);
     const out = slice_stream.writer();
