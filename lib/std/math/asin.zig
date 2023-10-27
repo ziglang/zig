@@ -169,15 +169,15 @@ test "math.asin64" {
 }
 
 test "math.asin32.special" {
-    try expect(asin32(0.0) == 0.0);
-    try expect(asin32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(asin32(0.0)));
+    try expect(math.isNegativeZero(asin32(-0.0)));
     try expect(math.isNan(asin32(-2)));
     try expect(math.isNan(asin32(1.5)));
 }
 
 test "math.asin64.special" {
-    try expect(asin64(0.0) == 0.0);
-    try expect(asin64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(asin64(0.0)));
+    try expect(math.isNegativeZero(asin64(-0.0)));
     try expect(math.isNan(asin64(-2)));
     try expect(math.isNan(asin64(1.5)));
 }

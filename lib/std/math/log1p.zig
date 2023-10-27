@@ -212,8 +212,8 @@ test "math.log1p_64" {
 
 test "math.log1p_32.special" {
     try expect(math.isPositiveInf(log1p_32(math.inf(f32))));
-    try expect(log1p_32(0.0) == 0.0);
-    try expect(log1p_32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(log1p_32(0.0)));
+    try expect(math.isNegativeZero(log1p_32(-0.0)));
     try expect(math.isNegativeInf(log1p_32(-1.0)));
     try expect(math.isNan(log1p_32(-2.0)));
     try expect(math.isNan(log1p_32(math.nan(f32))));
@@ -221,8 +221,8 @@ test "math.log1p_32.special" {
 
 test "math.log1p_64.special" {
     try expect(math.isPositiveInf(log1p_64(math.inf(f64))));
-    try expect(log1p_64(0.0) == 0.0);
-    try expect(log1p_64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(log1p_64(0.0)));
+    try expect(math.isNegativeZero(log1p_64(-0.0)));
     try expect(math.isNegativeInf(log1p_64(-1.0)));
     try expect(math.isNan(log1p_64(-2.0)));
     try expect(math.isNan(log1p_64(math.nan(f64))));

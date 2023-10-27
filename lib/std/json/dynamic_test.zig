@@ -347,7 +347,7 @@ test "negative zero" {
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
     defer parsed.deinit();
 
-    try testing.expect(parsed.value.float == 0 and std.math.signbit(parsed.value.float));
+    try testing.expect(std.math.isNegativeZero(parsed.value.float));
 }
 
 fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
