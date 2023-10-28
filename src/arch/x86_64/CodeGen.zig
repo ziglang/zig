@@ -3873,39 +3873,65 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                     const lhs_mcv = try self.resolveInst(bin_op.lhs);
                     const rhs_mcv = try self.resolveInst(bin_op.rhs);
+                    const mat_lhs_mcv = switch (lhs_mcv) {
+                        .load_symbol => mat_lhs_mcv: {
+                            // TODO clean this up!
+                            const addr_reg = try self.copyToTmpRegister(Type.usize, lhs_mcv.address());
+                            break :mat_lhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+                        },
+                        else => lhs_mcv,
+                    };
+                    const mat_lhs_lock = switch (mat_lhs_mcv) {
+                        .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+                        else => null,
+                    };
+                    defer if (mat_lhs_lock) |lock| self.register_manager.unlockReg(lock);
+                    const mat_rhs_mcv = switch (rhs_mcv) {
+                        .load_symbol => mat_rhs_mcv: {
+                            // TODO clean this up!
+                            const addr_reg = try self.copyToTmpRegister(Type.usize, rhs_mcv.address());
+                            break :mat_rhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+                        },
+                        else => rhs_mcv,
+                    };
+                    const mat_rhs_lock = switch (mat_rhs_mcv) {
+                        .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+                        else => null,
+                    };
+                    defer if (mat_rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-                    if (lhs_mcv.isMemory())
-                        try self.asmRegisterMemory(.{ ._, .mov }, .rax, lhs_mcv.mem(.qword))
+                    if (mat_lhs_mcv.isMemory())
+                        try self.asmRegisterMemory(.{ ._, .mov }, .rax, mat_lhs_mcv.mem(.qword))
                     else
-                        try self.asmRegisterRegister(.{ ._, .mov }, .rax, lhs_mcv.register_pair[0]);
-                    if (rhs_mcv.isMemory()) try self.asmRegisterMemory(
+                        try self.asmRegisterRegister(.{ ._, .mov }, .rax, mat_lhs_mcv.register_pair[0]);
+                    if (mat_rhs_mcv.isMemory()) try self.asmRegisterMemory(
                         .{ ._, .mov },
                         tmp_regs[0],
-                        rhs_mcv.address().offset(8).deref().mem(.qword),
+                        mat_rhs_mcv.address().offset(8).deref().mem(.qword),
                     ) else try self.asmRegisterRegister(
                         .{ ._, .mov },
                         tmp_regs[0],
-                        rhs_mcv.register_pair[1],
+                        mat_rhs_mcv.register_pair[1],
                     );
                     try self.asmRegisterRegister(.{ ._, .@"test" }, tmp_regs[0], tmp_regs[0]);
                     try self.asmSetccRegister(.nz, tmp_regs[1].to8());
                     try self.asmRegisterRegister(.{ .i_, .mul }, tmp_regs[0], .rax);
                     try self.asmSetccRegister(.o, tmp_regs[2].to8());
-                    if (rhs_mcv.isMemory())
-                        try self.asmMemory(.{ ._, .mul }, rhs_mcv.mem(.qword))
+                    if (mat_rhs_mcv.isMemory())
+                        try self.asmMemory(.{ ._, .mul }, mat_rhs_mcv.mem(.qword))
                     else
-                        try self.asmRegister(.{ ._, .mul }, rhs_mcv.register_pair[0]);
+                        try self.asmRegister(.{ ._, .mul }, mat_rhs_mcv.register_pair[0]);
                     try self.asmRegisterRegister(.{ ._, .add }, .rdx, tmp_regs[0]);
                     try self.asmSetccRegister(.c, tmp_regs[3].to8());
                     try self.asmRegisterRegister(.{ ._, .@"or" }, tmp_regs[2].to8(), tmp_regs[3].to8());
-                    if (lhs_mcv.isMemory()) try self.asmRegisterMemory(
+                    if (mat_lhs_mcv.isMemory()) try self.asmRegisterMemory(
                         .{ ._, .mov },
                         tmp_regs[0],
-                        lhs_mcv.address().offset(8).deref().mem(.qword),
+                        mat_lhs_mcv.address().offset(8).deref().mem(.qword),
                     ) else try self.asmRegisterRegister(
                         .{ ._, .mov },
                         tmp_regs[0],
-                        lhs_mcv.register_pair[1],
+                        mat_lhs_mcv.register_pair[1],
                     );
                     try self.asmRegisterRegister(.{ ._, .@"test" }, tmp_regs[0], tmp_regs[0]);
                     try self.asmSetccRegister(.nz, tmp_regs[3].to8());
@@ -3915,13 +3941,13 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         tmp_regs[3].to8(),
                     );
                     try self.asmRegisterRegister(.{ ._, .@"or" }, tmp_regs[1].to8(), tmp_regs[2].to8());
-                    if (rhs_mcv.isMemory())
-                        try self.asmRegisterMemory(.{ .i_, .mul }, tmp_regs[0], rhs_mcv.mem(.qword))
+                    if (mat_rhs_mcv.isMemory())
+                        try self.asmRegisterMemory(.{ .i_, .mul }, tmp_regs[0], mat_rhs_mcv.mem(.qword))
                     else
                         try self.asmRegisterRegister(
                             .{ .i_, .mul },
                             tmp_regs[0],
-                            rhs_mcv.register_pair[0],
+                            mat_rhs_mcv.register_pair[0],
                         );
                     try self.asmSetccRegister(.o, tmp_regs[2].to8());
                     try self.asmRegisterRegister(.{ ._, .@"or" }, tmp_regs[1].to8(), tmp_regs[2].to8());
@@ -7359,34 +7385,61 @@ fn genMulDivBinOp(
         const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rdx });
         defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
+        const mat_lhs_mcv = switch (lhs_mcv) {
+            .load_symbol => mat_lhs_mcv: {
+                // TODO clean this up!
+                const addr_reg = try self.copyToTmpRegister(Type.usize, lhs_mcv.address());
+                break :mat_lhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+            },
+            else => lhs_mcv,
+        };
+        const mat_lhs_lock = switch (mat_lhs_mcv) {
+            .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+            else => null,
+        };
+        defer if (mat_lhs_lock) |lock| self.register_manager.unlockReg(lock);
+        const mat_rhs_mcv = switch (rhs_mcv) {
+            .load_symbol => mat_rhs_mcv: {
+                // TODO clean this up!
+                const addr_reg = try self.copyToTmpRegister(Type.usize, rhs_mcv.address());
+                break :mat_rhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+            },
+            else => rhs_mcv,
+        };
+        const mat_rhs_lock = switch (mat_rhs_mcv) {
+            .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+            else => null,
+        };
+        defer if (mat_rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
         const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
         const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
         defer self.register_manager.unlockReg(tmp_lock);
 
-        if (lhs_mcv.isMemory())
-            try self.asmRegisterMemory(.{ ._, .mov }, .rax, lhs_mcv.mem(.qword))
+        if (mat_lhs_mcv.isMemory())
+            try self.asmRegisterMemory(.{ ._, .mov }, .rax, mat_lhs_mcv.mem(.qword))
         else
-            try self.asmRegisterRegister(.{ ._, .mov }, .rax, lhs_mcv.register_pair[0]);
-        if (rhs_mcv.isMemory()) try self.asmRegisterMemory(
+            try self.asmRegisterRegister(.{ ._, .mov }, .rax, mat_lhs_mcv.register_pair[0]);
+        if (mat_rhs_mcv.isMemory()) try self.asmRegisterMemory(
             .{ ._, .mov },
             tmp_reg,
-            rhs_mcv.address().offset(8).deref().mem(.qword),
-        ) else try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, rhs_mcv.register_pair[1]);
+            mat_rhs_mcv.address().offset(8).deref().mem(.qword),
+        ) else try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, mat_rhs_mcv.register_pair[1]);
         try self.asmRegisterRegister(.{ .i_, .mul }, tmp_reg, .rax);
-        if (rhs_mcv.isMemory())
-            try self.asmMemory(.{ ._, .mul }, rhs_mcv.mem(.qword))
+        if (mat_rhs_mcv.isMemory())
+            try self.asmMemory(.{ ._, .mul }, mat_rhs_mcv.mem(.qword))
         else
-            try self.asmRegister(.{ ._, .mul }, rhs_mcv.register_pair[0]);
+            try self.asmRegister(.{ ._, .mul }, mat_rhs_mcv.register_pair[0]);
         try self.asmRegisterRegister(.{ ._, .add }, .rdx, tmp_reg);
-        if (lhs_mcv.isMemory()) try self.asmRegisterMemory(
+        if (mat_lhs_mcv.isMemory()) try self.asmRegisterMemory(
             .{ ._, .mov },
             tmp_reg,
-            lhs_mcv.address().offset(8).deref().mem(.qword),
-        ) else try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, lhs_mcv.register_pair[1]);
-        if (rhs_mcv.isMemory())
-            try self.asmRegisterMemory(.{ .i_, .mul }, tmp_reg, rhs_mcv.mem(.qword))
+            mat_lhs_mcv.address().offset(8).deref().mem(.qword),
+        ) else try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, mat_lhs_mcv.register_pair[1]);
+        if (mat_rhs_mcv.isMemory())
+            try self.asmRegisterMemory(.{ .i_, .mul }, tmp_reg, mat_rhs_mcv.mem(.qword))
         else
-            try self.asmRegisterRegister(.{ .i_, .mul }, tmp_reg, rhs_mcv.register_pair[0]);
+            try self.asmRegisterRegister(.{ .i_, .mul }, tmp_reg, mat_rhs_mcv.register_pair[0]);
         try self.asmRegisterRegister(.{ ._, .add }, .rdx, tmp_reg);
         return .{ .register_pair = .{ .rax, .rdx } };
     }
