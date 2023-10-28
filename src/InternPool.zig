@@ -580,7 +580,7 @@ pub const Key = union(enum) {
         pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: Zir.Inst.Index) void {
             assert(s.layout != .Packed);
             const field_index = std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?;
-            ip.extra.items[s.extra_index + field_index] = new_zir_index;
+            ip.extra.items[s.extra_index + field_index] = @intFromEnum(new_zir_index);
         }
 
         pub fn haveFieldTypes(s: @This(), ip: *const InternPool) bool {
@@ -2481,7 +2481,14 @@ pub const static_keys = [_]Key{
 };
 
 /// How many items in the InternPool are statically known.
-pub const static_len: u32 = static_keys.len;
+/// This is specified with an integer literal and a corresponding comptime
+/// assert below to break an unfortunate and arguably incorrect dependency loop
+/// when compiling.
+pub const static_len = 84;
+comptime {
+    //@compileLog(static_keys.len);
+    assert(static_len == static_keys.len);
+}
 
 pub const Tag = enum(u8) {
     /// An integer type.
@@ -3658,7 +3665,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .extra_index = 0,
             .namespace = .none,
             .decl = .none,
-            .zir_index = @as(u32, undefined),
+            .zir_index = undefined,
             .layout = .Auto,
             .field_names = .{ .start = 0, .len = 0 },
             .field_types = .{ .start = 0, .len = 0 },
@@ -3674,7 +3681,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .extra_index = 0,
             .namespace = @as(Module.Namespace.Index, @enumFromInt(data)).toOptional(),
             .decl = .none,
-            .zir_index = @as(u32, undefined),
+            .zir_index = undefined,
             .layout = .Auto,
             .field_names = .{ .start = 0, .len = 0 },
             .field_types = .{ .start = 0, .len = 0 },
@@ -6403,6 +6410,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             NullTerminatedString,
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
+            Zir.Inst.Index,
             => @intFromEnum(@field(extra, field.name)),
 
             u32,
@@ -6477,6 +6485,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             NullTerminatedString,
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
+            Zir.Inst.Index,
             => @enumFromInt(int32),
 
             u32,
@@ -8191,7 +8200,7 @@ pub fn funcZirBodyInst(ip: *const InternPool, i: Index) Zir.Inst.Index {
         },
         else => unreachable,
     };
-    return ip.extra.items[extra_index];
+    return @enumFromInt(ip.extra.items[extra_index]);
 }
 
 pub fn iesFuncIndex(ip: *const InternPool, ies_index: Index) Index {

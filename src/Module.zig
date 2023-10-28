@@ -389,7 +389,7 @@ pub const Decl = struct {
     /// Index to ZIR `extra` array to the entry in the parent's decl structure
     /// (the part that says "for every decls_len"). The first item at this index is
     /// the contents hash, followed by line, name, etc.
-    /// For anonymous decls and also the root Decl for a File, this is 0.
+    /// For anonymous decls and also the root Decl for a File, this is `none`.
     zir_decl_index: Zir.OptionalExtraIndex,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
@@ -547,7 +547,7 @@ pub const Decl = struct {
     pub fn zirBlockIndex(decl: *const Decl, mod: *Module) Zir.Inst.Index {
         assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        return zir.extra[@intFromEnum(decl.zir_decl_index) + 6];
+        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 6]);
     }
 
     pub fn zirAlignRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
@@ -1205,9 +1205,8 @@ pub const File = struct {
         if (imports_index == 0) return;
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
 
-        var import_i: u32 = 0;
         var extra_index = extra.end;
-        while (import_i < extra.data.imports_len) : (import_i += 1) {
+        for (0..extra.data.imports_len) |_| {
             const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
@@ -3206,8 +3205,8 @@ pub fn mapOldZirToNew(
 
     // Main struct inst is always the same
     try match_stack.append(gpa, .{
-        .old_inst = Zir.main_struct_inst,
-        .new_inst = Zir.main_struct_inst,
+        .old_inst = .main_struct_inst,
+        .new_inst = .main_struct_inst,
     });
 
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
@@ -3622,11 +3621,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     };
     defer sema.deinit();
 
-    const main_struct_inst = Zir.main_struct_inst;
     const struct_ty = sema.getStructType(
         new_decl_index,
         new_namespace_index,
-        main_struct_inst,
+        .main_struct_inst,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -3754,11 +3752,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     defer block_scope.instructions.deinit(gpa);
 
     const zir_block_index = decl.zirBlockIndex(mod);
-    const inst_data = zir_datas[zir_block_index].pl_node;
+    const inst_data = zir_datas[@intFromEnum(zir_block_index)].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
-    const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
-    // We'll do some other bits with the Sema. Clear the type target index just in case they analyze any type.
+    const result_ref = (try sema.analyzeBodyBreak(&block_scope, @ptrCast(body))).?.operand;
+    // We'll do some other bits with the Sema. Clear the type target index just
+    // in case they analyze any type.
     sema.builtin_type_target_index = .none;
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
@@ -6471,13 +6470,13 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
     const param_body = file.zir.getParamBody(func.zir_body_inst);
     const param = param_body[index];
 
-    return switch (tags[param]) {
+    return switch (tags[@intFromEnum(param)]) {
         .param, .param_comptime => blk: {
-            const extra = file.zir.extraData(Zir.Inst.Param, data[param].pl_tok.payload_index);
+            const extra = file.zir.extraData(Zir.Inst.Param, data[@intFromEnum(param)].pl_tok.payload_index);
             break :blk file.zir.nullTerminatedString(extra.data.name);
         },
         .param_anytype, .param_anytype_comptime => blk: {
-            const param_data = data[param].str_tok;
+            const param_data = data[@intFromEnum(param)].str_tok;
             break :blk param_data.get(file.zir);
         },
         else => unreachable,
