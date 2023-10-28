@@ -161,6 +161,7 @@ test {
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
+    _ = @import("behavior/export_builtin.zig");
     _ = @import("behavior/export_self_referential_type_info.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
@@ -169,6 +170,7 @@ test {
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
+    _ = @import("behavior/globals.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
@@ -188,6 +190,7 @@ test {
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
+    _ = @import("behavior/nan.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/packed-struct.zig");
@@ -252,9 +255,6 @@ test {
         builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .stage2_spirv64)
     {
-        _ = @import("behavior/bugs/13063.zig");
-        _ = @import("behavior/bugs/11227.zig");
-        _ = @import("behavior/bugs/14198.zig");
-        _ = @import("behavior/export.zig");
+        _ = @import("behavior/export_keyword.zig");
     }
 }

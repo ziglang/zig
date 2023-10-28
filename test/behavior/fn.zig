@@ -574,3 +574,20 @@ test "pass and return comptime-only types" {
     try expectEqual(null, S.returnNull(null));
     try expectEqual(@as(u0, 0), S.returnUndefined(undefined));
 }
+
+test "pointer to alias behaves same as pointer to function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo() u32 {
+            return 11227;
+        }
+        const bar = foo;
+    };
+    var a = &S.bar;
+    try std.testing.expect(S.foo() == a());
+}
