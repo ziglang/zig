@@ -990,8 +990,6 @@ test "big.int mul 0*0" {
 }
 
 test "big.int mul large" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initCapacity(testing.allocator, 50);
     defer a.deinit();
     var b = try Managed.initCapacity(testing.allocator, 100);
@@ -1075,8 +1073,6 @@ test "big.int mulWrap multi-multi signed" {
 }
 
 test "big.int mulWrap large" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initCapacity(testing.allocator, 50);
     defer a.deinit();
     var b = try Managed.initCapacity(testing.allocator, 100);

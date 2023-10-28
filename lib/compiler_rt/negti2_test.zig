@@ -7,8 +7,6 @@ fn test__negti2(a: i128, expected: i128) !void {
 }
 
 test "negti2" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // TODO ensuring that math.minInt(i128); returns error
 
     try test__negti2(-3, 3);

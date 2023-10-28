@@ -23,8 +23,6 @@ fn simple_addoti4(a: i128, b: i128, overflow: *c_int) i128 {
 }
 
 test "addoti4" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const min: i128 = math.minInt(i128);
     const max: i128 = math.maxInt(i128);
     var i: i128 = 1;

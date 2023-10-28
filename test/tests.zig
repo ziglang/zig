@@ -1241,11 +1241,6 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 continue;
             }
 
-            if (c_abi_target.use_llvm == false and optimize_mode == .ReleaseFast) {
-                // panic: unrecognized command line argument
-                continue;
-            }
-
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
                     c_abi_target.target.zigTriple(b.allocator) catch @panic("OOM"),

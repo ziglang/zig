@@ -35,8 +35,6 @@ fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
 }
 
 test "addtf3" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try test__addtf3(qnan128, 0x1.23456789abcdefp+5, 0x7fff800000000000, 0x0);
 
     // NaN + any = NaN
@@ -106,8 +104,6 @@ fn test__addxf3(a: f80, b: f80, expected: u80) !void {
 }
 
 test "addxf3" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // NaN + any = NaN
     try test__addxf3(qnan80, 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));
     try test__addxf3(@as(f80, @bitCast(@as(u80, 0x7fff_8000_8000_3000_0000))), 0x1.23456789abcdefp+5, @as(u80, @bitCast(qnan80)));

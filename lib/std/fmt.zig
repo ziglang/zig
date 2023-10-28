@@ -2435,8 +2435,6 @@ test "float.hexadecimal" {
 }
 
 test "float.hexadecimal.precision" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expectFmt("f16: 0x1.5p-2", "f16: {x:.1}", .{@as(f16, 1.0 / 3.0)});
     try expectFmt("f32: 0x1.555p-2", "f32: {x:.3}", .{@as(f32, 1.0 / 3.0)});
     try expectFmt("f64: 0x1.55555p-2", "f64: {x:.5}", .{@as(f64, 1.0 / 3.0)});
