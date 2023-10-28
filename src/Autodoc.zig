@@ -3925,7 +3925,7 @@ fn analyzeAllDecls(
     {
         var it = original_it;
         while (it.next()) |d| {
-            const decl_name_index = file.zir.extra[d.sub_index + 5];
+            const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
             switch (decl_name_index) {
                 0, 1, 2 => continue,
                 else => if (file.zir.string_bytes[decl_name_index] == 0) {
@@ -3942,7 +3942,7 @@ fn analyzeAllDecls(
         var it = original_it;
         var decl_indexes_slot = first_decl_indexes_slot;
         while (it.next()) |d| : (decl_indexes_slot += 1) {
-            const decl_name_index = file.zir.extra[d.sub_index + 5];
+            const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
             switch (decl_name_index) {
                 0 => {
                     const is_exported = @as(u1, @truncate(d.flags >> 1));
@@ -3969,7 +3969,7 @@ fn analyzeAllDecls(
     // Third loop to analyze all remaining decls
     var it = original_it;
     while (it.next()) |d| {
-        const decl_name_index = file.zir.extra[d.sub_index + 5];
+        const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
         switch (decl_name_index) {
             0, 1 => continue, // skip over usingnamespace decls
             2 => continue, // skip decltests
@@ -3993,7 +3993,7 @@ fn analyzeAllDecls(
     // Fourth loop to analyze decltests
     it = original_it;
     while (it.next()) |d| {
-        const decl_name_index = file.zir.extra[d.sub_index + 5];
+        const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
         switch (decl_name_index) {
             0, 1 => continue, // skip over usingnamespace decls
             2 => {},
@@ -4028,7 +4028,7 @@ fn analyzeDecl(
     const has_align = @as(u1, @truncate(d.flags >> 2)) != 0;
     const has_section_or_addrspace = @as(u1, @truncate(d.flags >> 3)) != 0;
 
-    var extra_index = d.sub_index;
+    var extra_index = @intFromEnum(d.sub_index);
     // const hash_u32s = file.zir.extra[extra_index..][0..4];
 
     extra_index += 4;
@@ -4158,8 +4158,8 @@ fn analyzeUsingnamespaceDecl(
     const data = file.zir.instructions.items(.data);
 
     const is_pub = @as(u1, @truncate(d.flags)) != 0;
-    const value_index = file.zir.extra[d.sub_index + 6];
-    const doc_comment_index = file.zir.extra[d.sub_index + 7];
+    const value_index = file.zir.extra[@intFromEnum(d.sub_index) + 6];
+    const doc_comment_index = file.zir.extra[@intFromEnum(d.sub_index) + 7];
 
     // This is known to work because decl values are always block_inlines
     const value_pl_node = data[value_index].pl_node;
@@ -4218,8 +4218,8 @@ fn analyzeDecltest(
 ) AutodocErrors!void {
     const data = file.zir.instructions.items(.data);
 
-    const value_index = file.zir.extra[d.sub_index + 6];
-    const decl_name_index = file.zir.extra[d.sub_index + 7];
+    const value_index = file.zir.extra[@intFromEnum(d.sub_index) + 6];
+    const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 7];
 
     const value_pl_node = data[value_index].pl_node;
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);

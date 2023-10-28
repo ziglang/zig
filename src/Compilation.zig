@@ -2267,7 +2267,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const decl = module.declPtr(decl_index);
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
-            assert(decl.zir_decl_index != 0);
+            assert(decl.zir_decl_index != .none);
 
             try module.clearDecl(decl_index, null);
         }
