@@ -3333,7 +3333,8 @@ pub fn updateDecl(
         const variable = decl.getOwnedVariable(mod).?;
         const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
-        _ = try self.getGlobalSymbol(name, lib_name);
+        const esym_index = try self.getGlobalSymbol(name, lib_name);
+        self.symbol(self.zigModulePtr().symbol(esym_index)).flags.needs_got = true;
         return;
     }
 
@@ -5953,6 +5954,12 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
         try zig_module.global_symbols.append(gpa, gop.index);
     }
     return lookup_gop.value_ptr.*;
+}
+
+pub fn zigModulePtr(self: *Elf) *ZigModule {
+    assert(self.zig_module_index != null);
+    const file_ptr = self.file(self.zig_module_index.?).?;
+    return file_ptr.zig_module;
 }
 
 const GetOrCreateComdatGroupOwnerResult = struct {

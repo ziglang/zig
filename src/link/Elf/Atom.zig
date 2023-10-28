@@ -370,6 +370,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 try self.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
             },
 
+            elf.R_X86_64_GOT32,
             elf.R_X86_64_GOTPC32,
             elf.R_X86_64_GOTPC64,
             elf.R_X86_64_GOTPCREL,
@@ -878,6 +879,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
                     try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
                 }
             },
+
+            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A))),
 
             // Zig custom relocations
             Elf.R_X86_64_ZIG_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(ZIG_GOT + A))),

@@ -49,8 +49,6 @@ export fn zig_five_integers(a: i32, b: i32, c: i32, d: i32, e: i32) void {
 }
 
 test "C ABI integers" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     c_u8(0xff);
     c_u16(0xfffe);
     c_u32(0xfffffffd);
@@ -187,10 +185,8 @@ const complex_abi_compatible = builtin.cpu.arch != .x86 and !builtin.cpu.arch.is
     !builtin.cpu.arch.isARM() and !builtin.cpu.arch.isPPC() and !builtin.cpu.arch.isRISCV();
 
 test "C ABI complex float" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (!complex_abi_compatible) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
 
     const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
@@ -201,8 +197,6 @@ test "C ABI complex float" {
 }
 
 test "C ABI complex float by component" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (!complex_abi_compatible) return error.SkipZigTest;
 
     const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
@@ -214,8 +208,6 @@ test "C ABI complex float by component" {
 }
 
 test "C ABI complex double" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (!complex_abi_compatible) return error.SkipZigTest;
 
     const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
@@ -227,8 +219,6 @@ test "C ABI complex double" {
 }
 
 test "C ABI complex double by component" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (!complex_abi_compatible) return error.SkipZigTest;
 
     const a = ComplexDouble{ .real = 1.25, .imag = 2.6 };
@@ -240,8 +230,6 @@ test "C ABI complex double by component" {
 }
 
 export fn zig_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     expect(a.real == 1.25) catch @panic("test failure: zig_cmultf 1");
     expect(a.imag == 2.6) catch @panic("test failure: zig_cmultf 2");
     expect(b.real == 11.3) catch @panic("test failure: zig_cmultf 3");
@@ -251,8 +239,6 @@ export fn zig_cmultf(a: ComplexFloat, b: ComplexFloat) ComplexFloat {
 }
 
 export fn zig_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     expect(a.real == 1.25) catch @panic("test failure: zig_cmultd 1");
     expect(a.imag == 2.6) catch @panic("test failure: zig_cmultd 2");
     expect(b.real == 11.3) catch @panic("test failure: zig_cmultd 3");
@@ -262,8 +248,6 @@ export fn zig_cmultd(a: ComplexDouble, b: ComplexDouble) ComplexDouble {
 }
 
 export fn zig_cmultf_comp(a_r: f32, a_i: f32, b_r: f32, b_i: f32) ComplexFloat {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     expect(a_r == 1.25) catch @panic("test failure: zig_cmultf_comp 1");
     expect(a_i == 2.6) catch @panic("test failure: zig_cmultf_comp 2");
     expect(b_r == 11.3) catch @panic("test failure: zig_cmultf_comp 3");
@@ -273,8 +257,6 @@ export fn zig_cmultf_comp(a_r: f32, a_i: f32, b_r: f32, b_i: f32) ComplexFloat {
 }
 
 export fn zig_cmultd_comp(a_r: f64, a_i: f64, b_r: f64, b_i: f64) ComplexDouble {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     expect(a_r == 1.25) catch @panic("test failure: zig_cmultd_comp 1");
     expect(a_i == 2.6) catch @panic("test failure: zig_cmultd_comp 2");
     expect(b_r == 11.3) catch @panic("test failure: zig_cmultd_comp 3");
@@ -352,8 +334,6 @@ extern fn c_med_struct_mixed(MedStructMixed) void;
 extern fn c_ret_med_struct_mixed() MedStructMixed;
 
 test "C ABI medium struct of ints and floats" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -422,8 +402,6 @@ extern fn c_med_struct_ints(MedStructInts) void;
 extern fn c_ret_med_struct_ints() MedStructInts;
 
 test "C ABI medium struct of ints" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -531,8 +509,6 @@ extern fn c_split_struct_mixed(SplitStructMixed) void;
 extern fn c_ret_split_struct_mixed() SplitStructMixed;
 
 test "C ABI split struct of ints and floats" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -614,8 +590,6 @@ const Vector5 = extern struct {
 extern fn c_big_struct_floats(Vector5) void;
 
 test "C ABI structs of floats as parameter" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
@@ -683,8 +657,6 @@ const FloatRect = extern struct {
 };
 
 export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     expect(x.left == 1) catch @panic("test failure");
     expect(x.right == 21) catch @panic("test failure");
     expect(x.top == 16) catch @panic("test failure");
@@ -696,8 +668,6 @@ export fn zig_multiple_struct_floats(x: FloatRect, y: FloatRect) void {
 }
 
 test "C ABI structs of floats as multiple parameters" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
@@ -754,8 +724,6 @@ export fn zig_ret_small_struct_ints() SmallStructInts {
 }
 
 export fn zig_ret_med_struct_ints() MedStructInts {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{
         .x = 1,
         .y = 2,
@@ -764,8 +732,6 @@ export fn zig_ret_med_struct_ints() MedStructInts {
 }
 
 export fn zig_ret_med_struct_mixed() MedStructMixed {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{
         .a = 1234,
         .b = 100.0,
@@ -774,8 +740,6 @@ export fn zig_ret_med_struct_mixed() MedStructMixed {
 }
 
 export fn zig_ret_split_struct_mixed() SplitStructMixed {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{
         .a = 1234,
         .b = 100,
@@ -816,8 +780,6 @@ extern fn c_struct_with_array(StructWithArray) void;
 extern fn c_ret_struct_with_array() StructWithArray;
 
 test "Struct with array as padding." {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -889,7 +851,8 @@ extern fn c_medium_vec(MediumVec) void;
 extern fn c_ret_medium_vec() MediumVec;
 
 test "medium simd vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
 
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
@@ -912,7 +875,7 @@ test "big simd vector" {
 
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
@@ -933,8 +896,6 @@ extern fn c_ptr_size_float_struct(Vector2) void;
 extern fn c_ret_ptr_size_float_struct() Vector2;
 
 test "C ABI pointer sized float struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
@@ -958,8 +919,6 @@ pub inline fn expectOk(c_err: c_int) !void {
 /// Tests for Double + Char struct
 const DC = extern struct { v1: f64, v2: u8 };
 test "DC: Zig passes to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -967,8 +926,6 @@ test "DC: Zig passes to C" {
     try expectOk(c_assert_DC(.{ .v1 = -0.25, .v2 = 15 }));
 }
 test "DC: Zig returns to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
@@ -977,8 +934,6 @@ test "DC: Zig returns to C" {
     try expectOk(c_assert_ret_DC());
 }
 test "DC: C passes to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -986,8 +941,6 @@ test "DC: C passes to Zig" {
     try expectOk(c_send_DC());
 }
 test "DC: C returns to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
@@ -1001,8 +954,6 @@ pub extern fn c_assert_ret_DC() c_int;
 pub extern fn c_send_DC() c_int;
 pub extern fn c_ret_DC() DC;
 pub export fn zig_assert_DC(lv: DC) c_int {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     var err: c_int = 0;
     if (lv.v1 != -0.25) err = 1;
     if (lv.v2 != 15) err = 2;
@@ -1010,8 +961,6 @@ pub export fn zig_assert_DC(lv: DC) c_int {
     return err;
 }
 pub export fn zig_ret_DC() DC {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{ .v1 = -0.25, .v2 = 15 };
 }
 
@@ -1019,8 +968,6 @@ pub export fn zig_ret_DC() DC {
 const CFF = extern struct { v1: u8, v2: f32, v3: f32 };
 
 test "CFF: Zig passes to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1028,8 +975,6 @@ test "CFF: Zig passes to C" {
     try expectOk(c_assert_CFF(.{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }));
 }
 test "CFF: Zig returns to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1037,8 +982,6 @@ test "CFF: Zig returns to C" {
     try expectOk(c_assert_ret_CFF());
 }
 test "CFF: C passes to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
@@ -1049,8 +992,6 @@ test "CFF: C passes to Zig" {
     try expectOk(c_send_CFF());
 }
 test "CFF: C returns to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch == .x86 and builtin.mode != .Debug) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isRISCV() and builtin.mode != .Debug) return error.SkipZigTest;
@@ -1064,8 +1005,6 @@ pub extern fn c_assert_ret_CFF() c_int;
 pub extern fn c_send_CFF() c_int;
 pub extern fn c_ret_CFF() CFF;
 pub export fn zig_assert_CFF(lv: CFF) c_int {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     var err: c_int = 0;
     if (lv.v1 != 39) err = 1;
     if (lv.v2 != 0.875) err = 2;
@@ -1074,8 +1013,6 @@ pub export fn zig_assert_CFF(lv: CFF) c_int {
     return err;
 }
 pub export fn zig_ret_CFF() CFF {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 };
 }
 
@@ -1083,8 +1020,6 @@ pub export fn zig_ret_CFF() CFF {
 const PD = extern struct { v1: ?*anyopaque, v2: f64 };
 
 test "PD: Zig passes to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1092,8 +1027,6 @@ test "PD: Zig passes to C" {
     try expectOk(c_assert_PD(.{ .v1 = null, .v2 = 0.5 }));
 }
 test "PD: Zig returns to C" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1101,8 +1034,6 @@ test "PD: Zig returns to C" {
     try expectOk(c_assert_ret_PD());
 }
 test "PD: C passes to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1110,8 +1041,6 @@ test "PD: C passes to Zig" {
     try expectOk(c_send_PD());
 }
 test "PD: C returns to Zig" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
@@ -1123,8 +1052,6 @@ pub extern fn c_assert_ret_PD() c_int;
 pub extern fn c_send_PD() c_int;
 pub extern fn c_ret_PD() PD;
 pub export fn zig_c_assert_PD(lv: PD) c_int {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     var err: c_int = 0;
     if (lv.v1 != null) err = 1;
     if (lv.v2 != 0.5) err = 2;
@@ -1132,13 +1059,9 @@ pub export fn zig_c_assert_PD(lv: PD) c_int {
     return err;
 }
 pub export fn zig_ret_PD() PD {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     return .{ .v1 = null, .v2 = 0.5 };
 }
 pub export fn zig_assert_PD(lv: PD) c_int {
-    if (builtin.zig_backend == .stage2_x86_64) @panic("error.SkipZigTest");
-
     var err: c_int = 0;
     if (lv.v1 != null) err = 1;
     if (lv.v2 != 0.5) err = 2;
@@ -1228,11 +1151,9 @@ const f80_struct = extern struct {
 };
 extern fn c_f80_struct(f80_struct) f80_struct;
 test "f80 struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (!has_f80) return error.SkipZigTest;
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
-    if (builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.mode != .Debug) return error.SkipZigTest;
 
     const a = c_f80_struct(.{ .a = 12.34 });
     try expect(@as(f64, @floatCast(a.a)) == 56.78);
@@ -1317,8 +1238,6 @@ test "Stdcall ABI big union" {
 
 extern fn c_explict_win64(ByRef) callconv(.Win64) ByRef;
 test "explicit SysV calling convention" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const res = c_explict_win64(.{ .val = 1, .arr = undefined });

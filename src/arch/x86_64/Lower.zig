@@ -1,5 +1,6 @@
 //! This file contains the functionality for lowering x86_64 MIR to Instructions
 
+bin_file: *link.File,
 allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
@@ -49,11 +50,10 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
+        linker_reloc: Mir.Reloc,
         linker_extern_fn: Mir.Reloc,
         linker_got: Mir.Reloc,
-        linker_extern_got: Mir.Reloc,
         linker_direct: Mir.Reloc,
-        linker_direct_got: Mir.Reloc,
         linker_import: Mir.Reloc,
         linker_tlv: Mir.Reloc,
     };
@@ -408,12 +408,57 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
         .extern_fn_reloc,
         .got_reloc,
-        .extern_got_reloc,
         .direct_reloc,
-        .direct_got_reloc,
         .import_reloc,
         .tlv_reloc,
         => ._,
+        .linker_reloc => {
+            if (lower.bin_file.options.pic) {
+                assert(inst.data.rx.fixes == ._);
+                const reg = inst.data.rx.r1;
+                const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+                _ = lower.reloc(.{ .linker_reloc = extra });
+                const mnemonic: Mnemonic = switch (inst.tag) {
+                    .mov => .mov,
+                    .lea => .lea,
+                    else => unreachable,
+                };
+                try lower.emit(.none, mnemonic, &.{
+                    .{ .reg = reg },
+                    .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
+                });
+            } else {
+                switch (inst.tag) {
+                    .call => {
+                        _ = lower.reloc(.{ .linker_reloc = inst.data.reloc });
+                        try lower.emit(.none, .call, &.{
+                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
+                        });
+                    },
+                    .lea => {
+                        assert(inst.data.rx.fixes == ._);
+                        const reg = inst.data.rx.r1;
+                        const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+                        try lower.emit(.none, .mov, &.{
+                            .{ .reg = reg },
+                            .{ .imm = lower.reloc(.{ .linker_reloc = extra }) },
+                        });
+                    },
+                    .mov => {
+                        assert(inst.data.rx.fixes == ._);
+                        const reg = inst.data.rx.r1;
+                        const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+                        _ = lower.reloc(.{ .linker_reloc = extra });
+                        try lower.emit(.none, .mov, &.{
+                            .{ .reg = reg },
+                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
+                        });
+                    },
+                    else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
+                }
+            }
+            return;
+        },
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -545,32 +590,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .extern_fn_reloc => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
-        .direct_got_reloc => ops: {
-            switch (inst.tag) {
-                .call => {
-                    _ = lower.reloc(.{ .linker_direct_got = inst.data.reloc });
-                    break :ops &.{
-                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                    };
-                },
-                .mov => {
-                    const reg = inst.data.rx.r1;
-                    const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-                    _ = lower.reloc(.{ .linker_direct_got = extra });
-                    break :ops &.{
-                        .{ .reg = reg },
-                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                    };
-                },
-                else => unreachable,
-            }
-        },
-        .got_reloc, .extern_got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+        .linker_reloc => unreachable,
+        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
             const reg = inst.data.rx.r1;
             const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
                 .got_reloc => .{ .linker_got = extra },
-                .extern_got_reloc => .{ .linker_extern_got = extra },
                 .direct_reloc => .{ .linker_direct = extra },
                 .import_reloc => .{ .linker_import = extra },
                 .tlv_reloc => .{ .linker_tlv = extra },
@@ -601,6 +626,7 @@ const abi = @import("abi.zig");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
+const link = @import("../../link.zig");
 const std = @import("std");
 
 const Air = @import("../../Air.zig");

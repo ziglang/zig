@@ -854,9 +854,6 @@ pub const Inst = struct {
         /// Linker relocation - GOT indirection.
         /// Uses `rx` payload with extra data of type `Reloc`.
         got_reloc,
-        /// Linker relocation - reference to an extern variable via GOT.
-        /// Uses `rx` payload with extra data of type `Reloc`.
-        extern_got_reloc,
         /// Linker relocation - direct reference.
         /// Uses `rx` payload with extra data of type `Reloc`.
         direct_reloc,
@@ -866,9 +863,9 @@ pub const Inst = struct {
         /// Linker relocation - threadlocal variable via GOT indirection.
         /// Uses `rx` payload with extra data of type `Reloc`.
         tlv_reloc,
-        /// Linker relocation - non-PIC direct reference to GOT cell.
-        /// Uses `reloc` payload if tag is `call`, `rx` otherwise.
-        direct_got_reloc,
+        /// Linker relocation.
+        /// Uses `rx` payload with extra data of type `Reloc`.
+        linker_reloc,
 
         // Pseudo instructions:
 
