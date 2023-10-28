@@ -115,6 +115,11 @@ pub fn Complex(comptime T: type) type {
         pub fn magnitude(self: Self) T {
             return @sqrt(self.re * self.re + self.im * self.im);
         }
+
+        /// Returns the argument of a complex number.
+        pub fn arg(self: Self) T {
+            return math.atan2(self.im, self.re);
+        }
     };
 }
 
@@ -187,6 +192,13 @@ test "complex.magnitude" {
     const c = a.magnitude();
 
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+}
+
+test "complex.arg" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.arg();
+
+    try testing.expect(math.approxEqAbs(f32, c, 0.540419500271, epsilon));
 }
 
 test {
