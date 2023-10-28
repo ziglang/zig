@@ -1986,7 +1986,10 @@ pub const BufPrintError = error{
 /// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
-    try format(fbs.writer(), fmt, args);
+    format(fbs.writer().any(), fmt, args) catch |err| switch (err) {
+        error.NoSpaceLeft => return error.NoSpaceLeft,
+        else => unreachable,
+    };
     return fbs.getWritten();
 }
 
@@ -1998,7 +2001,7 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
-    format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
+    format(counting_writer.writer().any(), fmt, args) catch unreachable;
     return counting_writer.bytes_written;
 }
 
