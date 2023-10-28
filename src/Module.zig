@@ -390,7 +390,7 @@ pub const Decl = struct {
     /// (the part that says "for every decls_len"). The first item at this index is
     /// the contents hash, followed by line, name, etc.
     /// For anonymous decls and also the root Decl for a File, this is 0.
-    zir_decl_index: Zir.Inst.Index,
+    zir_decl_index: Zir.OptionalExtraIndex,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -526,8 +526,8 @@ pub const Decl = struct {
     }
 
     pub fn getNameZir(decl: Decl, zir: Zir) ?[:0]const u8 {
-        assert(decl.zir_decl_index != 0);
-        const name_index = zir.extra[decl.zir_decl_index + 5];
+        assert(decl.zir_decl_index != .none);
+        const name_index = zir.extra[@intFromEnum(decl.zir_decl_index) + 5];
         if (name_index <= 1) return null;
         return zir.nullTerminatedString(name_index);
     }
@@ -538,39 +538,39 @@ pub const Decl = struct {
     }
 
     pub fn contentsHashZir(decl: Decl, zir: Zir) std.zig.SrcHash {
-        assert(decl.zir_decl_index != 0);
-        const hash_u32s = zir.extra[decl.zir_decl_index..][0..4];
+        assert(decl.zir_decl_index != .none);
+        const hash_u32s = zir.extra[@intFromEnum(decl.zir_decl_index)..][0..4];
         const contents_hash = @as(std.zig.SrcHash, @bitCast(hash_u32s.*));
         return contents_hash;
     }
 
     pub fn zirBlockIndex(decl: *const Decl, mod: *Module) Zir.Inst.Index {
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        return zir.extra[decl.zir_decl_index + 6];
+        return zir.extra[@intFromEnum(decl.zir_decl_index) + 6];
     }
 
     pub fn zirAlignRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_align) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[decl.zir_decl_index + 8]));
+        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 8]);
     }
 
     pub fn zirLinksectionRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align);
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align);
+        return @enumFromInt(zir.extra[extra_index]);
     }
 
     pub fn zirAddrspaceRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align) + 1;
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align) + 1;
+        return @enumFromInt(zir.extra[extra_index]);
     }
 
     pub fn relativeToLine(decl: Decl, offset: u32) u32 {
@@ -578,7 +578,7 @@ pub const Decl = struct {
     }
 
     pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
-        return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(decl.src_node))));
+        return @bitCast(offset + @as(i32, @bitCast(decl.src_node)));
     }
 
     pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
@@ -3051,7 +3051,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     defer inst_map.deinit(gpa);
     // Maps from old ZIR to new ZIR, the extra data index for the sub-decl item.
     // e.g. the thing that Decl.zir_decl_index points to.
-    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
     defer extra_map.deinit(gpa);
 
     try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map, &extra_map);
@@ -3079,14 +3079,13 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
         // to walk them but we do not need to modify this value.
         // Anonymous decls should not be marked outdated. They will be re-generated
         // if their owner decl is marked outdated.
-        if (decl.zir_decl_index != 0) {
-            const old_zir_decl_index = decl.zir_decl_index;
+        if (decl.zir_decl_index.unwrap()) |old_zir_decl_index| {
             const new_zir_decl_index = extra_map.get(old_zir_decl_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
             };
             const old_hash = decl.contentsHashZir(old_zir);
-            decl.zir_decl_index = new_zir_decl_index;
+            decl.zir_decl_index = new_zir_decl_index.toOptional();
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
                 try file.outdated_decls.append(gpa, decl_index);
@@ -3195,7 +3194,7 @@ pub fn mapOldZirToNew(
     old_zir: Zir,
     new_zir: Zir,
     inst_map: *std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
-    extra_map: *std.AutoHashMapUnmanaged(u32, u32),
+    extra_map: *std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex),
 ) Allocator.Error!void {
     // Contain ZIR indexes of declaration instructions.
     const MatchedZirDecl = struct {
@@ -3220,7 +3219,7 @@ pub fn mapOldZirToNew(
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
         // Maps name to extra index of decl sub item.
-        var decl_map: std.StringHashMapUnmanaged(u32) = .{};
+        var decl_map: std.StringHashMapUnmanaged(Zir.ExtraIndex) = .{};
         defer decl_map.deinit(gpa);
 
         {
@@ -3301,7 +3300,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     defer decl_prog_node.end();
 
     const type_changed = blk: {
-        if (decl.zir_decl_index == 0 and !mod.declIsRoot(decl_index)) {
+        if (decl.zir_decl_index == .none and !mod.declIsRoot(decl_index)) {
             // Anonymous decl. We don't semantically analyze these.
             break :blk false; // tv unchanged
         }
@@ -4451,7 +4450,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         new_decl.is_exported = is_exported;
         new_decl.has_align = has_align;
         new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-        new_decl.zir_decl_index = @as(u32, @intCast(decl_sub_index));
+        new_decl.zir_decl_index = @enumFromInt(decl_sub_index);
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
@@ -4485,7 +4484,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.kind = kind;
     decl.has_align = has_align;
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-    decl.zir_decl_index = @as(u32, @intCast(decl_sub_index));
+    decl.zir_decl_index = @enumFromInt(decl_sub_index);
     if (decl.getOwnedFunction(mod) != null) {
         switch (comp.bin_file.tag) {
             .coff, .elf, .macho, .plan9 => {
@@ -4982,7 +4981,7 @@ pub fn allocateNewDecl(
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .deletion_flag = false,
-        .zir_decl_index = 0,
+        .zir_decl_index = .none,
         .src_scope = src_scope,
         .generation = 0,
         .is_pub = false,
@@ -5507,7 +5506,7 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
             const decl = mod.declPtr(decl_index);
 
             // Remove from the namespace it resides in, preserving declaration order.
-            assert(decl.zir_decl_index != 0);
+            assert(decl.zir_decl_index != .none);
             _ = mod.namespacePtr(decl.src_namespace).decls.orderedRemoveAdapted(
                 decl.name,
                 DeclAdapter{ .mod = mod },

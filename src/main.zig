@@ -6632,7 +6632,7 @@ pub fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
     defer extra_map.deinit(gpa);
 
     try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);

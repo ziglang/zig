@@ -63,6 +63,21 @@ pub const ExtraIndex = enum(u32) {
     imports,
 
     _,
+
+    pub fn toOptional(i: ExtraIndex) OptionalExtraIndex {
+        return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+pub const OptionalExtraIndex = enum(u32) {
+    compile_errors,
+    imports,
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn unwrap(oi: OptionalExtraIndex) ?ExtraIndex {
+        return if (oi == .none) null else @enumFromInt(@intFromEnum(oi));
+    }
 };
 
 fn ExtraData(comptime T: type) type {
@@ -3325,7 +3340,7 @@ pub const DeclIterator = struct {
 
     pub const Item = struct {
         name: [:0]const u8,
-        sub_index: u32,
+        sub_index: ExtraIndex,
         flags: u4,
     };
 
@@ -3341,7 +3356,7 @@ pub const DeclIterator = struct {
         const flags: u4 = @truncate(it.cur_bit_bag);
         it.cur_bit_bag >>= 4;
 
-        const sub_index: u32 = @intCast(it.extra_index);
+        const sub_index: ExtraIndex = @enumFromInt(it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
@@ -3453,8 +3468,8 @@ pub fn declIteratorInner(zir: Zir, extra_index: usize, decls_len: u32) DeclItera
 
 /// The iterator would have to allocate memory anyway to iterate. So here we populate
 /// an ArrayList as the result.
-pub fn findDecls(zir: Zir, list: *std.ArrayList(Inst.Index), decl_sub_index: u32) !void {
-    const block_inst = zir.extra[decl_sub_index + 6];
+pub fn findDecls(zir: Zir, list: *std.ArrayList(Inst.Index), decl_sub_index: ExtraIndex) !void {
+    const block_inst = zir.extra[@intFromEnum(decl_sub_index) + 6];
     list.clearRetainingCapacity();
 
     return zir.findDeclsInner(list, block_inst);
