@@ -9971,6 +9971,7 @@ fn genCall(self: *Self, info: union(enum) {
         }),
     };
     const fn_info = mod.typeToFunc(fn_ty).?;
+    const resolved_cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
 
     const ExpectedContents = extern struct {
         var_args: [16][@sizeOf(Type)]u8 align(@alignOf(Type)),
@@ -10012,9 +10013,7 @@ fn genCall(self: *Self, info: union(enum) {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillRegisters(abi.getCallerPreservedRegs(
-        abi.resolveCallingConvention(fn_info.cc, self.target.*),
-    ));
+    try self.spillRegisters(abi.getCallerPreservedRegs(resolved_cc));
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
@@ -10109,8 +10108,24 @@ fn genCall(self: *Self, info: union(enum) {
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         if (self.bin_file.options.pic) {
-                            try self.genSetReg(.rax, Type.usize, .{ .load_symbol = sym.esym_index });
-                            try self.asmRegister(.{ ._, .call }, .rax);
+                            const callee_reg: Register = switch (resolved_cc) {
+                                .SysV => callee: {
+                                    if (!fn_info.is_var_args) break :callee .rax;
+                                    const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                                    break :callee if (call_info.gp_count < param_regs.len)
+                                        param_regs[call_info.gp_count]
+                                    else
+                                        .r10;
+                                },
+                                .Win64 => .rax,
+                                else => unreachable,
+                            };
+                            try self.genSetReg(
+                                callee_reg,
+                                Type.usize,
+                                .{ .load_symbol = sym.esym_index },
+                            );
+                            try self.asmRegister(.{ ._, .call }, callee_reg);
                         } else {
                             _ = try self.addInst(.{
                                 .tag = .call,
