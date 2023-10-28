@@ -28,6 +28,7 @@ const TestTarget = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    force_pic: ?bool = null,
 };
 
 const test_targets = blk: {
@@ -103,6 +104,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            .force_pic = true,
         },
         .{
             .target = .{
@@ -494,6 +496,7 @@ const CAbiTarget = struct {
     target: CrossTarget = .{},
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    force_pic: ?bool = null,
     c_defines: []const []const u8 = &.{},
 };
 
@@ -536,6 +539,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
+        .force_pic = true,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
@@ -1118,6 +1122,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .use_lld = test_target.use_lld,
             .zig_lib_dir = .{ .path = "lib" },
         });
+        these_tests.force_pic = test_target.force_pic;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1128,6 +1133,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             "";
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
+        const use_pic = if (test_target.force_pic == true) "-pic" else "";
 
         these_tests.addIncludePath(.{ .path = "test" });
 
@@ -1136,7 +1142,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             these_tests.stack_size = 2 * 1024 * 1024;
         }
 
-        const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}", .{
+        const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
             model_txt,
@@ -1145,6 +1151,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             single_threaded_suffix,
             backend_suffix,
             use_lld,
+            use_pic,
         });
 
         if (test_target.target.ofmt == std.Target.ObjectFormat.c) {
@@ -1240,7 +1247,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
             }
 
             const test_step = b.addTest(.{
-                .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}", .{
+                .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
                     c_abi_target.target.zigTriple(b.allocator) catch @panic("OOM"),
                     c_abi_target.target.getCpuModel().name,
                     @tagName(optimize_mode),
@@ -1253,6 +1260,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     else
                         "",
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
+                    if (c_abi_target.force_pic == true) "-pic" else "",
                 }),
                 .root_source_file = .{ .path = "test/c_abi/main.zig" },
                 .target = c_abi_target.target,
@@ -1261,6 +1269,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
             });
+            test_step.force_pic = c_abi_target.force_pic;
             if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
                 // for some reason?
