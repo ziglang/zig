@@ -3263,25 +3263,51 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                     defer self.register_manager.unlockReg(tmp_lock);
 
                     const lhs_mcv = try self.resolveInst(bin_op.lhs);
-                    if (lhs_mcv.isMemory()) try self.asmRegisterMemory(
+                    const mat_lhs_mcv = switch (lhs_mcv) {
+                        .load_symbol => mat_lhs_mcv: {
+                            // TODO clean this up!
+                            const addr_reg = try self.copyToTmpRegister(Type.usize, lhs_mcv.address());
+                            break :mat_lhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+                        },
+                        else => lhs_mcv,
+                    };
+                    const mat_lhs_lock = switch (mat_lhs_mcv) {
+                        .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+                        else => null,
+                    };
+                    defer if (mat_lhs_lock) |lock| self.register_manager.unlockReg(lock);
+                    if (mat_lhs_mcv.isMemory()) try self.asmRegisterMemory(
                         .{ ._, .mov },
                         tmp_reg,
-                        lhs_mcv.address().offset(8).deref().mem(.qword),
+                        mat_lhs_mcv.address().offset(8).deref().mem(.qword),
                     ) else try self.asmRegisterRegister(
                         .{ ._, .mov },
                         tmp_reg,
-                        lhs_mcv.register_pair[1],
+                        mat_lhs_mcv.register_pair[1],
                     );
 
                     const rhs_mcv = try self.resolveInst(bin_op.rhs);
-                    if (rhs_mcv.isMemory()) try self.asmRegisterMemory(
+                    const mat_rhs_mcv = switch (rhs_mcv) {
+                        .load_symbol => mat_rhs_mcv: {
+                            // TODO clean this up!
+                            const addr_reg = try self.copyToTmpRegister(Type.usize, rhs_mcv.address());
+                            break :mat_rhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+                        },
+                        else => rhs_mcv,
+                    };
+                    const mat_rhs_lock = switch (mat_rhs_mcv) {
+                        .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+                        else => null,
+                    };
+                    defer if (mat_rhs_lock) |lock| self.register_manager.unlockReg(lock);
+                    if (mat_rhs_mcv.isMemory()) try self.asmRegisterMemory(
                         .{ ._, .xor },
                         tmp_reg,
-                        rhs_mcv.address().offset(8).deref().mem(.qword),
+                        mat_rhs_mcv.address().offset(8).deref().mem(.qword),
                     ) else try self.asmRegisterRegister(
                         .{ ._, .xor },
                         tmp_reg,
-                        rhs_mcv.register_pair[1],
+                        mat_rhs_mcv.register_pair[1],
                     );
                     const reloc = try self.asmJccReloc(.ns, undefined);
 
@@ -3355,20 +3381,37 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         defer for (tmp_locks) |lock| self.register_manager.unlockReg(lock);
 
                         const rhs_mcv = try self.resolveInst(bin_op.rhs);
+                        const mat_rhs_mcv = switch (rhs_mcv) {
+                            .load_symbol => mat_rhs_mcv: {
+                                // TODO clean this up!
+                                const addr_reg = try self.copyToTmpRegister(Type.usize, rhs_mcv.address());
+                                break :mat_rhs_mcv MCValue{ .indirect = .{ .reg = addr_reg } };
+                            },
+                            else => rhs_mcv,
+                        };
+                        const mat_rhs_lock = switch (mat_rhs_mcv) {
+                            .indirect => |reg_off| self.register_manager.lockReg(reg_off.reg),
+                            else => null,
+                        };
+                        defer if (mat_rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
                         for (tmp_regs, dst_regs) |tmp_reg, dst_reg|
                             try self.asmRegisterRegister(.{ ._, .mov }, tmp_reg, dst_reg);
-                        if (rhs_mcv.isMemory()) {
-                            try self.asmRegisterMemory(.{ ._, .add }, tmp_regs[0], rhs_mcv.mem(.qword));
+                        if (mat_rhs_mcv.isMemory()) {
+                            try self.asmRegisterMemory(
+                                .{ ._, .add },
+                                tmp_regs[0],
+                                mat_rhs_mcv.mem(.qword),
+                            );
                             try self.asmRegisterMemory(
                                 .{ ._, .adc },
                                 tmp_regs[1],
-                                rhs_mcv.address().offset(8).deref().mem(.qword),
+                                mat_rhs_mcv.address().offset(8).deref().mem(.qword),
                             );
                         } else for (
                             [_]Mir.Inst.Tag{ .add, .adc },
                             tmp_regs,
-                            rhs_mcv.register_pair,
+                            mat_rhs_mcv.register_pair,
                         ) |op, tmp_reg, rhs_reg|
                             try self.asmRegisterRegister(.{ ._, op }, tmp_reg, rhs_reg);
                         try self.asmRegisterRegister(.{ ._, .@"test" }, dst_regs[1], dst_regs[1]);
@@ -12265,7 +12308,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
         .register_pair => |dst_regs| {
             const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = switch (src_mcv) {
                 .register_pair, .memory, .indirect, .load_frame => null,
-                .load_direct, .load_got, .load_extern_got, .load_tlv => src: {
+                .load_symbol, .load_direct, .load_got, .load_tlv => src: {
                     const src_addr_reg =
                         (try self.register_manager.allocReg(null, abi.RegisterClass.gp)).to64();
                     const src_addr_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
@@ -12295,18 +12338,12 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
                         class_ty,
                         .{ .register = src_regs[dst_reg_i] },
                     ),
-                    .load_symbol => {
-                        const addr_reg = try self.copyToTmpRegister(Type.usize, src_mcv.address());
-                        const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
-                        defer self.register_manager.unlockReg(addr_lock);
-                        try self.genCopy(ty, dst_mcv, .{ .indirect = .{ .reg = addr_reg } });
-                    },
                     .memory, .indirect, .load_frame => try self.genSetReg(
                         dst_reg,
                         class_ty,
                         src_mcv.address().offset(off).deref(),
                     ),
-                    .load_direct, .load_got, .load_extern_got, .load_tlv => try self.genSetReg(
+                    .load_symbol, .load_direct, .load_got, .load_tlv => try self.genSetReg(
                         dst_reg,
                         class_ty,
                         .{ .indirect = .{ .reg = src_info.?.addr_reg, .off = off } },
