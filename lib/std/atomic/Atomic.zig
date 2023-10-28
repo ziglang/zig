@@ -374,8 +374,6 @@ const atomic_rmw_orderings = [_]Ordering{
 };
 
 test "Atomic.swap" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (atomic_rmw_orderings) |ordering| {
         var x = Atomic(usize).init(5);
         try testing.expectEqual(x.swap(10, ordering), 5);

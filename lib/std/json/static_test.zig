@@ -785,8 +785,6 @@ test "max_value_len" {
 }
 
 test "parse into vector" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const T = struct {
         vec_i32: @Vector(4, i32),
         vec_f32: @Vector(2, f32),

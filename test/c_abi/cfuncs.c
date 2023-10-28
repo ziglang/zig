@@ -73,10 +73,6 @@ static void assert_or_panic(bool ok) {
 #define ZIG_NO_RAW_F16
 #endif
 
-#ifdef ZIG_BACKEND_STAGE2_X86_64
-#define ZIG_NO_COMPLEX
-#endif
-
 #ifdef __i386__
 #define ZIG_NO_RAW_F16
 #endif
@@ -278,7 +274,7 @@ void run_c_tests(void) {
     zig_u32(0xfffffffd);
     zig_u64(0xfffffffffffffffc);
 
-#if !defined ZIG_NO_I128 && !defined ZIG_BACKEND_STAGE2_X86_64
+#ifndef ZIG_NO_I128
     {
         struct u128 s = {0xfffffffffffffffc};
         zig_struct_u128(s);
@@ -292,7 +288,7 @@ void run_c_tests(void) {
     zig_i32(-3);
     zig_i64(-4);
 
-#if !defined ZIG_NO_I128 && !defined ZIG_BACKEND_STAGE2_X86_64
+#ifndef ZIG_NO_I128
     {
         struct i128 s = {-6};
         zig_struct_i128(s);
@@ -433,7 +429,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __mips__ && !defined ZIG_PPC32 && !defined ZIG_BACKEND_STAGE2_X86_64
+#if !defined __mips__ && !defined ZIG_PPC32
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};
