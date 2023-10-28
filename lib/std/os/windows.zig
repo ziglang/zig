@@ -24,7 +24,6 @@ pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const psapi = @import("windows/psapi.zig");
 pub const shell32 = @import("windows/shell32.zig");
-pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const gdi32 = @import("windows/gdi32.zig");
 pub const winmm = @import("windows/winmm.zig");
