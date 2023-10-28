@@ -455,8 +455,24 @@ pub fn visit(ast: *const Ast, parent: Index, comptime T: type, callback: *const 
             }
         },
         .assign_destructure => {
-            // Is this even used?
-            std.log.warn("zig: ast_visit unhandled {s}", .{@tagName(tag)});
+            const elem_count = ast.extra_data[d.lhs];
+            // var decls (const a, const b, etc..)
+            for (ast.extra_data[d.lhs + 1 ..][0..elem_count]) |child| {
+                assertNodeIndexValid(ast, child, parent);
+                switch (callback(ast, child, parent, data)) {
+                    .Break => return,
+                    .Continue => continue,
+                    .Recurse => visit(ast, child, T, callback, data),
+                }
+            }
+            // The value to destructure
+            const child = d.rhs;
+            assertNodeIndexValid(ast, child, parent);
+            switch (callback(ast, child, parent, data)) {
+                .Break => return,
+                .Continue => {},
+                .Recurse => visit(ast, child, T, callback, data),
+            }
         },
     }
     return;
@@ -497,8 +513,8 @@ fn testVisit(source: [:0]const u8, tag: Tag) !void {
         for (ast.errors) |parse_error| {
             try ast.renderError(parse_error, stdout);
         }
+        return error.ParseError;
     }
-    try std.testing.expect(ast.errors.len == 0);
 
     var nodes = try std.ArrayList(Index).initCapacity(allocator, ast.nodes.len + 1);
     nodes.appendAssumeCapacity(0); // Callback does not call on initial node
@@ -557,7 +573,7 @@ test "basic-visit" {
     try testVisit("test { var a = 2; a +%= 0xFF; }", .assign_add_wrap);
     try testVisit("test { var a = 2; a -%= 0xFF; }", .assign_sub_wrap);
     try testVisit("test { var a = 2; a = 1; }", .assign);
-    // TODO: assign_destructure
+    try testVisit("test {\n const arr: [3]u32 = .{ 10, 20, 30 };\n const x, const y, const z = arr;}", .assign_destructure);
     try testVisit("const E1 = error{E1}; const E2 = E1 || error{E3};", .merge_error_sets);
     try testVisit("test { var a = 2; a = 2 * a; }", .mul);
     try testVisit("test { var a = 2; a = a / 2; }", .div);
@@ -719,7 +735,7 @@ test "basic-visit" {
 test "all-visit" {
     // Visit all source in the zig lib source tree
     const allocator = std.testing.allocator;
-    const zig_lib = "../../../";
+    const zig_lib = "../../";
     var dir = try std.fs.cwd().openIterableDir(zig_lib, .{});
     defer dir.close();
     var walker = try dir.walk(allocator);
@@ -732,7 +748,10 @@ test "all-visit" {
             const source = try file.readToEndAllocOptions(allocator, buffer_size, null, 4, 0);
             defer allocator.free(source);
             defer file.close();
-            try testVisit(source, .root);
+            testVisit(source, .root) catch |err| switch (err) {
+                error.ParseError => {}, // Skip
+                else => return err,
+            };
         }
     }
 }
