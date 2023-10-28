@@ -1116,13 +1116,16 @@ pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !Atom.Index {
     return atom_idx;
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Plan9,
     module: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
-    _ = try self.seeDecl(decl_index);
+    switch (exported) {
+        .value => @panic("TODO: plan9 updateExports handling values"),
+        .decl_index => |decl_index| _ = try self.seeDecl(decl_index),
+    }
     // we do all the things in flush
     _ = module;
     _ = exports;

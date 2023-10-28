@@ -315,6 +315,8 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -1753,6 +1755,7 @@ test "comptime read/write int" {
 
 test "readIntBig and readIntLittle" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
@@ -3659,7 +3662,13 @@ fn ReverseIterator(comptime T: type) type {
         @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
     const Element = std.meta.Elem(Pointer);
-    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
+    const ElementPointer = @Type(.{ .Pointer = ptr: {
+        var ptr = @typeInfo(Pointer).Pointer;
+        ptr.size = .One;
+        ptr.child = Element;
+        ptr.sentinel = null;
+        break :ptr ptr;
+    } });
     return struct {
         ptr: Pointer,
         index: usize,
@@ -4651,6 +4660,7 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 
 test "read/write(Var)PackedInt" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.

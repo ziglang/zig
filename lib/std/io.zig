@@ -308,7 +308,7 @@ pub fn GenericReader(
             return @errorCast(self.any().skipBytes(num_bytes, options));
         }
 
-        pub inline fn isBytes(self: Self, slice: []const u8) Error!bool {
+        pub inline fn isBytes(self: Self, slice: []const u8) NoEofError!bool {
             return @errorCast(self.any().isBytes(slice));
         }
 
@@ -320,7 +320,7 @@ pub fn GenericReader(
             return @errorCast(self.any().readStructBig(T));
         }
 
-        pub const ReadEnumError = Error || error{
+        pub const ReadEnumError = NoEofError || error{
             /// An integer was read, but it did not match any of the tags in the supplied enum.
             InvalidValue,
         };

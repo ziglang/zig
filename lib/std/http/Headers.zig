@@ -14,14 +14,17 @@ pub const CaseInsensitiveStringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u64 {
         _ = self;
         var buf: [64]u8 = undefined;
-        var i: u8 = 0;
+        var i: usize = 0;
 
         var h = std.hash.Wyhash.init(0);
-        while (i < s.len) : (i += 64) {
-            const left = @min(64, s.len - i);
-            const ret = ascii.lowerString(buf[0..], s[i..][0..left]);
+        while (i + 64 < s.len) : (i += 64) {
+            const ret = ascii.lowerString(buf[0..], s[i..][0..64]);
             h.update(ret);
         }
+
+        const left = @min(64, s.len - i);
+        const ret = ascii.lowerString(buf[0..], s[i..][0..left]);
+        h.update(ret);
 
         return h.final();
     }
@@ -249,7 +252,7 @@ pub const Headers = struct {
         try out_stream.writeAll("\r\n");
     }
 
-    /// Frees all `HeaderIndexList`s within `index`
+    /// Frees all `HeaderIndexList`s within `index`.
     /// Frees names and values of all fields if they are owned.
     fn deallocateIndexListsAndFields(headers: *Headers) void {
         var it = headers.index.iterator();

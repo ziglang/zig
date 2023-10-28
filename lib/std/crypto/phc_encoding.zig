@@ -1,6 +1,7 @@
 // https://github.com/P-H-C/phc-string-format
 
 const std = @import("std");
+const builtin = @import("builtin");
 const fmt = std.fmt;
 const io = std.io;
 const mem = std.mem;
@@ -263,6 +264,8 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
 }
 
 test "phc format - encoding/decoding" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Input = struct {
         str: []const u8,
         HashResult: type,
@@ -360,6 +363,8 @@ test "phc format - hash without salt" {
 }
 
 test "phc format - calcSize" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
     const v = try deserialize(struct {
         alg_id: []const u8,

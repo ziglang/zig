@@ -83,7 +83,8 @@ fn doParse(scr: *LdScript, ctx: struct {
             const cmd = ctx.parser.getCommand(cmd_id);
             switch (cmd) {
                 .output_format => scr.cpu_arch = try ctx.parser.outputFormat(),
-                .group => try ctx.parser.group(ctx.args),
+                // TODO we should verify that group only contains libraries
+                .input, .group => try ctx.parser.group(ctx.args),
                 else => return error.UnexpectedToken,
             }
         } else break;
@@ -102,6 +103,7 @@ const LineColumn = struct {
 
 const Command = enum {
     output_format,
+    input,
     group,
     as_needed,
 
@@ -419,110 +421,6 @@ const TokenIterator = struct {
         return it.tokens[pos];
     }
 };
-
-const testing = std.testing;
-
-fn testExpectedTokens(input: []const u8, expected: []const Token.Id) !void {
-    var given = std.ArrayList(Token.Id).init(testing.allocator);
-    defer given.deinit();
-
-    var tokenizer = Tokenizer{ .source = input };
-    while (true) {
-        const tok = tokenizer.next();
-        if (tok.id == .invalid) {
-            std.debug.print("  {s} => '{s}'\n", .{ @tagName(tok.id), tok.get(input) });
-        }
-        try given.append(tok.id);
-        if (tok.id == .eof) break;
-    }
-
-    try testing.expectEqualSlices(Token.Id, expected, given.items);
-}
-
-test "Tokenizer - just comments" {
-    try testExpectedTokens(
-        \\/* GNU ld script
-        \\   Use the shared library, but some functions are only in
-        \\   the static library, so try that secondarily.  */
-    , &.{ .comment, .eof });
-}
-
-test "Tokenizer - comments with a simple command" {
-    try testExpectedTokens(
-        \\/* GNU ld script
-        \\   Use the shared library, but some functions are only in
-        \\   the static library, so try that secondarily.  */
-        \\OUTPUT_FORMAT(elf64-x86-64)
-    , &.{ .comment, .new_line, .command, .lparen, .literal, .rparen, .eof });
-}
-
-test "Tokenizer - libc.so" {
-    try testExpectedTokens(
-        \\/* GNU ld script
-        \\   Use the shared library, but some functions are only in
-        \\   the static library, so try that secondarily.  */
-        \\OUTPUT_FORMAT(elf64-x86-64)
-        \\GROUP ( /a/b/c.so.6 /a/d/e.a  AS_NEEDED ( /f/g/h.so.2 ) )
-    , &.{
-        .comment, .new_line, // GNU comment
-        .command, .lparen, .literal, .rparen, .new_line, // output format
-        .command, .lparen, .literal, .literal, // group start
-        .command, .lparen, .literal, .rparen, // as needed
-        .rparen, // group end
-        .eof,
-    });
-}
-
-test "Parser - output format" {
-    const source =
-        \\OUTPUT_FORMAT(elf64-x86-64)
-    ;
-    var tokenizer = Tokenizer{ .source = source };
-    var tokens = std.ArrayList(Token).init(testing.allocator);
-    defer tokens.deinit();
-    while (true) {
-        const tok = tokenizer.next();
-        try testing.expect(tok.id != .invalid);
-        try tokens.append(tok);
-        if (tok.id == .eof) break;
-    }
-    var it = TokenIterator{ .tokens = tokens.items };
-    var parser = Parser{ .source = source, .it = &it };
-    const tok_id = try parser.require(.command);
-    try testing.expectEqual(parser.getCommand(tok_id), .output_format);
-    const cpu_arch = try parser.outputFormat();
-    try testing.expectEqual(cpu_arch, .x86_64);
-}
-
-test "Parser - group with as-needed" {
-    const source =
-        \\GROUP ( /a/b/c.so.6 /a/d/e.a  AS_NEEDED ( /f/g/h.so.2 ) )
-    ;
-    var tokenizer = Tokenizer{ .source = source };
-    var tokens = std.ArrayList(Token).init(testing.allocator);
-    defer tokens.deinit();
-    while (true) {
-        const tok = tokenizer.next();
-        try testing.expect(tok.id != .invalid);
-        try tokens.append(tok);
-        if (tok.id == .eof) break;
-    }
-    var it = TokenIterator{ .tokens = tokens.items };
-    var parser = Parser{ .source = source, .it = &it };
-
-    var args = std.ArrayList(Elf.LinkObject).init(testing.allocator);
-    defer args.deinit();
-    const tok_id = try parser.require(.command);
-    try testing.expectEqual(parser.getCommand(tok_id), .group);
-    try parser.group(&args);
-
-    try testing.expectEqualStrings("/a/b/c.so.6", args.items[0].path);
-    try testing.expect(args.items[0].needed);
-    try testing.expectEqualStrings("/a/d/e.a", args.items[1].path);
-    try testing.expect(args.items[1].needed);
-    try testing.expectEqualStrings("/f/g/h.so.2", args.items[2].path);
-    try testing.expect(!args.items[2].needed);
-}
 
 const LdScript = @This();
 

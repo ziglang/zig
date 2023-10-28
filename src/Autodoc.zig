@@ -2897,6 +2897,26 @@ fn walkInstruction(
                 .expr = .{ .@"struct" = &.{} },
             };
         },
+        .struct_init_empty_ref_result => {
+            const un_node = data[inst_index].un_node;
+
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                un_node.operand,
+                false,
+                call_ctx,
+            );
+
+            const struct_init_idx = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .@"struct" = &.{} });
+
+            return DocData.WalkResult{
+                .typeRef = operand.expr,
+                .expr = .{ .@"&" = struct_init_idx },
+            };
+        },
         .struct_init_anon => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.StructInitAnon, pl_node.payload_index);

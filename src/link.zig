@@ -587,7 +587,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports for any given Decl.
+    /// May be called before or after updateExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
@@ -609,7 +609,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports for any given Decl.
+    /// May be called before or after updateExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -882,33 +882,34 @@ pub const File = struct {
         }
     }
 
-    pub const UpdateDeclExportsError = error{
+    pub const UpdateExportsError = error{
         OutOfMemory,
         AnalysisFail,
     };
 
+    /// This is called for every exported thing. `exports` is almost always
+    /// a list of size 1, meaning that `exported` is exported once. However, it is possible
+    /// to export the same thing with multiple different symbol names (aliases).
     /// May be called before or after updateDecl for any given Decl.
-    pub fn updateDeclExports(
+    pub fn updateExports(
         base: *File,
         module: *Module,
-        decl_index: Module.Decl.Index,
+        exported: Module.Exported,
         exports: []const *Module.Export,
-    ) UpdateDeclExportsError!void {
-        const decl = module.declPtr(decl_index);
-        assert(decl.has_tv);
+    ) UpdateExportsError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports);
+            return @fieldParentPtr(C, "base", base).updateExports(module, exported, exports);
         }
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl_index, exports),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl_index, exports),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl_index, exports),
-            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl_index, exports),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl_index, exports),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl_index, exports),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDeclExports(module, decl_index, exports),
+            .coff => return @fieldParentPtr(Coff, "base", base).updateExports(module, exported, exports),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateExports(module, exported, exports),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateExports(module, exported, exports),
+            .c => return @fieldParentPtr(C, "base", base).updateExports(module, exported, exports),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateExports(module, exported, exports),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateExports(module, exported, exports),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateExports(module, exported, exports),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateExports(module, exported, exports),
         }
     }
 
@@ -940,15 +941,15 @@ pub const File = struct {
 
     pub const LowerResult = @import("codegen.zig").Result;
 
-    pub fn lowerAnonDecl(base: *File, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !LowerResult {
+    pub fn lowerAnonDecl(base: *File, decl_val: InternPool.Index, decl_align: InternPool.Alignment, src_loc: Module.SrcLoc) !LowerResult {
         if (build_options.only_c) unreachable;
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).lowerAnonDecl(decl_val, src_loc),
-            .elf => return @fieldParentPtr(Elf, "base", base).lowerAnonDecl(decl_val, src_loc),
-            .macho => return @fieldParentPtr(MachO, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .coff => return @fieldParentPtr(Coff, "base", base).lowerAnonDecl(decl_val, decl_align, src_loc),
+            .elf => return @fieldParentPtr(Elf, "base", base).lowerAnonDecl(decl_val, decl_align, src_loc),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerAnonDecl(decl_val, decl_align, src_loc),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerAnonDecl(decl_val, src_loc),
             .c => unreachable,
-            .wasm => return @fieldParentPtr(Wasm, "base", base).lowerAnonDecl(decl_val, src_loc),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).lowerAnonDecl(decl_val, decl_align, src_loc),
             .spirv => unreachable,
             .nvptx => unreachable,
         }
@@ -965,6 +966,20 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).getAnonDeclVAddr(decl_val, reloc_info),
             .spirv => unreachable,
             .nvptx => unreachable,
+        }
+    }
+
+    pub fn deleteDeclExport(base: *File, decl_index: Module.Decl.Index, name: InternPool.NullTerminatedString) !void {
+        if (build_options.only_c) unreachable;
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).deleteDeclExport(decl_index, name),
+            .elf => return @fieldParentPtr(Elf, "base", base).deleteDeclExport(decl_index, name),
+            .macho => return @fieldParentPtr(MachO, "base", base).deleteDeclExport(decl_index, name),
+            .plan9 => {},
+            .c => {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).deleteDeclExport(decl_index),
+            .spirv => {},
+            .nvptx => {},
         }
     }
 

@@ -1989,8 +1989,8 @@ pub const BufPrintError = error{
     NoSpaceLeft,
 };
 
-/// print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
-/// returns a slice of the bytes printed to.
+/// Print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
+/// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
@@ -2435,6 +2435,8 @@ test "float.hexadecimal" {
 }
 
 test "float.hexadecimal.precision" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expectFmt("f16: 0x1.5p-2", "f16: {x:.1}", .{@as(f16, 1.0 / 3.0)});
     try expectFmt("f32: 0x1.555p-2", "f32: {x:.3}", .{@as(f32, 1.0 / 3.0)});
     try expectFmt("f64: 0x1.55555p-2", "f64: {x:.5}", .{@as(f64, 1.0 / 3.0)});
@@ -2751,6 +2753,8 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

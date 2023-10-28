@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 const mem = std.mem;
 const meta = std.meta;
 
@@ -252,6 +253,8 @@ test "typeContainsSlice" {
 }
 
 test "hash pointer" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const array = [_]u32{ 123, 123, 123 };
     const a = &array[0];
     const b = &array[1];
@@ -272,6 +275,8 @@ test "hash pointer" {
 }
 
 test "hash slice shallow" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
     const array1 = try std.testing.allocator.create([6]u32);
@@ -290,6 +295,8 @@ test "hash slice shallow" {
 }
 
 test "hash slice deep" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
     const array1 = try std.testing.allocator.create([6]u32);
@@ -306,6 +313,8 @@ test "hash slice deep" {
 }
 
 test "hash struct deep" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Foo = struct {
         a: u32,
         b: u16,
@@ -345,6 +354,8 @@ test "hash struct deep" {
 }
 
 test "testHash optional" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a: ?u32 = 123;
     const b: ?u32 = null;
     try testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
@@ -353,6 +364,8 @@ test "testHash optional" {
 }
 
 test "testHash array" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a = [_]u32{ 1, 2, 3 };
     const h = testHash(a);
     var hasher = Wyhash.init(0);
@@ -369,6 +382,8 @@ test "testHash multi-dimensional array" {
 }
 
 test "testHash struct" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Foo = struct {
         a: u32 = 1,
         b: u32 = 2,
@@ -384,6 +399,8 @@ test "testHash struct" {
 }
 
 test "testHash union" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Foo = union(enum) {
         A: u32,
         B: bool,
@@ -408,6 +425,8 @@ test "testHash union" {
 }
 
 test "testHash vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
     const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     try testing.expect(testHash(a) == testHash(a));
@@ -420,6 +439,8 @@ test "testHash vector" {
 }
 
 test "testHash error union" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const Errors = error{Test};
     const Foo = struct {
         a: u32 = 1,

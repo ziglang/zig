@@ -48,7 +48,7 @@ phdr_zig_load_zerofill_index: ?u16 = null,
 /// PT_PHDR
 phdr_table_index: ?u16 = null,
 /// PT_LOAD for PHDR table
-/// We add this special load segment to ensure the PHDR table is always
+/// We add this special load segment to ensure the EHDR and PHDR table are always
 /// loaded into memory.
 phdr_table_load_index: ?u16 = null,
 /// PT_INTERP
@@ -289,28 +289,39 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
         const image_base = self.calcImageBase();
-        const offset: u64 = switch (self.ptr_width) {
+        const ehsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
         };
+        const phsize: u64 = switch (self.ptr_width) {
+            .p32 => @sizeOf(elf.Elf32_Phdr),
+            .p64 => @sizeOf(elf.Elf64_Phdr),
+        };
+        const max_nphdrs = comptime getMaxNumberOfPhdrs();
+        const reserved: u64 = mem.alignForward(u64, padToIdeal(max_nphdrs * phsize), self.page_size);
         self.phdr_table_index = try self.addPhdr(.{
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + offset,
-            .offset = offset,
+            .addr = image_base + ehsize,
+            .offset = ehsize,
+            .filesz = reserved,
+            .memsz = reserved,
         });
         self.phdr_table_load_index = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
             .addr = image_base,
+            .offset = 0,
+            .filesz = reserved + ehsize,
+            .memsz = reserved + ehsize,
         });
     }
 
     if (options.module != null and !options.use_llvm) {
         if (!options.strip) {
-            self.dwarf = Dwarf.init(allocator, &self.base, options.target);
+            self.dwarf = Dwarf.init(allocator, &self.base, .dwarf32);
         }
 
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
@@ -473,40 +484,51 @@ pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.
     return vaddr;
 }
 
-pub fn lowerAnonDecl(self: *Elf, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
-    // This is basically the same as lowerUnnamedConst.
-    // example:
-    // const ty = mod.intern_pool.typeOf(decl_val).toType();
-    // const val = decl_val.toValue();
-    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
-    // It doesn't have an owner decl because it's just an unnamed constant that might
-    // be used by more than one function, however, its address is being used so we need
-    // to put it in some location.
-    // ...
+pub fn lowerAnonDecl(
+    self: *Elf,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gpa = self.base.allocator;
-    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const val = decl_val.toValue();
-        const tv = TypedValue{ .ty = ty, .val = val };
-        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
-        defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.zig_rodata_section_index.?, src_loc) catch |err| switch (err) {
-            else => {
-                // TODO improve error message
-                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
-                    @errorName(err),
-                });
-                return .{ .fail = em };
-            },
-        };
-        const sym_index = switch (res) {
-            .ok => |sym_index| sym_index,
-            .fail => |em| return .{ .fail = em },
-        };
-        gop.value_ptr.* = sym_index;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const decl_alignment = switch (explicit_alignment) {
+        .none => ty.abiAlignment(mod),
+        else => explicit_alignment,
+    };
+    if (self.anon_decls.get(decl_val)) |sym_index| {
+        const existing_alignment = self.symbol(sym_index).atom(self).?.alignment;
+        if (decl_alignment.order(existing_alignment).compare(.lte))
+            return .ok;
     }
+
+    const val = decl_val.toValue();
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        name,
+        tv,
+        decl_alignment,
+        self.zig_rodata_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to lower constant value: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const sym_index = switch (res) {
+        .ok => |sym_index| sym_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, sym_index);
     return .ok;
 }
 
@@ -537,7 +559,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
         const tight_size = self.shdrs.items.len * shdr_size;
         const increased_size = padToIdeal(tight_size);
-        const test_end = off + increased_size;
+        const test_end = off +| increased_size;
         if (end > off and start < test_end) {
             return test_end;
         }
@@ -546,7 +568,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.shdrs.items) |shdr| {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const increased_size = padToIdeal(shdr.sh_size);
-        const test_end = shdr.sh_offset + increased_size;
+        const test_end = shdr.sh_offset +| increased_size;
         if (end > shdr.sh_offset and start < test_end) {
             return test_end;
         }
@@ -555,7 +577,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     for (self.phdrs.items) |phdr| {
         if (phdr.p_type != elf.PT_LOAD) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
-        const test_end = phdr.p_offset + increased_size;
+        const test_end = phdr.p_offset +| increased_size;
         if (end > phdr.p_offset and start < test_end) {
             return test_end;
         }
@@ -647,6 +669,7 @@ pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{Ou
         .type = opts.type,
         .flags = opts.flags,
         .addralign = opts.alignment,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
@@ -684,6 +707,7 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
         .info = opts.info,
         .addralign = opts.alignment,
         .entsize = opts.entsize,
+        .offset = std.math.maxInt(u64),
     });
     const shdr = &self.shdrs.items[index];
     const off = self.findFreeSpace(opts.size, opts.alignment);
@@ -699,6 +723,8 @@ pub fn initMetadata(self: *Elf) !void {
     const ptr_size = self.ptrWidthBytes();
     const ptr_bit_width = self.base.options.target.ptrBitWidth();
     const is_linux = self.base.options.target.os.tag == .linux;
+
+    comptime assert(number_of_zig_segments == 5);
 
     if (self.phdr_zig_load_re_index == null) {
         self.phdr_zig_load_re_index = try self.allocateSegment(.{
@@ -862,10 +888,10 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
-        // Must move the entire section.
-        const new_offset = self.findFreeSpace(needed_size, self.page_size);
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.shstrtab.getAssumeExists(shdr.sh_name),
@@ -1312,15 +1338,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
             for (self.base.options.system_libs.keys()) |link_lib| {
-                test_path.clearRetainingCapacity();
-                const sep = fs.path.sep_str;
-                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                    lib_dir_path, link_lib,
-                });
-                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                };
+                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                    continue;
                 _ = try rpath_table.put(lib_dir_path, {});
             }
         }
@@ -1354,10 +1373,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (positionals.items) |obj| {
-        const in_file = try std.fs.cwd().openFile(obj.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
@@ -1386,11 +1403,33 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (self.base.options.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
             try system_libs.ensureUnusedCapacity(flags.len);
+
+            var test_path = std.ArrayList(u8).init(arena);
+            var checked_paths = std.ArrayList([]const u8).init(arena);
+
             for (flags) |flag| {
-                const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so", .{
-                    lc.crt_dir.?, fs.path.sep, flag["-l".len..],
-                });
-                system_libs.appendAssumeCapacity(.{ .path = lib_path });
+                checked_paths.clearRetainingCapacity();
+                const lib_name = flag["-l".len..];
+
+                success: {
+                    if (!self.isStatic()) {
+                        if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                            break :success;
+                    }
+                    if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                        break :success;
+
+                    try self.reportMissingLibraryError(
+                        checked_paths.items,
+                        "missing system library: '{s}' was not found",
+                        .{lib_name},
+                    );
+
+                    continue;
+                }
+
+                const resolved_path = try arena.dupe(u8, test_path.items);
+                system_libs.appendAssumeCapacity(.{ .path = resolved_path });
             }
         } else if (target.isGnuLibC()) {
             try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
@@ -1415,10 +1454,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (system_libs.items) |lib| {
-        const in_file = try std.fs.cwd().openFile(lib.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parseLibrary(in_file, lib, false, &parse_ctx) catch |err|
+        self.parseLibrary(lib, false, &parse_ctx) catch |err|
             try self.handleAndReportParseError(lib.path, err, &parse_ctx);
     }
 
@@ -1435,10 +1472,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     for (positionals.items) |obj| {
-        const in_file = try std.fs.cwd().openFile(obj.path, .{});
-        defer in_file.close();
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(in_file, obj.path, obj.must_link, &parse_ctx) catch |err|
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
@@ -1585,7 +1620,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.setVersionSymtab();
     try self.updateSectionSizes();
 
-    self.allocatePhdrTable();
+    try self.allocatePhdrTable();
     try self.allocateAllocSections();
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
@@ -1658,51 +1693,40 @@ const ParseError = error{
     InvalidCharacter,
 } || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
-fn parsePositional(
-    self: *Elf,
-    in_file: std.fs.File,
-    path: []const u8,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parsePositional(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    if (Object.isObject(in_file)) {
-        try self.parseObject(in_file, path, ctx);
+    if (try Object.isObject(path)) {
+        try self.parseObject(path, ctx);
     } else {
-        try self.parseLibrary(in_file, .{ .path = path }, must_link, ctx);
+        try self.parseLibrary(.{ .path = path }, must_link, ctx);
     }
 }
 
-fn parseLibrary(
-    self: *Elf,
-    in_file: std.fs.File,
-    lib: SystemLib,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (Archive.isArchive(in_file)) {
-        try self.parseArchive(in_file, lib.path, must_link, ctx);
-    } else if (SharedObject.isSharedObject(in_file)) {
-        try self.parseSharedObject(in_file, lib, ctx);
+    if (try Archive.isArchive(lib.path)) {
+        try self.parseArchive(lib.path, must_link, ctx);
+    } else if (try SharedObject.isSharedObject(lib.path)) {
+        try self.parseSharedObject(lib, ctx);
     } else {
         // TODO if the script has a top-level comment identifying it as GNU ld script,
         // then report parse errors. Otherwise return UnknownFileType.
-        self.parseLdScript(in_file, lib, ctx) catch |err| switch (err) {
+        self.parseLdScript(lib, ctx) catch |err| switch (err) {
             else => return error.UnknownFileType,
         };
     }
 }
 
-fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
+fn parseObject(self: *Elf, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
@@ -1719,17 +1743,13 @@ fn parseObject(self: *Elf, in_file: std.fs.File, path: []const u8, ctx: *ParseEr
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseArchive(
-    self: *Elf,
-    in_file: std.fs.File,
-    path: []const u8,
-    must_link: bool,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
     defer archive.deinit(gpa);
@@ -1752,16 +1772,13 @@ fn parseArchive(
     }
 }
 
-fn parseSharedObject(
-    self: *Elf,
-    in_file: std.fs.File,
-    lib: SystemLib,
-    ctx: *ParseErrorCtx,
-) ParseError!void {
+fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
@@ -1780,11 +1797,13 @@ fn parseSharedObject(
     if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
+    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
@@ -1823,15 +1842,6 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
                     if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
                         break :success;
                 }
-
-                try self.reportMissingLibraryError(
-                    checked_paths.items,
-                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
-                    .{
-                        lib.path,
-                        scr_obj.path,
-                    },
-                );
             } else {
                 var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
                 if (fs.realpath(scr_obj.path, &buffer)) |path| {
@@ -1845,24 +1855,22 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
                     if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
                         break :success;
                 }
-
-                try self.reportMissingLibraryError(
-                    checked_paths.items,
-                    "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
-                    .{
-                        lib.path,
-                        scr_obj.path,
-                    },
-                );
             }
+
+            try self.reportMissingLibraryError(
+                checked_paths.items,
+                "missing library dependency: GNU ld script '{s}' requires '{s}', but file not found",
+                .{
+                    lib.path,
+                    scr_obj.path,
+                },
+            );
+            continue;
         }
 
         const full_path = test_path.items;
-        const scr_file = try std.fs.cwd().openFile(full_path, .{});
-        defer scr_file.close();
-
         var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parseLibrary(scr_file, .{
+        self.parseLibrary(.{
             .needed = scr_obj.needed,
             .path = full_path,
         }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
@@ -1872,7 +1880,7 @@ fn parseLdScript(self: *Elf, in_file: std.fs.File, lib: SystemLib, ctx: *ParseEr
 fn accessLibPath(
     self: *Elf,
     test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    checked_paths: ?*std.ArrayList([]const u8),
     lib_dir_path: []const u8,
     lib_name: []const u8,
     link_mode: ?std.builtin.LinkMode,
@@ -1880,16 +1888,20 @@ fn accessLibPath(
     const sep = fs.path.sep_str;
     const target = self.base.options.target;
     test_path.clearRetainingCapacity();
+    const prefix = if (link_mode != null) "lib" else "";
+    const suffix = if (link_mode) |mode| switch (mode) {
+        .Static => target.staticLibSuffix(),
+        .Dynamic => target.dynamicLibSuffix(),
+    } else "";
     try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
         lib_dir_path,
-        target.libPrefix(),
+        prefix,
         lib_name,
-        if (link_mode) |mode| switch (mode) {
-            .Static => target.staticLibSuffix(),
-            .Dynamic => target.dynamicLibSuffix(),
-        } else "",
+        suffix,
     });
-    try checked_paths.append(try self.base.allocator.dupe(u8, test_path.items));
+    if (checked_paths) |cpaths| {
+        try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
+    }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
@@ -2523,19 +2535,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (self.base.options.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(self.base.allocator);
-            defer test_path.deinit();
+            var test_path = std.ArrayList(u8).init(arena);
             for (self.base.options.lib_dirs) |lib_dir_path| {
                 for (self.base.options.system_libs.keys()) |link_lib| {
-                    test_path.clearRetainingCapacity();
-                    const sep = fs.path.sep_str;
-                    try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{
-                        lib_dir_path, link_lib,
-                    });
-                    fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-                        error.FileNotFound => continue,
-                        else => |e| return e,
-                    };
+                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
+                        continue;
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
@@ -2956,7 +2960,7 @@ fn writeHeader(self: *Elf) !void {
     assert(index == 16);
 
     const elf_type: elf.ET = switch (self.base.options.effectiveOutputMode()) {
-        .Exe => if (self.base.options.pic) .DYN else .EXEC,
+        .Exe => if (self.base.options.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (self.base.options.link_mode) {
             .Static => @as(elf.ET, .REL),
@@ -3302,7 +3306,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(
@@ -3384,7 +3388,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
@@ -3476,7 +3480,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const sym_index = switch (try self.lowerConst(name, typed_value, self.zig_rodata_section_index.?, decl.srcLoc(mod))) {
+    const sym_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.zig_rodata_section_index.?, decl.srcLoc(mod))) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -3499,6 +3503,7 @@ fn lowerConst(
     self: *Elf,
     name: []const u8,
     tv: TypedValue,
+    required_alignment: InternPool.Alignment,
     output_section_index: u16,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
@@ -3507,7 +3512,6 @@ fn lowerConst(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const mod = self.base.options.module.?;
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const sym_index = try zig_module.addAtom(self);
 
@@ -3521,7 +3525,6 @@ fn lowerConst(
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment = tv.ty.abiAlignment(mod);
     const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     const local_sym = self.symbol(sym_index);
     const name_str_index = try self.strtab.insert(gpa, name);
@@ -3552,16 +3555,16 @@ fn lowerConst(
     return .{ .ok = sym_index };
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Elf,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) link.File.UpdateDeclExportsError!void {
+) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -3570,6 +3573,13 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement ELF linker code for exporting a constant value");
+        },
+    };
     const zig_module = self.file(self.zig_module_index.?).?.zig_module;
     const decl = mod.declPtr(decl_index);
     const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
@@ -3858,6 +3868,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
 
         if (self.base.options.eh_frame_hdr) {
@@ -3866,6 +3877,7 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -3876,6 +3888,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3897,6 +3910,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3906,12 +3920,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
         self.got_plt_section_index = try self.addSection(.{
             .name = ".got.plt",
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = @alignOf(u64),
+            .offset = std.math.maxInt(u64),
         });
         self.rela_plt_section_index = try self.addSection(.{
             .name = ".rela.plt",
@@ -3919,6 +3935,7 @@ fn initSections(self: *Elf) !void {
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
             .entsize = @sizeOf(elf.Elf64_Rela),
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3928,6 +3945,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3936,6 +3954,7 @@ fn initSections(self: *Elf) !void {
             .name = ".copyrel",
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3954,6 +3973,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 
@@ -3964,6 +3984,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.dynamic_section_index = try self.addSection(.{
             .name = ".dynamic",
@@ -3971,6 +3992,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_DYNAMIC,
             .entsize = @sizeOf(elf.Elf64_Dyn),
             .addralign = @alignOf(elf.Elf64_Dyn),
+            .offset = std.math.maxInt(u64),
         });
         self.dynsymtab_section_index = try self.addSection(.{
             .name = ".dynsym",
@@ -3979,6 +4001,7 @@ fn initSections(self: *Elf) !void {
             .addralign = @alignOf(elf.Elf64_Sym),
             .entsize = @sizeOf(elf.Elf64_Sym),
             .info = 1,
+            .offset = std.math.maxInt(u64),
         });
         self.hash_section_index = try self.addSection(.{
             .name = ".hash",
@@ -3986,12 +4009,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_HASH,
             .addralign = 4,
             .entsize = 4,
+            .offset = std.math.maxInt(u64),
         });
         self.gnu_hash_section_index = try self.addSection(.{
             .name = ".gnu.hash",
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_GNU_HASH,
             .addralign = 8,
+            .offset = std.math.maxInt(u64),
         });
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
@@ -4005,12 +4030,14 @@ fn initSections(self: *Elf) !void {
                 .type = elf.SHT_GNU_VERSYM,
                 .addralign = @alignOf(elf.Elf64_Versym),
                 .entsize = @sizeOf(elf.Elf64_Versym),
+                .offset = std.math.maxInt(u64),
             });
             self.verneed_section_index = try self.addSection(.{
                 .name = ".gnu.version_r",
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_VERNEED,
                 .addralign = @alignOf(elf.Elf64_Verneed),
+                .offset = std.math.maxInt(u64),
             });
         }
     }
@@ -4021,6 +4048,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.strtab_section_index == null) {
@@ -4029,6 +4057,7 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
     if (self.shstrtab_section_index == null) {
@@ -4037,11 +4066,14 @@ fn initSections(self: *Elf) !void {
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
     }
 }
 
 fn initSpecialPhdrs(self: *Elf) !void {
+    comptime assert(max_number_of_special_phdrs == 5);
+
     if (self.interp_section_index != null) {
         self.phdr_interp_index = try self.addPhdr(.{
             .type = elf.PT_INTERP,
@@ -4630,6 +4662,21 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
     return out_flags;
 }
 
+/// Returns maximum number of program headers that may be emitted by the linker.
+/// (This is an upper bound so that we can reserve enough space for the header and progam header
+/// table without running out of space and being forced to move things around.)
+fn getMaxNumberOfPhdrs() u64 {
+    // First, assume we compile Zig's source incrementally, this gives us:
+    var num: u64 = number_of_zig_segments;
+    // Next, the estimated maximum number of segments the linker can emit for input sections are:
+    num += max_number_of_object_segments;
+    // Next, any other non-loadable program headers, including TLS, DYNAMIC, GNU_STACK, GNU_EH_FRAME, INTERP:
+    num += max_number_of_special_phdrs;
+    // Finally, PHDR program header and corresponding read-only load segment:
+    num += 2;
+    return num;
+}
+
 /// Calculates how many segments (PT_LOAD progam headers) are required
 /// to cover the set of sections.
 /// We permit a maximum of 3**2 number of segments.
@@ -4650,30 +4697,36 @@ fn calcNumberOfSegments(self: *Elf) usize {
 }
 
 /// Allocates PHDR table in virtual memory and in file.
-fn allocatePhdrTable(self: *Elf) void {
+fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
     const new_load_segments = self.calcNumberOfSegments();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
     const phdr_table_load = &self.phdrs.items[self.phdr_table_load_index.?];
 
+    const ehsize: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Ehdr),
+        .p64 => @sizeOf(elf.Elf64_Ehdr),
+    };
     const phsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Phdr),
         .p64 => @sizeOf(elf.Elf64_Phdr),
     };
     const needed_size = (self.phdrs.items.len + new_load_segments) * phsize;
+    const available_space = self.allocatedSize(phdr_table.p_offset);
 
-    if (needed_size > self.allocatedSize(phdr_table.p_offset)) {
-        phdr_table.p_offset = 0;
-        phdr_table.p_offset = self.findFreeSpace(needed_size, phdr_table.p_align);
+    if (needed_size > available_space) {
+        // In this case, we have two options:
+        // 1. increase the available padding for EHDR + PHDR table so that we don't overflow it
+        //    (revisit getMaxNumberOfPhdrs())
+        // 2. shift everything in file to free more space for EHDR + PHDR table
+        // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
+        try err.addNote(self, "required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
 
-    phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
-    const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
-    phdr_table_load.p_filesz = load_align_offset + needed_size;
-    phdr_table_load.p_memsz = load_align_offset + needed_size;
-
+    phdr_table_load.p_filesz = needed_size + ehsize;
+    phdr_table_load.p_memsz = needed_size + ehsize;
     phdr_table.p_filesz = needed_size;
-    phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
-    phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
     phdr_table.p_memsz = needed_size;
 }
 
@@ -4718,7 +4771,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // with `findFreeSpace` mechanics than anything else.
     const Cover = std.ArrayList(u16);
     const gpa = self.base.allocator;
-    var covers: [9]Cover = undefined;
+    var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
         cover.* = Cover.init(gpa);
     }
@@ -4874,6 +4927,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
             phdr.p_align = shdr.sh_addralign;
             phdr.p_offset = shdr.sh_offset;
             phdr.p_vaddr = shdr.sh_addr;
+            phdr.p_paddr = shdr.sh_addr;
             phdr.p_filesz = shdr.sh_size;
             phdr.p_memsz = shdr.sh_size;
         }
@@ -5586,7 +5640,8 @@ const CsuObjects = struct {
 };
 
 pub fn calcImageBase(self: Elf) u64 {
-    if (self.base.options.pic) return 0; // TODO flag an error if PIC and image_base_override
+    if (self.isDynLib()) return 0;
+    if (self.isExe() and self.base.options.pie) return 0;
     return self.base.options.image_base_override orelse switch (self.ptr_width) {
         .p32 => 0x1000,
         .p64 => 0x1000000,
@@ -5666,6 +5721,7 @@ pub const AddSectionOpts = struct {
     info: u32 = 0,
     addralign: u64 = 0,
     entsize: u64 = 0,
+    offset: u64 = 0,
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
@@ -5677,7 +5733,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
         .sh_type = opts.type,
         .sh_flags = opts.flags,
         .sh_addr = 0,
-        .sh_offset = 0,
+        .sh_offset = opts.offset,
         .sh_size = 0,
         .sh_link = opts.link,
         .sh_info = opts.info,
@@ -6245,6 +6301,15 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
     }
     return i;
 }
+
+/// The following three values are only observed at compile-time and used to emit a compile error
+/// to remind the programmer to update expected maximum numbers of different program header types
+/// so that we reserve enough space for the program header table up-front.
+/// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
+/// more special-purpose program headers.
+const number_of_zig_segments = 5;
+const max_number_of_object_segments = 9;
+const max_number_of_special_phdrs = 5;
 
 const default_entry_addr = 0x8000000;
 

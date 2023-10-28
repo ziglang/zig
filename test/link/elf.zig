@@ -75,6 +75,9 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
     elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
@@ -98,6 +101,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
     elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testUnresolvedError(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
     elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
@@ -185,6 +190,8 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -211,6 +218,8 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -396,6 +405,8 @@ fn testCopyrel(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5\n");
@@ -556,6 +567,8 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello WORLD\n");
@@ -591,6 +604,8 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -896,6 +911,8 @@ fn testIFuncAlias(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1006,6 +1023,8 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
         exe.link_z_lazy = true;
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1015,6 +1034,8 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "other", opts);
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1078,6 +1099,8 @@ fn testIFuncFuncPtr(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");
@@ -1107,6 +1130,8 @@ fn testIFuncNoPlt(b: *Build, opts: Options) *Step {
     , &.{"-fno-plt"});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -1413,6 +1438,8 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -1447,6 +1474,8 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     , &.{});
     exe.link_function_sections = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const check = exe.checkObject();
     check.checkInSymtab();
@@ -1475,6 +1504,8 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1538,6 +1569,88 @@ fn testLinkOrder(b: *Build, opts: Options) *Step {
         check.checkNotPresent("libb.so");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testLdScript(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script", opts);
+
+    const dso = addSharedLibrary(b, "bar", opts);
+    addCSourceBytes(dso, "int foo() { return 42; }", &.{});
+
+    const scripts = WriteFile.create(b);
+    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+    _ = scripts.add("libfoo.so", "GROUP(AS_NEEDED(-lbar))");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\int foo();
+        \\int main() {
+        \\  return foo() - 42;
+        \\}
+    , &.{});
+    exe.linkSystemLibrary2("a", .{});
+    exe.addLibraryPath(scripts.getDirectory());
+    exe.addLibraryPath(dso.getEmittedBinDirectory());
+    exe.addRPath(dso.getEmittedBinDirectory());
+    exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLdScriptPathError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-path-error", opts);
+
+    const scripts = WriteFile.create(b);
+    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.linkSystemLibrary2("a", .{});
+    exe.addLibraryPath(scripts.getDirectory());
+    exe.linkLibC();
+
+    expectLinkErrors(
+        exe,
+        test_step,
+        .{
+            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
+        },
+    );
+
+    return test_step;
+}
+
+fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "mismatched-cpu-architecture-error", opts);
+
+    const obj = addObject(b, "a", .{
+        .target = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
+    });
+    addCSourceBytes(obj, "int foo;", &.{});
+    obj.strip = true;
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "invalid cpu architecture: expected 'x86_64', but found 'aarch64'",
+        "note: while parsing /?/a.o",
+    } });
 
     return test_step;
 }
@@ -1698,6 +1811,8 @@ fn testPltGot(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dso);
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -1912,6 +2027,8 @@ fn testTlsDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("5 3 5 3 5 3\n");
@@ -2061,6 +2178,8 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(a_so);
         exe.linkLibrary(b_so);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2074,6 +2193,8 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(b_so);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2117,6 +2238,8 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -2132,6 +2255,8 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -2211,6 +2336,8 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2223,6 +2350,8 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.linkLibrary(dso);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2270,6 +2399,8 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -2282,6 +2413,8 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -2315,6 +2448,8 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");
@@ -2337,6 +2472,8 @@ fn testTlsLargeStaticImage(b: *Build, opts: Options) *Step {
     , &.{});
     exe.force_pic = true;
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2 3 0 5\n");
@@ -2375,6 +2512,8 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2387,6 +2526,8 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -2420,6 +2561,8 @@ fn testTlsLdDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2\n");
@@ -2457,6 +2600,8 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -2469,6 +2614,8 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -2554,6 +2701,8 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
     exe.force_pic = true;
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2588,6 +2737,8 @@ fn testTlsPic(b: *Build, opts: Options) *Step {
     , &.{});
     exe.addObject(obj);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5 3 5\n");
@@ -2627,6 +2778,8 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -2642,6 +2795,8 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -2682,6 +2837,72 @@ fn testTlsStatic(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unknown-file-type-error", opts);
+
+    const dylib = addSharedLibrary(b, "a", .{
+        .target = .{ .cpu_arch = .x86_64, .os_tag = .macos },
+    });
+    addZigSourceBytes(dylib, "export var foo: i32 = 0;");
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe,
+        \\extern int foo;
+        \\int main() {
+        \\  return foo;
+        \\}
+    , &.{});
+    exe.linkLibrary(dylib);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "unknown file type",
+        "note: while parsing /?/liba.dylib",
+        "undefined symbol: foo",
+        "note: referenced by /?/a.o:.text",
+    } });
+
+    return test_step;
+}
+
+fn testUnresolvedError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-error", opts);
+
+    const obj1 = addObject(b, "a", opts);
+    addCSourceBytes(obj1,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar() {
+        \\  return foo() + 1;
+        \\}
+    , &.{"-ffunction-sections"});
+    obj1.linkLibC();
+
+    const obj2 = addObject(b, "b", opts);
+    addCSourceBytes(obj2,
+        \\#include <stdio.h>
+        \\int foo();
+        \\int bar();
+        \\int main() {
+        \\  return foo() + bar();
+        \\}
+    , &.{"-ffunction-sections"});
+    obj2.linkLibC();
+
+    const exe = addExecutable(b, "main", opts);
+    exe.addObject(obj1);
+    exe.addObject(obj2);
+    exe.linkLibC();
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "error: undefined symbol: foo",
+        "note: referenced by /?/a.o:.text.bar",
+        "note: referenced by /?/b.o:.text.main",
+    } });
+
+    return test_step;
+}
+
 fn testWeakExports(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "weak-exports", opts);
 
@@ -2711,6 +2932,8 @@ fn testWeakExports(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "main", opts);
         exe.addObject(obj);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const check = exe.checkObject();
         check.checkInDynamicSymtab();
@@ -2743,6 +2966,8 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=-1\n");
@@ -2759,6 +2984,8 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
+        // https://github.com/ziglang/zig/issues/17619
+        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=5\n");
@@ -2866,6 +3093,8 @@ fn testZText(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
+    // https://github.com/ziglang/zig/issues/17619
+    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");
@@ -2970,6 +3199,12 @@ fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
     const file = WriteFile.create(b).add("a.s", actual_bytes);
     comp.addAssemblyFile(file);
+}
+
+fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
+    comp.expect_errors = expected_errors;
+    const bin_file = comp.getEmittedBin();
+    bin_file.addStepDependencies(test_step);
 }
 
 const std = @import("std");

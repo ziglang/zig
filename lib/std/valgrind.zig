@@ -250,7 +250,7 @@ pub fn disableErrorReporting() void {
     doClientRequestStmt(.ChangeErrDisablement, 1, 0, 0, 0, 0);
 }
 
-/// Re-enable error reporting, (see disableErrorReporting())
+/// Re-enable error reporting. (see disableErrorReporting())
 pub fn enableErrorReporting() void {
     doClientRequestStmt(.ChangeErrDisablement, math.maxInt(usize), 0, 0, 0, 0);
 }

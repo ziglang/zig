@@ -215,7 +215,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = true,
-        .want_pie = true,
+        .want_pie = null,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,

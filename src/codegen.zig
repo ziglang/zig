@@ -167,11 +167,7 @@ pub fn generateSymbol(
 
     const mod = bin_file.options.module.?;
     const ip = &mod.intern_pool;
-    var typed_value = arg_tv;
-    switch (ip.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
@@ -206,7 +202,7 @@ pub fn generateSymbol(
         .inferred_error_set_type,
         => unreachable, // types, not values
 
-        .undef, .runtime_value => unreachable, // handled above
+        .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
             .undefined,
             .void,
@@ -545,7 +541,7 @@ pub fn generateSymbol(
 
             if (layout.payload_size == 0) {
                 return generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info);
             }
@@ -553,7 +549,7 @@ pub fn generateSymbol(
             // Check if we should store the tag first.
             if (layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align)) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
@@ -713,7 +709,7 @@ const RelocInfo = struct {
 fn lowerAnonDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    decl_val: InternPool.Index,
+    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
@@ -723,6 +719,7 @@ fn lowerAnonDeclRef(
     const mod = bin_file.options.module.?;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const decl_val = anon_decl.val;
     const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
     const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
@@ -730,7 +727,8 @@ fn lowerAnonDeclRef(
         return Result.ok;
     }
 
-    const res = try bin_file.lowerAnonDecl(decl_val, src_loc);
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try bin_file.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
         .fail => |em| return .{ .fail = em },
@@ -852,7 +850,7 @@ fn genDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
-    decl_index: Module.Decl.Index,
+    ptr_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
@@ -861,6 +859,12 @@ fn genDeclRef(
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
+    const ptr_decl = mod.declPtr(ptr_decl_index);
+    const decl_index = switch (mod.intern_pool.indexToKey(try ptr_decl.internValue(mod))) {
+        .func => |func| func.owner_decl,
+        .extern_func => |extern_func| extern_func.decl,
+        else => ptr_decl_index,
+    };
     const decl = mod.declPtr(decl_index);
 
     if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
@@ -968,11 +972,7 @@ pub fn genTypedValue(
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
-    var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     log.debug("genTypedValue: ty = {}, val = {}", .{
         typed_value.ty.fmt(mod),
@@ -1052,6 +1052,7 @@ pub fn genTypedValue(
             const payload_type = typed_value.ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
+                const err_int_ty = try mod.errorIntType();
                 switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
                     .err_name => |err_name| return genTypedValue(bin_file, src_loc, .{
                         .ty = err_type,
@@ -1061,8 +1062,8 @@ pub fn genTypedValue(
                         } })).toValue(),
                     }, owner_decl_index),
                     .payload => return genTypedValue(bin_file, src_loc, .{
-                        .ty = Type.err_int,
-                        .val = try mod.intValue(Type.err_int, 0),
+                        .ty = err_int_ty,
+                        .val = try mod.intValue(err_int_ty, 0),
                     }, owner_decl_index),
                 }
             }

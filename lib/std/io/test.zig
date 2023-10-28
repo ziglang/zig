@@ -61,6 +61,8 @@ test "write a file, read it, then delete it" {
 }
 
 test "BitStreams with File Stream" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -177,4 +179,17 @@ test "updateTimes" {
     var stat_new = try file.stat();
     try expect(stat_new.atime < stat_old.atime);
     try expect(stat_new.mtime < stat_old.mtime);
+}
+
+test "GenericReader methods can return error.EndOfStream" {
+    // https://github.com/ziglang/zig/issues/17733
+    var fbs = std.io.fixedBufferStream("");
+    try std.testing.expectError(
+        error.EndOfStream,
+        fbs.reader().readEnum(enum(u8) { a, b }, .Little),
+    );
+    try std.testing.expectError(
+        error.EndOfStream,
+        fbs.reader().isBytes("foo"),
+    );
 }

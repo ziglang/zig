@@ -2990,15 +2990,17 @@ pub fn main() anyerror!void {
       {#header_close#}
 
       {#header_open|Slices#}
+      <p>
+      A slice is a pointer and a length. The difference between an array and
+      a slice is that the array's length is part of the type and known at
+      compile-time, whereas the slice's length is known at runtime.
+      Both can be accessed with the `len` field.
+      </p>
       {#code_begin|test_safety|test_basic_slices|index out of bounds#}
 const expect = @import("std").testing.expect;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    // A slice is a pointer and a length. The difference between an array and
-    // a slice is that the array's length is part of the type and known at
-    // compile-time, whereas the slice's length is known at runtime.
-    // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
     try expect(@TypeOf(slice) == []i32);
@@ -5373,8 +5375,9 @@ test "fn reflection" {
       gets assigned the same integer value.
       </p>
       <p>
-      The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
+      The error set type defaults to a {#syntax#}u16{#endsyntax#}, though if the maximum number of distinct
+      error values is provided via the <kbd>--error-limit [num]</kbd> command line parameter an integer type
+      with the minimum number of bits required to represent all of the error values will be used.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -8373,7 +8376,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -8694,7 +8697,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -11810,7 +11813,7 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
-      to form a Windows style line ending, but this is discouraged. Note that in mulitline strings, CRLF sequences will
+      to form a Windows style line ending, but this is discouraged. Note that in multiline strings, CRLF sequences will
       be encoded as LF when compiled into a zig program.
       A CR in any other context is not allowed.
       </p>

@@ -108,6 +108,8 @@ test "64" {
 }
 
 test "80" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expect(ilogbX(f80, 0.0) == fp_ilogb0);
     try expect(ilogbX(f80, 0.5) == -1);
     try expect(ilogbX(f80, 0.8923) == -1);

@@ -190,7 +190,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_probe_align_ri_s => {
                 try lower.emit(.none, .@"test", &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
                 });
                 try lower.emit(.none, .jz, &.{
                     .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
@@ -226,14 +226,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 }
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
                 });
                 assert(lower.result_insts_len <= pseudo_probe_adjust_unrolled_max_insts);
             },
             .pseudo_probe_adjust_setup_rri_s => {
                 try lower.emit(.none, .mov, &.{
                     .{ .reg = inst.data.rri.r2.to32() },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.rri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.rri.i)) },
                 });
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.rri.r1 },
@@ -291,7 +291,9 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .i_s,
         .mi_sib_s,
         .mi_rip_s,
-        => Immediate.s(@as(i32, @bitCast(i))),
+        .rmi_sib_s,
+        .rmi_rip_s,
+        => Immediate.s(@bitCast(i)),
 
         .rrri,
         .rri_u,
@@ -301,6 +303,8 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .mi_rip_u,
         .rmi_sib,
         .rmi_rip,
+        .rmi_sib_u,
+        .rmi_rip_u,
         .mri_sib,
         .mri_rip,
         .rrm_sib,
@@ -319,6 +323,8 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
     return lower.mir.resolveFrameLoc(switch (ops) {
         .rm_sib,
         .rmi_sib,
+        .rmi_sib_s,
+        .rmi_sib_u,
         .m_sib,
         .mi_sib_u,
         .mi_sib_s,
@@ -335,6 +341,8 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
 
         .rm_rip,
         .rmi_rip,
+        .rmi_rip_s,
+        .rmi_rip_u,
         .m_rip,
         .mi_rip_u,
         .mi_rip_s,
@@ -383,13 +391,29 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
-        .ri64, .rm_sib, .rm_rip, .mr_sib, .mr_rip => inst.data.rx.fixes,
+        .ri64,
+        .rm_sib,
+        .rm_rip,
+        .rmi_sib_s,
+        .rmi_sib_u,
+        .rmi_rip_s,
+        .rmi_rip_u,
+        .mr_sib,
+        .mr_rip,
+        => inst.data.rx.fixes,
         .mrr_sib, .mrr_rip, .rrm_sib, .rrm_rip => inst.data.rrx.fixes,
         .rmi_sib, .rmi_rip, .mri_sib, .mri_rip => inst.data.rix.fixes,
         .rrmi_sib, .rrmi_rip => inst.data.rrix.fixes,
         .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => inst.data.x.fixes,
         .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .extern_got_reloc, .direct_reloc, .direct_got_reloc, .import_reloc, .tlv_reloc => ._,
+        .extern_fn_reloc,
+        .got_reloc,
+        .extern_got_reloc,
+        .direct_reloc,
+        .direct_got_reloc,
+        .import_reloc,
+        .tlv_reloc,
+        => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -461,7 +485,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .m_sib, .m_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
         },
-        .mi_sib_s, .mi_sib_u, .mi_rip_u, .mi_rip_s => &.{
+        .mi_sib_s, .mi_sib_u, .mi_rip_s, .mi_rip_u => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.x.payload + 1) },
             .{ .imm = lower.imm(
                 inst.ops,
@@ -476,6 +500,14 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rix.r1 },
             .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
+        },
+        .rmi_sib_s, .rmi_sib_u, .rmi_rip_s, .rmi_rip_u => &.{
+            .{ .reg = inst.data.rx.r1 },
+            .{ .mem = lower.mem(inst.ops, inst.data.rx.payload + 1) },
+            .{ .imm = lower.imm(
+                inst.ops,
+                lower.mir.extraData(Mir.Imm32, inst.data.rx.payload).data.imm,
+            ) },
         },
         .mr_sib, .mr_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },

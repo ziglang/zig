@@ -663,6 +663,18 @@ test "file operations on directories" {
     }.impl);
 }
 
+test "makeOpenPath parent dirs do not exist" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{});
+    dir.close();
+
+    // double check that the full directory structure was created
+    var dir_verification = try tmp_dir.dir.openDir("root_dir/parent_dir/some_dir", .{});
+    dir_verification.close();
+}
+
 test "deleteDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {

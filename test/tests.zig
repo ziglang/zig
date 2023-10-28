@@ -94,6 +94,26 @@ const test_targets = blk: {
             .use_llvm = false,
             .use_lld = false,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
         // Doesn't support new liveness
         //.{
         //    .target = .{
@@ -470,62 +490,123 @@ const test_targets = blk: {
     };
 };
 
-const c_abi_targets = [_]CrossTarget{
+const CAbiTarget = struct {
+    target: CrossTarget = .{},
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    c_defines: []const []const u8 = &.{},
+};
+
+const c_abi_targets = [_]CAbiTarget{
     .{},
     .{
-        .cpu_arch = .x86_64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .aarch64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .arm,
-        .os_tag = .linux,
-        .abi = .musleabihf,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .mips,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .riscv64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .arm,
+            .os_tag = .linux,
+            .abi = .musleabihf,
+        },
     },
     .{
-        .cpu_arch = .powerpc,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .mips,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .powerpc64le,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .riscv64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86,
-        .os_tag = .windows,
-        .abi = .gnu,
+        .target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86_64,
-        .os_tag = .windows,
-        .abi = .gnu,
+        .target = .{
+            .cpu_arch = .powerpc,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .powerpc64le,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
     },
 };
 
@@ -985,7 +1066,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getObjectFormat() != .elf) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
         // TODO get compiler-rt tests passing for wasm32-wasi
@@ -1002,8 +1085,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
 
-        // TODO get std lib tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
+        // TODO get std lib tests passing for other self-hosted backends.
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getOsTag() != .linux) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
         const want_this_mode = for (options.optimize_modes) |m| {
@@ -1013,6 +1098,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
         const triple_txt = test_target.target.zigTriple(b.allocator) catch @panic("OOM");
+        const model_txt = test_target.target.getCpuModel().name;
 
         // wasm32-wasi builds need more RAM, idk why
         const max_rss = if (test_target.target.getOs().tag == .wasi)
@@ -1050,9 +1136,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             these_tests.stack_size = 2 * 1024 * 1024;
         }
 
-        const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}{s}", .{
+        const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
+            model_txt,
             @tagName(test_target.optimize_mode),
             libc_suffix,
             single_threaded_suffix,
@@ -1140,33 +1227,50 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
         if (optimize_mode != .Debug and skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.isNative()) continue;
+            if (skip_non_native and !c_abi_target.target.isNative()) continue;
 
-            if (c_abi_target.isWindows() and c_abi_target.getCpuArch() == .aarch64) {
+            if (c_abi_target.target.isWindows() and c_abi_target.target.getCpuArch() == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
                 continue;
             }
 
-            const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
+            if (c_abi_target.use_llvm == false and optimize_mode == .ReleaseFast) {
+                // panic: unrecognized command line argument
+                continue;
+            }
 
             const test_step = b.addTest(.{
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
-                .optimize = optimize_mode,
-                .target = c_abi_target,
-                .name = b.fmt("test-c-abi-{s}-{s}", .{
-                    triple_prefix, @tagName(optimize_mode),
+                .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}", .{
+                    c_abi_target.target.zigTriple(b.allocator) catch @panic("OOM"),
+                    c_abi_target.target.getCpuModel().name,
+                    @tagName(optimize_mode),
+                    if (c_abi_target.use_llvm == true)
+                        "-llvm"
+                    else if (c_abi_target.target.ofmt == std.Target.ObjectFormat.c)
+                        "-cbe"
+                    else if (c_abi_target.use_llvm == false)
+                        "-selfhosted"
+                    else
+                        "",
+                    if (c_abi_target.use_lld == false) "-no-lld" else "",
                 }),
+                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .target = c_abi_target.target,
+                .optimize = optimize_mode,
+                .link_libc = true,
+                .use_llvm = c_abi_target.use_llvm,
+                .use_lld = c_abi_target.use_lld,
             });
-            if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
+            if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
                 // for some reason?
                 test_step.target_info.dynamic_linker.max_byte = null;
             }
-            test_step.linkLibC();
             test_step.addCSourceFile(.{
                 .file = .{ .path = "test/c_abi/cfuncs.c" },
                 .flags = &.{"-std=c99"},
             });
+            for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.

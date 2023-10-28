@@ -518,11 +518,11 @@ pub const Session = struct {
         defer headers.deinit();
         try headers.append("Git-Protocol", "version=2");
 
-        var request = try session.transport.request(.GET, info_refs_uri, headers, .{
+        var request = try session.transport.open(.GET, info_refs_uri, headers, .{
             .max_redirects = 3,
         });
         errdefer request.deinit();
-        try request.start(.{});
+        try request.send(.{});
         try request.finish();
 
         try request.wait();
@@ -641,12 +641,12 @@ pub const Session = struct {
         }
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.request(.POST, upload_pack_uri, headers, .{
+        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.start(.{});
+        try request.send(.{});
         try request.writeAll(body.items);
         try request.finish();
 
@@ -740,12 +740,12 @@ pub const Session = struct {
         try Packet.write(.{ .data = "done\n" }, body_writer);
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.request(.POST, upload_pack_uri, headers, .{
+        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.start(.{});
+        try request.send(.{});
         try request.writeAll(body.items);
         try request.finish();
 

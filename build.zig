@@ -255,7 +255,7 @@ pub fn build(b: *std.Build) !void {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
-        const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
+        const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
         }, &code, .Ignore) catch {
             break :v version_string;
@@ -578,6 +578,7 @@ fn addCompilerStep(
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
     exe.addAnonymousModule("aro", .{
@@ -737,9 +738,9 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
 
     const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
-        b.exec(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
+        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
     else
-        b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {

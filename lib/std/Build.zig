@@ -172,7 +172,7 @@ const InitializedDepContext = struct {
     }
 };
 
-pub const ExecError = error{
+pub const RunError = error{
     ReadFailure,
     ExitCodeFailure,
     ProcessTerminated,
@@ -839,7 +839,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
-    obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
+    obj_step.addAssemblyFile(options.source_file);
     return obj_step;
 }
 
@@ -971,9 +971,7 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *Step.RemoveDir {
-    const remove_dir_step = self.allocator.create(Step.RemoveDir) catch @panic("OOM");
-    remove_dir_step.* = Step.RemoveDir.init(self, dir_path);
-    return remove_dir_step;
+    return Step.RemoveDir.create(self, dir_path);
 }
 
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
@@ -1629,12 +1627,12 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
     return error.FileNotFound;
 }
 
-pub fn execAllowFail(
+pub fn runAllowFail(
     self: *Build,
     argv: []const []const u8,
     out_code: *u8,
     stderr_behavior: std.ChildProcess.StdIo,
-) ExecError![]u8 {
+) RunError![]u8 {
     assert(argv.len != 0);
 
     if (!process.can_spawn)
@@ -1673,7 +1671,7 @@ pub fn execAllowFail(
 /// This is a helper function to be called from build.zig scripts, *not* from
 /// inside step make() functions. If any errors occur, it fails the build with
 /// a helpful message.
-pub fn exec(b: *Build, argv: []const []const u8) []u8 {
+pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
             try allocPrintCmd(b.allocator, null, argv),
@@ -1682,7 +1680,7 @@ pub fn exec(b: *Build, argv: []const []const u8) []u8 {
     }
 
     var code: u8 = undefined;
-    return b.execAllowFail(argv, &code, .Inherit) catch |err| {
+    return b.runAllowFail(argv, &code, .Inherit) catch |err| {
         const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
@@ -2158,5 +2156,6 @@ pub fn hex64(x: u64) [16]u8 {
 }
 
 test {
+    _ = Cache;
     _ = Step;
 }

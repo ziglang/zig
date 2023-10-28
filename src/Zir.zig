@@ -997,8 +997,9 @@ pub const Inst = struct {
         /// is the allocation that needs to have its type inferred.
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
-        /// Turns a pointer coming from an `alloc`, `alloc_inferred`, `alloc_inferred_comptime` or
-        /// `Extended.alloc` into a constant version of the same pointer.
+        /// Turns a pointer coming from an `alloc` or `Extended.alloc` into a constant
+        /// version of the same pointer. For inferred allocations this is instead implicitly
+        /// handled by the `resolve_inferred_alloc` instruction.
         /// Uses the `un_node` union field.
         make_ptr_const,
 
