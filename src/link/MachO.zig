@@ -130,7 +130,7 @@ bindings: BindingTable = .{},
 lazy_syms: LazySymbolTable = .{},
 
 /// Table of tracked Decls.
-decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: DeclTable = .{},
 
 /// Table of threadlocal variables descriptors.
 /// They are emitted in the `__thread_vars` section.
@@ -1904,6 +1904,7 @@ pub fn deinit(self: *MachO) void {
         m.exports.deinit(gpa);
     }
     self.decls.deinit(gpa);
+
     self.lazy_syms.deinit(gpa);
     self.tlv_table.deinit(gpa);
 
@@ -1911,7 +1912,14 @@ pub fn deinit(self: *MachO) void {
         atoms.deinit(gpa);
     }
     self.unnamed_const_atoms.deinit(gpa);
-    self.anon_decls.deinit(gpa);
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.anon_decls.deinit(gpa);
+    }
 
     self.atom_by_index_table.deinit(gpa);
 
@@ -2689,18 +2697,30 @@ pub fn updateExports(
 
     const gpa = self.base.allocator;
 
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
-            @panic("TODO: implement MachO linker code for exporting a constant value");
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateAtomForDecl(decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
         },
     };
-    const decl = mod.declPtr(decl_index);
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const atom_index = metadata.atom;
     const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
-    const decl_metadata = self.decls.getPtr(decl_index).?;
+    const sym = atom.getSymbol(self);
 
     for (exports) |exp| {
         const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{
@@ -2712,73 +2732,65 @@ pub fn updateExports(
 
         if (exp.opts.section.unwrap()) |section_name| {
             if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
-                try mod.failed_exports.putNoClobber(
-                    mod.gpa,
-                    exp,
-                    try Module.ErrorMsg.create(
-                        gpa,
-                        decl.srcLoc(mod),
-                        "Unimplemented: ExportOptions.section",
-                        .{},
-                    ),
-                );
+                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
                 continue;
             }
         }
 
         if (exp.opts.linkage == .LinkOnce) {
-            try mod.failed_exports.putNoClobber(
-                mod.gpa,
-                exp,
-                try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(mod),
-                    "Unimplemented: GlobalLinkage.LinkOnce",
-                    .{},
-                ),
-            );
+            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                exp.getSrcLoc(mod),
+                "Unimplemented: GlobalLinkage.LinkOnce",
+                .{},
+            ));
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
-            const sym_index = try self.allocateSymbol();
-            try decl_metadata.exports.append(gpa, sym_index);
-            break :blk sym_index;
+        const global_sym_index = metadata.getExport(self, exp_name) orelse blk: {
+            const global_sym_index = try self.allocateSymbol();
+            try metadata.exports.append(gpa, global_sym_index);
+            break :blk global_sym_index;
         };
-        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
-        const sym = self.getSymbolPtr(sym_loc);
-        sym.* = .{
+        const global_sym_loc = SymbolWithLoc{ .sym_index = global_sym_index };
+        const global_sym = self.getSymbolPtr(global_sym_loc);
+        global_sym.* = .{
             .n_strx = try self.strtab.insert(gpa, exp_name),
             .n_type = macho.N_SECT | macho.N_EXT,
-            .n_sect = self.text_section_index.? + 1, // TODO what if we export a variable?
+            .n_sect = metadata.section + 1,
             .n_desc = 0,
-            .n_value = decl_sym.n_value,
+            .n_value = sym.n_value,
         };
 
         switch (exp.opts.linkage) {
             .Internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
-                sym.n_type |= macho.N_PEXT;
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_type |= macho.N_PEXT;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             .Strong => {},
             .Weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             else => unreachable,
         }
 
-        self.resolveGlobalSymbol(sym_loc) catch |err| switch (err) {
+        self.resolveGlobalSymbol(global_sym_loc) catch |err| switch (err) {
             error.MultipleSymbolDefinitions => {
                 // TODO: this needs rethinking
                 const global = self.getGlobal(exp_name).?;
-                if (sym_loc.sym_index != global.sym_index and global.getFile() != null) {
+                if (global_sym_loc.sym_index != global.sym_index and global.getFile() != null) {
                     _ = try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(mod),
+                        exp.getSrcLoc(mod),
                         \\LinkError: symbol '{s}' defined multiple times
                     ,
                         .{exp_name},
@@ -2886,8 +2898,8 @@ pub fn lowerAnonDecl(
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
     };
-    if (self.anon_decls.get(decl_val)) |atom_index| {
-        const existing_addr = self.getAtom(atom_index).getSymbol(self).n_value;
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_addr = self.getAtom(metadata.atom).getSymbol(self).n_value;
         if (decl_alignment.check(existing_addr))
             return .ok;
     }
@@ -2917,14 +2929,17 @@ pub fn lowerAnonDecl(
         .ok => |atom_index| atom_index,
         .fail => |em| return .{ .fail = em },
     };
-    try self.anon_decls.put(gpa, decl_val, atom_index);
+    try self.anon_decls.put(gpa, decl_val, .{
+        .atom = atom_index,
+        .section = self.data_const_section_index.?,
+    });
     return .ok;
 }
 
 pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
-    const this_atom_index = self.anon_decls.get(decl_val).?;
+    const this_atom_index = self.anon_decls.get(decl_val).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index }).?;
     try Atom.addRelocation(self, atom_index, .{
@@ -5489,7 +5504,8 @@ const DeclMetadata = struct {
     }
 };
 
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index);
+const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
