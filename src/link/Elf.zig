@@ -3585,8 +3585,21 @@ pub fn updateExports(
             _ = try self.getOrCreateMetadataForDecl(decl_index);
             break :blk self.decls.getPtr(decl_index).?;
         },
-        // TODO is it possible to request export before const being lowered?
-        .value => |value| self.anon_decls.getPtr(value).?,
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
+        },
     };
     const sym_index = metadata.symbol_index;
     const esym_index = self.symbol(sym_index).esym_index;
