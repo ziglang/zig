@@ -20,7 +20,7 @@ pub const Lib = struct {
 };
 
 pub const ABI = struct {
-    all_versions: []const Version,
+    all_versions: []const Version, // all defined versions (one abilist from v2.0.0 up to current)
     all_targets: []const target_util.ArchOsAbi,
     /// The bytes from the file verbatim, starting from the u16 number
     /// of function inclusions.
