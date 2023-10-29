@@ -473,8 +473,11 @@ pub const Type = struct {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                    return !comptimeOnly(ty, mod);
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(ty)),
+                        .eager => !comptimeOnly(ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .anyframe_type => true,
                 .array_type => |array_type| {
@@ -495,13 +498,12 @@ pub const Type = struct {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
-                    }
+                    if (ignore_comptime_only) return true;
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(child_ty)),
+                        .eager => !comptimeOnly(child_ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .error_union_type,
                 .error_set_type,

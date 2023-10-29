@@ -1766,3 +1766,22 @@ test "pointer to struct initialized through reference to anonymous initializer p
     const str: *const [5]u8 = @ptrCast(s.c);
     try std.testing.expectEqualSlices(u8, "hello", str);
 }
+
+test "comptimeness of optional and error union payload is analyzed properly" {
+    // This is primarily a semantic analysis integrity test.
+    // The original failure mode for this was a crash.
+    // Both structs and unions work for this, the point is that
+    // their comptimeness is lazily evaluated.
+    const S = struct {};
+    // Original form of bug #17511, regressed in #17471
+    const a = @sizeOf(?*S);
+    _ = a;
+    // Error union case, fails assertion in debug versions of release 0.11.0
+    _ = @sizeOf(anyerror!*S);
+    _ = @sizeOf(anyerror!?S);
+    // Evaluation case, crashes the actual release 0.11.0
+    const C = struct { x: comptime_int };
+    const c: anyerror!?C = .{ .x = 3 };
+    const x = (try c).?.x;
+    try std.testing.expectEqual(3, x);
+}
