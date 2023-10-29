@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
@@ -10,7 +9,7 @@ const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
-const native_endian = builtin.target.cpu.arch.endian();
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const tmpDir = std.testing.tmpDir;
 
@@ -61,8 +60,6 @@ test "write a file, read it, then delete it" {
 }
 
 test "BitStreams with File Stream" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 

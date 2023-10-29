@@ -164,8 +164,6 @@ pub fn bitReader(
 }
 
 test "api coverage" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const mem_be = [_]u8{ 0b11001101, 0b00001011 };
     const mem_le = [_]u8{ 0b00011101, 0b10010101 };
 

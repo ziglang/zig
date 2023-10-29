@@ -1054,8 +1054,6 @@ fn isOpcodeRegisterLocation(opcode: u8) bool {
 
 const testing = std.testing;
 test "DWARF expressions" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
 
     const options = ExpressionOptions{};
