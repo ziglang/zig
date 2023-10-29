@@ -721,6 +721,7 @@ fn lowerAnonDeclRef(
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const decl_val = anon_decl.val;
     const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
+    log.debug("lowerAnonDecl: ty = {}", .{decl_ty.fmt(mod)});
     const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
@@ -911,6 +912,14 @@ fn genDeclRef(
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
+        if (is_extern) {
+            // TODO make this part of getGlobalSymbol
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            const sym_name = try std.fmt.allocPrint(bin_file.allocator, "_{s}", .{name});
+            defer bin_file.allocator.free(sym_name);
+            const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
+            return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
+        }
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         if (is_threadlocal) {

@@ -13080,12 +13080,13 @@ fn genExternSymbolRef(
             else => unreachable,
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+        const global_index = try macho_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .call,
             .ops = .extern_fn_reloc,
             .data = .{ .reloc = .{
                 .atom_index = atom_index,
-                .sym_index = try macho_file.getGlobalSymbol(callee, lib),
+                .sym_index = link.File.MachO.global_symbol_bit | global_index,
             } },
         });
     } else return self.fail("TODO implement calling extern functions", .{});
