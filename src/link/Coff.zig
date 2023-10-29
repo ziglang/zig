@@ -54,7 +54,7 @@ entry_addr: ?u32 = null,
 lazy_syms: LazySymbolTable = .{},
 
 /// Table of tracked Decls.
-decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: DeclTable = .{},
 
 /// List of atoms that are either synthetic or map directly to the Zig source program.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
@@ -108,7 +108,8 @@ const HotUpdateState = struct {
     loaded_base_address: ?std.os.windows.HMODULE = null,
 };
 
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index);
+const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
@@ -325,7 +326,14 @@ pub fn deinit(self: *Coff) void {
         atoms.deinit(gpa);
     }
     self.unnamed_const_atoms.deinit(gpa);
-    self.anon_decls.deinit(gpa);
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.anon_decls.deinit(gpa);
+    }
 
     for (self.relocs.values()) |*relocs| {
         relocs.deinit(gpa);
@@ -1462,62 +1470,66 @@ pub fn updateExports(
 
     const gpa = self.base.allocator;
 
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
-            @panic("TODO: implement COFF linker code for exporting a constant value");
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateAtomForDecl(decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
         },
     };
-    const decl = mod.declPtr(decl_index);
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const atom_index = metadata.atom;
     const atom = self.getAtom(atom_index);
-    const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
         log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
 
         if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try mod.failed_exports.putNoClobber(
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                     gpa,
-                    exp,
-                    try Module.ErrorMsg.create(
-                        gpa,
-                        decl.srcLoc(mod),
-                        "Unimplemented: ExportOptions.section",
-                        .{},
-                    ),
-                );
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
                 continue;
             }
         }
 
         if (exp.opts.linkage == .LinkOnce) {
-            try mod.failed_exports.putNoClobber(
+            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
-                exp,
-                try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(mod),
-                    "Unimplemented: GlobalLinkage.LinkOnce",
-                    .{},
-                ),
-            );
+                exp.getSrcLoc(mod),
+                "Unimplemented: GlobalLinkage.LinkOnce",
+                .{},
+            ));
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, mod.intern_pool.stringToSlice(exp.opts.name)) orelse blk: {
+        const sym_index = metadata.getExport(self, mod.intern_pool.stringToSlice(exp.opts.name)) orelse blk: {
             const sym_index = try self.allocateSymbol();
-            try decl_metadata.exports.append(gpa, sym_index);
+            try metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
         sym.value = atom.getSymbol(self).value;
-        sym.section_number = @as(coff.SectionNumber, @enumFromInt(self.text_section_index.? + 1));
-        sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+        sym.section_number = @as(coff.SectionNumber, @enumFromInt(metadata.section + 1));
+        sym.type = atom.getSymbol(self).type;
 
         switch (exp.opts.linkage) {
             .Strong => {
@@ -1761,8 +1773,8 @@ pub fn lowerAnonDecl(
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
     };
-    if (self.anon_decls.get(decl_val)) |atom_index| {
-        const existing_addr = self.getAtom(atom_index).getSymbol(self).value;
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_addr = self.getAtom(metadata.atom).getSymbol(self).value;
         if (decl_alignment.check(existing_addr))
             return .ok;
     }
@@ -1792,14 +1804,14 @@ pub fn lowerAnonDecl(
         .ok => |atom_index| atom_index,
         .fail => |em| return .{ .fail = em },
     };
-    try self.anon_decls.put(gpa, decl_val, atom_index);
+    try self.anon_decls.put(gpa, decl_val, .{ .atom = atom_index, .section = self.rdata_section_index.? });
     return .ok;
 }
 
 pub fn getAnonDeclVAddr(self: *Coff, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
-    const this_atom_index = self.anon_decls.get(decl_val).?;
+    const this_atom_index = self.anon_decls.get(decl_val).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
