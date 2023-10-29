@@ -803,7 +803,10 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     @memcpy(inst.ops[0..ops.len], ops);
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
+    inst.encode(cwriter.writer(), .{
+        .allow_frame_locs = true,
+        .allow_symbols = true,
+    }) catch unreachable; // Not allowed to fail here unless OOM.
     return @as(usize, @intCast(cwriter.bytes_written));
 }
 

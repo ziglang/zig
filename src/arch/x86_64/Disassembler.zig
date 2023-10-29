@@ -11,7 +11,7 @@ const Encoding = @import("Encoding.zig");
 const Immediate = bits.Immediate;
 const Instruction = encoder.Instruction;
 const LegacyPrefixes = encoder.LegacyPrefixes;
-const Memory = bits.Memory;
+const Memory = Instruction.Memory;
 const Register = bits.Register;
 const Rex = encoder.Rex;
 
