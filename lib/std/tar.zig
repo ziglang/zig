@@ -77,6 +77,14 @@ pub const Header = struct {
         contiguous = '7',
         global_extended_header = 'g',
         extended_header = 'x',
+        // GNU Tar variants:
+        // https://www.gnu.org/software/tar/manual/html_node/Standard.html
+        GNUTYPE_LONGLINK = 'K',
+        GNUTYPE_LONGNAME = 'L',
+        GNUTYPE_MULTIVOL = 'M',
+        GNUTYPE_SPARSE = 'S',
+        GNUTYPE_VOLHDR = 'V',
+        SOLARIS_XHDTYPE = 'X',
         _,
     };
 
@@ -252,6 +260,30 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     if (file_off >= file_size) {
                         buffer.advance(pad_len);
                         continue :header;
+                    }
+                }
+            },
+            .GNUTYPE_LONGNAME => {
+                assert(std.mem.eql(u8, header.name(), "././@LongLink"));
+
+                while (true) {
+                    const filename_chunk = try buffer.readChunk(reader, 512);
+                    switch (filename_chunk.len) {
+                        0 => return,
+                        1...511 => return error.UnexpectedEndOfStream,
+                        else => {},
+                    }
+                    buffer.advance(512);
+                    const chunk_start = file_name_override_len;
+                    if (std.mem.indexOfScalar(u8, filename_chunk, 0)) |end| {
+                        file_name_override_len += end;
+                        assert(file_name_override_len < file_name_buffer.len);
+                        @memcpy(file_name_buffer[chunk_start..file_name_override_len], filename_chunk[0..end]);
+                        continue :header;
+                    } else {
+                        file_name_override_len += filename_chunk.len;
+                        assert(file_name_override_len < file_name_buffer.len);
+                        @memcpy(file_name_buffer[chunk_start..file_name_override_len], filename_chunk);
                     }
                 }
             },
