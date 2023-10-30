@@ -2,6 +2,7 @@ const std = @import("./std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
+const builtin = @import("builtin");
 
 /// Use this to replace an unknown, unrecognized, or unrepresentable character.
 ///
@@ -863,7 +864,27 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
     errdefer result.deinit();
 
-    const view = try Utf8View.init(utf8);
+    var remaining = utf8;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const Chunk = @Vector(chunk_len, u8);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const zeroes: Chunk = @splat(0);
+            const utf16_chunk: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
+            result.appendSliceAssumeCapacity(std.mem.bytesAsSlice(u16, &utf16_chunk));
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    const view = try Utf8View.init(remaining);
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
@@ -886,11 +907,33 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
 /// Assumes there is enough space for the output.
 pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var dest_i: usize = 0;
+
+    var remaining = utf8;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const Chunk = @Vector(chunk_len, u8);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const zeroes: Chunk = @splat(0);
+            const utf16_bytes: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
+            @memcpy(utf16le[dest_i..][0..chunk_len], std.mem.bytesAsSlice(u16, &utf16_bytes));
+            dest_i += chunk_len;
+            remaining = remaining[chunk_len..];
+        }
+    }
+
     var src_i: usize = 0;
-    while (src_i < utf8.len) {
-        const n = utf8ByteSequenceLength(utf8[src_i]) catch return error.InvalidUtf8;
+    while (src_i < remaining.len) {
+        const n = utf8ByteSequenceLength(remaining[src_i]) catch return error.InvalidUtf8;
         const next_src_i = src_i + n;
-        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
+        const codepoint = utf8Decode(remaining[src_i..next_src_i]) catch return error.InvalidUtf8;
         if (codepoint < 0x10000) {
             const short = @as(u16, @intCast(codepoint));
             utf16le[dest_i] = mem.nativeToLittle(u16, short);
