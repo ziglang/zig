@@ -13063,6 +13063,7 @@ fn genExternSymbolRef(
             } },
         });
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        const global_index = try coff_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .mov,
             .ops = .import_reloc,
@@ -13070,7 +13071,7 @@ fn genExternSymbolRef(
                 .r1 = .rax,
                 .payload = try self.addExtra(bits.Symbol{
                     .atom_index = atom_index,
-                    .sym_index = try coff_file.getGlobalSymbol(callee, lib),
+                    .sym_index = link.File.Coff.global_symbol_bit | global_index,
                 }),
             } },
         });

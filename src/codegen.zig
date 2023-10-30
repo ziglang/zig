@@ -927,6 +927,17 @@ fn genDeclRef(
         }
         return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Coff)) |coff_file| {
+        if (is_extern) {
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            // TODO audit this
+            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
+                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            else
+                null;
+            const global_index = try coff_file.getGlobalSymbol(name, lib_name);
+            try coff_file.need_got_table.put(bin_file.allocator, global_index, {}); // needs GOT
+            return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
+        }
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
