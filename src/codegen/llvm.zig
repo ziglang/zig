@@ -5013,6 +5013,7 @@ pub const FuncGen = struct {
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
                 .select         => try self.airSelect(inst),
+                .masked_scatter => try self.airMaskedScatter(inst),
                 .shuffle        => try self.airShuffle(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
@@ -9672,6 +9673,29 @@ pub const FuncGen = struct {
         const b = try self.resolveInst(extra.rhs);
 
         return self.wip.select(.normal, pred, a, b, "");
+    }
+
+    fn airMaskedScatter(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.dg.object;
+        const mod = o.module;
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.MaskedScatter, ty_pl.payload).data;
+
+        const dest = try self.resolveInst(extra.dest);
+        const source = try self.resolveInst(extra.source);
+        const mask = try self.resolveInst(extra.mask);
+
+        _ = try self.wip.callIntrinsic(.normal, .none, .@"masked.scatter", &.{
+            try o.lowerType(self.typeOf(extra.source)),
+            try o.lowerType(self.typeOf(extra.dest)),
+        }, &.{
+            source,
+            dest,
+            try o.builder.intValue(.i32, self.typeOf(extra.dest).childType(mod).ptrAlignment(mod)),
+            mask,
+        }, "");
+        return .none;
     }
 
     fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

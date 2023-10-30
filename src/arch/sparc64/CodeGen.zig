@@ -626,6 +626,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => @panic("TODO try self.airSelect(inst)"),
+            .masked_scatter  => @panic("TODO try self.airMaskedScatter(inst)"),
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),

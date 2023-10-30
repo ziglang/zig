@@ -794,6 +794,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => try self.airSelect(inst),
+            .masked_scatter  => try self.airMaskedScatter(inst),
             .shuffle         => try self.airShuffle(inst),
             .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
@@ -6038,6 +6039,13 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSelect for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
+}
+
+fn airMaskedScatter(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.MaskedScatter, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airMaskedScatter for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ extra.dest, extra.source, extra.mask });
 }
 
 fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {

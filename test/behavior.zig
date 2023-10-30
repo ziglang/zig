@@ -240,6 +240,7 @@ test {
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/abs.zig");
+    _ = @import("behavior/masked_scatter.zig");
 
     if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");

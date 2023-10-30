@@ -9701,6 +9701,13 @@ fn foo(comptime T: type, ptr: *T) T {
       </p>
       {#header_close#}
 
+      {#header_open|@maskedScatter#}
+      <pre>{#syntax#}@maskedScatter(comptime T: type, dest: @Vector(len, *T), source: @Vector(len, T), mask: @Vector(len, bool)) void{#endsyntax#}</pre>
+      <p>
+      Sets each pointer in {#syntax#}dest{#endsyntax#} to the corresponding value in {#syntax#}source{#endsyntax#} when {#syntax#}mask{#endsyntax#} for that value is {#syntax#}true{#endsyntax#}.
+      </p>
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|Build Mode#}

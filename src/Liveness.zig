@@ -520,6 +520,13 @@ pub fn categorizeOperand(
             if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
             return .none;
         },
+        .masked_scatter => {
+            const extra = air.extraData(Air.MaskedScatter, air_datas[inst].ty_pl.payload).data;
+            if (extra.dest == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.source == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            if (extra.mask == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
+            return .none;
+        },
         .reduce, .reduce_optimized => {
             const reduce = air_datas[inst].reduce;
             if (reduce.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -1133,6 +1140,10 @@ fn analyzeInst(
         .shuffle => {
             const extra = a.air.extraData(Air.Shuffle, inst_datas[inst].ty_pl.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ extra.a, extra.b, .none });
+        },
+        .masked_scatter => {
+            const extra = a.air.extraData(Air.MaskedScatter, inst_datas[inst].ty_pl.payload).data;
+            return analyzeOperands(a, pass, data, inst, .{ extra.dest, extra.source, extra.mask });
         },
         .reduce, .reduce_optimized => {
             const reduce = inst_datas[inst].reduce;

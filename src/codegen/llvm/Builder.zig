@@ -2602,6 +2602,9 @@ pub const Intrinsic = enum {
     @"vector.insert",
     @"vector.extract",
 
+    // Vector gather/scatter (masked)
+    @"masked.scatter",
+
     // Floating-Point Test
     @"is.fpclass",
 
@@ -3503,6 +3506,17 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
                 .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i64 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"masked.scatter" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .type = .i32 } },
+                .{ .kind = .{ .matches_changed_scalar = .{ .index = 0, .scalar = .i1 } } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },

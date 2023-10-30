@@ -1956,6 +1956,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ret_load => func.airRetLoad(inst),
         .splat => func.airSplat(inst),
         .select => func.airSelect(inst),
+        .masked_scatter => func.airMaskedScatter(inst),
         .shuffle => func.airShuffle(inst),
         .reduce => func.airReduce(inst),
         .aggregate_init => func.airAggregateInit(inst),
@@ -5184,6 +5185,13 @@ fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     _ = operand;
     return func.fail("TODO: Implement wasm airSelect", .{});
+}
+
+fn airMaskedScatter(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
+    _ = ty_pl;
+
+    return func.fail("TODO: Implement wasm airMaskedScatter", .{});
 }
 
 fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {

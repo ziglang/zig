@@ -8754,6 +8754,16 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .masked_scatter => {
+            const result = try gz.addExtendedPayload(.masked_scatter, Zir.Inst.MaskedScatter{
+                .node = gz.nodeIndexToRelative(node),
+                .elem_type = try typeExpr(gz, scope, params[0]),
+                .dest = try expr(gz, scope, .{ .rl = .none }, params[1]),
+                .source = try expr(gz, scope, .{ .rl = .none }, params[2]),
+                .mask = try expr(gz, scope, .{ .rl = .none }, params[3]),
+            });
+            return rvalue(gz, ri, result, node);
+        },
     }
 }
 

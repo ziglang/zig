@@ -555,6 +555,7 @@ const Writer = struct {
             .max_multi => try self.writeNodeMultiOp(stream, extended),
 
             .select => try self.writeSelect(stream, extended),
+            .masked_scatter => try self.writeMaskedScatter(stream, extended),
 
             .add_with_overflow,
             .sub_with_overflow,
@@ -879,6 +880,17 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.a);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.b);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
+    }
+
+    fn writeMaskedScatter(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.MaskedScatter, extended.operand).data;
+        try self.writeInstRef(stream, extra.dest);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.source);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.mask);
         try stream.writeAll(") ");
         try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
     }

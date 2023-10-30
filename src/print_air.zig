@@ -317,6 +317,7 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
+            .masked_scatter => try w.writeMaskedScatter(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
 
@@ -529,6 +530,17 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, extra.rhs);
+    }
+
+    fn writeMaskedScatter(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.MaskedScatter, ty_pl.payload).data;
+
+        try w.writeOperand(s, inst, 0, extra.dest);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, extra.source);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, extra.mask);
     }
 
     fn writeFence(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

@@ -683,6 +683,9 @@ pub const Inst = struct {
         /// Constructs a vector element-wise from `a` or `b` based on `pred`.
         /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
         select,
+        /// Sets pointers in `dest` to values from `src` based on `mask`.
+        /// Uses the `ty_pl` field with payload `MaskedScatter`.
+        masked_scatter,
 
         /// Given dest pointer and value, set all elements at dest to value.
         /// Dest pointer is either a slice or a pointer to array.
@@ -1213,6 +1216,12 @@ pub const UnionInit = struct {
     init: Inst.Ref,
 };
 
+pub const MaskedScatter = struct {
+    dest: Inst.Ref,
+    source: Inst.Ref,
+    mask: Inst.Ref,
+};
+
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@intFromEnum(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
@@ -1465,6 +1474,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return air.typeOf(extra.lhs, ip);
         },
 
+        .masked_scatter => return Type.void,
+
         .@"try" => {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
             return ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type.toType();
@@ -1631,6 +1642,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
+        .masked_scatter,
         => true,
 
         .add,

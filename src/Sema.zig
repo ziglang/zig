@@ -1269,6 +1269,7 @@ fn analyzeBodyInner(
                     .work_group_size    => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime        => try sema.zirInComptime(        block),
+                    .masked_scatter     => try sema.zirMaskedScatter(     block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -23464,6 +23465,86 @@ fn analyzeShuffle(
                 .b = b,
                 .mask = mask.toIntern(),
                 .mask_len = mask_len,
+            }),
+        } },
+    });
+}
+
+fn zirMaskedScatter(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const extra = sema.code.extraData(Zir.Inst.MaskedScatter, extended.operand).data;
+
+    const src_loc = LazySrcLoc.nodeOffset(extra.node);
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const source_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+    const mask_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = extra.node };
+
+    const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
+    try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
+
+    const dest_uncoerced = try sema.resolveInst(extra.dest);
+    const dest_ty = sema.typeOf(dest_uncoerced);
+
+    const vec_len_u64 = switch (try dest_ty.zigTypeTagOrPoison(mod)) {
+        .Vector, .Array => dest_ty.arrayLen(mod),
+        else => return sema.fail(block, dest_src, "expected vector or array, found '{}'", .{dest_ty.fmt(mod)}),
+    };
+    const vec_len: u32 = @intCast(try sema.usizeCast(block, dest_src, vec_len_u64));
+
+    const child_ptr_ty = try mod.ptrType(.{
+        .child = elem_ty.toIntern(),
+    });
+
+    const actual_dest_ty = try mod.vectorType(.{
+        .len = vec_len,
+        .child = child_ptr_ty.toIntern(),
+    });
+    const dest = try sema.coerce(block, actual_dest_ty, try sema.resolveInst(extra.dest), dest_src);
+
+    const source_ty = try mod.vectorType(.{
+        .len = vec_len,
+        .child = elem_ty.toIntern(),
+    });
+    const source = try sema.coerce(block, source_ty, try sema.resolveInst(extra.source), source_src);
+
+    const mask_ty = try mod.vectorType(.{
+        .len = vec_len,
+        .child = .bool_type,
+    });
+    const mask = try sema.coerce(block, mask_ty, try sema.resolveInst(extra.mask), mask_src);
+
+    const maybe_dest = try sema.resolveValue(dest);
+    const maybe_source = try sema.resolveValue(source);
+    const maybe_mask = try sema.resolveValue(mask);
+
+    if (maybe_dest != null and maybe_dest.?.isUndef(mod)) return sema.failWithUseOfUndef(block, dest_src);
+    if (maybe_source != null and maybe_source.?.isUndef(mod)) return sema.failWithUseOfUndef(block, source_src);
+    if (maybe_mask != null and maybe_mask.?.isUndef(mod)) return sema.failWithUseOfUndef(block, mask_src);
+
+    if (maybe_dest != null and maybe_source != null and maybe_mask != null) {
+        for (0..vec_len) |index| {
+            const mask_val = try maybe_mask.?.elemValue(mod, index);
+            if (!mask_val.toBool())
+                continue;
+
+            const ptr = try maybe_dest.?.elemValue(mod, index);
+            const val = try maybe_source.?.elemValue(mod, index);
+            try sema.storePtrVal(block, dest_src, ptr, val, elem_ty);
+        }
+
+        return .void_value;
+    }
+
+    try sema.requireRuntimeBlock(block, src_loc, dest_src);
+    return block.addInst(.{
+        .tag = .masked_scatter,
+        .data = .{ .ty_pl = .{
+            .ty = Air.internedToRef(elem_ty.toIntern()),
+            .payload = try block.sema.addExtra(Air.MaskedScatter{
+                .dest = dest,
+                .source = source,
+                .mask = mask,
             }),
         } },
     });

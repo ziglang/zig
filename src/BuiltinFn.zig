@@ -122,6 +122,7 @@ pub const Tag = enum {
     work_item_id,
     work_group_size,
     work_group_id,
+    masked_scatter,
 };
 
 pub const MemLocRequirement = enum {
@@ -1011,6 +1012,13 @@ pub const list = list: {
             .{
                 .tag = .work_group_id,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@maskedScatter",
+            .{
+                .tag = .masked_scatter,
+                .param_count = 4,
             },
         },
     });

@@ -283,6 +283,11 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.a, extra.b, .none });
             },
+            .masked_scatter => {
+                const ty_pl = data[inst].ty_pl;
+                const extra = self.air.extraData(Air.MaskedScatter, ty_pl.payload).data;
+                try self.verifyInstOperands(inst, .{ extra.dest, extra.source, extra.mask });
+            },
             .cmp_vector,
             .cmp_vector_optimized,
             => {

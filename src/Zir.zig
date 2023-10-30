@@ -2085,6 +2085,9 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Implements the `@scatter` builtin
+        /// `operand` is payload index to `Scatter`
+        masked_scatter,
         /// Used as a placeholder instruction which is just a dummy index for Sema to replace
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
@@ -3263,6 +3266,14 @@ pub const Inst = struct {
         result_ptr: Ref,
         fn_ptr: Ref,
         args: Ref,
+    };
+
+    pub const MaskedScatter = struct {
+        node: i32,
+        elem_type: Ref,
+        dest: Ref,
+        source: Ref,
+        mask: Ref,
     };
 
     /// Trailing: inst: Index // for every body_len
