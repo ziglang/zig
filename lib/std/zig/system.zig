@@ -917,18 +917,21 @@ fn detectAbiAndDynamicLinker(
     }
     const ld_info_list = ld_info_list_buffer[0..ld_info_list_len];
 
+    const cwd = fs.cwd();
     // This block looks for a shebang line in /usr/bin/env,
     // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
     // doing the same logic recursively in case it finds another shebang line.
 
     // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
     // reasonably reliable path to start with.
-    const elf_file = blk: {
+    const elf_file = elf_file: {
+        // Note that shebang line can contain relative path.
         var file_name: []const u8 = "/usr/bin/env";
-        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
+        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1) just in case.
+        // See `man execve(2)`.
         var buffer: [258]u8 = undefined;
         while (true) {
-            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
+            const file = cwd.openFile(file_name, .{ .mode = .read_only }) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
                 error.NameTooLong => unreachable,
                 error.PathAlreadyExists => unreachable,
@@ -956,21 +959,44 @@ fn detectAbiAndDynamicLinker(
 
                 else => |e| return e,
             };
-            errdefer file.close();
+            var is_elf_file = false;
+            defer if (!is_elf_file) file.close();
 
-            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
-                error.UnexpectedEndOfFile,
+            // Shortest working "shebang line" is "#!e" (3)
+            // (assuming relative path to cwd in shebang is allowed on this system)
+            // std.elf.MAGIC.len is 4
+            // If it is smaller than 3, it is definitely not ELF file and
+            // not shell script with shebang line.
+            const min_len = @min("#!e".len, elf.MAGIC.len);
+            comptime std.debug.assert(min_len == 3);
+
+            const len = preadMin(file, &buffer, 0, min_len) catch |err| switch (err) {
+                error.UnexpectedEndOfFile, // Too short for a ELF file or shell script with "shebang line"
                 error.UnableToReadElfFile,
-                => break :blk file,
+                => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
             };
-            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
-            const line = buffer[0..newline];
-            if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenizeScalar(u8, line[2..], ' ');
+
+            const file_content = buffer[0..len];
+            if (mem.startsWith(u8, file_content, elf.MAGIC)) {
+                // It is likely ELF file!
+                is_elf_file = true;
+                break :elf_file file;
+            }
+            if (!mem.startsWith(u8, file_content, "#!")) {
+                // Not a ELF file, not a shell script with "shebang line", invalid duck.
+                return defaultAbiAndDynamicLinker(cpu, os, query);
+            }
+
+            // We detected shebang, now parse entire line.
+            const first_line = mem.trimRight(u8, file_content, &std.ascii.whitespace);
+            // Skip "#!" and trim whitespace at ends of line (it is possible to have blank space right after "#!").
+            const interpreter_and_arguments = mem.trimLeft(u8, first_line[2..], &std.ascii.whitespace);
+
+            // If interpreter has some arguments, they will be passed after first blank space.
+            var it = mem.tokenizeScalar(u8, interpreter_and_arguments, ' ');
             file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, query);
-            file.close();
         }
     };
     defer elf_file.close();
@@ -1021,7 +1047,7 @@ const LdInfo = struct {
     abi: Target.Abi,
 };
 
-fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
+fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) error{ SystemResources, UnableToReadElfFile, Unexpected, FileSystem, UnexpectedEndOfFile }!usize {
     var i: usize = 0;
     while (i < min_read_len) {
         const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
