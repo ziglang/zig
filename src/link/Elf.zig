@@ -185,12 +185,12 @@ misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 lazy_syms: LazySymbolTable = .{},
 
 /// Table of tracked Decls.
-decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: DeclTable = .{},
 
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 /// Table of last atom index in a section and matching atom free list if any.
-last_atom_and_free_list_table: std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList) = .{},
+last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -220,8 +220,10 @@ comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{}
 
 const AtomList = std.ArrayListUnmanaged(Atom.Index);
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Symbol.Index);
+const DeclTable = std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList);
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -445,7 +447,14 @@ pub fn deinit(self: *Elf) void {
         }
         self.unnamed_consts.deinit(gpa);
     }
-    self.anon_decls.deinit(gpa);
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.anon_decls.deinit(gpa);
+    }
 
     if (self.dwarf) |*dw| {
         dw.deinit();
@@ -497,8 +506,8 @@ pub fn lowerAnonDecl(
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
     };
-    if (self.anon_decls.get(decl_val)) |sym_index| {
-        const existing_alignment = self.symbol(sym_index).atom(self).?.alignment;
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_alignment = self.symbol(metadata.symbol_index).atom(self).?.alignment;
         if (decl_alignment.order(existing_alignment).compare(.lte))
             return .ok;
     }
@@ -528,13 +537,13 @@ pub fn lowerAnonDecl(
         .ok => |sym_index| sym_index,
         .fail => |em| return .{ .fail = em },
     };
-    try self.anon_decls.put(gpa, decl_val, sym_index);
+    try self.anon_decls.put(gpa, decl_val, .{ .symbol_index = sym_index });
     return .ok;
 }
 
 pub fn getAnonDeclVAddr(self: *Elf, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    const sym_index = self.anon_decls.get(decl_val).?;
+    const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
     const sym = self.symbol(sym_index);
     const vaddr = sym.value;
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
@@ -3122,10 +3131,7 @@ pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Sy
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-        gop.value_ptr.* = .{
-            .symbol_index = try zig_module.addAtom(self),
-            .exports = .{},
-        };
+        gop.value_ptr.* = .{ .symbol_index = try zig_module.addAtom(self) };
     }
     return gop.value_ptr.symbol_index;
 }
@@ -3573,31 +3579,43 @@ pub fn updateExports(
     defer tracy.end();
 
     const gpa = self.base.allocator;
-
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
-            @panic("TODO: implement ELF linker code for exporting a constant value");
+    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateMetadataForDecl(decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
         },
     };
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const decl = mod.declPtr(decl_index);
-    const decl_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    const decl_esym_index = self.symbol(decl_sym_index).esym_index;
-    const decl_esym = zig_module.local_esyms.items(.elf_sym)[decl_esym_index];
-    const decl_esym_shndx = zig_module.local_esyms.items(.shndx)[decl_esym_index];
-    const decl_metadata = self.decls.getPtr(decl_index).?;
+    const sym_index = metadata.symbol_index;
+    const esym_index = self.symbol(sym_index).esym_index;
+    const esym = zig_module.local_esyms.items(.elf_sym)[esym_index];
+    const esym_shndx = zig_module.local_esyms.items(.shndx)[esym_index];
 
     for (exports) |exp| {
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         if (exp.opts.section.unwrap()) |section_name| {
             if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(
-                    exp,
-                    try Module.ErrorMsg.create(gpa, decl.srcLoc(mod), "Unimplemented: ExportOptions.section", .{}),
-                );
+                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
                 continue;
             }
         }
@@ -3607,34 +3625,37 @@ pub fn updateExports(
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(
-                    exp,
-                    try Module.ErrorMsg.create(gpa, decl.srcLoc(mod), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
-                );
+                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: GlobalLinkage.LinkOnce",
+                    .{},
+                ));
                 continue;
             },
         };
-        const stt_bits: u8 = @as(u4, @truncate(decl_esym.st_info));
-
+        const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
+        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         const name_off = try self.strtab.insert(gpa, exp_name);
-        const sym_index = if (decl_metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const sym_index = try zig_module.addGlobalEsym(gpa);
+        const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
+            const global_esym_index = try zig_module.addGlobalEsym(gpa);
             const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, name_off);
-            const esym = zig_module.elfSym(sym_index);
-            esym.st_name = name_off;
-            lookup_gop.value_ptr.* = sym_index;
-            try decl_metadata.exports.append(gpa, sym_index);
+            const global_esym = zig_module.elfSym(global_esym_index);
+            global_esym.st_name = name_off;
+            lookup_gop.value_ptr.* = global_esym_index;
+            try metadata.exports.append(gpa, global_esym_index);
             const gop = try self.getOrPutGlobal(name_off);
             try zig_module.global_symbols.append(gpa, gop.index);
-            break :blk sym_index;
+            break :blk global_esym_index;
         };
-        const global_esym_index = sym_index & ZigModule.symbol_mask;
-        const global_esym = &zig_module.global_esyms.items(.elf_sym)[global_esym_index];
-        global_esym.st_value = self.symbol(decl_sym_index).value;
-        global_esym.st_shndx = decl_esym.st_shndx;
+
+        const actual_esym_index = global_esym_index & ZigModule.symbol_mask;
+        const global_esym = &zig_module.global_esyms.items(.elf_sym)[actual_esym_index];
+        global_esym.st_value = self.symbol(sym_index).value;
+        global_esym.st_shndx = esym.st_shndx;
         global_esym.st_info = (stb_bits << 4) | stt_bits;
         global_esym.st_name = name_off;
-        zig_module.global_esyms.items(.shndx)[global_esym_index] = decl_esym_shndx;
+        zig_module.global_esyms.items(.shndx)[actual_esym_index] = esym_shndx;
     }
 }
 

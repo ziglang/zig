@@ -99,7 +99,7 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
         else => @as(i64, @intCast(target_base_addr)) + self.addend,
     };
 
-    log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
+    relocs_log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
         source_addr,
         target_addr,
         macho_file.getSymbolName(self.target),
@@ -256,7 +256,7 @@ const Relocation = @This();
 const std = @import("std");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
-const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;

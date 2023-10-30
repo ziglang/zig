@@ -52,7 +52,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     // Add relocation to the decl.
                     const atom_index =
                         macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = macho_file.getGlobalByIndex(symbol.sym_index);
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = .branch,
                         .target = target,
@@ -66,7 +69,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_index = coff_file.getAtomIndexForSymbol(
                         .{ .sym_index = symbol.atom_index, .file = null },
                     ).?;
-                    const target = coff_file.getGlobalByIndex(symbol.sym_index);
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = .direct,
                         .target = target,
@@ -116,6 +122,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom_index =
                         macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -123,7 +133,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_tlv => .tlv,
                             else => unreachable,
                         },
-                        .target = .{ .sym_index = symbol.sym_index },
+                        .target = target,
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
                         .pcrel = true,
@@ -134,6 +144,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .sym_index = symbol.atom_index,
                         .file = null,
                     }).?;
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -141,13 +155,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_import => .import,
                             else => unreachable,
                         },
-                        .target = switch (lowered_relocs[0].target) {
-                            .linker_got,
-                            .linker_direct,
-                            => .{ .sym_index = symbol.sym_index, .file = null },
-                            .linker_import => coff_file.getGlobalByIndex(symbol.sym_index),
-                            else => unreachable,
-                        },
+                        .target = target,
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
                         .pcrel = true,

@@ -13063,6 +13063,7 @@ fn genExternSymbolRef(
             } },
         });
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        const global_index = try coff_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .mov,
             .ops = .import_reloc,
@@ -13070,7 +13071,7 @@ fn genExternSymbolRef(
                 .r1 = .rax,
                 .payload = try self.addExtra(bits.Symbol{
                     .atom_index = atom_index,
-                    .sym_index = try coff_file.getGlobalSymbol(callee, lib),
+                    .sym_index = link.File.Coff.global_symbol_bit | global_index,
                 }),
             } },
         });
@@ -13080,12 +13081,13 @@ fn genExternSymbolRef(
             else => unreachable,
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+        const global_index = try macho_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .call,
             .ops = .extern_fn_reloc,
             .data = .{ .reloc = .{
                 .atom_index = atom_index,
-                .sym_index = try macho_file.getGlobalSymbol(callee, lib),
+                .sym_index = link.File.MachO.global_symbol_bit | global_index,
             } },
         });
     } else return self.fail("TODO implement calling extern functions", .{});
