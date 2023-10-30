@@ -292,28 +292,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .path = options.module.?.main_mod.root_src_path,
         } });
         self.zig_object_index = index;
-        const zig_object = self.zigObjectPtr().?;
-
-        try zig_object.atoms.append(allocator, 0); // null input section
-
-        const name_off = try self.strtab.insert(allocator, std.fs.path.stem(options.module.?.main_mod.root_src_path));
-        const symbol_index = try self.addSymbol();
-        try zig_object.local_symbols.append(allocator, symbol_index);
-        const symbol_ptr = self.symbol(symbol_index);
-        symbol_ptr.file_index = zig_object.index;
-        symbol_ptr.name_offset = name_off;
-
-        const esym_index = try zig_object.addLocalEsym(allocator);
-        const esym = &zig_object.local_esyms.items(.elf_sym)[esym_index];
-        esym.st_name = name_off;
-        esym.st_info |= elf.STT_FILE;
-        esym.st_shndx = elf.SHN_ABS;
-        symbol_ptr.esym_index = esym_index;
-
-        if (!options.strip) {
-            zig_object.dwarf = Dwarf.init(allocator, &self.base, .dwarf32);
-        }
-
+        try self.zigObjectPtr().?.init(self);
         try self.initMetadata();
     }
 

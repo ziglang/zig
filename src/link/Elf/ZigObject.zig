@@ -56,6 +56,30 @@ pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
 
+pub fn init(self: *ZigObject, elf_file: *Elf) !void {
+    const gpa = elf_file.base.allocator;
+
+    try self.atoms.append(gpa, 0); // null input section
+
+    const name_off = try elf_file.strtab.insert(gpa, std.fs.path.stem(self.path));
+    const symbol_index = try elf_file.addSymbol();
+    try self.local_symbols.append(gpa, symbol_index);
+    const symbol_ptr = elf_file.symbol(symbol_index);
+    symbol_ptr.file_index = self.index;
+    symbol_ptr.name_offset = name_off;
+
+    const esym_index = try self.addLocalEsym(gpa);
+    const esym = &self.local_esyms.items(.elf_sym)[esym_index];
+    esym.st_name = name_off;
+    esym.st_info |= elf.STT_FILE;
+    esym.st_shndx = elf.SHN_ABS;
+    symbol_ptr.esym_index = esym_index;
+
+    if (!elf_file.base.options.strip) {
+        self.dwarf = Dwarf.init(gpa, &elf_file.base, .dwarf32);
+    }
+}
+
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.local_esyms.deinit(allocator);
     self.global_esyms.deinit(allocator);
@@ -119,7 +143,6 @@ pub fn addGlobalEsym(self: *ZigObject, allocator: Allocator) !Symbol.Index {
 
 pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     const gpa = elf_file.base.allocator;
-
     const atom_index = try elf_file.addAtom();
     const symbol_index = try elf_file.addSymbol();
     const esym_index = try self.addLocalEsym(gpa);
