@@ -308,7 +308,6 @@ fn transVarDecl(_: *Context, _: NodeIndex, _: ?usize) Error!void {
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: []const NodeIndex) Error!void {
     const node_types = c.tree.nodes.items(.ty);
     const ty = node_types[@intFromEnum(enum_decl)];
-    const node_data = c.tree.nodes.items(.data);
     if (c.decl_table.get(@intFromPtr(ty.data.@"enum"))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
@@ -342,11 +341,15 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
                 else => |e| return e,
             };
 
+            const val = c.tree.value_map.get(field_node).?;
+            const str = try std.fmt.allocPrint(c.arena, "{d}", .{val.data.int});
+            const int = try ZigTag.integer_literal.create(c.arena, str);
+
             const enum_const_def = try ZigTag.enum_constant.create(c.arena, .{
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
-                .value = transExpr(c, node_data[@intFromEnum(field_node)].decl.node, .used) catch @panic("TODO"),
+                .value = int,
             });
             if (toplevel)
                 try addTopLevelDecl(c, enum_val_name, enum_const_def)

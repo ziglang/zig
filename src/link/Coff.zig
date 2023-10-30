@@ -1075,7 +1075,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -1091,7 +1091,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const index = unnamed_consts.items.len;
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(sym_name);
-    const atom_index = switch (try self.lowerConst(sym_name, tv, self.rdata_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(sym_name, tv, tv.ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1109,13 +1109,12 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = self.base.allocator;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const mod = self.base.options.module.?;
     const atom_index = try self.createAtom();
     const sym = self.getAtom(atom_index).getSymbolPtr(self);
     try self.setSymbolName(sym, name);
@@ -1129,10 +1128,13 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, sect_id: u16, src_l
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment: u32 = @intCast(tv.ty.abiAlignment(mod).toByteUnits(0));
     const atom = self.getAtomPtr(atom_index);
     atom.size = @as(u32, @intCast(code.len));
-    atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
+    atom.getSymbolPtr(self).value = try self.allocateAtom(
+        atom_index,
+        atom.size,
+        @intCast(required_alignment.toByteUnitsOptional().?),
+    );
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(self).value });
@@ -1193,7 +1195,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -1407,12 +1409,12 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Coff,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) link.File.UpdateDeclExportsError!void {
+) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1423,7 +1425,11 @@ pub fn updateDeclExports(
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (exports) |exp| {
-            const exported_decl = mod.declPtr(exp.exported_decl);
+            const exported_decl_index = switch (exp.exported) {
+                .decl_index => |i| i,
+                .value => continue,
+            };
+            const exported_decl = mod.declPtr(exported_decl_index);
             if (exported_decl.getOwnedFunction(mod) == null) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
@@ -1450,16 +1456,22 @@ pub fn updateDeclExports(
         }
     }
 
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement COFF linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
@@ -1503,7 +1515,7 @@ pub fn updateDeclExports(
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
         try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
-        sym.value = decl_sym.value;
+        sym.value = atom.getSymbol(self).value;
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(self.text_section_index.? + 1));
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
@@ -1736,40 +1748,51 @@ pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link
     return 0;
 }
 
-pub fn lowerAnonDecl(self: *Coff, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
-    // This is basically the same as lowerUnnamedConst.
-    // example:
-    // const ty = mod.intern_pool.typeOf(decl_val).toType();
-    // const val = decl_val.toValue();
-    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
-    // It doesn't have an owner decl because it's just an unnamed constant that might
-    // be used by more than one function, however, its address is being used so we need
-    // to put it in some location.
-    // ...
+pub fn lowerAnonDecl(
+    self: *Coff,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gpa = self.base.allocator;
-    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const val = decl_val.toValue();
-        const tv = TypedValue{ .ty = ty, .val = val };
-        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
-        defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.rdata_section_index.?, src_loc) catch |err| switch (err) {
-            else => {
-                // TODO improve error message
-                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
-                    @errorName(err),
-                });
-                return .{ .fail = em };
-            },
-        };
-        const atom_index = switch (res) {
-            .ok => |atom_index| atom_index,
-            .fail => |em| return .{ .fail = em },
-        };
-        gop.value_ptr.* = atom_index;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const decl_alignment = switch (explicit_alignment) {
+        .none => ty.abiAlignment(mod),
+        else => explicit_alignment,
+    };
+    if (self.anon_decls.get(decl_val)) |atom_index| {
+        const existing_addr = self.getAtom(atom_index).getSymbol(self).value;
+        if (decl_alignment.check(existing_addr))
+            return .ok;
     }
+
+    const val = decl_val.toValue();
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        name,
+        tv,
+        decl_alignment,
+        self.rdata_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "lowerAnonDecl failed with error: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const atom_index = switch (res) {
+        .ok => |atom_index| atom_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, atom_index);
     return .ok;
 }
 

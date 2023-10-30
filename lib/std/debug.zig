@@ -671,8 +671,8 @@ pub const StackIterator = struct {
             if (self.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
+                    defer self.fp = unwind_state.dwarf_context.getFp() catch 0;
                     if (self.next_unwind()) |return_address| {
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -2340,7 +2340,7 @@ pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSuppor
     try os.sigaction(os.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
+/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");

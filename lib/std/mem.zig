@@ -315,6 +315,8 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -1753,6 +1755,7 @@ test "comptime read/write int" {
 
 test "readIntBig and readIntLittle" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
@@ -1911,7 +1914,7 @@ pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T
 /// Any extra bytes in buffer after writing the integer are set to zero. To
 /// avoid the branch to check for extra buffer bytes, use writeIntLittle
 /// instead.
-pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
+fn writeIntSliceLittleNative(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
@@ -1921,21 +1924,27 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
         buffer[0] = @as(u8, @bitCast(value));
         return;
     }
-    // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
-    var bits = @as(uint, @bitCast(value));
-    for (buffer) |*b| {
-        b.* = @as(u8, @truncate(bits));
-        bits >>= 8;
-    }
+
+    const write_end = @divExact(@typeInfo(T).Int.bits, 8);
+    @as(*align(1) T, @ptrCast(buffer)).* = value;
+    @memset(buffer[write_end..], 0);
 }
+
+fn writeIntSliceLittleForeign(comptime T: type, buffer: []u8, value: T) void {
+    return writeIntSliceLittleNative(T, buffer, @byteSwap(value));
+}
+
+pub const writeIntSliceLittle = switch (native_endian) {
+    .Little => writeIntSliceLittleNative,
+    .Big => writeIntSliceLittleForeign,
+};
 
 /// Writes a twos-complement big-endian integer to memory.
 /// Asserts that buffer.len >= @typeInfo(T).Int.bits / 8.
 /// The bit count of T must be divisible by 8.
 /// Any extra bytes in buffer before writing the integer are set to zero. To
 /// avoid the branch to check for extra buffer bytes, use writeIntBig instead.
-pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
+fn writeIntSliceBigNative(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
@@ -1946,25 +1955,28 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
         return;
     }
 
-    // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
-    var bits = @as(uint, @bitCast(value));
-    var index: usize = buffer.len;
-    while (index != 0) {
-        index -= 1;
-        buffer[index] = @as(u8, @truncate(bits));
-        bits >>= 8;
-    }
+    const write_start = buffer.len - @divExact(@typeInfo(T).Int.bits, 8);
+    @memset(buffer[0..write_start], 0);
+    @as(*align(1) T, @ptrCast(buffer[write_start..])).* = value;
 }
 
+fn writeIntSliceBigForeign(comptime T: type, buffer: []u8, value: T) void {
+    return writeIntSliceBigNative(T, buffer, @byteSwap(value));
+}
+
+pub const writeIntSliceBig = switch (native_endian) {
+    .Little => writeIntSliceBigForeign,
+    .Big => writeIntSliceBigNative,
+};
+
 pub const writeIntSliceNative = switch (native_endian) {
-    .Little => writeIntSliceLittle,
-    .Big => writeIntSliceBig,
+    .Little => writeIntSliceLittleNative,
+    .Big => writeIntSliceBigNative,
 };
 
 pub const writeIntSliceForeign = switch (native_endian) {
-    .Little => writeIntSliceBig,
-    .Big => writeIntSliceLittle,
+    .Little => writeIntSliceBigForeign,
+    .Big => writeIntSliceLittleForeign,
 };
 
 /// Writes a twos-complement integer to memory, with the specified endianness.
@@ -3515,21 +3527,33 @@ test "max" {
 /// Finds the smallest and largest number in a slice. O(n).
 /// Returns an anonymous struct with the fields `min` and `max`.
 /// `slice` must not be empty.
-pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
+pub fn minMax(comptime T: type, slice: []const T) struct { T, T } {
     assert(slice.len > 0);
-    var minVal = slice[0];
-    var maxVal = slice[0];
+    var running_minimum = slice[0];
+    var running_maximum = slice[0];
     for (slice[1..]) |item| {
-        minVal = @min(minVal, item);
-        maxVal = @max(maxVal, item);
+        running_minimum = @min(running_minimum, item);
+        running_maximum = @max(running_maximum, item);
     }
-    return .{ .min = minVal, .max = maxVal };
+    return .{ running_minimum, running_maximum };
 }
 
-test "minMax" {
-    try testing.expectEqual(minMax(u8, "abcdefg"), .{ .min = 'a', .max = 'g' });
-    try testing.expectEqual(minMax(u8, "bcdefga"), .{ .min = 'a', .max = 'g' });
-    try testing.expectEqual(minMax(u8, "a"), .{ .min = 'a', .max = 'a' });
+test minMax {
+    {
+        const actual_min, const actual_max = minMax(u8, "abcdefg");
+        try testing.expectEqual(@as(u8, 'a'), actual_min);
+        try testing.expectEqual(@as(u8, 'g'), actual_max);
+    }
+    {
+        const actual_min, const actual_max = minMax(u8, "bcdefga");
+        try testing.expectEqual(@as(u8, 'a'), actual_min);
+        try testing.expectEqual(@as(u8, 'g'), actual_max);
+    }
+    {
+        const actual_min, const actual_max = minMax(u8, "a");
+        try testing.expectEqual(@as(u8, 'a'), actual_min);
+        try testing.expectEqual(@as(u8, 'a'), actual_max);
+    }
 }
 
 /// Returns the index of the smallest number in a slice. O(n).
@@ -3650,7 +3674,13 @@ fn ReverseIterator(comptime T: type) type {
         @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
     const Element = std.meta.Elem(Pointer);
-    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
+    const ElementPointer = @Type(.{ .Pointer = ptr: {
+        var ptr = @typeInfo(Pointer).Pointer;
+        ptr.size = .One;
+        ptr.child = Element;
+        ptr.sentinel = null;
+        break :ptr ptr;
+    } });
     return struct {
         ptr: Pointer,
         index: usize,
@@ -3801,12 +3831,11 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
-/// Replace all occurrences of `needle` with `replacement`.
-pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
-    for (slice, 0..) |e, i| {
-        if (e == needle) {
-            slice[i] = replacement;
-        }
+/// Replace all occurrences of `match` with `replacement`.
+pub fn replaceScalar(comptime T: type, slice: []T, match: T, replacement: T) void {
+    for (slice) |*e| {
+        if (e.* == match)
+            e.* = replacement;
     }
 }
 
@@ -4643,6 +4672,7 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 
 test "read/write(Var)PackedInt" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.

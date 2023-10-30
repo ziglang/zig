@@ -95,6 +95,7 @@ pub fn main() !void {
     var max_rss: usize = 0;
     var skip_oom_steps: bool = false;
     var color: Color = .auto;
+    var seed: u32 = 0;
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -196,6 +197,17 @@ pub fn main() !void {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 } };
+            } else if (mem.eql(u8, arg, "--seed")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected u32 after {s}\n\n", .{arg});
+                    usageAndErr(builder, false, stderr_stream);
+                };
+                seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
+                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}", .{
+                        next_arg, @errorName(err),
+                    });
+                    process.exit(1);
+                };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
@@ -329,6 +341,7 @@ pub fn main() !void {
         main_progress_node,
         thread_pool_options,
         &run,
+        seed,
     ) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
@@ -355,6 +368,7 @@ fn runStepNames(
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
     run: *Run,
+    seed: u32,
 ) !void {
     const gpa = b.allocator;
     var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
@@ -375,8 +389,13 @@ fn runStepNames(
     }
 
     const starting_steps = try arena.dupe(*Step, step_stack.keys());
+
+    var rng = std.rand.DefaultPrng.init(seed);
+    const rand = rng.random();
+    rand.shuffle(*Step, starting_steps);
+
     for (starting_steps) |s| {
-        checkForDependencyLoop(b, s, &step_stack) catch |err| switch (err) {
+        constructGraphAndCheckForDependencyLoop(b, s, &step_stack, rand) catch |err| switch (err) {
             error.DependencyLoopDetected => return error.UncleanExit,
             else => |e| return e,
         };
@@ -748,10 +767,22 @@ fn printTreeStep(
     }
 }
 
-fn checkForDependencyLoop(
+/// Traverse the dependency graph depth-first and make it undirected by having
+/// steps know their dependants (they only know dependencies at start).
+/// Along the way, check that there is no dependency loop, and record the steps
+/// in traversal order in `step_stack`.
+/// Each step has its dependencies traversed in random order, this accomplishes
+/// two things:
+/// - `step_stack` will be in randomized-depth-first order, so the build runner
+///   spawns steps in a random (but optimized) order
+/// - each step's `dependants` list is also filled in a random order, so that
+///   when it finishes executing in `workerMakeOneStep`, it spawns next steps
+///   to run in random order
+fn constructGraphAndCheckForDependencyLoop(
     b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
+    rand: std.rand.Random,
 ) !void {
     switch (s.state) {
         .precheck_started => {
@@ -762,10 +793,16 @@ fn checkForDependencyLoop(
             s.state = .precheck_started;
 
             try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.items.len);
-            for (s.dependencies.items) |dep| {
+
+            // We dupe to avoid shuffling the steps in the summary, it depends
+            // on s.dependencies' order.
+            const deps = b.allocator.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            rand.shuffle(*Step, deps);
+
+            for (deps) |dep| {
                 try step_stack.put(b.allocator, dep, {});
                 try dep.dependants.append(b.allocator, s);
-                checkForDependencyLoop(b, dep, step_stack) catch |err| {
+                constructGraphAndCheckForDependencyLoop(b, dep, step_stack, rand) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
                     }
@@ -1034,6 +1071,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
+        \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --verbose-link               Enable compiler debug output for linking

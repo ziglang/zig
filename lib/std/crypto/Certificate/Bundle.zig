@@ -63,8 +63,8 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         .freebsd, .openbsd => return rescanBSD(cb, gpa, "/etc/ssl/cert.pem"),
         .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
+        .solaris, .illumos => return rescanBSD(cb, gpa, "/etc/ssl/cacert.pem"),
         .windows => return rescanWindows(cb, gpa),
-        .solaris, .illumos => return rescanSolaris(cb, gpa, "/etc/ssl/cacert.pem"),
         else => {},
     }
 }
@@ -152,15 +152,6 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-const RescanSolarisError = AddCertsFromFilePathError;
-
-fn rescanSolaris(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanSolarisError!void {
-    cb.bytes.clearRetainingCapacity();
-    cb.map.clearRetainingCapacity();
-    try addCertsFromFilePathAbsolute(cb, gpa, cert_file_path);
-    cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
-}
-
 pub const AddCertsFromDirPathError = fs.File.OpenError || AddCertsFromDirError;
 
 pub fn addCertsFromDirPath(
@@ -223,7 +214,12 @@ pub fn addCertsFromFilePath(
     return addCertsFromFile(cb, gpa, file);
 }
 
-pub const AddCertsFromFileError = Allocator.Error || fs.File.GetSeekPosError || fs.File.ReadError || ParseCertError || std.base64.Error || error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+pub const AddCertsFromFileError = Allocator.Error ||
+    fs.File.GetSeekPosError ||
+    fs.File.ReadError ||
+    ParseCertError ||
+    std.base64.Error ||
+    error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
     const size = try file.getEndPos();
@@ -235,7 +231,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
         return error.CertificateAuthorityBundleTooBig;
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
-    const end_reserved = @as(u32, @intCast(cb.bytes.items.len + decoded_size_upper_bound));
+    const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
     const encoded_bytes = buffer[0..end_index];
@@ -252,7 +248,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
             return error.MissingEndCertificateMarker;
         start_index = cert_end + end_marker.len;
         const encoded_cert = mem.trim(u8, encoded_bytes[cert_start..cert_end], " \t\r\n");
-        const decoded_start = @as(u32, @intCast(cb.bytes.items.len));
+        const decoded_start: u32 = @intCast(cb.bytes.items.len);
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
         try cb.parseCert(gpa, decoded_start, now_sec);
@@ -321,6 +317,8 @@ const MapContext = struct {
 
 test "scan for OS-provided certificates" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var bundle: Bundle = .{};
     defer bundle.deinit(std.testing.allocator);

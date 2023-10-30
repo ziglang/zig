@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const expect = std.testing.expect;
 const fifo = std.fifo;
 const io = std.io;

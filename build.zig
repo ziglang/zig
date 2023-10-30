@@ -255,7 +255,7 @@ pub fn build(b: *std.Build) !void {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
-        const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
+        const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
         }, &code, .Ignore) catch {
             break :v version_string;
@@ -578,6 +578,7 @@ fn addCompilerStep(
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
     exe.addAnonymousModule("aro", .{
@@ -735,7 +736,11 @@ fn addCxxKnownPath(
 ) !void {
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
-    const path_padded = b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+
+    const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
+        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
+    else
+        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
@@ -778,6 +783,7 @@ const CMakeConfig = struct {
     cmake_static_library_prefix: []const u8,
     cmake_static_library_suffix: []const u8,
     cxx_compiler: []const u8,
+    cxx_compiler_arg1: []const u8,
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
     clang_libraries: []const u8,
@@ -844,6 +850,7 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .cmake_static_library_prefix = undefined,
         .cmake_static_library_suffix = undefined,
         .cxx_compiler = undefined,
+        .cxx_compiler_arg1 = "",
         .lld_include_dir = undefined,
         .lld_libraries = undefined,
         .clang_libraries = undefined,
@@ -874,6 +881,10 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_CXX_COMPILER ",
             .field = "cxx_compiler",
+        },
+        .{
+            .prefix = "#define ZIG_CXX_COMPILER_ARG1 ",
+            .field = "cxx_compiler_arg1",
         },
         .{
             .prefix = "#define ZIG_LLD_INCLUDE_PATH ",
@@ -917,7 +928,8 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
                 var it = mem.splitScalar(u8, line, '"');
                 _ = it.first(); // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
-                @field(ctx, mapping.field) = toNativePathSep(b, quoted);
+                const trimmed = mem.trim(u8, quoted, " ");
+                @field(ctx, mapping.field) = toNativePathSep(b, trimmed);
             }
         }
         if (mem.startsWith(u8, line, "#define ZIG_LLVM_LINK_MODE ")) {

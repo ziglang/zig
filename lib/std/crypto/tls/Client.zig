@@ -881,7 +881,7 @@ pub fn readAll(c: *Client, stream: anytype, buffer: []u8) !usize {
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
 pub fn readv(c: *Client, stream: anytype, iovecs: []std.os.iovec) !usize {
-    return readvAtLeast(c, stream, iovecs);
+    return readvAtLeast(c, stream, iovecs, 1);
 }
 
 /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.

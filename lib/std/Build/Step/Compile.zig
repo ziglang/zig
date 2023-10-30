@@ -14,7 +14,7 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const LazyPath = std.Build.LazyPath;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
-const ExecError = std.Build.ExecError;
+const RunError = std.Build.RunError;
 const Module = std.Build.Module;
 const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
@@ -73,6 +73,7 @@ exec_cmd_args: ?[]const ?[]const u8,
 filter: ?[]const u8,
 test_evented_io: bool = false,
 test_runner: ?[]const u8,
+test_server_mode: bool,
 code_model: std.builtin.CodeModel = .default,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 /// Symbols to be exported when compiling to wasm
@@ -97,6 +98,10 @@ vcpkg_bin_path: ?[]const u8 = null,
 ///  gnu: Use MinGW include paths (distributed with Zig).
 ///  none: Do not use any autodetected include paths.
 rc_includes: enum { any, msvc, gnu, none } = .any,
+
+/// (Windows) .manifest file to embed in the compilation
+/// Set via options; intended to be read-only after that.
+win32_manifest: ?LazyPath = null,
 
 installed_path: ?[]const u8,
 
@@ -199,10 +204,10 @@ use_llvm: ?bool,
 use_lld: ?bool,
 
 /// This is an advanced setting that can change the intent of this Compile step.
-/// If this slice has nonzero length, it means that this Compile step exists to
+/// If this value is non-null, it means that this Compile step exists to
 /// check for compile errors and return *success* if they match, and failure
 /// otherwise.
-expect_errors: []const []const u8 = &.{},
+expect_errors: ?ExpectedCompileErrors = null,
 
 emit_directory: ?*GeneratedFile,
 
@@ -214,6 +219,11 @@ generated_implib: ?*GeneratedFile,
 generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
+
+pub const ExpectedCompileErrors = union(enum) {
+    contains: []const u8,
+    exact: []const []const u8,
+};
 
 pub const CSourceFiles = struct {
     dependency: ?*std.Build.Dependency,
@@ -239,6 +249,8 @@ pub const RcSourceFile = struct {
     file: LazyPath,
     /// Any option that rc.exe accepts will work here, with the exception of:
     /// - `/fo`: The output filename is set by the build system
+    /// - `/p`: Only running the preprocessor is not supported in this context
+    /// - `/:no-preprocess` (non-standard option): Not supported in this context
     /// - Any MUI-related option
     /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
     ///
@@ -319,6 +331,12 @@ pub const Options = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
 
     /// deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
@@ -489,6 +507,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .exec_cmd_args = null,
         .filter = options.filter,
         .test_runner = options.test_runner,
+        .test_server_mode = options.test_runner == null,
         .disable_stack_probing = false,
         .disable_sanitize_c = false,
         .sanitize_thread = false,
@@ -523,6 +542,15 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     if (options.main_mod_path orelse options.main_pkg_path) |lp| {
         self.main_mod_path = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
+    }
+
+    // Only the PE/COFF format has a Resource Table which is where the manifest
+    // gets embedded, so for any other target the manifest file is just ignored.
+    if (self.target.getObjectFormat() == .coff) {
+        if (options.win32_manifest) |lp| {
+            self.win32_manifest = lp.dupe(self.step.owner);
+            lp.addStepDependencies(&self.step);
+        }
     }
 
     if (self.kind == .lib) {
@@ -831,7 +859,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
     };
 
     var code: u8 = undefined;
-    const stdout = if (b.execAllowFail(&[_][]const u8{
+    const stdout = if (b.runAllowFail(&[_][]const u8{
         "pkg-config",
         pkg_name,
         "--cflags",
@@ -957,6 +985,9 @@ pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
     source.file.addStepDependencies(&self.step);
 }
 
+/// Resource files must have the extension `.rc`.
+/// Can be called regardless of target. The .rc file will be ignored
+/// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(self: *Compile, source: RcSourceFile) void {
     // Only the PE/COFF format has a Resource Table, so for any other target
     // the resource file is just ignored.
@@ -1593,6 +1624,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
+    if (self.win32_manifest) |manifest_file| {
+        try zig_args.append(manifest_file.getPath(b));
+    }
+
     if (transitive_deps.is_linking_libcpp) {
         try zig_args.append("-lc++");
     }
@@ -2101,7 +2136,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            assert(self.expect_errors.len != 0);
+            assert(self.expect_errors != null);
             try checkCompileErrors(self);
             return;
         },
@@ -2233,8 +2268,8 @@ pub fn doAtomicSymLinks(
     };
 }
 
-fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
-    const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
+    const stdout = try self.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
@@ -2360,39 +2395,70 @@ fn checkCompileErrors(self: *Compile) !void {
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
+    const expect_errors = self.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
-    for (self.expect_errors) |expect_line| {
-        const actual_line = actual_line_it.next() orelse {
-            try expected_generated.appendSlice(expect_line);
-            try expected_generated.append('\n');
-            continue;
-        };
-        if (mem.endsWith(u8, actual_line, expect_line)) {
-            try expected_generated.appendSlice(actual_line);
-            try expected_generated.append('\n');
-            continue;
-        }
-        if (mem.startsWith(u8, expect_line, ":?:?: ")) {
-            if (mem.endsWith(u8, actual_line, expect_line[":?:?: ".len..])) {
-                try expected_generated.appendSlice(actual_line);
-                try expected_generated.append('\n');
-                continue;
-            }
-        }
-        try expected_generated.appendSlice(expect_line);
-        try expected_generated.append('\n');
-    }
-
-    if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
-    return self.step.fail(
-        \\
-        \\========= expected: =====================
-        \\{s}
-        \\========= but found: ====================
-        \\{s}
-        \\=========================================
-    , .{ expected_generated.items, actual_stderr });
+    switch (expect_errors) {
+        .contains => |expect_line| {
+            while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return self.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_stderr });
+        },
+        .exact => |expect_lines| {
+            for (expect_lines) |expect_line| {
+                const actual_line = actual_line_it.next() orelse {
+                    try expected_generated.appendSlice(expect_line);
+                    try expected_generated.append('\n');
+                    continue;
+                };
+                if (matchCompileError(actual_line, expect_line)) {
+                    try expected_generated.appendSlice(actual_line);
+                    try expected_generated.append('\n');
+                    continue;
+                }
+                try expected_generated.appendSlice(expect_line);
+                try expected_generated.append('\n');
+            }
+
+            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+
+            return self.step.fail(
+                \\
+                \\========= expected: =====================
+                \\{s}
+                \\========= but found: ====================
+                \\{s}
+                \\=========================================
+            , .{ expected_generated.items, actual_stderr });
+        },
+    }
+}
+
+fn matchCompileError(actual: []const u8, expected: []const u8) bool {
+    if (mem.endsWith(u8, actual, expected)) return true;
+    if (mem.startsWith(u8, expected, ":?:?: ")) {
+        if (mem.endsWith(u8, actual, expected[":?:?: ".len..])) return true;
+    }
+    // We scan for /?/ in expected line and if there is a match, we match everything
+    // up to and after /?/.
+    const expected_trim = mem.trim(u8, expected, " ");
+    if (mem.indexOf(u8, expected_trim, "/?/")) |index| {
+        const actual_trim = mem.trim(u8, actual, " ");
+        const lhs = expected_trim[0..index];
+        const rhs = expected_trim[index + "/?/".len ..];
+        if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
+    }
+    return false;
 }

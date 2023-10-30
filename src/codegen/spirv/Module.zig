@@ -11,9 +11,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const ZigModule = @import("../../Module.zig");
-const ZigDecl = ZigModule.Decl;
-
 const spec = @import("spec.zig");
 const Word = spec.Word;
 const IdRef = spec.IdRef;
@@ -103,14 +100,11 @@ pub const EntryPoint = struct {
     /// The declaration that should be exported.
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
-    name: []const u8,
+    name: CacheString,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
-
-/// An arena allocator used to store things that have the same lifetime as this module.
-arena: Allocator,
 
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
@@ -150,7 +144,7 @@ next_result_id: Word,
 /// Cache for results of OpString instructions for module file names fed to OpSource.
 /// Since OpString is pretty much only used for those, we don't need to keep track of all strings,
 /// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
-source_file_names: std.StringHashMapUnmanaged(IdRef) = .{},
+source_file_names: std.AutoArrayHashMapUnmanaged(CacheString, IdRef) = .{},
 
 /// SPIR-V type- and constant cache. This structure is used to store information about these in a more
 /// efficient manner.
@@ -176,10 +170,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
-pub fn init(gpa: Allocator, arena: Allocator) Module {
+pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
-        .arena = arena,
         .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
     };
 }
@@ -321,7 +314,7 @@ fn entryPoints(self: *Module) !Section {
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
             .execution_model = .Kernel,
             .entry_point = entry_point_id,
-            .name = entry_point.name,
+            .name = self.cache.getString(entry_point.name).?,
             .interface = interface.items,
         });
     }
@@ -422,6 +415,18 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         0, // Schema (currently reserved for future use)
     };
 
+    var source = Section{};
+    defer source.deinit(self.gpa);
+    try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
+        .source_language = .Unknown,
+        .version = 0,
+        // We cannot emit these because the Khronos translator does not parse this instruction
+        // correctly.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2188
+        .file = null,
+        .source = null,
+    });
+
     // Note: needs to be kept in order according to section 2.3!
     const buffers = &[_][]const Word{
         &header,
@@ -429,6 +434,7 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.extensions.toWords(),
         entry_points.toWords(),
         self.sections.execution_modes.toWords(),
+        source.toWords(),
         self.sections.debug_strings.toWords(),
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
@@ -464,22 +470,15 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
 /// file of the decl. This function may also emit an OpSource with source-level information regarding
 /// the decl.
-pub fn resolveSourceFileName(self: *Module, zig_module: *ZigModule, zig_decl: *ZigDecl) !IdRef {
-    const path = zig_decl.getFileScope(zig_module).sub_file_path;
-    const result = try self.source_file_names.getOrPut(self.gpa, path);
+pub fn resolveSourceFileName(self: *Module, path: []const u8) !IdRef {
+    const path_ref = try self.resolveString(path);
+    const result = try self.source_file_names.getOrPut(self.gpa, path_ref);
     if (!result.found_existing) {
         const file_result_id = self.allocId();
         result.value_ptr.* = file_result_id;
         try self.sections.debug_strings.emit(self.gpa, .OpString, .{
             .id_result = file_result_id,
             .string = path,
-        });
-
-        try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
-            .source_language = .Unknown, // TODO: Register Zig source language.
-            .version = 0, // TODO: Zig version as u32?
-            .file = file_result_id,
-            .source = null, // TODO: Store actual source also?
         });
     }
 
@@ -505,17 +504,6 @@ pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
     return try self.resolve(.{ .array_type = .{
         .element_type = elem_ty_ref,
         .length = len_ref,
-    } });
-}
-
-pub fn ptrType(
-    self: *Module,
-    child: CacheRef,
-    storage_class: spec.StorageClass,
-) !CacheRef {
-    return try self.resolve(.{ .ptr_type = .{
-        .storage_class = storage_class,
-        .child_type = child,
     } });
 }
 
@@ -641,7 +629,7 @@ pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, resul
 pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
-        .name = try self.arena.dupe(u8, name),
+        .name = try self.resolveString(name),
     });
 }
 

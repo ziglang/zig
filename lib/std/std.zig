@@ -283,10 +283,15 @@ pub const options = struct {
     else
         false;
 
-    pub const http_connection_pool_size = if (@hasDecl(options_override, "http_connection_pool_size"))
-        options_override.http_connection_pool_size
+    /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
+    /// disable TLS support.
+    ///
+    /// This will likely reduce the size of the binary, but it will also make it impossible to
+    /// make a HTTPS connection.
+    pub const http_disable_tls = if (@hasDecl(options_override, "http_disable_tls"))
+        options_override.http_disable_tls
     else
-        http.Client.default_connection_pool_size;
+        false;
 
     pub const side_channels_mitigations: crypto.SideChannelsMitigations = if (@hasDecl(options_override, "side_channels_mitigations"))
         options_override.side_channels_mitigations

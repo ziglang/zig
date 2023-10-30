@@ -45,9 +45,7 @@ const IdResult = spec.IdResult;
 
 base: link.File,
 
-spv: SpvModule,
-spv_arena: ArenaAllocator,
-decl_link: codegen.DeclLinkMap,
+object: codegen.Object,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
     const self = try gpa.create(SpirV);
@@ -58,11 +56,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
             .file = null,
             .allocator = gpa,
         },
-        .spv = undefined,
-        .spv_arena = ArenaAllocator.init(gpa),
-        .decl_link = codegen.DeclLinkMap.init(self.base.allocator),
+        .object = codegen.Object.init(gpa),
     };
-    self.spv = SpvModule.init(gpa, self.spv_arena.allocator());
     errdefer self.deinit();
 
     // TODO: Figure out where to put all of these
@@ -99,9 +94,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn deinit(self: *SpirV) void {
-    self.spv.deinit();
-    self.spv_arena.deinit();
-    self.decl_link.deinit();
+    self.object.deinit();
 }
 
 pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -113,12 +106,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
     const decl = module.declPtr(func.owner_decl);
     log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
-    defer decl_gen.deinit();
-
-    if (try decl_gen.gen(func.owner_decl, air, liveness)) |msg| {
-        try module.failed_decls.put(module.gpa, func.owner_decl, msg);
-    }
+    try self.object.updateFunc(module, func_index, air, liveness);
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -129,31 +117,27 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
     const decl = module.declPtr(decl_index);
     log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
-    defer decl_gen.deinit();
-
-    if (try decl_gen.gen(decl_index, undefined, undefined)) |msg| {
-        try module.failed_decls.put(module.gpa, decl_index, msg);
-    }
+    try self.object.updateDecl(module, decl_index);
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *SpirV,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement SpirV linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
-        // TODO: Unify with resolveDecl in spirv.zig.
-        const entry = try self.decl_link.getOrPut(decl_index);
-        if (!entry.found_existing) {
-            entry.value_ptr.* = try self.spv.allocDecl(.func);
-        }
-        const spv_decl_index = entry.value_ptr.*;
-
+        const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
         for (exports) |exp| {
-            try self.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
+            try self.object.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
         }
     }
 
@@ -185,15 +169,19 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    const spv = &self.object.spv;
+
     const target = comp.getTarget();
-    try writeCapabilities(&self.spv, target);
-    try writeMemoryModel(&self.spv, target);
+    try writeCapabilities(spv, target);
+    try writeMemoryModel(spv, target);
 
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
 
-    var error_info = std.ArrayList(u8).init(self.spv.arena);
+    var error_info = std.ArrayList(u8).init(self.object.gpa);
+    defer error_info.deinit();
+
     try error_info.appendSlice("zig_errors");
     const module = self.base.options.module.?;
     for (module.global_error_set.keys()) |name_nts| {
@@ -207,17 +195,17 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
         defer self.base.allocator.free(escaped_name);
         try error_info.writer().print(":{s}", .{escaped_name});
     }
-    try self.spv.sections.debug_strings.emit(self.spv.gpa, .OpSourceExtension, .{
+    try spv.sections.debug_strings.emit(spv.gpa, .OpSourceExtension, .{
         .extension = error_info.items,
     });
 
-    try self.spv.flush(self.base.file.?);
+    try spv.flush(self.base.file.?);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .GenericPointer },
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
         .glsl450 => &.{.Shader},
         .vulkan => &.{.Shader},
         else => unreachable, // TODO
@@ -249,7 +237,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     };
 
     // TODO: Put this in a proper section.
-    try spv.sections.capabilities.emit(spv.gpa, .OpMemoryModel, .{
+    try spv.sections.extensions.emit(spv.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

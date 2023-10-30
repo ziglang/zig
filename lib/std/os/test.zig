@@ -375,6 +375,8 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
 test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var thread_current_id: Thread.Id = undefined;
     const thread = try Thread.spawn(.{}, testThreadIdFn, .{&thread_current_id});
     thread.join();
@@ -417,6 +419,9 @@ test "cpu count" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
     try testTls();

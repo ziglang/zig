@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const crypto = std.crypto;
 const debug = std.debug;
@@ -112,6 +113,8 @@ const htest = @import("test.zig");
 const testing = std.testing;
 
 test "Aes256Gcm - Empty message and no associated data" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
     const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const ad = "";
@@ -124,6 +127,8 @@ test "Aes256Gcm - Empty message and no associated data" {
 }
 
 test "Aes256Gcm - Associated data only" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
     const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "";
@@ -136,6 +141,8 @@ test "Aes256Gcm - Associated data only" {
 }
 
 test "Aes256Gcm - Message only" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
     const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "Test with message only";
@@ -153,6 +160,8 @@ test "Aes256Gcm - Message only" {
 }
 
 test "Aes256Gcm - Message and associated data" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
     const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "Test with message";

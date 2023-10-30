@@ -206,7 +206,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .allocator = allocator,
-            .dwarf = link.File.Dwarf.init(allocator, &self.base, options.target),
+            .dwarf = link.File.Dwarf.init(allocator, &self.base, .dwarf32),
             .file = d_sym_file,
         };
     }
@@ -702,6 +702,17 @@ fn accessLibPath(
         try checked_paths.append(try gpa.dupe(u8, test_path.items));
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :dylib,
+            else => |e| return e,
+        };
+        return true;
+    }
+
+    noextension: {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}", .{ search_dir, lib_name });
+        try checked_paths.append(try gpa.dupe(u8, test_path.items));
+        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :noextension,
             else => |e| return e,
         };
         return true;
@@ -1659,7 +1670,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     const global_is_weak = global_sym.sect() and (global_sym.weakDef() or global_sym.pext());
 
     if (sym_is_strong and global_is_strong) {
-        // TODO redo this logic with corresponding logic in updateDeclExports to avoid this
+        // TODO redo this logic with corresponding logic in updateExports to avoid this
         // ugly check.
         if (self.mode == .zld) {
             try self.reportSymbolCollision(global, current);
@@ -2169,7 +2180,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -2185,7 +2196,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "___unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const atom_index = switch (try self.lowerConst(name, typed_value, self.data_const_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.data_const_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2208,6 +2219,7 @@ fn lowerConst(
     self: *MachO,
     name: []const u8,
     tv: TypedValue,
+    required_alignment: InternPool.Alignment,
     sect_id: u8,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
@@ -2215,8 +2227,6 @@ fn lowerConst(
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
-
-    const mod = self.base.options.module.?;
 
     log.debug("allocating symbol indexes for {s}", .{name});
 
@@ -2232,7 +2242,6 @@ fn lowerConst(
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment = tv.ty.abiAlignment(mod);
     const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
     // TODO: work out logic for disambiguating functions from function pointers
@@ -2331,7 +2340,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -2520,7 +2529,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
         );
     }
 
-    try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
 
     // 2. Create a TLV descriptor.
     const init_atom_sym_loc = init_atom.getSymbolWithLoc();
@@ -2661,17 +2670,17 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: Module.De
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *MachO,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) File.UpdateDeclExportsError!void {
+) File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object|
-        return llvm_object.updateDeclExports(mod, decl_index, exports);
+        return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -2680,6 +2689,13 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement MachO linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
@@ -2857,40 +2873,51 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
     return 0;
 }
 
-pub fn lowerAnonDecl(self: *MachO, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
-    // This is basically the same as lowerUnnamedConst.
-    // example:
-    // const ty = mod.intern_pool.typeOf(decl_val).toType();
-    // const val = decl_val.toValue();
-    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
-    // It doesn't have an owner decl because it's just an unnamed constant that might
-    // be used by more than one function, however, its address is being used so we need
-    // to put it in some location.
-    // ...
+pub fn lowerAnonDecl(
+    self: *MachO,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gpa = self.base.allocator;
-    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const val = decl_val.toValue();
-        const tv = TypedValue{ .ty = ty, .val = val };
-        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
-        defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.data_const_section_index.?, src_loc) catch |err| switch (err) {
-            else => {
-                // TODO improve error message
-                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
-                    @errorName(err),
-                });
-                return .{ .fail = em };
-            },
-        };
-        const atom_index = switch (res) {
-            .ok => |atom_index| atom_index,
-            .fail => |em| return .{ .fail = em },
-        };
-        gop.value_ptr.* = atom_index;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const decl_alignment = switch (explicit_alignment) {
+        .none => ty.abiAlignment(mod),
+        else => explicit_alignment,
+    };
+    if (self.anon_decls.get(decl_val)) |atom_index| {
+        const existing_addr = self.getAtom(atom_index).getSymbol(self).n_value;
+        if (decl_alignment.check(existing_addr))
+            return .ok;
     }
+
+    const val = decl_val.toValue();
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        name,
+        tv,
+        decl_alignment,
+        self.data_const_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to lower constant value: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const atom_index = switch (res) {
+        .ok => |atom_index| atom_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, atom_index);
     return .ok;
 }
 

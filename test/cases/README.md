@@ -9,7 +9,7 @@ If you want it to be run with `zig test` and match expected error messages:
 
 ```zig
 // error
-// is_test=1
+// is_test=true
 //
 // :4:13: error: 'try' outside function scope
 ```
@@ -20,6 +20,33 @@ This will do `zig run` on the code and expect exit code 0.
 
 ```zig
 // run
+```
+
+## Translate-c
+
+If you want to test translating C code to Zig use `translate-c`:
+
+```c
+// translate-c
+// c_frontend=aro,clang
+// target=x86_64-linux
+//
+// pub const foo = 1;
+// pub const immediately_after_foo = 2;
+//
+// pub const somewhere_else_in_the_file = 3:
+```
+
+## Run Translated C
+
+If you want to test translating C code to Zig and then executing it use `run-translated-c`:
+
+```c
+// run-translated-c
+// c_frontend=aro,clang
+// target=x86_64-linux
+//
+// Hello world!
 ```
 
 ## Incremental Compilation

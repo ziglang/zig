@@ -4304,8 +4304,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
                 const sym = elf_file.symbol(sym_index);
-                _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-                const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
+                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
                 try self.genSetReg(Type.usize, .lr, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |_| {
                 unreachable; // unsupported architecture for MachO
@@ -6135,7 +6135,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = @as(u32, @truncate(imm)) },
             .memory => |addr| .{ .memory = addr },
         },

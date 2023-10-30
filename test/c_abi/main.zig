@@ -186,7 +186,7 @@ const complex_abi_compatible = builtin.cpu.arch != .x86 and !builtin.cpu.arch.is
 
 test "C ABI complex float" {
     if (!complex_abi_compatible) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/8465
 
     const a = ComplexFloat{ .real = 1.25, .imag = 2.6 };
     const b = ComplexFloat{ .real = 11.3, .imag = -1.5 };
@@ -851,6 +851,9 @@ extern fn c_medium_vec(MediumVec) void;
 extern fn c_ret_medium_vec() MediumVec;
 
 test "medium simd vector" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
+
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
     c_medium_vec(.{ 1, 2, 3, 4 });
@@ -868,9 +871,11 @@ extern fn c_big_vec(BigVec) void;
 extern fn c_ret_big_vec() BigVec;
 
 test "big simd vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64 and builtin.os.tag == .macos and builtin.mode != .Debug) return error.SkipZigTest;
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
@@ -1148,7 +1153,7 @@ extern fn c_f80_struct(f80_struct) f80_struct;
 test "f80 struct" {
     if (!has_f80) return error.SkipZigTest;
     if (builtin.target.cpu.arch == .x86) return error.SkipZigTest;
-    if (builtin.mode != .Debug) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.mode != .Debug) return error.SkipZigTest;
 
     const a = c_f80_struct(.{ .a = 12.34 });
     try expect(@as(f64, @floatCast(a.a)) == 56.78);

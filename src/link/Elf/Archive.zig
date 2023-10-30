@@ -62,15 +62,17 @@ const ar_hdr = extern struct {
     }
 };
 
-pub fn isArchive(file: std.fs.File) bool {
+pub fn isArchive(path: []const u8) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
     const reader = file.reader();
     const magic = reader.readBytesNoEof(Archive.SARMAG) catch return false;
-    defer file.seekTo(0) catch {};
     if (!mem.eql(u8, &magic, ARMAG)) return false;
     return true;
 }
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
+    allocator.free(self.path);
     allocator.free(self.data);
     self.objects.deinit(allocator);
 }
@@ -122,7 +124,7 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
         };
 
         const object = Object{
-            .archive = self.path,
+            .archive = try gpa.dupe(u8, self.path),
             .path = try gpa.dupe(u8, object_name[0 .. object_name.len - 1]), // To account for trailing '/'
             .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
             .index = undefined,

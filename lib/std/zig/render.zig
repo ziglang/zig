@@ -30,7 +30,17 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
         try renderContainerDocComments(ais, tree, 0);
     }
 
-    try renderMembers(buffer.allocator, ais, tree, tree.rootDecls());
+    if (tree.mode == .zon) {
+        try renderExpression(
+            buffer.allocator,
+            ais,
+            tree,
+            tree.nodes.items(.data)[0].lhs,
+            .newline,
+        );
+    } else {
+        try renderMembers(buffer.allocator, ais, tree, tree.rootDecls());
+    }
 
     if (ais.disabled_offset) |disabled_offset| {
         try writeFixingWhitespace(ais.underlying_writer, tree.source[disabled_offset..]);

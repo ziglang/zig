@@ -1754,8 +1754,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 .func => |func| {
                     const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
-                    _ = try sym.getOrCreateGotEntry(sym_index, elf_file);
-                    const got_addr = @as(u32, @intCast(sym.gotAddress(elf_file)));
+                    _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                    const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
                     try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                     _ = try self.addInst(.{
                         .tag = .jalr,
@@ -2591,7 +2591,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

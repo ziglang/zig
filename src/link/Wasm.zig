@@ -507,7 +507,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     // if (!options.strip and options.module != null) {
-    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, options.target);
+    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, .dwarf32);
     //     try wasm_bin.initDebugSections();
     // }
 
@@ -1702,25 +1702,37 @@ pub fn getDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(
+    wasm: *Wasm,
+    decl_val: InternPool.Index,
+    explicit_alignment: Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
-    if (gop.found_existing) {
-        return .ok;
+    if (!gop.found_existing) {
+        const mod = wasm.base.options.module.?;
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+        var name_buf: [32]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+            @intFromEnum(decl_val),
+        }) catch unreachable;
+
+        switch (try wasm.lowerConst(name, tv, src_loc)) {
+            .ok => |atom_index| wasm.anon_decls.values()[gop.index] = atom_index,
+            .fail => |em| return .{ .fail = em },
+        }
     }
 
-    const mod = wasm.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
-    const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
-    defer wasm.base.allocator.free(name);
-
-    switch (try wasm.lowerConst(name, tv, src_loc)) {
-        .ok => |atom_index| {
-            gop.value_ptr.* = atom_index;
-            return .ok;
+    const atom = wasm.getAtomPtr(wasm.anon_decls.values()[gop.index]);
+    atom.alignment = switch (atom.alignment) {
+        .none => explicit_alignment,
+        else => switch (explicit_alignment) {
+            .none => atom.alignment,
+            else => atom.alignment.maxStrict(explicit_alignment),
         },
-        .fail => |em| return .{ .fail = em },
-    }
+    };
+    return .ok;
 }
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1774,19 +1786,26 @@ pub fn deleteDeclExport(wasm: *Wasm, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     wasm: *Wasm,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (wasm.base.options.emit == null) return;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement Wasm linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
@@ -1804,7 +1823,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exp.exported_decl);
+        const exported_decl_index = switch (exp.exported) {
+            .value => {
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    "Unimplemented: exporting a named constant value",
+                    .{},
+                ));
+                continue;
+            },
+            .decl_index => |i| i,
+        };
+        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exported_decl_index);
         const exported_atom = wasm.getAtom(exported_atom_index);
         const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();

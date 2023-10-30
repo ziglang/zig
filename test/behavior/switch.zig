@@ -118,7 +118,6 @@ fn trueIfBoolFalseOtherwise(comptime T: type) bool {
 
 test "switching on booleans" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSwitchOnBools();
     try comptime testSwitchOnBools();
@@ -623,7 +622,6 @@ test "switch capture copies its payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -710,8 +708,6 @@ test "comptime inline switch" {
 }
 
 test "switch capture peer type resolution" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const U = union(enum) {
         a: u32,
         b: u64,
@@ -727,8 +723,6 @@ test "switch capture peer type resolution" {
 }
 
 test "switch capture peer type resolution for in-memory coercible payloads" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const T1 = c_int;
     const T2 = @Type(@typeInfo(T1));
 
@@ -777,8 +771,6 @@ test "switch pointer capture peer type resolution" {
 }
 
 test "inline switch range that includes the maximum value of the switched type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const inputs: [3]u8 = .{ 0, 254, 255 };
     for (inputs) |input| {
         switch (input) {
@@ -807,4 +799,27 @@ test "nested break ignores switch conditions and breaks instead" {
     };
     // Originally reported at https://github.com/ziglang/zig/issues/10196
     try expect(0x01 == try S.register_to_address("a0"));
+}
+
+test "peer type resolution on switch captures ignores unused payload bits" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Foo = union(enum) {
+        a: u32,
+        b: u64,
+    };
+
+    var val: Foo = undefined;
+    @memset(std.mem.asBytes(&val), 0xFF);
+
+    // This is runtime-known so the following store isn't comptime-known.
+    var rt: u32 = 123;
+    val = .{ .a = rt }; // will not necessarily zero remaning payload memory
+
+    // Fields intentionally backwards here
+    const x = switch (val) {
+        .b, .a => |x| x,
+    };
+
+    try expect(x == 123);
 }

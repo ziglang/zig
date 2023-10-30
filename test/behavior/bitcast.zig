@@ -149,8 +149,6 @@ test "bitcast literal [4]u8 param to u32" {
 }
 
 test "bitcast generates a temporary value" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var y = @as(u16, 0x55AA);
     const x = @as(u16, @bitCast(@as([2]u8, @bitCast(y))));
     try expect(y == x);
@@ -186,7 +184,6 @@ test "@bitCast packed structs at runtime and comptime" {
 test "@bitCast extern structs at runtime and comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Full = extern struct {
         number: u16,
@@ -241,7 +238,6 @@ test "bitcast packed struct to integer and back" {
 test "implicit cast to error union by returning" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -271,8 +267,6 @@ test "comptime bitcast used in expression has the correct type" {
 }
 
 test "bitcast passed as tuple element" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             try comptime expect(@TypeOf(args[0]) == f32);
@@ -283,8 +277,6 @@ test "bitcast passed as tuple element" {
 }
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             try comptime expect(@TypeOf(args[0]) == f64);
@@ -419,8 +411,9 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 

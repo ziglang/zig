@@ -7,8 +7,6 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
-const Allocator = mem.Allocator;
-const ExecError = std.Build.ExecError;
 const assert = std.debug.assert;
 
 const Run = @This();

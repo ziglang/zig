@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 
@@ -68,6 +69,7 @@ test "fixsfsi" {
     try test__fixsfsi(-1.0, -1);
     try test__fixsfsi(-0.99, 0);
     try test__fixsfsi(-0.5, 0);
+
     try test__fixsfsi(-math.floatMin(f32), 0);
     try test__fixsfsi(0.0, 0);
     try test__fixsfsi(math.floatMin(f32), 0);

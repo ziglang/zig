@@ -414,7 +414,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -474,8 +473,11 @@ pub const Type = struct {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                    return !comptimeOnly(ty, mod);
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(ty)),
+                        .eager => !comptimeOnly(ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .anyframe_type => true,
                 .array_type => |array_type| {
@@ -496,13 +498,12 @@ pub const Type = struct {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
-                    }
+                    if (ignore_comptime_only) return true;
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(child_ty)),
+                        .eager => !comptimeOnly(child_ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .error_union_type,
                 .error_set_type,
@@ -633,7 +634,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -741,7 +741,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -905,8 +904,11 @@ pub const Type = struct {
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union_type => |info| return abiAlignmentAdvancedErrorUnion(ty, mod, strat, info.payload_type.toType()),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return .{ .scalar = .@"2" },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                    return .{ .scalar = intAbiAlignment(bits, target) };
+                },
 
                 // represents machine code; not a pointer
                 .func_type => |func_type| return .{
@@ -967,10 +969,11 @@ pub const Type = struct {
                         else => return .{ .scalar = .@"16" },
                     },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return .{ .scalar = .@"2" },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                        return .{ .scalar = intAbiAlignment(bits, target) };
+                    },
 
                     .void,
                     .type,
@@ -1099,7 +1102,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1284,8 +1286,11 @@ pub const Type = struct {
 
                 .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return AbiSizeAdvanced{ .scalar = 2 },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                },
 
                 .error_union_type => |error_union_type| {
                     const payload_ty = error_union_type.payload_type.toType();
@@ -1379,10 +1384,11 @@ pub const Type = struct {
                     .enum_literal,
                     => return AbiSizeAdvanced{ .scalar = 0 },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                        return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                    },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
                     .export_options => unreachable, // missing call to resolveTypeFields
@@ -1453,7 +1459,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1576,8 +1581,7 @@ pub const Type = struct {
                 return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
             },
 
-            // TODO revisit this when we have the concept of the error tag type
-            .error_set_type, .inferred_error_set_type => return 16,
+            .error_set_type, .inferred_error_set_type => return mod.errorSetBits(),
 
             .error_union_type => {
                 // Optionals and error unions are not packed so their bitsize
@@ -1610,10 +1614,9 @@ pub const Type = struct {
                 .bool => return 1,
                 .void => return 0,
 
-                // TODO revisit this when we have the concept of the error tag type
                 .anyerror,
                 .adhoc_inferred_error_set,
-                => return 16,
+                => return mod.errorSetBits(),
 
                 .anyopaque => unreachable,
                 .type => unreachable,
@@ -1675,7 +1678,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -2172,8 +2174,7 @@ pub const Type = struct {
 
         while (true) switch (ty.toIntern()) {
             .anyerror_type, .adhoc_inferred_error_set_type => {
-                // TODO revisit this when error sets support custom int types
-                return .{ .signedness = .unsigned, .bits = 16 };
+                return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
             },
             .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
             .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
@@ -2192,8 +2193,9 @@ pub const Type = struct {
                 .enum_type => |enum_type| ty = enum_type.tag_ty.toType(),
                 .vector_type => |vector_type| ty = vector_type.child.toType(),
 
-                // TODO revisit this when error sets support custom int types
-                .error_set_type, .inferred_error_set_type => return .{ .signedness = .unsigned, .bits = 16 },
+                .error_set_type, .inferred_error_set_type => {
+                    return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
+                },
 
                 .anon_struct_type => unreachable,
 
@@ -2211,7 +2213,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2554,7 +2555,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2748,7 +2748,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -3302,8 +3301,6 @@ pub const Type = struct {
     pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type };
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
-
-    pub const err_int = Type.u16;
 
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;

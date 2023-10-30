@@ -7,16 +7,22 @@
 path: []const u8,
 index: File.Index,
 
-local_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
-global_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+local_esyms: std.MultiArrayList(ElfSym) = .{},
+global_esyms: std.MultiArrayList(ElfSym) = .{},
 local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 
-atoms: std.AutoArrayHashMapUnmanaged(Atom.Index, void) = .{},
+atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
+num_dynrelocs: u32 = 0,
+
 output_symtab_size: Elf.SymtabSize = .{},
+
+pub const global_symbol_bit: u32 = 0x80000000;
+pub const symbol_mask: u32 = 0x7fffffff;
+pub const SHN_ATOM: u16 = 0x100;
 
 pub fn deinit(self: *ZigModule, allocator: Allocator) void {
     self.local_esyms.deinit(allocator);
@@ -33,20 +39,20 @@ pub fn deinit(self: *ZigModule, allocator: Allocator) void {
 
 pub fn addLocalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
     try self.local_esyms.ensureUnusedCapacity(allocator, 1);
-    const index = @as(Symbol.Index, @intCast(self.local_esyms.items.len));
-    const esym = self.local_esyms.addOneAssumeCapacity();
-    esym.* = Elf.null_sym;
-    esym.st_info = elf.STB_LOCAL << 4;
+    const index = @as(Symbol.Index, @intCast(self.local_esyms.addOneAssumeCapacity()));
+    var esym = ElfSym{ .elf_sym = Elf.null_sym };
+    esym.elf_sym.st_info = elf.STB_LOCAL << 4;
+    self.local_esyms.set(index, esym);
     return index;
 }
 
 pub fn addGlobalEsym(self: *ZigModule, allocator: Allocator) !Symbol.Index {
     try self.global_esyms.ensureUnusedCapacity(allocator, 1);
-    const index = @as(Symbol.Index, @intCast(self.global_esyms.items.len));
-    const esym = self.global_esyms.addOneAssumeCapacity();
-    esym.* = Elf.null_sym;
-    esym.st_info = elf.STB_GLOBAL << 4;
-    return index | 0x10000000;
+    const index = @as(Symbol.Index, @intCast(self.global_esyms.addOneAssumeCapacity()));
+    var esym = ElfSym{ .elf_sym = Elf.null_sym };
+    esym.elf_sym.st_info = elf.STB_GLOBAL << 4;
+    self.global_esyms.set(index, esym);
+    return index | global_symbol_bit;
 }
 
 pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
@@ -56,7 +62,8 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     const symbol_index = try elf_file.addSymbol();
     const esym_index = try self.addLocalEsym(gpa);
 
-    try self.atoms.putNoClobber(gpa, atom_index, {});
+    const shndx = @as(u32, @intCast(self.atoms.items.len));
+    try self.atoms.append(gpa, atom_index);
     try self.local_symbols.append(gpa, symbol_index);
 
     const atom_ptr = elf_file.atom(atom_index).?;
@@ -66,11 +73,11 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     symbol_ptr.file_index = self.index;
     symbol_ptr.atom_index = atom_index;
 
-    const esym = &self.local_esyms.items[esym_index];
-    esym.st_shndx = atom_index;
+    self.local_esyms.items(.shndx)[esym_index] = shndx;
+    self.local_esyms.items(.elf_sym)[esym_index].st_shndx = SHN_ATOM;
     symbol_ptr.esym_index = esym_index;
 
-    const relocs_index = @as(Atom.Index, @intCast(self.relocs.items.len));
+    const relocs_index = @as(u32, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
     atom_ptr.relocs_section_index = relocs_index;
@@ -78,15 +85,33 @@ pub fn addAtom(self: *ZigModule, elf_file: *Elf) !Symbol.Index {
     return symbol_index;
 }
 
+/// TODO actually create fake input shdrs and return that instead.
+pub fn inputShdr(self: ZigModule, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
+    _ = self;
+    const shdr = shdr: {
+        const atom = elf_file.atom(atom_index) orelse break :shdr Elf.null_shdr;
+        const shndx = atom.outputShndx() orelse break :shdr Elf.null_shdr;
+        var shdr = elf_file.shdrs.items[shndx];
+        shdr.sh_addr = 0;
+        shdr.sh_offset = 0;
+        shdr.sh_size = atom.size;
+        shdr.sh_addralign = atom.alignment.toByteUnits(1);
+        break :shdr shdr;
+    };
+    return Object.ElfShdr.fromElf64Shdr(shdr) catch unreachable;
+}
+
 pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
-        const esym_index = @as(Symbol.Index, @intCast(i)) | 0x10000000;
-        const esym = self.global_esyms.items[i];
+        const esym_index = @as(Symbol.Index, @intCast(i)) | global_symbol_bit;
+        const esym = self.global_esyms.items(.elf_sym)[i];
+        const shndx = self.global_esyms.items(.shndx)[i];
 
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
-            const atom_index = esym.st_shndx;
+            assert(esym.st_shndx == SHN_ATOM);
+            const atom_index = self.atoms.items[shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
         }
@@ -95,7 +120,8 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
         if (self.asFile().symbolRank(esym, false) < global.symbolRank(elf_file)) {
             const atom_index = switch (esym.st_shndx) {
                 elf.SHN_ABS, elf.SHN_COMMON => 0,
-                else => esym.st_shndx,
+                SHN_ATOM => self.atoms.items[shndx],
+                else => unreachable,
             };
             const output_section_index = if (elf_file.atom(atom_index)) |atom|
                 atom.outputShndx().?
@@ -114,8 +140,8 @@ pub fn resolveSymbols(self: *ZigModule, elf_file: *Elf) void {
 
 pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
-        const esym_index = @as(Symbol.Index, @intCast(i)) | 0x10000000;
-        const esym = self.global_esyms.items[i];
+        const esym_index = @as(Symbol.Index, @intCast(i)) | global_symbol_bit;
+        const esym = self.global_esyms.items(.elf_sym)[i];
 
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
 
@@ -141,10 +167,12 @@ pub fn claimUnresolved(self: *ZigModule, elf_file: *Elf) void {
 }
 
 pub fn scanRelocs(self: *ZigModule, elf_file: *Elf, undefs: anytype) !void {
-    for (self.atoms.keys()) |atom_index| {
+    for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
-        if (try atom.scanRelocsRequiresCode(elf_file)) {
+        const shdr = atom.inputShdr(elf_file);
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (atom.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
             // Perhaps it would make sense to save the code until flushModule where we
             // would free all of generated code?
@@ -166,7 +194,7 @@ pub fn resetGlobals(self: *ZigModule, elf_file: *Elf) void {
 
 pub fn markLive(self: *ZigModule, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
-        const esym = self.global_esyms.items[i];
+        const esym = self.global_esyms.items(.elf_sym)[i];
         if (esym.st_bind() == elf.STB_WEAK) continue;
 
         const global = elf_file.symbol(index);
@@ -235,17 +263,17 @@ pub fn writeSymtab(self: *ZigModule, elf_file: *Elf, ctx: anytype) void {
 }
 
 pub fn symbol(self: *ZigModule, index: Symbol.Index) Symbol.Index {
-    const is_global = index & 0x10000000 != 0;
-    const actual_index = index & 0x0fffffff;
+    const is_global = index & global_symbol_bit != 0;
+    const actual_index = index & symbol_mask;
     if (is_global) return self.global_symbols.items[actual_index];
     return self.local_symbols.items[actual_index];
 }
 
 pub fn elfSym(self: *ZigModule, index: Symbol.Index) *elf.Elf64_Sym {
-    const is_global = index & 0x10000000 != 0;
-    const actual_index = index & 0x0fffffff;
-    if (is_global) return &self.global_esyms.items[actual_index];
-    return &self.local_esyms.items[actual_index];
+    const is_global = index & global_symbol_bit != 0;
+    const actual_index = index & symbol_mask;
+    if (is_global) return &self.global_esyms.items(.elf_sym)[actual_index];
+    return &self.local_esyms.items(.elf_sym)[actual_index];
 }
 
 pub fn locals(self: *ZigModule) []const Symbol.Index {
@@ -272,7 +300,10 @@ pub fn codeAlloc(self: ZigModule, elf_file: *Elf, atom_index: Atom.Index) ![]u8 
     const code = try gpa.alloc(u8, size);
     errdefer gpa.free(code);
     const amt = try elf_file.base.file.?.preadAll(code, file_offset);
-    if (amt != code.len) return error.InputOutput;
+    if (amt != code.len) {
+        log.err("fetching code for {s} failed", .{atom.name(elf_file)});
+        return error.InputOutput;
+    }
     return code;
 }
 
@@ -324,20 +355,27 @@ fn formatAtoms(
     _ = unused_fmt_string;
     _ = options;
     try writer.writeAll("  atoms\n");
-    for (ctx.self.atoms.keys()) |atom_index| {
+    for (ctx.self.atoms.items) |atom_index| {
         const atom = ctx.elf_file.atom(atom_index) orelse continue;
         try writer.print("    {}\n", .{atom.fmt(ctx.elf_file)});
     }
 }
 
+const ElfSym = struct {
+    elf_sym: elf.Elf64_Sym,
+    shndx: u32 = elf.SHN_UNDEF,
+};
+
 const assert = std.debug.assert;
 const std = @import("std");
 const elf = std.elf;
+const log = std.log.scoped(.link);
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Module = @import("../../Module.zig");
+const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const ZigModule = @This();

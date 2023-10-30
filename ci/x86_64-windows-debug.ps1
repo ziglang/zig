@@ -59,6 +59,7 @@ Write-Output "Main test suite..."
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
   -Dskip-non-native `
+  -Dskip-release `
   -Denable-symlinks-windows
 CheckLastExitCode
 

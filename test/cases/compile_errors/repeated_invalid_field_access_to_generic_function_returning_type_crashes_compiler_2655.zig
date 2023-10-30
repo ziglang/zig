@@ -9,6 +9,6 @@ test "1" {
 // error
 // backend=stage2
 // target=native
-// is_test=1
+// is_test=true
 //
 // :2:12: error: use of undeclared identifier 'Q'

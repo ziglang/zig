@@ -977,10 +977,11 @@ fn fromStringC2X(namespace: ?[]const u8, name: []const u8) ?Tag {
 }
 
 fn fromStringDeclspec(name: []const u8) ?Tag {
+    const normalized = normalize(name);
     const decls = @typeInfo(attributes).Struct.decls;
     inline for (decls, 0..) |decl, i| {
         if (@hasDecl(@field(attributes, decl.name), "declspec")) {
-            if (mem.eql(u8, @field(attributes, decl.name).declspec, name)) {
+            if (mem.eql(u8, @field(attributes, decl.name).declspec, normalized)) {
                 return @enumFromInt(i);
             }
         }

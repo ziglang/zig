@@ -44,8 +44,6 @@ test "empty extern union" {
 }
 
 test "empty union passed as argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const U = union(enum) {
         fn f(u: @This()) void {
             switch (u) {}
@@ -55,8 +53,6 @@ test "empty union passed as argument" {
 }
 
 test "empty enum passed as argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const E = enum {
         fn f(e: @This()) void {
             switch (e) {}

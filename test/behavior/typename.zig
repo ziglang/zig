@@ -67,7 +67,6 @@ test "basic" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expectEqualStrings("i64", @typeName(i64));
     try expectEqualStrings("*usize", @typeName(*usize));
@@ -231,7 +230,6 @@ test "comptime parameters not converted to anytype in function type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = fn (fn (type) void, void) void;
     try expectEqualStrings("fn (comptime fn (comptime type) void, void) void", @typeName(T));

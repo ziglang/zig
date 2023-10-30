@@ -273,7 +273,7 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    const result = std.ChildProcess.exec(.{
+    const result = std.ChildProcess.run(.{
         .allocator = arena,
         .argv = argv,
     }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
@@ -415,7 +415,7 @@ pub fn evalZigProcess(
         .Exited => {
             // Note that the exit code may be 0 in this case due to the
             // compiler server protocol.
-            if (compile.expect_errors.len != 0 and s.result_error_bundle.errorMessageCount() > 0) {
+            if (compile.expect_errors != null and s.result_error_bundle.errorMessageCount() > 0) {
                 return error.NeedCompileErrorCheck;
             }
         },

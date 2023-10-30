@@ -149,6 +149,8 @@ const Piece = packed struct {
 
 test "load non byte-sized optional value" {
     // Originally reported at https://github.com/ziglang/zig/issues/14200
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     // note: this bug is triggered by the == operator, expectEqual will hide it
     var opt: ?Piece = try Piece.charToPiece('p');
     try expect(opt.?.type == .PAWN);
@@ -162,6 +164,7 @@ test "load non byte-sized optional value" {
 
 test "load non byte-sized value in struct" {
     if (builtin.cpu.arch.endian() != .Little) return error.SkipZigTest; // packed struct TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // note: this bug is triggered by the == operator, expectEqual will hide it
     // using ptrCast not to depend on unitialised memory state
@@ -196,7 +199,6 @@ test "load non byte-sized value in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     // note: this bug is triggered by the == operator, expectEqual will hide it

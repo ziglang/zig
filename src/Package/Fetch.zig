@@ -81,6 +81,10 @@ pub const JobQueue = struct {
     wait_group: WaitGroup = .{},
     global_cache: Cache.Directory,
     recursive: bool,
+    /// Dumps hash information to stdout which can be used to troubleshoot why
+    /// two hashes of the same package do not match.
+    /// If this is true, `recursive` must be false.
+    debug_hash: bool,
     work_around_btrfs_bug: bool,
 
     pub const Table = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
@@ -752,12 +756,17 @@ const FileType = enum {
     tar,
     @"tar.gz",
     @"tar.xz",
+    @"tar.zst",
     git_pack,
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
+        if (ascii.endsWithIgnoreCase(file_path, ".tgz")) return .@"tar.gz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.gz")) return .@"tar.gz";
+        if (ascii.endsWithIgnoreCase(file_path, ".txz")) return .@"tar.xz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
+        if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
+        if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         return null;
     }
 
@@ -820,7 +829,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         var h = std.http.Headers{ .allocator = gpa };
         defer h.deinit();
 
-        var req = http_client.request(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -828,7 +837,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         };
         errdefer req.deinit(); // releases more than memory
 
-        req.start(.{}) catch |err| {
+        req.send(.{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "HTTP request failed: {s}",
                 .{@errorName(err)},
@@ -975,6 +984,9 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(content_type, "application/x-xz"))
                 break :ft .@"tar.xz";
 
+            if (ascii.eqlIgnoreCase(content_type, "application/zstd"))
+                break :ft .@"tar.zst";
+
             if (!ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
                 return f.fail(f.location_tok, try eb.printString(
                     "unrecognized 'Content-Type' header: '{s}'",
@@ -1015,6 +1027,7 @@ fn unpackResource(
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
         .@"tar.gz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.gzip),
         .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
+        .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
@@ -1025,6 +1038,18 @@ fn unpackResource(
         },
     }
 }
+
+// due to slight differences in the API of std.compress.(gzip|xz) and std.compress.zstd, zstd is
+// wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
+const ZstdWrapper = struct {
+    fn DecompressType(comptime T: type) type {
+        return error{}!std.compress.zstd.DecompressStream(T, .{});
+    }
+
+    fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
+        return std.compress.zstd.decompressStream(allocator, reader);
+    }
+};
 
 fn unpackTarballCompressed(
     f: *Fetch,
@@ -1315,7 +1340,7 @@ fn computeHash(
             const kind: HashedFile.Kind = switch (entry.kind) {
                 .directory => unreachable,
                 .file => .file,
-                .sym_link => .sym_link,
+                .sym_link => .link,
                 else => return f.fail(f.location_tok, try eb.printString(
                     "package contains '{s}' which has illegal file type '{s}'",
                     .{ entry.path, @tagName(entry.kind) },
@@ -1329,7 +1354,7 @@ fn computeHash(
             const hashed_file = try arena.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
-                .normalized_path = try normalizePath(arena, fs_path),
+                .normalized_path = try normalizePathAlloc(arena, fs_path),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
@@ -1399,7 +1424,34 @@ fn computeHash(
     }
 
     if (any_failures) return error.FetchFailed;
+
+    if (f.job_queue.debug_hash) {
+        assert(!f.job_queue.recursive);
+        // Print something to stdout that can be text diffed to figure out why
+        // the package hash is different.
+        dumpHashInfo(all_files.items) catch |err| {
+            std.debug.print("unable to write to stdout: {s}\n", .{@errorName(err)});
+            std.process.exit(1);
+        };
+    }
+
     return hasher.finalResult();
+}
+
+fn dumpHashInfo(all_files: []const *const HashedFile) !void {
+    const stdout = std.io.getStdOut();
+    var bw = std.io.bufferedWriter(stdout.writer());
+    const w = bw.writer();
+
+    for (all_files) |hashed_file| {
+        try w.print("{s}: {s}: {s}\n", .{
+            @tagName(hashed_file.kind),
+            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            hashed_file.normalized_path,
+        });
+    }
+
+    try bw.flush();
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
@@ -1427,8 +1479,14 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
                 hasher.update(buf[0..bytes_read]);
             }
         },
-        .sym_link => {
+        .link => {
             const link_name = try dir.readLink(hashed_file.fs_path, &buf);
+            if (fs.path.sep != canonical_sep) {
+                // Package hashes are intended to be consistent across
+                // platforms which means we must normalize path separators
+                // inside symlinks.
+                normalizePath(link_name);
+            }
             hasher.update(link_name);
         },
     }
@@ -1474,7 +1532,7 @@ const HashedFile = struct {
         fs.File.StatError ||
         fs.Dir.ReadLinkError;
 
-    const Kind = enum { file, sym_link };
+    const Kind = enum { file, link };
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
@@ -1484,20 +1542,18 @@ const HashedFile = struct {
 
 /// Make a file system path identical independently of operating system path inconsistencies.
 /// This converts backslashes into forward slashes.
-fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
-    const canonical_sep = '/';
-
-    if (fs.path.sep == canonical_sep)
-        return fs_path;
-
+fn normalizePathAlloc(arena: Allocator, fs_path: []const u8) ![]const u8 {
+    if (fs.path.sep == canonical_sep) return fs_path;
     const normalized = try arena.dupe(u8, fs_path);
-    for (normalized) |*byte| {
-        switch (byte.*) {
-            fs.path.sep => byte.* = canonical_sep,
-            else => continue,
-        }
-    }
+    normalizePath(normalized);
     return normalized;
+}
+
+const canonical_sep = fs.path.sep_posix;
+
+fn normalizePath(bytes: []u8) void {
+    assert(fs.path.sep != canonical_sep);
+    std.mem.replaceScalar(u8, bytes, fs.path.sep, canonical_sep);
 }
 
 const Filter = struct {
