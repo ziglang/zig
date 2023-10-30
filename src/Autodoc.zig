@@ -3119,7 +3119,7 @@ fn walkInstruction(
             };
         },
         .field_call => {
-            const pl_node = data[inst_index].pl_node;
+            const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.FieldCall, pl_node.payload_index);
 
             const obj_ptr = try self.walkRef(
@@ -3139,14 +3139,14 @@ fn walkInstruction(
                 field_call[0] = obj_ptr.expr;
             }
             field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
-            try self.tryResolveRefPath(file, inst_index, field_call);
+            try self.tryResolveRefPath(file, inst, field_call);
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
             const body = file.zir.extra[extra.end..];
 
-            try self.repurposed_insts.put(self.arena, @intCast(inst_index), {});
-            defer _ = self.repurposed_insts.remove(@intCast(inst_index));
+            try self.repurposed_insts.put(self.arena, inst, {});
+            defer _ = self.repurposed_insts.remove(inst);
 
             var i: usize = 0;
             while (i < args_len) : (i += 1) {
@@ -3164,7 +3164,7 @@ fn walkInstruction(
                     ref,
                     false,
                     &.{
-                        .inst = inst_index,
+                        .inst = inst,
                         .prev = call_ctx,
                     },
                 );
