@@ -285,7 +285,7 @@ pub fn globals(self: *ZigModule) []const Symbol.Index {
 }
 
 pub fn asFile(self: *ZigModule) File {
-    return .{ .zig_module = self };
+    return .{ .zig_object = self };
 }
 
 /// Returns atom's code.

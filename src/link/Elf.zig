@@ -11,7 +11,7 @@ llvm_object: ?*LlvmObject = null,
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
-zig_module_index: ?File.Index = null,
+zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
 shared_objects: std.ArrayListUnmanaged(File.Index) = .{},
@@ -327,24 +327,24 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         }
 
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
-        self.files.set(index, .{ .zig_module = .{
+        self.files.set(index, .{ .zig_object = .{
             .index = index,
             .path = options.module.?.main_mod.root_src_path,
         } });
-        self.zig_module_index = index;
-        const zig_module = self.file(index).?.zig_module;
+        self.zig_object_index = index;
+        const zig_object = self.zigObjectPtr().?;
 
-        try zig_module.atoms.append(allocator, 0); // null input section
+        try zig_object.atoms.append(allocator, 0); // null input section
 
         const name_off = try self.strtab.insert(allocator, std.fs.path.stem(options.module.?.main_mod.root_src_path));
         const symbol_index = try self.addSymbol();
-        try zig_module.local_symbols.append(allocator, symbol_index);
+        try zig_object.local_symbols.append(allocator, symbol_index);
         const symbol_ptr = self.symbol(symbol_index);
-        symbol_ptr.file_index = zig_module.index;
+        symbol_ptr.file_index = zig_object.index;
         symbol_ptr.name_offset = name_off;
 
-        const esym_index = try zig_module.addLocalEsym(allocator);
-        const esym = &zig_module.local_esyms.items(.elf_sym)[esym_index];
+        const esym_index = try zig_object.addLocalEsym(allocator);
+        const esym = &zig_object.local_esyms.items(.elf_sym)[esym_index];
         esym.st_name = name_off;
         esym.st_info |= elf.STT_FILE;
         esym.st_shndx = elf.SHN_ABS;
@@ -401,7 +401,7 @@ pub fn deinit(self: *Elf) void {
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
-        .zig_module => data.zig_module.deinit(gpa),
+        .zig_object => data.zig_object.deinit(gpa),
         .linker_defined => data.linker_defined.deinit(gpa),
         .object => data.object.deinit(gpa),
         .shared_object => data.shared_object.deinit(gpa),
@@ -726,7 +726,7 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
     return index;
 }
 
-/// TODO move to ZigModule
+/// TODO move to ZigObject
 pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
     const ptr_size = self.ptrWidthBytes();
@@ -1041,7 +1041,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.base.options.output_mode == .Obj and self.zig_module_index == null) {
+    if (self.base.options.output_mode == .Obj and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
         assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
@@ -1543,7 +1543,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // Now, we are ready to resolve the symbols across all input files.
-    // We will first resolve the files in the ZigModule, next in the parsed
+    // We will first resolve the files in the ZigObject, next in the parsed
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
@@ -1576,7 +1576,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
 
-    // TODO I need to re-think how to handle ZigModule's debug sections AND debug sections
+    // TODO I need to re-think how to handle ZigObject's debug sections AND debug sections
     // extracted from input object files correctly.
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
@@ -1645,15 +1645,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.items) |atom_index| {
+    if (self.zigObjectPtr()) |zig_object| {
+        for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            const code = try zig_module.codeAlloc(self, atom_index);
+            const code = try zig_object.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
@@ -1926,8 +1925,8 @@ fn accessLibPath(
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
 fn resolveSymbols(self: *Elf) void {
-    // Resolve symbols in the ZigModule. For now, we assume that it's always live.
-    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    // Resolve symbols in the ZigObject. For now, we assume that it's always live.
+    if (self.zigObjectPtr()) |zig_object| zig_object.resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
@@ -1936,7 +1935,7 @@ fn resolveSymbols(self: *Elf) void {
     self.markLive();
 
     // Reset state of all globals after marking live objects.
-    if (self.zig_module_index) |index| self.file(index).?.resetGlobals(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.resetGlobals(self);
     for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
     for (self.shared_objects.items) |index| self.file(index).?.resetGlobals(self);
 
@@ -1988,7 +1987,7 @@ fn resolveSymbols(self: *Elf) void {
     }
 
     // Re-resolve the symbols.
-    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.resolveSymbols(self);
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
 }
@@ -1998,7 +1997,7 @@ fn resolveSymbols(self: *Elf) void {
 /// This routine will prune unneeded objects extracted from archives and
 /// unneeded shared objects.
 fn markLive(self: *Elf) void {
-    if (self.zig_module_index) |index| self.file(index).?.markLive(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.markLive(self);
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
@@ -2057,7 +2056,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }
 
-    if (self.zig_module_index) |index| {
+    if (self.zig_object_index) |index| {
         mark(self, index);
     }
 
@@ -2067,9 +2066,8 @@ fn markImportsExports(self: *Elf) void {
 }
 
 fn claimUnresolved(self: *Elf) void {
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.claimUnresolved(self);
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.claimUnresolved(self);
     }
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -2093,9 +2091,8 @@ fn scanRelocs(self: *Elf) !void {
         undefs.deinit();
     }
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        try zig_module.scanRelocs(self, &undefs);
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.scanRelocs(self, &undefs);
     }
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -3114,9 +3111,9 @@ pub fn getOrCreateMetadataForLazySymbol(self: *Elf, lazy_sym: link.File.LazySymb
             .state = &gop.value_ptr.rodata_state,
         },
     };
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const zig_object = self.zigObjectPtr().?;
     switch (metadata.state.*) {
-        .unused => metadata.symbol_index.* = try zig_module.addAtom(self),
+        .unused => metadata.symbol_index.* = try zig_object.addAtom(self),
         .pending_flush => return metadata.symbol_index.*,
         .flushed => {},
     }
@@ -3130,8 +3127,8 @@ pub fn getOrCreateMetadataForLazySymbol(self: *Elf, lazy_sym: link.File.LazySymb
 pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Symbol.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
-        const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-        gop.value_ptr.* = .{ .symbol_index = try zig_module.addAtom(self) };
+        const zig_object = self.zigObjectPtr().?;
+        gop.value_ptr.* = .{ .symbol_index = try zig_object.addAtom(self) };
     }
     return gop.value_ptr.symbol_index;
 }
@@ -3173,7 +3170,7 @@ fn updateDeclCode(
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const zig_object = self.zigObjectPtr().?;
     const decl = mod.declPtr(decl_index);
 
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
@@ -3182,7 +3179,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(mod);
 
     const sym = self.symbol(sym_index);
-    const esym = &zig_module.local_esyms.items(.elf_sym)[sym.esym_index];
+    const esym = &zig_object.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(self).?;
 
     const shdr_index = self.getDeclShdrIndex(decl_index, code);
@@ -3340,7 +3337,7 @@ pub fn updateDecl(
         const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         const esym_index = try self.getGlobalSymbol(name, lib_name);
-        self.symbol(self.zigModulePtr().symbol(esym_index)).flags.needs_got = true;
+        self.symbol(self.zigObjectPtr().?.symbol(esym_index)).flags.needs_got = true;
         return;
     }
 
@@ -3401,7 +3398,7 @@ pub fn updateDecl(
 fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const zig_object = self.zigObjectPtr().?;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -3449,7 +3446,7 @@ fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.
     const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
+    const local_esym = &zig_object.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3519,8 +3516,8 @@ fn lowerConst(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const sym_index = try zig_module.addAtom(self);
+    const zig_object = self.zigObjectPtr().?;
+    const sym_index = try zig_object.addAtom(self);
 
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{
         .none = {},
@@ -3537,7 +3534,7 @@ fn lowerConst(
     const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
+    const local_esym = &zig_object.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -3579,7 +3576,7 @@ pub fn updateExports(
     defer tracy.end();
 
     const gpa = self.base.allocator;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const zig_object = self.zigObjectPtr().?;
     const metadata = switch (exported) {
         .decl_index => |decl_index| blk: {
             _ = try self.getOrCreateMetadataForDecl(decl_index);
@@ -3603,8 +3600,8 @@ pub fn updateExports(
     };
     const sym_index = metadata.symbol_index;
     const esym_index = self.symbol(sym_index).esym_index;
-    const esym = zig_module.local_esyms.items(.elf_sym)[esym_index];
-    const esym_shndx = zig_module.local_esyms.items(.shndx)[esym_index];
+    const esym = zig_object.local_esyms.items(.elf_sym)[esym_index];
+    const esym_shndx = zig_object.local_esyms.items(.shndx)[esym_index];
 
     for (exports) |exp| {
         if (exp.opts.section.unwrap()) |section_name| {
@@ -3638,24 +3635,24 @@ pub fn updateExports(
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         const name_off = try self.strtab.insert(gpa, exp_name);
         const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const global_esym_index = try zig_module.addGlobalEsym(gpa);
-            const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, name_off);
-            const global_esym = zig_module.elfSym(global_esym_index);
+            const global_esym_index = try zig_object.addGlobalEsym(gpa);
+            const lookup_gop = try zig_object.globals_lookup.getOrPut(gpa, name_off);
+            const global_esym = zig_object.elfSym(global_esym_index);
             global_esym.st_name = name_off;
             lookup_gop.value_ptr.* = global_esym_index;
             try metadata.exports.append(gpa, global_esym_index);
             const gop = try self.getOrPutGlobal(name_off);
-            try zig_module.global_symbols.append(gpa, gop.index);
+            try zig_object.global_symbols.append(gpa, gop.index);
             break :blk global_esym_index;
         };
 
-        const actual_esym_index = global_esym_index & ZigModule.symbol_mask;
-        const global_esym = &zig_module.global_esyms.items(.elf_sym)[actual_esym_index];
+        const actual_esym_index = global_esym_index & ZigObject.symbol_mask;
+        const global_esym = &zig_object.global_esyms.items(.elf_sym)[actual_esym_index];
         global_esym.st_value = self.symbol(sym_index).value;
         global_esym.st_shndx = esym.st_shndx;
         global_esym.st_info = (stb_bits << 4) | stt_bits;
         global_esym.st_name = name_off;
-        zig_module.global_esyms.items(.shndx)[actual_esym_index] = esym_shndx;
+        zig_object.global_esyms.items(.shndx)[actual_esym_index] = esym_shndx;
     }
 }
 
@@ -3683,20 +3680,20 @@ pub fn deleteDeclExport(
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
     const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
+    const zig_object = self.zigObjectPtr().?;
     const exp_name = mod.intern_pool.stringToSlice(name);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &zig_module.global_esyms.items(.elf_sym)[esym_index.*];
-    _ = zig_module.globals_lookup.remove(esym.st_name);
+    const esym = &zig_object.global_esyms.items(.elf_sym)[esym_index.*];
+    _ = zig_object.globals_lookup.remove(esym.st_name);
     const sym_index = self.resolver.get(esym.st_name).?;
     const sym = self.symbol(sym_index);
-    if (sym.file_index == zig_module.index) {
+    if (sym.file_index == zig_object.index) {
         _ = self.resolver.swapRemove(esym.st_name);
         sym.* = .{};
     }
     esym.* = null_sym;
-    zig_module.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
+    zig_object.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
@@ -3917,8 +3914,8 @@ fn initSections(self: *Elf) !void {
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or
             self.zig_got.flags.needs_rela or self.copy_rel.symbols.items.len > 0) break :blk true;
-        if (self.zig_module_index) |index| {
-            if (self.file(index).?.zig_module.num_dynrelocs > 0) break :blk true;
+        if (self.zigObjectPtr()) |zig_object| {
+            if (zig_object.num_dynrelocs > 0) break :blk true;
         }
         for (self.objects.items) |index| {
             if (self.file(index).?.object.num_dynrelocs > 0) break :blk true;
@@ -4512,16 +4509,15 @@ fn sortShdrs(self: *Elf) !void {
         }
     }
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.items) |atom_index| {
+    if (self.zigObjectPtr()) |zig_object| {
+        for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             atom_ptr.output_section_index = backlinks[out_shndx];
         }
 
-        for (zig_module.locals()) |local_index| {
+        for (zig_object.locals()) |local_index| {
             const local = self.symbol(local_index);
             const atom_ptr = local.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -4529,11 +4525,11 @@ fn sortShdrs(self: *Elf) !void {
             local.output_section_index = backlinks[out_shndx];
         }
 
-        for (zig_module.globals()) |global_index| {
+        for (zig_object.globals()) |global_index| {
             const global = self.symbol(global_index);
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
-            if (global.file(self).?.index() != index) continue;
+            if (global.file(self).?.index() != zig_object.index) continue;
             const out_shndx = global.outputShndx() orelse continue;
             global.output_section_index = backlinks[out_shndx];
         }
@@ -4599,8 +4595,8 @@ fn updateSectionSizes(self: *Elf) !void {
 
     if (self.rela_dyn_section_index) |shndx| {
         var num = self.got.numRela(self) + self.copy_rel.numRela() + self.zig_got.numRela();
-        if (self.zig_module_index) |index| {
-            num += self.file(index).?.zig_module.num_dynrelocs;
+        if (self.zigObjectPtr()) |zig_object| {
+            num += zig_object.num_dynrelocs;
         }
         for (self.objects.items) |index| {
             num += self.file(index).?.object.num_dynrelocs;
@@ -5079,11 +5075,10 @@ fn writeAtoms(self: *Elf) !void {
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.updateSymtabSize(self);
-        sizes.nlocals += zig_module.output_symtab_size.nlocals;
-        sizes.nglobals += zig_module.output_symtab_size.nglobals;
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.updateSymtabSize(self);
+        sizes.nlocals += zig_object.output_symtab_size.nlocals;
+        sizes.nglobals += zig_object.output_symtab_size.nglobals;
     }
 
     for (self.objects.items) |index| {
@@ -5299,11 +5294,10 @@ fn writeSymtab(self: *Elf) !void {
         .symtab = symtab,
     };
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.writeSymtab(self, ctx);
-        ctx.ilocal += zig_module.output_symtab_size.nlocals;
-        ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.writeSymtab(self, ctx);
+        ctx.ilocal += zig_object.output_symtab_size.nlocals;
+        ctx.iglobal += zig_object.output_symtab_size.nglobals;
     }
 
     for (self.objects.items) |index| {
@@ -5863,7 +5857,7 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     return switch (tag) {
         .null => null,
         .linker_defined => .{ .linker_defined = &self.files.items(.data)[index].linker_defined },
-        .zig_module => .{ .zig_module = &self.files.items(.data)[index].zig_module },
+        .zig_object => .{ .zig_object = &self.files.items(.data)[index].zig_object },
         .object => .{ .object = &self.files.items(.data)[index].object },
         .shared_object => .{ .shared_object = &self.files.items(.data)[index].shared_object },
     };
@@ -5964,23 +5958,22 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
     _ = lib_name;
     const gpa = self.base.allocator;
     const off = try self.strtab.insert(gpa, name);
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, off);
+    const zig_object = self.zigObjectPtr().?;
+    const lookup_gop = try zig_object.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
-        const esym_index = try zig_module.addGlobalEsym(gpa);
-        const esym = zig_module.elfSym(esym_index);
+        const esym_index = try zig_object.addGlobalEsym(gpa);
+        const esym = zig_object.elfSym(esym_index);
         esym.st_name = off;
         lookup_gop.value_ptr.* = esym_index;
         const gop = try self.getOrPutGlobal(off);
-        try zig_module.global_symbols.append(gpa, gop.index);
+        try zig_object.global_symbols.append(gpa, gop.index);
     }
     return lookup_gop.value_ptr.*;
 }
 
-pub fn zigModulePtr(self: *Elf) *ZigModule {
-    assert(self.zig_module_index != null);
-    const file_ptr = self.file(self.zig_module_index.?).?;
-    return file_ptr.zig_module;
+pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
+    const index = self.zig_object_index orelse return null;
+    return self.file(index).?.zig_object;
 }
 
 const GetOrCreateComdatGroupOwnerResult = struct {
@@ -6245,12 +6238,11 @@ fn fmtDumpState(
     _ = unused_fmt_string;
     _ = options;
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        try writer.print("zig_module({d}) : {s}\n", .{ index, zig_module.path });
+    if (self.zigObjectPtr()) |zig_object| {
+        try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.path });
         try writer.print("{}{}\n", .{
-            zig_module.fmtAtoms(self),
-            zig_module.fmtSymtab(self),
+            zig_object.fmtAtoms(self),
+            zig_object.fmtSymtab(self),
         });
     }
 
@@ -6379,9 +6371,9 @@ const DeclMetadata = struct {
     exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
     fn @"export"(m: DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
-        const zig_module = elf_file.file(elf_file.zig_module_index.?).?.zig_module;
+        const zig_object = elf_file.zigObjectPtr().?;
         for (m.exports.items) |*exp| {
-            const exp_name = elf_file.strtab.getAssumeExists(zig_module.elfSym(exp.*).st_name);
+            const exp_name = elf_file.strtab.getAssumeExists(zig_object.elfSym(exp.*).st_name);
             if (mem.eql(u8, name, exp_name)) return exp;
         }
         return null;
@@ -6491,4 +6483,4 @@ const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;
-const ZigModule = @import("Elf/ZigModule.zig");
+const ZigObject = @import("Elf/ZigObject.zig");

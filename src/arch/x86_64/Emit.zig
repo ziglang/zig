@@ -86,7 +86,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
-                    const sym = elf_file.symbol(elf_file.zigModulePtr().symbol(data.sym_index));
+                    const sym = elf_file.symbol(elf_file.zigObjectPtr().?.symbol(data.sym_index));
                     if (emit.lower.bin_file.options.pic) {
                         const r_type: u32 = if (sym.flags.has_zig_got)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
