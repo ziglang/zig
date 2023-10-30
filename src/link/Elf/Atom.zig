@@ -166,15 +166,16 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
-        if (elf_file.zigObjectPtr().?.dwarf) |_| {
+        const zig_object = elf_file.zigObjectPtr().?;
+        if (zig_object.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
             // range of the compilation unit. When we expand the text section, this range changes,
             // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            elf_file.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
             // This becomes dirty for the same reason. We could potentially make this more
             // fine-grained with the addition of support for more compilation units. It is planned to
             // model each package as a different compilation unit.
-            elf_file.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnitsOptional().?);

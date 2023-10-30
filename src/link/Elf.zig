@@ -113,14 +113,6 @@ debug_str_section_index: ?u16 = null,
 debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
 
-/// Size contribution of Zig's metadata to each debug section.
-/// Used to track start of metadata from input object files.
-debug_info_section_zig_size: u64 = 0,
-debug_abbrev_section_zig_size: u64 = 0,
-debug_str_section_zig_size: u64 = 0,
-debug_aranges_section_zig_size: u64 = 0,
-debug_line_section_zig_size: u64 = 0,
-
 copy_rel_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
 dynstrtab_section_index: ?u16 = null,
@@ -169,12 +161,6 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
-
-debug_strtab_dirty: bool = false,
-debug_abbrev_section_dirty: bool = false,
-debug_aranges_section_dirty: bool = false,
-debug_info_header_dirty: bool = false,
-debug_line_header_dirty: bool = false,
 
 error_flags: link.File.ErrorFlags = link.File.ErrorFlags{},
 misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
@@ -696,7 +682,8 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    if (self.zigObjectPtr().?.dwarf) |*dw| {
+    const zig_object = self.zigObjectPtr().?;
+    if (zig_object.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
@@ -706,7 +693,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                 .entsize = 1,
             });
-            self.debug_strtab_dirty = true;
+            zig_object.debug_strtab_dirty = true;
         }
 
         if (self.debug_info_section_index == null) {
@@ -715,7 +702,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 200,
                 .alignment = 1,
             });
-            self.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
         }
 
         if (self.debug_abbrev_section_index == null) {
@@ -724,7 +711,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 128,
                 .alignment = 1,
             });
-            self.debug_abbrev_section_dirty = true;
+            zig_object.debug_abbrev_section_dirty = true;
         }
 
         if (self.debug_aranges_section_index == null) {
@@ -733,7 +720,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 160,
                 .alignment = 16,
             });
-            self.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
 
         if (self.debug_line_section_index == null) {
@@ -742,7 +729,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 250,
                 .alignment = 1,
             });
-            self.debug_line_header_dirty = true;
+            zig_object.debug_line_header_dirty = true;
         }
     }
 }
@@ -833,17 +820,18 @@ pub fn growNonAllocSection(
 }
 
 pub fn markDirty(self: *Elf, shdr_index: u16) void {
-    if (self.zigObjectPtr().?.dwarf) |_| {
+    const zig_object = self.zigObjectPtr().?;
+    if (zig_object.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
-            self.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
         } else if (self.debug_line_section_index.? == shdr_index) {
-            self.debug_line_header_dirty = true;
+            zig_object.debug_line_header_dirty = true;
         } else if (self.debug_abbrev_section_index.? == shdr_index) {
-            self.debug_abbrev_section_dirty = true;
+            zig_object.debug_abbrev_section_dirty = true;
         } else if (self.debug_str_section_index.? == shdr_index) {
-            self.debug_strtab_dirty = true;
+            zig_object.debug_strtab_dirty = true;
         } else if (self.debug_aranges_section_index.? == shdr_index) {
-            self.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
     }
 }
@@ -1343,39 +1331,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
-    if (self.zigObjectPtr()) |zig_object| {
-        // Handle any lazy symbols that were emitted by incremental compilation.
-        if (zig_object.lazy_syms.getPtr(.none)) |metadata| {
-            const module = self.base.options.module.?;
-
-            // Most lazy symbols can be updated on first use, but
-            // anyerror needs to wait for everything to be flushed.
-            if (metadata.text_state != .unused) zig_object.updateLazySymbol(
-                self,
-                link.File.LazySymbol.initDecl(.code, null, module),
-                metadata.text_symbol_index,
-            ) catch |err| return switch (err) {
-                error.CodegenFail => error.FlushFailure,
-                else => |e| e,
-            };
-            if (metadata.rodata_state != .unused) zig_object.updateLazySymbol(
-                self,
-                link.File.LazySymbol.initDecl(.const_data, null, module),
-                metadata.rodata_symbol_index,
-            ) catch |err| return switch (err) {
-                error.CodegenFail => error.FlushFailure,
-                else => |e| e,
-            };
-        }
-        for (zig_object.lazy_syms.values()) |*metadata| {
-            if (metadata.text_state != .unused) metadata.text_state = .flushed;
-            if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
-        }
-
-        if (zig_object.dwarf) |*dw| {
-            try dw.flushModule(self.base.options.module.?);
-        }
-    }
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
 
     // Dedup shared objects
     {
@@ -1436,47 +1392,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
-
-    if (self.zigObjectPtr()) |zig_object| {
-        // TODO I need to re-think how to handle ZigObject's debug sections AND debug sections
-        // extracted from input object files correctly.
-        if (zig_object.dwarf) |*dw| {
-            if (self.debug_abbrev_section_dirty) {
-                try dw.writeDbgAbbrev();
-                self.debug_abbrev_section_dirty = false;
-            }
-
-            if (self.debug_info_header_dirty) {
-                const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-                const low_pc = text_phdr.p_vaddr;
-                const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-                try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
-                self.debug_info_header_dirty = false;
-            }
-
-            if (self.debug_aranges_section_dirty) {
-                const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-                try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-                self.debug_aranges_section_dirty = false;
-            }
-
-            if (self.debug_line_header_dirty) {
-                try dw.writeDbgLineHeader();
-                self.debug_line_header_dirty = false;
-            }
-
-            if (self.debug_str_section_index) |shndx| {
-                if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[shndx].sh_size) {
-                    try self.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
-                    const shdr = self.shdrs.items[shndx];
-                    try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
-                    self.debug_strtab_dirty = false;
-                }
-            }
-
-            self.saveDebugSectionsSizes();
-        }
-    }
 
     // Generate and emit non-incremental sections.
     try self.initSections();
@@ -1542,14 +1457,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
-
-    // The point of flush() is to commit changes, so in theory, nothing should
-    // be dirty after this. However, it is possible for some things to remain
-    // dirty because they fail to be written in the event of compile errors,
-    // such as debug_line_header_dirty and debug_info_header_dirty.
-    assert(!self.debug_abbrev_section_dirty);
-    assert(!self.debug_aranges_section_dirty);
-    assert(!self.debug_strtab_dirty);
 }
 
 const ParseError = error{
@@ -3815,24 +3722,6 @@ fn sortShdrs(self: *Elf) !void {
     }
 }
 
-fn saveDebugSectionsSizes(self: *Elf) void {
-    if (self.debug_info_section_index) |shndx| {
-        self.debug_info_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_abbrev_section_index) |shndx| {
-        self.debug_abbrev_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_str_section_index) |shndx| {
-        self.debug_str_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_aranges_section_index) |shndx| {
-        self.debug_aranges_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_line_section_index) |shndx| {
-        self.debug_line_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-}
-
 fn updateSectionSizes(self: *Elf) !void {
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         if (atom_list.items.len == 0) continue;
@@ -4189,12 +4078,18 @@ fn allocateNonAllocSections(self: *Elf) !void {
                     shdr.sh_offset,
                     new_offset,
                 });
+                const zig_object = self.zigObjectPtr().?;
                 const existing_size = blk: {
-                    if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
-                    if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
-                    if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
-                    if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
-                    if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+                    if (shndx == self.debug_info_section_index.?)
+                        break :blk zig_object.debug_info_section_zig_size;
+                    if (shndx == self.debug_abbrev_section_index.?)
+                        break :blk zig_object.debug_abbrev_section_zig_size;
+                    if (shndx == self.debug_str_section_index.?)
+                        break :blk zig_object.debug_str_section_zig_size;
+                    if (shndx == self.debug_aranges_section_index.?)
+                        break :blk zig_object.debug_aranges_section_zig_size;
+                    if (shndx == self.debug_line_section_index.?)
+                        break :blk zig_object.debug_line_section_zig_size;
                     unreachable;
                 };
                 const amt = try self.base.file.?.copyRangeAll(
@@ -4296,11 +4191,17 @@ fn writeAtoms(self: *Elf) !void {
 
         // TODO really, really handle debug section separately
         const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
-            if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
-            if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
-            if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
-            if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
-            if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+            const zig_object = self.zigObjectPtr().?;
+            if (shndx == self.debug_info_section_index.?)
+                break :blk zig_object.debug_info_section_zig_size;
+            if (shndx == self.debug_abbrev_section_index.?)
+                break :blk zig_object.debug_abbrev_section_zig_size;
+            if (shndx == self.debug_str_section_index.?)
+                break :blk zig_object.debug_str_section_zig_size;
+            if (shndx == self.debug_aranges_section_index.?)
+                break :blk zig_object.debug_aranges_section_zig_size;
+            if (shndx == self.debug_line_section_index.?)
+                break :blk zig_object.debug_line_section_zig_size;
             unreachable;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;

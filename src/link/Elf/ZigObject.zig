@@ -52,6 +52,20 @@ unnamed_consts: UnnamedConstTable = .{},
 /// Table of tracked AnonDecls.
 anon_decls: AnonDeclTable = .{},
 
+debug_strtab_dirty: bool = false,
+debug_abbrev_section_dirty: bool = false,
+debug_aranges_section_dirty: bool = false,
+debug_info_header_dirty: bool = false,
+debug_line_header_dirty: bool = false,
+
+/// Size contribution of Zig's metadata to each debug section.
+/// Used to track start of metadata from input object files.
+debug_info_section_zig_size: u64 = 0,
+debug_abbrev_section_zig_size: u64 = 0,
+debug_str_section_zig_size: u64 = 0,
+debug_aranges_section_zig_size: u64 = 0,
+debug_line_section_zig_size: u64 = 0,
+
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
@@ -120,6 +134,103 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 
     if (self.dwarf) |*dw| {
         dw.deinit();
+    }
+}
+
+pub fn flushModule(self: *ZigObject, elf_file: *Elf) !void {
+    // Handle any lazy symbols that were emitted by incremental compilation.
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        const module = elf_file.base.options.module.?;
+
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbol(
+            elf_file,
+            link.File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rodata_state != .unused) self.updateLazySymbol(
+            elf_file,
+            link.File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rodata_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
+    }
+
+    if (self.dwarf) |*dw| {
+        try dw.flushModule(elf_file.base.options.module.?);
+
+        // TODO I need to re-think how to handle ZigObject's debug sections AND debug sections
+        // extracted from input object files correctly.
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev();
+            self.debug_abbrev_section_dirty = false;
+        }
+
+        if (self.debug_info_header_dirty) {
+            const text_phdr = &elf_file.phdrs.items[elf_file.phdr_zig_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(elf_file.base.options.module.?, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
+        }
+
+        if (self.debug_aranges_section_dirty) {
+            const text_phdr = &elf_file.phdrs.items[elf_file.phdr_zig_load_re_index.?];
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+            self.debug_aranges_section_dirty = false;
+        }
+
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader();
+            self.debug_line_header_dirty = false;
+        }
+
+        if (elf_file.debug_str_section_index) |shndx| {
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != elf_file.shdrs.items[shndx].sh_size) {
+                try elf_file.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
+                const shdr = elf_file.shdrs.items[shndx];
+                try elf_file.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
+                self.debug_strtab_dirty = false;
+            }
+        }
+
+        self.saveDebugSectionsSizes(elf_file);
+    }
+
+    // The point of flushModule() is to commit changes, so in theory, nothing should
+    // be dirty after this. However, it is possible for some things to remain
+    // dirty because they fail to be written in the event of compile errors,
+    // such as debug_line_header_dirty and debug_info_header_dirty.
+    assert(!self.debug_abbrev_section_dirty);
+    assert(!self.debug_aranges_section_dirty);
+    assert(!self.debug_strtab_dirty);
+}
+
+fn saveDebugSectionsSizes(self: *ZigObject, elf_file: *Elf) void {
+    if (elf_file.debug_info_section_index) |shndx| {
+        self.debug_info_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
+    }
+    if (elf_file.debug_abbrev_section_index) |shndx| {
+        self.debug_abbrev_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
+    }
+    if (elf_file.debug_str_section_index) |shndx| {
+        self.debug_str_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
+    }
+    if (elf_file.debug_aranges_section_index) |shndx| {
+        self.debug_aranges_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
+    }
+    if (elf_file.debug_line_section_index) |shndx| {
+        self.debug_line_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
     }
 }
 
@@ -837,7 +948,7 @@ pub fn updateDecl(
     return self.updateExports(elf_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn updateLazySymbol(
+fn updateLazySymbol(
     self: *ZigObject,
     elf_file: *Elf,
     sym: link.File.LazySymbol,
