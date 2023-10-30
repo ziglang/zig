@@ -467,8 +467,8 @@ test "Headers.clearRetainingCapacity and clearAndFree" {
 
 test "Headers.initList" {
     var h = try Headers.initList(std.testing.allocator, &.{
-        .{.name = "Accept-Encoding", .value = "gzip"},
-        .{.name = "Authorization", .value = "it's over 9000!"},
+        .{ .name = "Accept-Encoding", .value = "gzip" },
+        .{ .name = "Authorization", .value = "it's over 9000!" },
     });
     defer h.deinit();
 
