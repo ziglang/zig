@@ -60,11 +60,11 @@ pub const Headers = struct {
         return .{ .allocator = allocator };
     }
 
-    pub fn initList(allocator: Allocator, list: []const Field) Headers {
+    pub fn initList(allocator: Allocator, list: []const Field) !Headers {
         var new = Headers.init(allocator);
 
         try new.list.ensureTotalCapacity(allocator, list.len);
-        try new.index.ensureTotalCapacity(allocator, list.len);
+        try new.index.ensureTotalCapacity(allocator, @intCast(list.len));
         for (list) |field| {
             try new.append(field.name, field.value);
         }
@@ -463,4 +463,20 @@ test "Headers.clearRetainingCapacity and clearAndFree" {
     try testing.expectEqual(@as(usize, 0), h.index.count());
     try testing.expectEqual(@as(usize, 0), h.list.capacity);
     try testing.expectEqual(@as(usize, 0), h.index.capacity());
+}
+
+test "Headers.initList" {
+    var h = try Headers.initList(std.testing.allocator, &.{
+        .{ .name = "Accept-Encoding", .value = "gzip" },
+        .{ .name = "Authorization", .value = "it's over 9000!" },
+    });
+    defer h.deinit();
+
+    const encoding_values = (try h.getValues(testing.allocator, "Accept-Encoding")).?;
+    defer testing.allocator.free(encoding_values);
+    try testing.expectEqualDeep(@as([]const []const u8, &[_][]const u8{"gzip"}), encoding_values);
+
+    const authorization_values = (try h.getValues(testing.allocator, "Authorization")).?;
+    defer testing.allocator.free(authorization_values);
+    try testing.expectEqualDeep(@as([]const []const u8, &[_][]const u8{"it's over 9000!"}), authorization_values);
 }
