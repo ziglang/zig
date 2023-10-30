@@ -134,7 +134,7 @@ const Owner = union(enum) {
                 const mod = ctx.bin_file.options.module.?;
                 const decl_index = mod.funcOwnerDeclIndex(func_index);
                 if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
-                    return elf_file.getOrCreateMetadataForDecl(decl_index);
+                    return elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
                 } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
                     return macho_file.getAtom(atom).getSymbolIndex().?;
@@ -147,7 +147,7 @@ const Owner = union(enum) {
             },
             .lazy_sym => |lazy_sym| {
                 if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
-                    return elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
+                    return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
                         ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                 } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
                     const atom = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
@@ -10233,7 +10233,7 @@ fn genCall(self: *Self, info: union(enum) {
                 .func => |func| {
                     try mod.markDeclAlive(mod.declPtr(func.owner_decl));
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         if (self.bin_file.options.pic) {
@@ -13100,7 +13100,7 @@ fn genLazySymbolRef(
     lazy_sym: link.File.LazySymbol,
 ) InnerError!void {
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const sym_index = elf_file.getOrCreateMetadataForLazySymbol(lazy_sym) catch |err|
+        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);

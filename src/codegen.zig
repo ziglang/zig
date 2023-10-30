@@ -907,7 +907,7 @@ fn genDeclRef(
             elf_file.symbol(elf_file.zigObjectPtr().?.symbol(sym_index)).flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
+        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });

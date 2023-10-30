@@ -166,7 +166,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
-        if (elf_file.dwarf) |_| {
+        if (elf_file.zigObjectPtr().?.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
             // range of the compilation unit. When we expand the text section, this range changes,
             // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.

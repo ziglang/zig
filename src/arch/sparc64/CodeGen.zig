@@ -1347,7 +1347,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
                     const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                        const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
