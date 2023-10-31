@@ -302,7 +302,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     cache.hash.addBytes(build_options.version);
     cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
     cache.hash.add(target.cpu.arch);
-    cache.hash.addBytes("aro");
 
     var man = cache.obtain();
     defer man.deinit();
