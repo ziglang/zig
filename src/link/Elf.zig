@@ -1,7 +1,5 @@
 base: link.File,
 
-dwarf: ?Dwarf = null,
-
 ptr_width: PtrWidth,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -11,7 +9,7 @@ llvm_object: ?*LlvmObject = null,
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
-zig_module_index: ?File.Index = null,
+zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
 shared_objects: std.ArrayListUnmanaged(File.Index) = .{},
@@ -102,7 +100,7 @@ rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 /// .zig.got section
 zig_got: ZigGotSection = .{},
 
-/// Tracked section headers with incremental updates to Zig module
+/// Tracked section headers with incremental updates to Zig object
 zig_text_section_index: ?u16 = null,
 zig_rodata_section_index: ?u16 = null,
 zig_data_section_index: ?u16 = null,
@@ -114,14 +112,6 @@ debug_abbrev_section_index: ?u16 = null,
 debug_str_section_index: ?u16 = null,
 debug_aranges_section_index: ?u16 = null,
 debug_line_section_index: ?u16 = null,
-
-/// Size contribution of Zig's metadata to each debug section.
-/// Used to track start of metadata from input object files.
-debug_info_section_zig_size: u64 = 0,
-debug_abbrev_section_zig_size: u64 = 0,
-debug_str_section_zig_size: u64 = 0,
-debug_aranges_section_zig_size: u64 = 0,
-debug_line_section_zig_size: u64 = 0,
 
 copy_rel_section_index: ?u16 = null,
 dynamic_section_index: ?u16 = null,
@@ -172,58 +162,18 @@ symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
-debug_strtab_dirty: bool = false,
-debug_abbrev_section_dirty: bool = false,
-debug_aranges_section_dirty: bool = false,
-debug_info_header_dirty: bool = false,
-debug_line_header_dirty: bool = false,
-
 error_flags: link.File.ErrorFlags = link.File.ErrorFlags{},
 misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 
-/// Table of tracked LazySymbols.
-lazy_syms: LazySymbolTable = .{},
-
-/// Table of tracked Decls.
-decls: DeclTable = .{},
-
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
+
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
-
-/// Table of unnamed constants associated with a parent `Decl`.
-/// We store them here so that we can free the constants whenever the `Decl`
-/// needs updating or is freed.
-///
-/// For example,
-///
-/// ```zig
-/// const Foo = struct{
-///     a: u8,
-/// };
-///
-/// pub fn main() void {
-///     var foo = Foo{ .a = 1 };
-///     _ = foo;
-/// }
-/// ```
-///
-/// value assigned to label `foo` is an unnamed constant belonging/associated
-/// with `Decl` `main`, and lives as long as that `Decl`.
-unnamed_consts: UnnamedConstTable = .{},
-anon_decls: AnonDeclTable = .{},
 
 comdat_groups: std.ArrayListUnmanaged(ComdatGroup) = .{},
 comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
 comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
-
-const AtomList = std.ArrayListUnmanaged(Atom.Index);
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Symbol.Index));
-const DeclTable = std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
-const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList);
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -322,34 +272,13 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     if (options.module != null and !options.use_llvm) {
-        if (!options.strip) {
-            self.dwarf = Dwarf.init(allocator, &self.base, .dwarf32);
-        }
-
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
-        self.files.set(index, .{ .zig_module = .{
+        self.files.set(index, .{ .zig_object = .{
             .index = index,
             .path = options.module.?.main_mod.root_src_path,
         } });
-        self.zig_module_index = index;
-        const zig_module = self.file(index).?.zig_module;
-
-        try zig_module.atoms.append(allocator, 0); // null input section
-
-        const name_off = try self.strtab.insert(allocator, std.fs.path.stem(options.module.?.main_mod.root_src_path));
-        const symbol_index = try self.addSymbol();
-        try zig_module.local_symbols.append(allocator, symbol_index);
-        const symbol_ptr = self.symbol(symbol_index);
-        symbol_ptr.file_index = zig_module.index;
-        symbol_ptr.name_offset = name_off;
-
-        const esym_index = try zig_module.addLocalEsym(allocator);
-        const esym = &zig_module.local_esyms.items(.elf_sym)[esym_index];
-        esym.st_name = name_off;
-        esym.st_info |= elf.STT_FILE;
-        esym.st_shndx = elf.SHN_ABS;
-        symbol_ptr.esym_index = esym_index;
-
+        self.zig_object_index = index;
+        try self.zigObjectPtr().?.init(self);
         try self.initMetadata();
     }
 
@@ -401,7 +330,7 @@ pub fn deinit(self: *Elf) void {
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
-        .zig_module => data.zig_module.deinit(gpa),
+        .zig_object => data.zig_object.deinit(gpa),
         .linker_defined => data.linker_defined.deinit(gpa),
         .object => data.object.deinit(gpa),
         .shared_object => data.shared_object.deinit(gpa),
@@ -425,40 +354,11 @@ pub fn deinit(self: *Elf) void {
     self.resolver.deinit(gpa);
     self.start_stop_indexes.deinit(gpa);
 
-    {
-        var it = self.decls.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.exports.deinit(gpa);
-        }
-        self.decls.deinit(gpa);
-    }
-
     self.atoms.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
     self.last_atom_and_free_list_table.deinit(gpa);
-    self.lazy_syms.deinit(gpa);
-
-    {
-        var it = self.unnamed_consts.valueIterator();
-        while (it.next()) |syms| {
-            syms.deinit(gpa);
-        }
-        self.unnamed_consts.deinit(gpa);
-    }
-
-    {
-        var it = self.anon_decls.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.exports.deinit(gpa);
-        }
-        self.anon_decls.deinit(gpa);
-    }
-
-    if (self.dwarf) |*dw| {
-        dw.deinit();
-    }
 
     self.misc_errors.deinit(gpa);
     self.comdat_groups.deinit(gpa);
@@ -481,16 +381,7 @@ pub fn deinit(self: *Elf) void {
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    const this_sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    const this_sym = self.symbol(this_sym_index);
-    const vaddr = this_sym.value;
-    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
-    try parent_atom.addReloc(self, .{
-        .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | elf.R_X86_64_64,
-        .r_addend = reloc_info.addend,
-    });
-    return vaddr;
+    return self.zigObjectPtr().?.getDeclVAddr(self, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(
@@ -499,60 +390,12 @@ pub fn lowerAnonDecl(
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
-    const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
-    const decl_alignment = switch (explicit_alignment) {
-        .none => ty.abiAlignment(mod),
-        else => explicit_alignment,
-    };
-    if (self.anon_decls.get(decl_val)) |metadata| {
-        const existing_alignment = self.symbol(metadata.symbol_index).atom(self).?.alignment;
-        if (decl_alignment.order(existing_alignment).compare(.lte))
-            return .ok;
-    }
-
-    const val = decl_val.toValue();
-    const tv = TypedValue{ .ty = ty, .val = val };
-    var name_buf: [32]u8 = undefined;
-    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
-        @intFromEnum(decl_val),
-    }) catch unreachable;
-    const res = self.lowerConst(
-        name,
-        tv,
-        decl_alignment,
-        self.zig_rodata_section_index.?,
-        src_loc,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| return .{ .fail = try Module.ErrorMsg.create(
-            gpa,
-            src_loc,
-            "unable to lower constant value: {s}",
-            .{@errorName(e)},
-        ) },
-    };
-    const sym_index = switch (res) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| return .{ .fail = em },
-    };
-    try self.anon_decls.put(gpa, decl_val, .{ .symbol_index = sym_index });
-    return .ok;
+    return self.zigObjectPtr().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }
 
 pub fn getAnonDeclVAddr(self: *Elf, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
-    const sym = self.symbol(sym_index);
-    const vaddr = sym.value;
-    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(self).?;
-    try parent_atom.addReloc(self, .{
-        .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | elf.R_X86_64_64,
-        .r_addend = reloc_info.addend,
-    });
-    return vaddr;
+    return self.zigObjectPtr().?.getAnonDeclVAddr(self, decl_val, reloc_info);
 }
 
 /// Returns end pos of collision, if any.
@@ -726,7 +569,7 @@ fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{
     return index;
 }
 
-/// TODO move to ZigModule
+/// TODO move to ZigObject
 pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
     const ptr_size = self.ptrWidthBytes();
@@ -839,7 +682,8 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    if (self.dwarf) |*dw| {
+    const zig_object = self.zigObjectPtr().?;
+    if (zig_object.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
@@ -849,7 +693,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                 .entsize = 1,
             });
-            self.debug_strtab_dirty = true;
+            zig_object.debug_strtab_dirty = true;
         }
 
         if (self.debug_info_section_index == null) {
@@ -858,7 +702,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 200,
                 .alignment = 1,
             });
-            self.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
         }
 
         if (self.debug_abbrev_section_index == null) {
@@ -867,7 +711,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 128,
                 .alignment = 1,
             });
-            self.debug_abbrev_section_dirty = true;
+            zig_object.debug_abbrev_section_dirty = true;
         }
 
         if (self.debug_aranges_section_index == null) {
@@ -876,7 +720,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 160,
                 .alignment = 16,
             });
-            self.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
 
         if (self.debug_line_section_index == null) {
@@ -885,7 +729,7 @@ pub fn initMetadata(self: *Elf) !void {
                 .size = 250,
                 .alignment = 1,
             });
-            self.debug_line_header_dirty = true;
+            zig_object.debug_line_header_dirty = true;
         }
     }
 }
@@ -976,17 +820,18 @@ pub fn growNonAllocSection(
 }
 
 pub fn markDirty(self: *Elf, shdr_index: u16) void {
-    if (self.dwarf) |_| {
+    const zig_object = self.zigObjectPtr().?;
+    if (zig_object.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
-            self.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
         } else if (self.debug_line_section_index.? == shdr_index) {
-            self.debug_line_header_dirty = true;
+            zig_object.debug_line_header_dirty = true;
         } else if (self.debug_abbrev_section_index.? == shdr_index) {
-            self.debug_abbrev_section_dirty = true;
+            zig_object.debug_abbrev_section_dirty = true;
         } else if (self.debug_str_section_index.? == shdr_index) {
-            self.debug_strtab_dirty = true;
+            zig_object.debug_strtab_dirty = true;
         } else if (self.debug_aranges_section_index.? == shdr_index) {
-            self.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
     }
 }
@@ -1041,7 +886,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.base.options.output_mode == .Obj and self.zig_module_index == null) {
+    if (self.base.options.output_mode == .Obj and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
         assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
@@ -1486,35 +1331,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
-    // Handle any lazy symbols that were emitted by incremental compilation.
-    if (self.lazy_syms.getPtr(.none)) |metadata| {
-        const module = self.base.options.module.?;
-
-        // Most lazy symbols can be updated on first use, but
-        // anyerror needs to wait for everything to be flushed.
-        if (metadata.text_state != .unused) self.updateLazySymbol(
-            link.File.LazySymbol.initDecl(.code, null, module),
-            metadata.text_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
-            else => |e| e,
-        };
-        if (metadata.rodata_state != .unused) self.updateLazySymbol(
-            link.File.LazySymbol.initDecl(.const_data, null, module),
-            metadata.rodata_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.FlushFailure,
-            else => |e| e,
-        };
-    }
-    for (self.lazy_syms.values()) |*metadata| {
-        if (metadata.text_state != .unused) metadata.text_state = .flushed;
-        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
-    }
-
-    if (self.dwarf) |*dw| {
-        try dw.flushModule(self.base.options.module.?);
-    }
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
 
     // Dedup shared objects
     {
@@ -1543,7 +1360,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // Now, we are ready to resolve the symbols across all input files.
-    // We will first resolve the files in the ZigModule, next in the parsed
+    // We will first resolve the files in the ZigObject, next in the parsed
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
@@ -1576,45 +1393,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
 
-    // TODO I need to re-think how to handle ZigModule's debug sections AND debug sections
-    // extracted from input object files correctly.
-    if (self.dwarf) |*dw| {
-        if (self.debug_abbrev_section_dirty) {
-            try dw.writeDbgAbbrev();
-            self.debug_abbrev_section_dirty = false;
-        }
-
-        if (self.debug_info_header_dirty) {
-            const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-            const low_pc = text_phdr.p_vaddr;
-            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-            try dw.writeDbgInfoHeader(self.base.options.module.?, low_pc, high_pc);
-            self.debug_info_header_dirty = false;
-        }
-
-        if (self.debug_aranges_section_dirty) {
-            const text_phdr = &self.phdrs.items[self.phdr_zig_load_re_index.?];
-            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-            self.debug_aranges_section_dirty = false;
-        }
-
-        if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader();
-            self.debug_line_header_dirty = false;
-        }
-
-        if (self.debug_str_section_index) |shndx| {
-            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != self.shdrs.items[shndx].sh_size) {
-                try self.growNonAllocSection(shndx, dw.strtab.buffer.items.len, 1, false);
-                const shdr = self.shdrs.items[shndx];
-                try self.base.file.?.pwriteAll(dw.strtab.buffer.items, shdr.sh_offset);
-                self.debug_strtab_dirty = false;
-            }
-        }
-
-        self.saveDebugSectionsSizes();
-    }
-
     // Generate and emit non-incremental sections.
     try self.initSections();
     try self.initSpecialPhdrs();
@@ -1645,15 +1423,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.items) |atom_index| {
+    if (self.zigObjectPtr()) |zig_object| {
+        for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            const code = try zig_module.codeAlloc(self, atom_index);
+            const code = try zig_object.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
@@ -1680,14 +1457,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
-
-    // The point of flush() is to commit changes, so in theory, nothing should
-    // be dirty after this. However, it is possible for some things to remain
-    // dirty because they fail to be written in the event of compile errors,
-    // such as debug_line_header_dirty and debug_info_header_dirty.
-    assert(!self.debug_abbrev_section_dirty);
-    assert(!self.debug_aranges_section_dirty);
-    assert(!self.debug_strtab_dirty);
 }
 
 const ParseError = error{
@@ -1926,8 +1695,8 @@ fn accessLibPath(
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
 fn resolveSymbols(self: *Elf) void {
-    // Resolve symbols in the ZigModule. For now, we assume that it's always live.
-    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    // Resolve symbols in the ZigObject. For now, we assume that it's always live.
+    if (self.zigObjectPtr()) |zig_object| zig_object.resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
@@ -1936,7 +1705,7 @@ fn resolveSymbols(self: *Elf) void {
     self.markLive();
 
     // Reset state of all globals after marking live objects.
-    if (self.zig_module_index) |index| self.file(index).?.resetGlobals(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.resetGlobals(self);
     for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
     for (self.shared_objects.items) |index| self.file(index).?.resetGlobals(self);
 
@@ -1988,7 +1757,7 @@ fn resolveSymbols(self: *Elf) void {
     }
 
     // Re-resolve the symbols.
-    if (self.zig_module_index) |index| self.file(index).?.resolveSymbols(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.resolveSymbols(self);
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
 }
@@ -1998,7 +1767,7 @@ fn resolveSymbols(self: *Elf) void {
 /// This routine will prune unneeded objects extracted from archives and
 /// unneeded shared objects.
 fn markLive(self: *Elf) void {
-    if (self.zig_module_index) |index| self.file(index).?.markLive(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.markLive(self);
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
@@ -2057,7 +1826,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }
 
-    if (self.zig_module_index) |index| {
+    if (self.zig_object_index) |index| {
         mark(self, index);
     }
 
@@ -2067,9 +1836,8 @@ fn markImportsExports(self: *Elf) void {
 }
 
 fn claimUnresolved(self: *Elf) void {
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.claimUnresolved(self);
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.claimUnresolved(self);
     }
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -2093,9 +1861,8 @@ fn scanRelocs(self: *Elf) !void {
         undefs.deinit();
     }
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        try zig_module.scanRelocs(self, &undefs);
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.scanRelocs(self, &undefs);
     }
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -3058,206 +2825,9 @@ fn writeHeader(self: *Elf) !void {
     try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
 }
 
-fn freeUnnamedConsts(self: *Elf, decl_index: Module.Decl.Index) void {
-    const unnamed_consts = self.unnamed_consts.getPtr(decl_index) orelse return;
-    for (unnamed_consts.items) |sym_index| {
-        self.freeDeclMetadata(sym_index);
-    }
-    unnamed_consts.clearAndFree(self.base.allocator);
-}
-
-fn freeDeclMetadata(self: *Elf, sym_index: Symbol.Index) void {
-    const sym = self.symbol(sym_index);
-    sym.atom(self).?.free(self);
-    log.debug("adding %{d} to local symbols free list", .{sym_index});
-    self.symbols_free_list.append(self.base.allocator, sym_index) catch {};
-    self.symbols.items[sym_index] = .{};
-    // TODO free GOT entry here
-}
-
 pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-
-    const mod = self.base.options.module.?;
-    const decl = mod.declPtr(decl_index);
-
-    log.debug("freeDecl {*}", .{decl});
-
-    if (self.decls.fetchRemove(decl_index)) |const_kv| {
-        var kv = const_kv;
-        const sym_index = kv.value.symbol_index;
-        self.freeDeclMetadata(sym_index);
-        self.freeUnnamedConsts(decl_index);
-        kv.value.exports.deinit(self.base.allocator);
-    }
-
-    if (self.dwarf) |*dw| {
-        dw.freeDecl(decl_index);
-    }
-}
-
-pub fn getOrCreateMetadataForLazySymbol(self: *Elf, lazy_sym: link.File.LazySymbol) !Symbol.Index {
-    const mod = self.base.options.module.?;
-    const gop = try self.lazy_syms.getOrPut(self.base.allocator, lazy_sym.getDecl(mod));
-    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{};
-    const metadata: struct {
-        symbol_index: *Symbol.Index,
-        state: *LazySymbolMetadata.State,
-    } = switch (lazy_sym.kind) {
-        .code => .{
-            .symbol_index = &gop.value_ptr.text_symbol_index,
-            .state = &gop.value_ptr.text_state,
-        },
-        .const_data => .{
-            .symbol_index = &gop.value_ptr.rodata_symbol_index,
-            .state = &gop.value_ptr.rodata_state,
-        },
-    };
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    switch (metadata.state.*) {
-        .unused => metadata.symbol_index.* = try zig_module.addAtom(self),
-        .pending_flush => return metadata.symbol_index.*,
-        .flushed => {},
-    }
-    metadata.state.* = .pending_flush;
-    const symbol_index = metadata.symbol_index.*;
-    // anyerror needs to be deferred until flushModule
-    if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(lazy_sym, symbol_index);
-    return symbol_index;
-}
-
-pub fn getOrCreateMetadataForDecl(self: *Elf, decl_index: Module.Decl.Index) !Symbol.Index {
-    const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
-    if (!gop.found_existing) {
-        const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-        gop.value_ptr.* = .{ .symbol_index = try zig_module.addAtom(self) };
-    }
-    return gop.value_ptr.symbol_index;
-}
-
-fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index, code: []const u8) u16 {
-    const mod = self.base.options.module.?;
-    const decl = mod.declPtr(decl_index);
-    const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
-        // TODO: what if this is a function pointer?
-        .Fn => self.zig_text_section_index.?,
-        else => blk: {
-            if (decl.getOwnedVariable(mod)) |variable| {
-                if (variable.is_const) break :blk self.zig_rodata_section_index.?;
-                if (variable.init.toValue().isUndefDeep(mod)) {
-                    const mode = self.base.options.optimize_mode;
-                    if (mode == .Debug or mode == .ReleaseSafe) break :blk self.zig_data_section_index.?;
-                    break :blk self.zig_bss_section_index.?;
-                }
-                // TODO I blatantly copied the logic from the Wasm linker, but is there a less
-                // intrusive check for all zeroes than this?
-                const is_all_zeroes = for (code) |byte| {
-                    if (byte != 0) break false;
-                } else true;
-                if (is_all_zeroes) break :blk self.zig_bss_section_index.?;
-                break :blk self.zig_data_section_index.?;
-            }
-            break :blk self.zig_rodata_section_index.?;
-        },
-    };
-    return shdr_index;
-}
-
-fn updateDeclCode(
-    self: *Elf,
-    decl_index: Module.Decl.Index,
-    sym_index: Symbol.Index,
-    code: []const u8,
-    stt_bits: u8,
-) !void {
-    const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const decl = mod.declPtr(decl_index);
-
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-
-    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.getAlignment(mod);
-
-    const sym = self.symbol(sym_index);
-    const esym = &zig_module.local_esyms.items(.elf_sym)[sym.esym_index];
-    const atom_ptr = sym.atom(self).?;
-
-    const shdr_index = self.getDeclShdrIndex(decl_index, code);
-    sym.output_section_index = shdr_index;
-    atom_ptr.output_section_index = shdr_index;
-
-    sym.name_offset = try self.strtab.insert(gpa, decl_name);
-    atom_ptr.flags.alive = true;
-    atom_ptr.name_offset = sym.name_offset;
-    esym.st_name = sym.name_offset;
-    esym.st_info |= stt_bits;
-    esym.st_size = code.len;
-
-    const old_size = atom_ptr.size;
-    const old_vaddr = atom_ptr.value;
-    atom_ptr.alignment = required_alignment;
-    atom_ptr.size = code.len;
-
-    if (old_size > 0 and self.base.child_pid == null) {
-        const capacity = atom_ptr.capacity(self);
-        const need_realloc = code.len > capacity or !required_alignment.check(sym.value);
-        if (need_realloc) {
-            try atom_ptr.grow(self);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom_ptr.value });
-            if (old_vaddr != atom_ptr.value) {
-                sym.value = atom_ptr.value;
-                esym.st_value = atom_ptr.value;
-
-                log.debug("  (writing new offset table entry)", .{});
-                assert(sym.flags.has_zig_got);
-                const extra = sym.extra(self).?;
-                try self.zig_got.writeOne(self, extra.zig_got);
-            }
-        } else if (code.len < old_size) {
-            atom_ptr.shrink(self);
-        }
-    } else {
-        try atom_ptr.allocate(self);
-        errdefer self.freeDeclMetadata(sym_index);
-
-        sym.value = atom_ptr.value;
-        esym.st_value = atom_ptr.value;
-
-        const gop = try sym.getOrCreateZigGotEntry(sym_index, self);
-        try self.zig_got.writeOne(self, gop.index);
-    }
-
-    if (self.base.child_pid) |pid| {
-        switch (builtin.os.tag) {
-            .linux => {
-                var code_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = code.ptr,
-                    .iov_len = code.len,
-                }};
-                var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.value)))),
-                    .iov_len = code.len,
-                }};
-                const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
-                switch (std.os.errno(rc)) {
-                    .SUCCESS => assert(rc == code.len),
-                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
-                }
-            },
-            else => return error.HotSwapUnavailableOnHostOperatingSystem,
-        }
-    }
-
-    const shdr = self.shdrs.items[shdr_index];
-    if (shdr.sh_type != elf.SHT_NOBITS) {
-        const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
-        const section_offset = sym.value - self.phdrs.items[phdr_index].p_vaddr;
-        const file_offset = shdr.sh_offset + section_offset;
-        try self.base.file.?.pwriteAll(code, file_offset);
-    }
+    return self.zigObjectPtr().?.freeDecl(self, decl_index);
 }
 
 pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -3265,54 +2835,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const func = mod.funcInfo(func_index);
-    const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
-
-    const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    self.freeUnnamedConsts(decl_index);
-    self.symbol(sym_index).atom(self).?.freeRelocs(self);
-
-    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer code_buffer.deinit();
-
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
-    defer if (decl_state) |*ds| ds.deinit();
-
-    const res = if (decl_state) |*ds|
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .{
-            .dwarf = ds,
-        })
-    else
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
-
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
-            return;
-        },
-    };
-    try self.updateDeclCode(decl_index, sym_index, code, elf.STT_FUNC);
-    if (decl_state) |*ds| {
-        const sym = self.symbol(sym_index);
-        try self.dwarf.?.commitDeclState(
-            mod,
-            decl_index,
-            sym.value,
-            sym.atom(self).?.size,
-            ds,
-        );
-    }
-
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    return self.zigObjectPtr().?.updateFunc(self, mod, func_index, air, liveness);
 }
 
 pub fn updateDecl(
@@ -3324,242 +2847,11 @@ pub fn updateDecl(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const decl = mod.declPtr(decl_index);
-
-    if (decl.val.getExternFunc(mod)) |_| {
-        return;
-    }
-
-    if (decl.isExtern(mod)) {
-        // Extern variable gets a .got entry only.
-        const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
-        const esym_index = try self.getGlobalSymbol(name, lib_name);
-        self.symbol(self.zigModulePtr().symbol(esym_index)).flags.needs_got = true;
-        return;
-    }
-
-    const sym_index = try self.getOrCreateMetadataForDecl(decl_index);
-    self.symbol(sym_index).atom(self).?.freeRelocs(self);
-
-    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer code_buffer.deinit();
-
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
-    defer if (decl_state) |*ds| ds.deinit();
-
-    // TODO implement .debug_info for global variables
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
-    const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
-            .val = decl_val,
-        }, &code_buffer, .{
-            .dwarf = ds,
-        }, .{
-            .parent_atom_index = sym_index,
-        })
-    else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
-            .val = decl_val,
-        }, &code_buffer, .none, .{
-            .parent_atom_index = sym_index,
-        });
-
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
-            return;
-        },
-    };
-
-    try self.updateDeclCode(decl_index, sym_index, code, elf.STT_OBJECT);
-    if (decl_state) |*ds| {
-        const sym = self.symbol(sym_index);
-        try self.dwarf.?.commitDeclState(
-            mod,
-            decl_index,
-            sym.value,
-            sym.atom(self).?.size,
-            ds,
-        );
-    }
-
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
-}
-
-fn updateLazySymbol(self: *Elf, sym: link.File.LazySymbol, symbol_index: Symbol.Index) !void {
-    const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-
-    var required_alignment: InternPool.Alignment = .none;
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
-
-    const name_str_index = blk: {
-        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
-            @tagName(sym.kind),
-            sym.ty.fmt(mod),
-        });
-        defer gpa.free(name);
-        break :blk try self.strtab.insert(gpa, name);
-    };
-
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .parent_decl_node = undefined,
-            .lazy = .unneeded,
-        };
-    const res = try codegen.generateLazySymbol(
-        &self.base,
-        src,
-        sym,
-        &required_alignment,
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = symbol_index },
-    );
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
-    };
-
-    const output_section_index = switch (sym.kind) {
-        .code => self.zig_text_section_index.?,
-        .const_data => self.zig_rodata_section_index.?,
-    };
-    const local_sym = self.symbol(symbol_index);
-    const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
-    local_sym.name_offset = name_str_index;
-    local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
-    local_esym.st_name = name_str_index;
-    local_esym.st_info |= elf.STT_OBJECT;
-    local_esym.st_size = code.len;
-    const atom_ptr = local_sym.atom(self).?;
-    atom_ptr.flags.alive = true;
-    atom_ptr.name_offset = name_str_index;
-    atom_ptr.alignment = required_alignment;
-    atom_ptr.size = code.len;
-    atom_ptr.output_section_index = output_section_index;
-
-    try atom_ptr.allocate(self);
-    errdefer self.freeDeclMetadata(symbol_index);
-
-    local_sym.value = atom_ptr.value;
-    local_esym.st_value = atom_ptr.value;
-
-    const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, self);
-    try self.zig_got.writeOne(self, gop.index);
-
-    const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.shdrs.items[output_section_index].sh_offset + section_offset;
-    try self.base.file.?.pwriteAll(code, file_offset);
+    return self.zigObjectPtr().?.updateDecl(self, mod, decl_index);
 }
 
 pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
-    const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
-    const gop = try self.unnamed_consts.getOrPut(gpa, decl_index);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{};
-    }
-    const unnamed_consts = gop.value_ptr;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-    const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
-    defer gpa.free(name);
-    const sym_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.zig_rodata_section_index.?, decl.srcLoc(mod))) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| {
-            decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
-            log.err("{s}", .{em.msg});
-            return error.CodegenFail;
-        },
-    };
-    const sym = self.symbol(sym_index);
-    try unnamed_consts.append(gpa, sym.atom_index);
-    return sym_index;
-}
-
-const LowerConstResult = union(enum) {
-    ok: Symbol.Index,
-    fail: *Module.ErrorMsg,
-};
-
-fn lowerConst(
-    self: *Elf,
-    name: []const u8,
-    tv: TypedValue,
-    required_alignment: InternPool.Alignment,
-    output_section_index: u16,
-    src_loc: Module.SrcLoc,
-) !LowerConstResult {
-    const gpa = self.base.allocator;
-
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
-
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const sym_index = try zig_module.addAtom(self);
-
-    const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{
-        .none = {},
-    }, .{
-        .parent_atom_index = sym_index,
-    });
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| return .{ .fail = em },
-    };
-
-    const phdr_index = self.phdr_to_shdr_table.get(output_section_index).?;
-    const local_sym = self.symbol(sym_index);
-    const name_str_index = try self.strtab.insert(gpa, name);
-    local_sym.name_offset = name_str_index;
-    local_sym.output_section_index = output_section_index;
-    const local_esym = &zig_module.local_esyms.items(.elf_sym)[local_sym.esym_index];
-    local_esym.st_name = name_str_index;
-    local_esym.st_info |= elf.STT_OBJECT;
-    local_esym.st_size = code.len;
-    const atom_ptr = local_sym.atom(self).?;
-    atom_ptr.flags.alive = true;
-    atom_ptr.name_offset = name_str_index;
-    atom_ptr.alignment = required_alignment;
-    atom_ptr.size = code.len;
-    atom_ptr.output_section_index = output_section_index;
-
-    try atom_ptr.allocate(self);
-    // TODO rename and re-audit this method
-    errdefer self.freeDeclMetadata(sym_index);
-
-    local_sym.value = atom_ptr.value;
-    local_esym.st_value = atom_ptr.value;
-
-    const section_offset = atom_ptr.value - self.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = self.shdrs.items[output_section_index].sh_offset + section_offset;
-    try self.base.file.?.pwriteAll(code, file_offset);
-
-    return .{ .ok = sym_index };
+    return self.zigObjectPtr().?.lowerUnnamedConst(self, typed_value, decl_index);
 }
 
 pub fn updateExports(
@@ -3572,107 +2864,13 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-
     if (self.base.options.emit == null) return;
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.allocator;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const metadata = switch (exported) {
-        .decl_index => |decl_index| blk: {
-            _ = try self.getOrCreateMetadataForDecl(decl_index);
-            break :blk self.decls.getPtr(decl_index).?;
-        },
-        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
-            const first_exp = exports[0];
-            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
-            switch (res) {
-                .ok => {},
-                .fail => |em| {
-                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
-                    // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
-                    return;
-                },
-            }
-            break :blk self.anon_decls.getPtr(value).?;
-        },
-    };
-    const sym_index = metadata.symbol_index;
-    const esym_index = self.symbol(sym_index).esym_index;
-    const esym = zig_module.local_esyms.items(.elf_sym)[esym_index];
-    const esym_shndx = zig_module.local_esyms.items(.shndx)[esym_index];
-
-    for (exports) |exp| {
-        if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
-                    gpa,
-                    exp.getSrcLoc(mod),
-                    "Unimplemented: ExportOptions.section",
-                    .{},
-                ));
-                continue;
-            }
-        }
-        const stb_bits: u8 = switch (exp.opts.linkage) {
-            .Internal => elf.STB_LOCAL,
-            .Strong => elf.STB_GLOBAL,
-            .Weak => elf.STB_WEAK,
-            .LinkOnce => {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
-                    gpa,
-                    exp.getSrcLoc(mod),
-                    "Unimplemented: GlobalLinkage.LinkOnce",
-                    .{},
-                ));
-                continue;
-            },
-        };
-        const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
-        const name_off = try self.strtab.insert(gpa, exp_name);
-        const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index| exp_index.* else blk: {
-            const global_esym_index = try zig_module.addGlobalEsym(gpa);
-            const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, name_off);
-            const global_esym = zig_module.elfSym(global_esym_index);
-            global_esym.st_name = name_off;
-            lookup_gop.value_ptr.* = global_esym_index;
-            try metadata.exports.append(gpa, global_esym_index);
-            const gop = try self.getOrPutGlobal(name_off);
-            try zig_module.global_symbols.append(gpa, gop.index);
-            break :blk global_esym_index;
-        };
-
-        const actual_esym_index = global_esym_index & ZigModule.symbol_mask;
-        const global_esym = &zig_module.global_esyms.items(.elf_sym)[actual_esym_index];
-        global_esym.st_value = self.symbol(sym_index).value;
-        global_esym.st_shndx = esym.st_shndx;
-        global_esym.st_info = (stb_bits << 4) | stt_bits;
-        global_esym.st_name = name_off;
-        zig_module.global_esyms.items(.shndx)[actual_esym_index] = esym_shndx;
-    }
+    return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
 }
 
-/// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: Module.Decl.Index) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-
-    log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
-
     if (self.llvm_object) |_| return;
-    if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(mod, decl_index);
-    }
+    return self.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
 }
 
 pub fn deleteDeclExport(
@@ -3681,22 +2879,7 @@ pub fn deleteDeclExport(
     name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
-    const metadata = self.decls.getPtr(decl_index) orelse return;
-    const mod = self.base.options.module.?;
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const exp_name = mod.intern_pool.stringToSlice(name);
-    const esym_index = metadata.@"export"(self, exp_name) orelse return;
-    log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &zig_module.global_esyms.items(.elf_sym)[esym_index.*];
-    _ = zig_module.globals_lookup.remove(esym.st_name);
-    const sym_index = self.resolver.get(esym.st_name).?;
-    const sym = self.symbol(sym_index);
-    if (sym.file_index == zig_module.index) {
-        _ = self.resolver.swapRemove(esym.st_name);
-        sym.* = .{};
-    }
-    esym.* = null_sym;
-    zig_module.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
+    return self.zigObjectPtr().?.deleteDeclExport(self, decl_index, name);
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
@@ -3917,8 +3100,8 @@ fn initSections(self: *Elf) !void {
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or
             self.zig_got.flags.needs_rela or self.copy_rel.symbols.items.len > 0) break :blk true;
-        if (self.zig_module_index) |index| {
-            if (self.file(index).?.zig_module.num_dynrelocs > 0) break :blk true;
+        if (self.zigObjectPtr()) |zig_object| {
+            if (zig_object.num_dynrelocs > 0) break :blk true;
         }
         for (self.objects.items) |index| {
             if (self.file(index).?.object.num_dynrelocs > 0) break :blk true;
@@ -4512,16 +3695,15 @@ fn sortShdrs(self: *Elf) !void {
         }
     }
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        for (zig_module.atoms.items) |atom_index| {
+    if (self.zigObjectPtr()) |zig_object| {
+        for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             atom_ptr.output_section_index = backlinks[out_shndx];
         }
 
-        for (zig_module.locals()) |local_index| {
+        for (zig_object.locals()) |local_index| {
             const local = self.symbol(local_index);
             const atom_ptr = local.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -4529,32 +3711,14 @@ fn sortShdrs(self: *Elf) !void {
             local.output_section_index = backlinks[out_shndx];
         }
 
-        for (zig_module.globals()) |global_index| {
+        for (zig_object.globals()) |global_index| {
             const global = self.symbol(global_index);
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
-            if (global.file(self).?.index() != index) continue;
+            if (global.file(self).?.index() != zig_object.index) continue;
             const out_shndx = global.outputShndx() orelse continue;
             global.output_section_index = backlinks[out_shndx];
         }
-    }
-}
-
-fn saveDebugSectionsSizes(self: *Elf) void {
-    if (self.debug_info_section_index) |shndx| {
-        self.debug_info_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_abbrev_section_index) |shndx| {
-        self.debug_abbrev_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_str_section_index) |shndx| {
-        self.debug_str_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_aranges_section_index) |shndx| {
-        self.debug_aranges_section_zig_size = self.shdrs.items[shndx].sh_size;
-    }
-    if (self.debug_line_section_index) |shndx| {
-        self.debug_line_section_zig_size = self.shdrs.items[shndx].sh_size;
     }
 }
 
@@ -4599,8 +3763,8 @@ fn updateSectionSizes(self: *Elf) !void {
 
     if (self.rela_dyn_section_index) |shndx| {
         var num = self.got.numRela(self) + self.copy_rel.numRela() + self.zig_got.numRela();
-        if (self.zig_module_index) |index| {
-            num += self.file(index).?.zig_module.num_dynrelocs;
+        if (self.zigObjectPtr()) |zig_object| {
+            num += zig_object.num_dynrelocs;
         }
         for (self.objects.items) |index| {
             num += self.file(index).?.object.num_dynrelocs;
@@ -4914,12 +4078,18 @@ fn allocateNonAllocSections(self: *Elf) !void {
                     shdr.sh_offset,
                     new_offset,
                 });
+                const zig_object = self.zigObjectPtr().?;
                 const existing_size = blk: {
-                    if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
-                    if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
-                    if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
-                    if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
-                    if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+                    if (shndx == self.debug_info_section_index.?)
+                        break :blk zig_object.debug_info_section_zig_size;
+                    if (shndx == self.debug_abbrev_section_index.?)
+                        break :blk zig_object.debug_abbrev_section_zig_size;
+                    if (shndx == self.debug_str_section_index.?)
+                        break :blk zig_object.debug_str_section_zig_size;
+                    if (shndx == self.debug_aranges_section_index.?)
+                        break :blk zig_object.debug_aranges_section_zig_size;
+                    if (shndx == self.debug_line_section_index.?)
+                        break :blk zig_object.debug_line_section_zig_size;
                     unreachable;
                 };
                 const amt = try self.base.file.?.copyRangeAll(
@@ -5021,11 +4191,17 @@ fn writeAtoms(self: *Elf) !void {
 
         // TODO really, really handle debug section separately
         const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
-            if (shndx == self.debug_info_section_index.?) break :blk self.debug_info_section_zig_size;
-            if (shndx == self.debug_abbrev_section_index.?) break :blk self.debug_abbrev_section_zig_size;
-            if (shndx == self.debug_str_section_index.?) break :blk self.debug_str_section_zig_size;
-            if (shndx == self.debug_aranges_section_index.?) break :blk self.debug_aranges_section_zig_size;
-            if (shndx == self.debug_line_section_index.?) break :blk self.debug_line_section_zig_size;
+            const zig_object = self.zigObjectPtr().?;
+            if (shndx == self.debug_info_section_index.?)
+                break :blk zig_object.debug_info_section_zig_size;
+            if (shndx == self.debug_abbrev_section_index.?)
+                break :blk zig_object.debug_abbrev_section_zig_size;
+            if (shndx == self.debug_str_section_index.?)
+                break :blk zig_object.debug_str_section_zig_size;
+            if (shndx == self.debug_aranges_section_index.?)
+                break :blk zig_object.debug_aranges_section_zig_size;
+            if (shndx == self.debug_line_section_index.?)
+                break :blk zig_object.debug_line_section_zig_size;
             unreachable;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
@@ -5079,11 +4255,10 @@ fn writeAtoms(self: *Elf) !void {
 fn updateSymtabSize(self: *Elf) !void {
     var sizes = SymtabSize{};
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.updateSymtabSize(self);
-        sizes.nlocals += zig_module.output_symtab_size.nlocals;
-        sizes.nglobals += zig_module.output_symtab_size.nglobals;
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.updateSymtabSize(self);
+        sizes.nlocals += zig_object.output_symtab_size.nlocals;
+        sizes.nglobals += zig_object.output_symtab_size.nglobals;
     }
 
     for (self.objects.items) |index| {
@@ -5299,11 +4474,10 @@ fn writeSymtab(self: *Elf) !void {
         .symtab = symtab,
     };
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        zig_module.writeSymtab(self, ctx);
-        ctx.ilocal += zig_module.output_symtab_size.nlocals;
-        ctx.iglobal += zig_module.output_symtab_size.nglobals;
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.writeSymtab(self, ctx);
+        ctx.ilocal += zig_object.output_symtab_size.nlocals;
+        ctx.iglobal += zig_object.output_symtab_size.nglobals;
     }
 
     for (self.objects.items) |index| {
@@ -5863,7 +5037,7 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     return switch (tag) {
         .null => null,
         .linker_defined => .{ .linker_defined = &self.files.items(.data)[index].linker_defined },
-        .zig_module => .{ .zig_module = &self.files.items(.data)[index].zig_module },
+        .zig_object => .{ .zig_object = &self.files.items(.data)[index].zig_object },
         .object => .{ .object = &self.files.items(.data)[index].object },
         .shared_object => .{ .shared_object = &self.files.items(.data)[index].shared_object },
     };
@@ -5961,26 +5135,12 @@ pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
 }
 
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
-    _ = lib_name;
-    const gpa = self.base.allocator;
-    const off = try self.strtab.insert(gpa, name);
-    const zig_module = self.file(self.zig_module_index.?).?.zig_module;
-    const lookup_gop = try zig_module.globals_lookup.getOrPut(gpa, off);
-    if (!lookup_gop.found_existing) {
-        const esym_index = try zig_module.addGlobalEsym(gpa);
-        const esym = zig_module.elfSym(esym_index);
-        esym.st_name = off;
-        lookup_gop.value_ptr.* = esym_index;
-        const gop = try self.getOrPutGlobal(off);
-        try zig_module.global_symbols.append(gpa, gop.index);
-    }
-    return lookup_gop.value_ptr.*;
+    return self.zigObjectPtr().?.getGlobalSymbol(self, name, lib_name);
 }
 
-pub fn zigModulePtr(self: *Elf) *ZigModule {
-    assert(self.zig_module_index != null);
-    const file_ptr = self.file(self.zig_module_index.?).?;
-    return file_ptr.zig_module;
+pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
+    const index = self.zig_object_index orelse return null;
+    return self.file(index).?.zig_object;
 }
 
 const GetOrCreateComdatGroupOwnerResult = struct {
@@ -6245,12 +5405,11 @@ fn fmtDumpState(
     _ = unused_fmt_string;
     _ = options;
 
-    if (self.zig_module_index) |index| {
-        const zig_module = self.file(index).?.zig_module;
-        try writer.print("zig_module({d}) : {s}\n", .{ index, zig_module.path });
+    if (self.zigObjectPtr()) |zig_object| {
+        try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.path });
         try writer.print("{}{}\n", .{
-            zig_module.fmtAtoms(self),
-            zig_module.fmtSymtab(self),
+            zig_object.fmtAtoms(self),
+            zig_object.fmtSymtab(self),
         });
     }
 
@@ -6343,51 +5502,6 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-const LastAtomAndFreeList = struct {
-    /// Index of the last allocated atom in this section.
-    last_atom_index: Atom.Index = 0,
-
-    /// A list of atoms that have surplus capacity. This list can have false
-    /// positives, as functions grow and shrink over time, only sometimes being added
-    /// or removed from the freelist.
-    ///
-    /// An atom has surplus capacity when its overcapacity value is greater than
-    /// padToIdeal(minimum_atom_size). That is, when it has so
-    /// much extra capacity, that we could fit a small new symbol in it, itself with
-    /// ideal_capacity or more.
-    ///
-    /// Ideal capacity is defined by size + (size / ideal_factor)
-    ///
-    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
-    /// overcapacity can be negative. A simple way to have negative overcapacity is to
-    /// allocate a fresh text block, which will have ideal capacity, and then grow it
-    /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
-};
-
-const LazySymbolMetadata = struct {
-    const State = enum { unused, pending_flush, flushed };
-    text_symbol_index: Symbol.Index = undefined,
-    rodata_symbol_index: Symbol.Index = undefined,
-    text_state: State = .unused,
-    rodata_state: State = .unused,
-};
-
-const DeclMetadata = struct {
-    symbol_index: Symbol.Index,
-    /// A list of all exports aliases of this Decl.
-    exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
-
-    fn @"export"(m: DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
-        const zig_module = elf_file.file(elf_file.zig_module_index.?).?.zig_module;
-        for (m.exports.items) |*exp| {
-            const exp_name = elf_file.strtab.getAssumeExists(zig_module.elfSym(exp.*).st_name);
-            if (mem.eql(u8, name, exp_name)) return exp;
-        }
-        return null;
-    }
-};
-
 const ComdatGroupOwner = struct {
     file: File.Index = 0,
     const Index = u32;
@@ -6430,6 +5544,30 @@ pub const SystemLib = struct {
     needed: bool = false,
     path: []const u8,
 };
+
+const LastAtomAndFreeList = struct {
+    /// Index of the last allocated atom in this section.
+    last_atom_index: Atom.Index = 0,
+
+    /// A list of atoms that have surplus capacity. This list can have false
+    /// positives, as functions grow and shrink over time, only sometimes being added
+    /// or removed from the freelist.
+    ///
+    /// An atom has surplus capacity when its overcapacity value is greater than
+    /// padToIdeal(minimum_atom_size). That is, when it has so
+    /// much extra capacity, that we could fit a small new symbol in it, itself with
+    /// ideal_capacity or more.
+    ///
+    /// Ideal capacity is defined by size + (size / ideal_factor)
+    ///
+    /// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+    /// overcapacity can be negative. A simple way to have negative overcapacity is to
+    /// allocate a fresh text block, which will have ideal capacity, and then grow it
+    /// by 1 byte. It will then have -1 overcapacity.
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+};
+
+const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList);
 
 pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
 pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;
@@ -6479,16 +5617,12 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
-const Package = @import("../Package.zig");
 const PltSection = synthetic_sections.PltSection;
 const PltGotSection = synthetic_sections.PltGotSection;
 const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("strtab.zig").StringTable;
-const TableSection = @import("table_section.zig").TableSection;
-const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
-const Value = @import("../value.zig").Value;
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;
-const ZigModule = @import("Elf/ZigModule.zig");
+const ZigObject = @import("Elf/ZigObject.zig");
