@@ -3044,7 +3044,8 @@ fn zirEnumDecl(
         const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
 
-        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        const field_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
+        const field_name_zir = sema.code.nullTerminatedString(field_name_index);
         extra_index += 1;
 
         // doc comment
@@ -3322,8 +3323,8 @@ fn zirErrorSetDecl(
     var extra_index: u32 = @intCast(extra.end);
     const extra_index_end = extra_index + (extra.data.fields_len * 2);
     while (extra_index < extra_index_end) : (extra_index += 2) { // +2 to skip over doc_string
-        const str_index = sema.code.extra[extra_index];
-        const name = sema.code.nullTerminatedString(str_index);
+        const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
+        const name = sema.code.nullTerminatedString(name_index);
         const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
         _ = try mod.getErrorValue(name_ip);
         const result = names.getOrPutAssumeCapacity(name_ip);
@@ -5522,7 +5523,7 @@ fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const mod = sema.mod;
     const int = sema.code.instructions.items(.data)[@intFromEnum(inst)].str;
     const byte_count = int.len * @sizeOf(std.math.big.Limb);
-    const limb_bytes = sema.code.string_bytes[int.start..][0..byte_count];
+    const limb_bytes = sema.code.string_bytes[@intFromEnum(int.start)..][0..byte_count];
 
     // TODO: this allocation and copy is only needed because the limbs may be unaligned.
     // If ZIR is adjusted so that big int limbs are guaranteed to be aligned, these
@@ -7999,11 +8000,11 @@ fn instantiateGenericCall(
                 } },
             }));
             const param_name: Zir.NullTerminatedString = switch (param_tag) {
-                .param_anytype => @enumFromInt(fn_zir.instructions.items(.data)[@intFromEnum(param_inst)].str_tok.start),
+                .param_anytype => fn_zir.instructions.items(.data)[@intFromEnum(param_inst)].str_tok.start,
                 .param => name: {
                     const inst_data = fn_zir.instructions.items(.data)[@intFromEnum(param_inst)].pl_tok;
                     const extra = fn_zir.extraData(Zir.Inst.Param, inst_data.payload_index);
-                    break :name @enumFromInt(extra.data.name);
+                    break :name extra.data.name;
                 },
                 else => unreachable,
             };
@@ -9616,7 +9617,7 @@ fn finishFunc(
                     .param_anytype => data[@intFromEnum(param_index)].str_tok.src(),
                     else => unreachable,
                 };
-                const name = sema.code.nullTerminatedString2(name_nts);
+                const name = sema.code.nullTerminatedString(name_nts);
                 if (name.len != 0) {
                     try sema.errNote(block, param_src, msg, "param '{s}' is required to be comptime", .{name});
                 } else {
@@ -9690,7 +9691,7 @@ fn zirParam(
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
-    const param_name: Zir.NullTerminatedString = @enumFromInt(extra.data.name);
+    const param_name: Zir.NullTerminatedString = extra.data.name;
     const body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
     const param_ty = param_ty: {
@@ -9781,7 +9782,7 @@ fn zirParamAnytype(
     comptime_syntax: bool,
 ) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
-    const param_name: Zir.NullTerminatedString = @enumFromInt(inst_data.start);
+    const param_name: Zir.NullTerminatedString = inst_data.start;
 
     // We are evaluating a generic function without any comptime args provided.
 
@@ -16184,7 +16185,7 @@ fn zirAsm(
     const is_global_assembly = sema.func_index == .none;
 
     const asm_source: []const u8 = if (tmpl_is_expr) blk: {
-        const tmpl: Zir.Inst.Ref = @enumFromInt(extra.data.asm_source);
+        const tmpl: Zir.Inst.Ref = @enumFromInt(@intFromEnum(extra.data.asm_source));
         const s: []const u8 = try sema.resolveConstString(block, src, tmpl, .{
             .needed_comptime_reason = "assembly code must be comptime-known",
         });
@@ -16272,7 +16273,8 @@ fn zirAsm(
 
     const clobbers = try sema.arena.alloc([]const u8, clobbers_len);
     for (clobbers) |*name| {
-        name.* = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
+        const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_i]);
+        name.* = sema.code.nullTerminatedString(name_index);
         extra_i += 1;
 
         needed_capacity += name.*.len / 4 + 1;
@@ -24713,7 +24715,8 @@ fn zirVarExtended(
     var extra_index: usize = extra.end;
 
     const lib_name = if (small.has_lib_name) lib_name: {
-        const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        const lib_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
+        const lib_name = sema.code.nullTerminatedString(lib_name_index);
         extra_index += 1;
         try sema.handleExternLibName(block, ty_src, lib_name);
         break :lib_name lib_name;
@@ -24781,7 +24784,8 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     var extra_index: usize = extra.end;
 
     const lib_name: ?[]const u8 = if (extra.data.bits.has_lib_name) blk: {
-        const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        const lib_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
+        const lib_name = sema.code.nullTerminatedString(lib_name_index);
         extra_index += 1;
         break :blk lib_name;
     } else null;
@@ -35841,7 +35845,7 @@ fn semaStructFields(
 
             var opt_field_name_zir: ?[:0]const u8 = null;
             if (!small.is_tuple) {
-                opt_field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+                opt_field_name_zir = zir.nullTerminatedString(@enumFromInt(zir.extra[extra_index]));
                 extra_index += 1;
             }
             extra_index += 1; // doc_comment
@@ -36344,7 +36348,8 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         cur_bit_bag >>= 1;
         _ = unused;
 
-        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+        const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
+        const field_name_zir = zir.nullTerminatedString(field_name_index);
         extra_index += 1;
 
         // doc_comment

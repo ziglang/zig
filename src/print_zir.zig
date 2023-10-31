@@ -752,7 +752,7 @@ const Writer = struct {
     fn writeIntBig(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
-        const limb_bytes = self.code.string_bytes[inst_data.start..][0..byte_count];
+        const limb_bytes = self.code.nullTerminatedString(inst_data.start)[0..byte_count];
         // limb_bytes is not aligned properly; we must allocate and copy the bytes
         // in order to accomplish this.
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
@@ -945,7 +945,7 @@ const Writer = struct {
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
 
-        if (extra.data.doc_comment != 0) {
+        if (extra.data.doc_comment != .empty) {
             try stream.writeAll("\n");
             try self.writeDocComment(stream, extra.data.doc_comment);
             try stream.writeByteNTimes(' ', self.indent);
@@ -1226,7 +1226,7 @@ const Writer = struct {
 
         try self.writeFlag(stream, "volatile, ", is_volatile);
         if (tmpl_is_expr) {
-            try self.writeInstRef(stream, @as(Zir.Inst.Ref, @enumFromInt(extra.data.asm_source)));
+            try self.writeInstRef(stream, @enumFromInt(@intFromEnum(extra.data.asm_source)));
             try stream.writeAll(", ");
         } else {
             const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
@@ -1281,7 +1281,7 @@ const Writer = struct {
             while (i < clobbers_len) : (i += 1) {
                 const str_index = self.code.extra[extra_i];
                 extra_i += 1;
-                const clobber = self.code.nullTerminatedString(str_index);
+                const clobber = self.code.nullTerminatedString(@enumFromInt(str_index));
                 try stream.print("{}", .{std.zig.fmtId(clobber)});
                 if (i + 1 < clobbers_len) {
                     try stream.writeAll(", ");
@@ -1466,12 +1466,12 @@ const Writer = struct {
             const fields_per_u32 = 32 / bits_per_field;
             const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
             const Field = struct {
-                doc_comment_index: u32,
+                doc_comment_index: Zir.NullTerminatedString,
                 type_len: u32 = 0,
                 align_len: u32 = 0,
                 init_len: u32 = 0,
                 type: Zir.Inst.Ref = .none,
-                name: u32,
+                name: Zir.NullTerminatedString,
                 is_comptime: bool,
             };
             const fields = try self.arena.alloc(Field, fields_len);
@@ -1494,24 +1494,24 @@ const Writer = struct {
                     const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
                     cur_bit_bag >>= 1;
 
-                    var field_name: u32 = 0;
+                    var field_name_index: Zir.NullTerminatedString = .empty;
                     if (!small.is_tuple) {
-                        field_name = self.code.extra[extra_index];
+                        field_name_index = @enumFromInt(self.code.extra[extra_index]);
                         extra_index += 1;
                     }
-                    const doc_comment_index = self.code.extra[extra_index];
+                    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
                     extra_index += 1;
 
                     fields[field_i] = .{
                         .doc_comment_index = doc_comment_index,
                         .is_comptime = is_comptime,
-                        .name = field_name,
+                        .name = field_name_index,
                     };
 
                     if (has_type_body) {
                         fields[field_i].type_len = self.code.extra[extra_index];
                     } else {
-                        fields[field_i].type = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                        fields[field_i].type = @enumFromInt(self.code.extra[extra_index]);
                     }
                     extra_index += 1;
 
@@ -1536,7 +1536,7 @@ const Writer = struct {
                 try self.writeDocComment(stream, field.doc_comment_index);
                 try stream.writeByteNTimes(' ', self.indent);
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
-                if (field.name != 0) {
+                if (field.name != .empty) {
                     const field_name = self.code.nullTerminatedString(field.name);
                     try stream.print("{}: ", .{std.zig.fmtId(field_name)});
                 } else {
@@ -1684,9 +1684,10 @@ const Writer = struct {
 
             _ = unused;
 
-            const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
+            const field_name = self.code.nullTerminatedString(field_name_index);
             extra_index += 1;
-            const doc_comment_index = self.code.extra[extra_index];
+            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
             extra_index += 1;
 
             try self.writeDocComment(stream, doc_comment_index);
@@ -1756,7 +1757,7 @@ const Writer = struct {
             extra_index += 1;
             const decl_index: Zir.Inst.Index = @enumFromInt(self.code.extra[extra_index]);
             extra_index += 1;
-            const doc_comment_index = self.code.extra[extra_index];
+            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
             extra_index += 1;
 
             const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
@@ -1789,9 +1790,9 @@ const Writer = struct {
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.print("[{d}] decltest {s}", .{ sub_index, self.code.nullTerminatedString(doc_comment_index) });
             } else {
-                const raw_decl_name = self.code.nullTerminatedString(decl_name_index);
+                const raw_decl_name = self.code.nullTerminatedString(@enumFromInt(decl_name_index));
                 const decl_name = if (raw_decl_name.len == 0)
-                    self.code.nullTerminatedString(decl_name_index + 1)
+                    self.code.nullTerminatedString(@enumFromInt(decl_name_index + 1))
                 else
                     raw_decl_name;
                 const test_str = if (raw_decl_name.len == 0) "test \"" else "";
@@ -1927,10 +1928,10 @@ const Writer = struct {
                 const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
                 cur_bit_bag >>= 1;
 
-                const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+                const field_name = self.code.nullTerminatedString(@enumFromInt(self.code.extra[extra_index]));
                 extra_index += 1;
 
-                const doc_comment_index = self.code.extra[extra_index];
+                const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
                 extra_index += 1;
 
                 try self.writeDocComment(stream, doc_comment_index);
@@ -2011,9 +2012,9 @@ const Writer = struct {
         var extra_index = @as(u32, @intCast(extra.end));
         const extra_index_end = extra_index + (extra.data.fields_len * 2);
         while (extra_index < extra_index_end) : (extra_index += 2) {
-            const str_index = self.code.extra[extra_index];
-            const name = self.code.nullTerminatedString(str_index);
-            const doc_comment_index = self.code.extra[extra_index + 1];
+            const name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
+            const name = self.code.nullTerminatedString(name_index);
+            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index + 1]);
             try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{},\n", .{std.zig.fmtId(name)});
@@ -2292,7 +2293,7 @@ const Writer = struct {
         var ret_ty_body: []const Zir.Inst.Index = &.{};
 
         if (extra.data.bits.has_lib_name) {
-            const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            const lib_name = self.code.nullTerminatedString(@enumFromInt(self.code.extra[extra_index]));
             extra_index += 1;
             try stream.print("lib_name=\"{}\", ", .{std.zig.fmtEscapes(lib_name)});
         }
@@ -2388,7 +2389,8 @@ const Writer = struct {
 
         var extra_index: usize = extra.end;
         if (small.has_lib_name) {
-            const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            const lib_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
+            const lib_name = self.code.nullTerminatedString(lib_name_index);
             extra_index += 1;
             try stream.print(", lib_name=\"{}\"", .{std.zig.fmtEscapes(lib_name)});
         }
@@ -2740,8 +2742,8 @@ const Writer = struct {
         }
     }
 
-    fn writeDocComment(self: *Writer, stream: anytype, doc_comment_index: u32) !void {
-        if (doc_comment_index != 0) {
+    fn writeDocComment(self: *Writer, stream: anytype, doc_comment_index: Zir.NullTerminatedString) !void {
+        if (doc_comment_index != .empty) {
             const doc_comment = self.code.nullTerminatedString(doc_comment_index);
             var it = std.mem.tokenizeScalar(u8, doc_comment, '\n');
             while (it.next()) |doc_line| {
