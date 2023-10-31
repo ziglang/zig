@@ -158,8 +158,17 @@ pub fn isMethod(comptime name: []const u8) TraitFn {
                     const Type = f.params[0].type orelse return false;
                     switch (@typeInfo(Type)) {
                         .Pointer => |ptr| {
-                            return ptr.child == T and ptr.size == .One;
+                            return ptr.child == T and (ptr.size == .One or ptr.size == .C);
                         },
+                        .Optional => |opt| {
+                            switch (@typeInfo(opt.child)) {
+                                .Pointer => |ptr| {
+                                    return ptr.child == T and (ptr.size == .One or ptr.size == .C);
+                                },
+                                else => return opt.child == T,
+                            }
+                        },
+                        .ErrorUnion => |err| return err.payload == T,
                         else => return Type == T,
                     }
                 },
@@ -172,20 +181,40 @@ pub fn isMethod(comptime name: []const u8) TraitFn {
 
 test "isMethod" {
     const TestStruct = struct {
-        pub fn firstFn(data: anytype) void { _ = data; }
-        pub fn secondFn(self: @This()) void { _ = self; }
-        pub fn thirdFn(self: *const @This()) void { _ = self; }
-        fn fourthFn(slice: []@This()) void { _ = slice; }
-        fn fifthFn(self: *@This()) void { _ = self; }
-        fn sixthFn() void {}
+        pub fn optValueFn(self: ?@This()) void { _ = self; }
+        pub fn optPtrFn(self: ?*@This()) void { _ = self; }
+        pub fn optConstPtrFn(self: ?*const @This()) void { _ = self; }
+        pub fn errValueFn(self: anyerror!@This()) void { _ = self catch {}; }
+        pub fn cPtrFn(self: [*c]@This()) void { _ = self; }
+        pub fn valueFn(self: @This()) void { _ = self; }
+        pub fn constPtrFn(self: *const @This()) void { _ = self; }
+        fn ptrFn(self: *@This()) void { _ = self; }
+
+        pub fn errOptFn(self: anyerror!?@This()) void { _ = self catch {}; }
+        pub fn errPtrFn(self: anyerror!*@This()) void { _ = self catch {}; }
+        pub fn errConstPtrFn(self: anyerror!*const @This()) void { _ = self catch {}; }
+        pub fn anytypeFn(data: anytype) void { _ = data; }
+        fn sliceFn(slice: []@This()) void { _ = slice; }
+        fn manyPtrFn(many: [*]@This()) void { _ = many; }
+        fn emptyFn() void {}
     };
 
-    try testing.expect(isMethod("firstFn")(TestStruct) == false);
-    try testing.expect(isMethod("secondFn")(TestStruct));
-    try testing.expect(isMethod("thirdFn")(TestStruct));
-    try testing.expect(isMethod("fourthFn")(TestStruct) == false);
-    try testing.expect(isMethod("fifthFn")(TestStruct));
-    try testing.expect(isMethod("sixthFn")(TestStruct) == false);
+    try testing.expect(isMethod("optValueFn")(TestStruct));
+    try testing.expect(isMethod("optPtrFn")(TestStruct));
+    try testing.expect(isMethod("optConstPtrFn")(TestStruct));
+    try testing.expect(isMethod("errValueFn")(TestStruct));
+    try testing.expect(isMethod("cPtrFn")(TestStruct));
+    try testing.expect(isMethod("valueFn")(TestStruct));
+    try testing.expect(isMethod("constPtrFn")(TestStruct));
+    try testing.expect(isMethod("ptrFn")(TestStruct));
+
+    try testing.expect(isMethod("errOptFn")(TestStruct) == false);
+    try testing.expect(isMethod("errPtrFn")(TestStruct) == false);
+    try testing.expect(isMethod("errConstPtrFn")(TestStruct) == false);
+    try testing.expect(isMethod("anytypeFn")(TestStruct) == false);
+    try testing.expect(isMethod("sliceFn")(TestStruct) == false);
+    try testing.expect(isMethod("manyPtrFn")(TestStruct) == false);
+    try testing.expect(isMethod("emptyFn")(TestStruct) == false);
 }
 
 ///////////Strait trait Fns
