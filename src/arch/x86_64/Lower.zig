@@ -1,5 +1,6 @@
 //! This file contains the functionality for lowering x86_64 MIR to Instructions
 
+bin_file: *link.File,
 allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
@@ -49,13 +50,12 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
-        linker_extern_fn: Mir.Reloc,
-        linker_got: Mir.Reloc,
-        linker_extern_got: Mir.Reloc,
-        linker_direct: Mir.Reloc,
-        linker_direct_got: Mir.Reloc,
-        linker_import: Mir.Reloc,
-        linker_tlv: Mir.Reloc,
+        linker_reloc: bits.Symbol,
+        linker_extern_fn: bits.Symbol,
+        linker_got: bits.Symbol,
+        linker_direct: bits.Symbol,
+        linker_import: bits.Symbol,
+        linker_tlv: bits.Symbol,
     };
 };
 
@@ -99,17 +99,15 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = inst.data.rr.r2 },
                 });
             },
-            .pseudo_cmov_nz_or_p_rm_sib,
-            .pseudo_cmov_nz_or_p_rm_rip,
-            => {
+            .pseudo_cmov_nz_or_p_rm => {
                 assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .cmovnz, &.{
                     .{ .reg = inst.data.rx.r1 },
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .cmovp, &.{
                     .{ .reg = inst.data.rx.r1 },
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                 });
             },
             .pseudo_set_z_and_np_r => {
@@ -125,18 +123,16 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = inst.data.rr.r2 },
                 });
             },
-            .pseudo_set_z_and_np_m_sib,
-            .pseudo_set_z_and_np_m_rip,
-            => {
+            .pseudo_set_z_and_np_m => {
                 assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .setz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setnp, &.{
                     .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"and", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                     .{ .reg = inst.data.rx.r1 },
                 });
             },
@@ -153,18 +149,16 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = inst.data.rr.r2 },
                 });
             },
-            .pseudo_set_nz_or_p_m_sib,
-            .pseudo_set_nz_or_p_m_rip,
-            => {
+            .pseudo_set_nz_or_p_m => {
                 assert(inst.data.rx.fixes == ._);
                 try lower.emit(.none, .setnz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setp, &.{
                     .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"or", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .mem = lower.mem(inst.data.rx.payload) },
                     .{ .reg = inst.data.rx.r1 },
                 });
             },
@@ -190,7 +184,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_probe_align_ri_s => {
                 try lower.emit(.none, .@"test", &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
                 });
                 try lower.emit(.none, .jz, &.{
                     .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
@@ -226,14 +220,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 }
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.ri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
                 });
                 assert(lower.result_insts_len <= pseudo_probe_adjust_unrolled_max_insts);
             },
             .pseudo_probe_adjust_setup_rri_s => {
                 try lower.emit(.none, .mov, &.{
                     .{ .reg = inst.data.rri.r2.to32() },
-                    .{ .imm = Immediate.s(@as(i32, @bitCast(inst.data.rri.i))) },
+                    .{ .imm = Immediate.s(@bitCast(inst.data.rri.i)) },
                 });
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.rri.r1 },
@@ -289,24 +283,20 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .rri_s,
         .ri_s,
         .i_s,
-        .mi_sib_s,
-        .mi_rip_s,
-        => Immediate.s(@as(i32, @bitCast(i))),
+        .mi_s,
+        .rmi_s,
+        => Immediate.s(@bitCast(i)),
 
         .rrri,
         .rri_u,
         .ri_u,
         .i_u,
-        .mi_sib_u,
-        .mi_rip_u,
-        .rmi_sib,
-        .rmi_rip,
-        .mri_sib,
-        .mri_rip,
-        .rrm_sib,
-        .rrm_rip,
-        .rrmi_sib,
-        .rrmi_rip,
+        .mi_u,
+        .rmi,
+        .rmi_u,
+        .mri,
+        .rrm,
+        .rrmi,
         => Immediate.u(i),
 
         .ri64 => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
@@ -315,46 +305,8 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     };
 }
 
-fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
-    return lower.mir.resolveFrameLoc(switch (ops) {
-        .rm_sib,
-        .rmi_sib,
-        .m_sib,
-        .mi_sib_u,
-        .mi_sib_s,
-        .mr_sib,
-        .mrr_sib,
-        .mri_sib,
-        .rrm_sib,
-        .rrmi_sib,
-
-        .pseudo_cmov_nz_or_p_rm_sib,
-        .pseudo_set_z_and_np_m_sib,
-        .pseudo_set_nz_or_p_m_sib,
-        => lower.mir.extraData(Mir.MemorySib, payload).data.decode(),
-
-        .rm_rip,
-        .rmi_rip,
-        .m_rip,
-        .mi_rip_u,
-        .mi_rip_s,
-        .mr_rip,
-        .mrr_rip,
-        .mri_rip,
-        .rrm_rip,
-        .rrmi_rip,
-
-        .pseudo_cmov_nz_or_p_rm_rip,
-        .pseudo_set_z_and_np_m_rip,
-        .pseudo_set_nz_or_p_m_rip,
-        => lower.mir.extraData(Mir.MemoryRip, payload).data.decode(),
-
-        .rax_moffs,
-        .moffs_rax,
-        => lower.mir.extraData(Mir.MemoryMoffs, payload).data.decode(),
-
-        else => unreachable,
-    });
+fn mem(lower: Lower, payload: u32) Memory {
+    return lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
 }
 
 fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
@@ -367,7 +319,42 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    lower.result_insts[lower.result_insts_len] = try Instruction.new(prefix, mnemonic, ops);
+    var emit_prefix = prefix;
+    var emit_mnemonic = mnemonic;
+    var emit_ops_storage: [4]Operand = undefined;
+    const emit_ops = emit_ops_storage[0..ops.len];
+    for (emit_ops, ops) |*emit_op, op| {
+        emit_op.* = switch (op) {
+            else => op,
+            .mem => |mem_op| switch (mem_op.base()) {
+                else => op,
+                .reloc => |sym| op: {
+                    assert(prefix == .none);
+                    assert(mem_op.sib.disp == 0);
+                    assert(mem_op.sib.scale_index.scale == 0);
+                    _ = lower.reloc(.{ .linker_reloc = sym });
+                    break :op if (lower.bin_file.options.pic) switch (mnemonic) {
+                        .mov, .lea => .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                        else => unreachable,
+                    } else switch (mnemonic) {
+                        .call => .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .base = .{ .reg = .ds },
+                        }) },
+                        .lea => {
+                            emit_mnemonic = .mov;
+                            break :op .{ .imm = Immediate.s(0) };
+                        },
+                        .mov => .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .base = .{ .reg = .ds },
+                        }) },
+                        else => unreachable,
+                    };
+                },
+            },
+        };
+    }
+    lower.result_insts[lower.result_insts_len] =
+        try Instruction.new(emit_prefix, emit_mnemonic, emit_ops);
     lower.result_insts_len += 1;
 }
 
@@ -383,13 +370,13 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
-        .ri64, .rm_sib, .rm_rip, .mr_sib, .mr_rip => inst.data.rx.fixes,
-        .mrr_sib, .mrr_rip, .rrm_sib, .rrm_rip => inst.data.rrx.fixes,
-        .rmi_sib, .rmi_rip, .mri_sib, .mri_rip => inst.data.rix.fixes,
-        .rrmi_sib, .rrmi_rip => inst.data.rrix.fixes,
-        .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => inst.data.x.fixes,
-        .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .extern_got_reloc, .direct_reloc, .direct_got_reloc, .import_reloc, .tlv_reloc => ._,
+        .ri64, .rm, .rmi_s, .mr => inst.data.rx.fixes,
+        .mrr, .rrm => inst.data.rrx.fixes,
+        .rmi, .mri => inst.data.rix.fixes,
+        .rrmi => inst.data.rrix.fixes,
+        .mi_u, .mi_s => inst.data.x.fixes,
+        .m => inst.data.x.fixes,
+        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -458,87 +445,66 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rri.r2 },
             .{ .imm = lower.imm(inst.ops, inst.data.rri.i) },
         },
-        .m_sib, .m_rip => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
+        .m => &.{
+            .{ .mem = lower.mem(inst.data.x.payload) },
         },
-        .mi_sib_s, .mi_sib_u, .mi_rip_u, .mi_rip_s => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.x.payload + 1) },
+        .mi_s, .mi_u => &.{
+            .{ .mem = lower.mem(inst.data.x.payload + 1) },
             .{ .imm = lower.imm(
                 inst.ops,
                 lower.mir.extraData(Mir.Imm32, inst.data.x.payload).data.imm,
             ) },
         },
-        .rm_sib, .rm_rip => &.{
+        .rm => &.{
             .{ .reg = inst.data.rx.r1 },
-            .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+            .{ .mem = lower.mem(inst.data.rx.payload) },
         },
-        .rmi_sib, .rmi_rip => &.{
+        .rmi => &.{
             .{ .reg = inst.data.rix.r1 },
-            .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
+            .{ .mem = lower.mem(inst.data.rix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
         },
-        .mr_sib, .mr_rip => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+        .rmi_s, .rmi_u => &.{
+            .{ .reg = inst.data.rx.r1 },
+            .{ .mem = lower.mem(inst.data.rx.payload + 1) },
+            .{ .imm = lower.imm(
+                inst.ops,
+                lower.mir.extraData(Mir.Imm32, inst.data.rx.payload).data.imm,
+            ) },
+        },
+        .mr => &.{
+            .{ .mem = lower.mem(inst.data.rx.payload) },
             .{ .reg = inst.data.rx.r1 },
         },
-        .mrr_sib, .mrr_rip => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.rrx.payload) },
+        .mrr => &.{
+            .{ .mem = lower.mem(inst.data.rrx.payload) },
             .{ .reg = inst.data.rrx.r1 },
             .{ .reg = inst.data.rrx.r2 },
         },
-        .mri_sib, .mri_rip => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
+        .mri => &.{
+            .{ .mem = lower.mem(inst.data.rix.payload) },
             .{ .reg = inst.data.rix.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
         },
-        .rrm_sib, .rrm_rip => &.{
+        .rrm => &.{
             .{ .reg = inst.data.rrx.r1 },
             .{ .reg = inst.data.rrx.r2 },
-            .{ .mem = lower.mem(inst.ops, inst.data.rrx.payload) },
+            .{ .mem = lower.mem(inst.data.rrx.payload) },
         },
-        .rrmi_sib, .rrmi_rip => &.{
+        .rrmi => &.{
             .{ .reg = inst.data.rrix.r1 },
             .{ .reg = inst.data.rrix.r2 },
-            .{ .mem = lower.mem(inst.ops, inst.data.rrix.payload) },
+            .{ .mem = lower.mem(inst.data.rrix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rrix.i) },
-        },
-        .rax_moffs => &.{
-            .{ .reg = .rax },
-            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
-        },
-        .moffs_rax => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
-            .{ .reg = .rax },
         },
         .extern_fn_reloc => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
-        .direct_got_reloc => ops: {
-            switch (inst.tag) {
-                .call => {
-                    _ = lower.reloc(.{ .linker_direct_got = inst.data.reloc });
-                    break :ops &.{
-                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                    };
-                },
-                .mov => {
-                    const reg = inst.data.rx.r1;
-                    const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-                    _ = lower.reloc(.{ .linker_direct_got = extra });
-                    break :ops &.{
-                        .{ .reg = reg },
-                        .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = 0 }) },
-                    };
-                },
-                else => unreachable,
-            }
-        },
-        .got_reloc, .extern_got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
             const reg = inst.data.rx.r1;
-            const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+            const extra = lower.mir.extraData(bits.Symbol, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
                 .got_reloc => .{ .linker_got = extra },
-                .extern_got_reloc => .{ .linker_extern_got = extra },
                 .direct_reloc => .{ .linker_direct = extra },
                 .import_reloc => .{ .linker_import = extra },
                 .tlv_reloc => .{ .linker_tlv = extra },
@@ -569,6 +535,7 @@ const abi = @import("abi.zig");
 const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
+const link = @import("../../link.zig");
 const std = @import("std");
 
 const Air = @import("../../Air.zig");
@@ -577,7 +544,7 @@ const ErrorMsg = Module.ErrorMsg;
 const Immediate = bits.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();
-const Memory = bits.Memory;
+const Memory = Instruction.Memory;
 const Mir = @import("Mir.zig");
 const Mnemonic = Instruction.Mnemonic;
 const Module = @import("../../Module.zig");

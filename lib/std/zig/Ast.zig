@@ -2978,7 +2978,7 @@ pub const Node = struct {
         assign_mul,
         /// `lhs /= rhs`. main_token is op.
         assign_div,
-        /// `lhs *= rhs`. main_token is op.
+        /// `lhs %= rhs`. main_token is op.
         assign_mod,
         /// `lhs += rhs`. main_token is op.
         assign_add,
@@ -3120,7 +3120,7 @@ pub const Node = struct {
         /// `lhs[b..c]`. rhs is index into Slice
         /// main_token is the lbracket.
         slice,
-        /// `lhs[b..c :d]`. rhs is index into SliceSentinel
+        /// `lhs[b..c :d]`. rhs is index into SliceSentinel. Slice end "c" can be omitted.
         /// main_token is the lbracket.
         slice_sentinel,
         /// `lhs.*`. rhs is unused.
@@ -3220,12 +3220,13 @@ pub const Node = struct {
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
+        /// The cont expression part `: (a)` may be omitted.
         @"while",
         /// `for (lhs) rhs`.
         for_simple,
         /// `for (lhs[0..inputs]) lhs[inputs + 1] else lhs[inputs + 2]`. `For[rhs]`.
         @"for",
-        /// `lhs..rhs`.
+        /// `lhs..rhs`. rhs can be omitted.
         for_range,
         /// `if (lhs) rhs`.
         /// `if (lhs) |a| rhs`.

@@ -4012,7 +4012,6 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .got => .load_memory_ptr_got,
                                     .direct => .load_memory_ptr_direct,
                                     .import => unreachable,
-                                    .extern_got => unreachable,
                                 };
                                 const atom_index = switch (self.bin_file.tag) {
                                     .macho => blk: {
@@ -4317,7 +4316,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (try self.air.value(callee, mod)) |func_value| {
         if (func_value.getFunction(mod)) |func| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                 const sym = elf_file.symbol(sym_index);
                 _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                 const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
@@ -5532,7 +5531,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
-                            .extern_got => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
@@ -5654,7 +5652,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .got => .load_memory_got,
                 .direct => .load_memory_direct,
                 .import => .load_memory_import,
-                .extern_got => unreachable,
             };
             const atom_index = switch (self.bin_file.tag) {
                 .macho => blk: {
@@ -5852,7 +5849,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .got => .load_memory_ptr_got,
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
-                            .extern_got => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
                             .macho => blk: {
@@ -6180,7 +6176,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_extern_got, .load_tlv => unreachable, // TODO
+            .load_symbol, .load_tlv => unreachable, // TODO
         },
         .fail => |msg| {
             self.err_msg = msg;

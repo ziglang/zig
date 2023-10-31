@@ -140,13 +140,13 @@ pub fn parse(text: []const u8) !Version {
     return ver;
 }
 
-fn parseNum(text: []const u8) !usize {
+fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
     // Leading zeroes are not allowed.
     if (text.len > 1 and text[0] == '0') return error.InvalidVersion;
 
     return std.fmt.parseUnsigned(usize, text, 10) catch |err| switch (err) {
         error.InvalidCharacter => return error.InvalidVersion,
-        else => |e| return e,
+        error.Overflow => return error.Overflow,
     };
 }
 

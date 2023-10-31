@@ -414,7 +414,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -474,8 +473,11 @@ pub const Type = struct {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                    return !comptimeOnly(ty, mod);
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(ty)),
+                        .eager => !comptimeOnly(ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .anyframe_type => true,
                 .array_type => |array_type| {
@@ -496,13 +498,12 @@ pub const Type = struct {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
-                    }
+                    if (ignore_comptime_only) return true;
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(child_ty)),
+                        .eager => !comptimeOnly(child_ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .error_union_type,
                 .error_set_type,
@@ -633,7 +634,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -741,7 +741,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -1035,66 +1034,20 @@ pub const Type = struct {
                     }
                     return .{ .scalar = big_align };
                 },
-
                 .union_type => |union_type| {
-                    if (opt_sema) |sema| {
-                        if (union_type.flagsPtr(ip).status == .field_types_wip) {
-                            // We'll guess "pointer-aligned", if the union has an
-                            // underaligned pointer field then some allocations
-                            // might require explicit alignment.
-                            return .{ .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)) };
-                        }
-                        _ = try sema.resolveTypeFields(ty);
-                    }
-                    if (!union_type.haveFieldTypes(ip)) switch (strat) {
+                    const flags = union_type.flagsPtr(ip).*;
+                    if (flags.alignment != .none) return .{ .scalar = flags.alignment };
+
+                    if (!union_type.haveLayout(ip)) switch (strat) {
                         .eager => unreachable, // union layout not resolved
-                        .sema => unreachable, // handled above
+                        .sema => |sema| return .{ .scalar = try sema.resolveUnionAlignment(ty, union_type) },
                         .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const union_obj = ip.loadUnionType(union_type);
-                    if (union_obj.field_names.len == 0) {
-                        if (union_obj.hasTag(ip)) {
-                            return abiAlignmentAdvanced(union_obj.enum_tag_ty.toType(), mod, strat);
-                        } else {
-                            return .{ .scalar = .@"1" };
-                        }
-                    }
 
-                    var max_align: Alignment = .@"1";
-                    if (union_obj.hasTag(ip)) max_align = union_obj.enum_tag_ty.toType().abiAlignment(mod);
-                    for (0..union_obj.field_names.len) |field_index| {
-                        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-                        const field_align = if (union_obj.field_aligns.len == 0)
-                            .none
-                        else
-                            union_obj.field_aligns.get(ip)[field_index];
-                        if (!(field_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.toIntern() },
-                            } })).toValue() },
-                            else => |e| return e,
-                        })) continue;
-
-                        const field_align_bytes: Alignment = if (field_align != .none)
-                            field_align
-                        else switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |a| a,
-                            .val => switch (strat) {
-                                .eager => unreachable, // struct layout not resolved
-                                .sema => unreachable, // handled above
-                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                    .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.toIntern() },
-                                } })).toValue() },
-                            },
-                        };
-                        max_align = max_align.max(field_align_bytes);
-                    }
-                    return .{ .scalar = max_align };
+                    return .{ .scalar = union_type.flagsPtr(ip).alignment };
                 },
                 .opaque_type => return .{ .scalar = .@"1" },
                 .enum_type => |enum_type| return .{
@@ -1103,7 +1056,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1453,15 +1405,14 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    const union_obj = ip.loadUnionType(union_type);
-                    return AbiSizeAdvanced{ .scalar = mod.unionAbiSize(union_obj) };
+
+                    return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1681,7 +1632,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -2217,7 +2167,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2560,7 +2509,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2686,10 +2634,10 @@ pub const Type = struct {
                             if (struct_type.flagsPtr(ip).field_types_wip)
                                 return false;
 
-                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
-
                             struct_type.flagsPtr(ip).requires_comptime = .wip;
                             errdefer struct_type.flagsPtr(ip).requires_comptime = .unknown;
+
+                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
 
                             for (0..struct_type.field_types.len) |i_usize| {
                                 const i: u32 = @intCast(i_usize);
@@ -2729,12 +2677,12 @@ pub const Type = struct {
                         if (union_type.flagsPtr(ip).status == .field_types_wip)
                             return false;
 
+                        union_type.flagsPtr(ip).requires_comptime = .wip;
+                        errdefer union_type.flagsPtr(ip).requires_comptime = .unknown;
+
                         try sema.resolveTypeFieldsUnion(ty, union_type);
+
                         const union_obj = ip.loadUnionType(union_type);
-
-                        union_obj.flagsPtr(ip).requires_comptime = .wip;
-                        errdefer union_obj.flagsPtr(ip).requires_comptime = .unknown;
-
                         for (0..union_obj.field_types.len) |field_idx| {
                             const field_ty = union_obj.field_types.get(ip)[field_idx];
                             if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
@@ -2754,7 +2702,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -3308,8 +3255,6 @@ pub const Type = struct {
     pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type };
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
-
-    pub const err_int = Type.u16;
 
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;

@@ -67,7 +67,6 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 }
 
 test "math.ldexp" {
-
     // subnormals
     try expect(ldexp(@as(f16, 0x1.1FFp14), -14 - 9 - 15) == math.floatTrueMin(f16));
     try expect(ldexp(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.floatTrueMin(f32));

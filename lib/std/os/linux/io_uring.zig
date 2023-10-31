@@ -413,6 +413,27 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `splice(2)`
+    /// Either `fd_in` or `fd_out` must be a pipe.
+    /// If `fd_in` refers to a pipe, `off_in` is ignored and must be set to std.math.maxInt(u64).
+    /// If `fd_in` does not refer to a pipe and `off_in` is maxInt(u64), then `len` are read
+    /// from `fd_in` starting from the file offset, which is incremented by the number of bytes read.
+    /// If `fd_in` does not refer to a pipe and `off_in` is not maxInt(u64), then the starting offset of `fd_in` will be `off_in`.
+    /// This splice operation can be used to implement sendfile by splicing to an intermediate pipe first,
+    /// then splice to the final destination. In fact, the implementation of sendfile in kernel uses splice internally.
+    ///
+    /// NOTE that even if fd_in or fd_out refers to a pipe, the splice operation can still fail with EINVAL if one of the
+    /// fd doesn't explicitly support splice peration, e.g. reading from terminal is unsupported from kernel 5.7 to 5.11.
+    /// See https://github.com/axboe/liburing/issues/291
+    ///
+    /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
+    pub fn splice(self: *IO_Uring, user_data: u64, fd_in: os.fd_t, off_in: u64, fd_out: os.fd_t, off_out: u64, len: usize) !*linux.io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_splice(sqe, fd_in, off_in, fd_out, off_out, len);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Queues (but does not submit) an SQE to perform a IORING_OP_READ_FIXED.
     /// The `buffer` provided must be registered with the kernel by calling `register_buffers` first.
     /// The `buffer_index` must be the same as its index in the array provided to `register_buffers`.
@@ -1189,7 +1210,8 @@ pub fn io_uring_prep_nop(sqe: *linux.io_uring_sqe) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1207,7 +1229,8 @@ pub fn io_uring_prep_fsync(sqe: *linux.io_uring_sqe, fd: os.fd_t, flags: u32) vo
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1232,7 +1255,8 @@ pub fn io_uring_prep_rw(
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1242,6 +1266,12 @@ pub fn io_uring_prep_read(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, o
 
 pub fn io_uring_prep_write(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, offset: u64) void {
     io_uring_prep_rw(.WRITE, sqe, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
+}
+
+pub fn io_uring_prep_splice(sqe: *linux.io_uring_sqe, fd_in: os.fd_t, off_in: u64, fd_out: os.fd_t, off_out: u64, len: usize) void {
+    io_uring_prep_rw(.SPLICE, sqe, fd_out, undefined, len, off_out);
+    sqe.addr = off_in;
+    sqe.splice_fd_in = fd_in;
 }
 
 pub fn io_uring_prep_readv(
@@ -1370,7 +1400,8 @@ pub fn io_uring_prep_close(sqe: *linux.io_uring_sqe, fd: os.fd_t) void {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1398,7 +1429,8 @@ pub fn io_uring_prep_timeout_remove(sqe: *linux.io_uring_sqe, timeout_user_data:
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1458,7 +1490,8 @@ pub fn io_uring_prep_fallocate(
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     };
 }
 
@@ -1630,7 +1663,8 @@ test "nop" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     }, sqe.*);
 
     try testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
@@ -1828,6 +1862,77 @@ test "write/read" {
     try testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
 }
 
+test "splice/read" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(4, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    var tmp = std.testing.tmpDir(.{});
+    const path_src = "test_io_uring_splice_src";
+    const file_src = try tmp.dir.createFile(path_src, .{ .read = true, .truncate = true });
+    defer file_src.close();
+    const fd_src = file_src.handle;
+
+    const path_dst = "test_io_uring_splice_dst";
+    const file_dst = try tmp.dir.createFile(path_dst, .{ .read = true, .truncate = true });
+    defer file_dst.close();
+    const fd_dst = file_dst.handle;
+
+    const buffer_write = [_]u8{97} ** 20;
+    var buffer_read = [_]u8{98} ** 20;
+    _ = try file_src.write(&buffer_write);
+
+    var fds = try os.pipe();
+    const pipe_offset: u64 = std.math.maxInt(u64);
+
+    const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
+    try testing.expectEqual(linux.IORING_OP.SPLICE, sqe_splice_to_pipe.opcode);
+    try testing.expectEqual(@as(u64, 0), sqe_splice_to_pipe.addr);
+    try testing.expectEqual(pipe_offset, sqe_splice_to_pipe.off);
+    sqe_splice_to_pipe.flags |= linux.IOSQE_IO_LINK;
+
+    const sqe_splice_from_pipe = try ring.splice(0x22222222, fds[0], pipe_offset, fd_dst, 10, buffer_write.len);
+    try testing.expectEqual(linux.IORING_OP.SPLICE, sqe_splice_from_pipe.opcode);
+    try testing.expectEqual(pipe_offset, sqe_splice_from_pipe.addr);
+    try testing.expectEqual(@as(u64, 10), sqe_splice_from_pipe.off);
+    sqe_splice_from_pipe.flags |= linux.IOSQE_IO_LINK;
+
+    const sqe_read = try ring.read(0x33333333, fd_dst, .{ .buffer = buffer_read[0..] }, 10);
+    try testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
+    try testing.expectEqual(@as(u64, 10), sqe_read.off);
+    try testing.expectEqual(@as(u32, 3), try ring.submit());
+
+    const cqe_splice_to_pipe = try ring.copy_cqe();
+    const cqe_splice_from_pipe = try ring.copy_cqe();
+    const cqe_read = try ring.copy_cqe();
+    // Prior to Linux Kernel 5.6 this is the only way to test for splice/read support:
+    // https://lwn.net/Articles/809820/
+    if (cqe_splice_to_pipe.err() == .INVAL) return error.SkipZigTest;
+    if (cqe_splice_from_pipe.err() == .INVAL) return error.SkipZigTest;
+    if (cqe_read.err() == .INVAL) return error.SkipZigTest;
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x11111111,
+        .res = buffer_write.len,
+        .flags = 0,
+    }, cqe_splice_to_pipe);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x22222222,
+        .res = buffer_write.len,
+        .flags = 0,
+    }, cqe_splice_from_pipe);
+    try testing.expectEqual(linux.io_uring_cqe{
+        .user_data = 0x33333333,
+        .res = buffer_read.len,
+        .flags = 0,
+    }, cqe_read);
+    try testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
+}
+
 test "write_fixed/read_fixed" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -1930,7 +2035,8 @@ test "openat" {
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .__pad2 = [2]u64{ 0, 0 },
+        .addr3 = 0,
+        .resv = 0,
     }, sqe_openat.*);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 

@@ -166,7 +166,7 @@ pub fn format(
     for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
-        .np, .fd, .td, .i, .zi, .d => {},
+        .zo, .fd, .td, .i, .zi, .d => {},
         .o, .oi => {
             const tag = switch (encoding.data.ops[0]) {
                 .r8 => "rb",
@@ -203,7 +203,7 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
+        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -232,7 +232,7 @@ pub const Mnemonic = enum {
     cmp,
     cmps, cmpsb, cmpsd, cmpsq, cmpsw,
     cmpxchg, cmpxchg8b, cmpxchg16b,
-    cqo, cwd, cwde,
+    cpuid, cqo, cwd, cwde,
     div,
     idiv, imul, int3,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
@@ -246,7 +246,7 @@ pub const Mnemonic = enum {
     movsx, movsxd, movzx, mul,
     neg, nop, not,
     @"or",
-    pop, popcnt, push,
+    pause, pop, popcnt, popfq, push, pushfq,
     rcl, rcr, ret, rol, ror,
     sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -258,15 +258,20 @@ pub const Mnemonic = enum {
     stos, stosb, stosd, stosq, stosw,
     @"test", tzcnt,
     ud2,
-    xadd, xchg, xor,
+    xadd, xchg, xgetbv, xor,
     // X87
-    fabs, fchs, ffree, fisttp, fld, fst, fstp,
+    fabs, fchs, ffree, fisttp, fld, fldenv, fnstenv, fst, fstenv, fstp,
     // MMX
     movd, movq,
     packssdw, packsswb, packuswb,
     paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
+    pcmpeqb, pcmpeqd, pcmpeqw,
+    pcmpgtb, pcmpgtd, pcmpgtw,
     pmulhw, pmullw,
+    pslld, psllq, psllw,
+    psrad, psraw,
+    psrld, psrlq, psrlw,
     psubb, psubd, psubq, psubsb, psubsw, psubusb, psubusw, psubw,
     // SSE
     addps, addss,
@@ -275,16 +280,19 @@ pub const Mnemonic = enum {
     cmpps, cmpss,
     cvtpi2ps, cvtps2pi, cvtsi2ss, cvtss2si, cvttps2pi, cvttss2si,
     divps, divss,
+    ldmxcsr,
     maxps, maxss,
     minps, minss,
     movaps, movhlps, movlhps,
+    movmskps,
     movss, movups,
     mulps, mulss,
     orps,
     pextrw, pinsrw,
-    pmaxsw, pmaxub, pminsw, pminub,
+    pmaxsw, pmaxub, pminsw, pminub, pmovmskb,
     shufps,
     sqrtps, sqrtss,
+    stmxcsr,
     subps, subss,
     ucomiss,
     xorps,
@@ -301,12 +309,13 @@ pub const Mnemonic = enum {
     minpd, minsd,
     movapd,
     movdqa, movdqu,
+    movmskpd,
     //movsd,
     movupd,
     mulpd, mulsd,
     orpd,
-    pshufhw, pshuflw,
-    psrld, psrlq, psrlw,
+    pshufd, pshufhw, pshuflw,
+    pslldq, psrldq,
     punpckhbw, punpckhdq, punpckhqdq, punpckhwd,
     punpcklbw, punpckldq, punpcklqdq, punpcklwd,
     shufpd,
@@ -317,19 +326,29 @@ pub const Mnemonic = enum {
     // SSE3
     movddup, movshdup, movsldup,
     // SSSE3
-    pabsb, pabsd, pabsw,
+    pabsb, pabsd, pabsw, palignr,
     // SSE4.1
     blendpd, blendps, blendvpd, blendvps,
     extractps,
     insertps,
     packusdw,
+    pcmpeqq,
     pextrb, pextrd, pextrq,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
     pmulld,
     roundpd, roundps, roundsd, roundss,
+    // SSE4.2
+    pcmpgtq,
+    // PCLMUL
+    pclmulqdq,
+    // AES
+    aesdec, aesdeclast, aesenc, aesenclast, aesimc, aeskeygenassist,
+    // SHA
+    sha256msg1, sha256msg2, sha256rnds2,
     // AVX
     vaddpd, vaddps, vaddsd, vaddss,
+    vaesdec, vaesdeclast, vaesenc, vaesenclast, vaesimc, vaeskeygenassist,
     vandnpd, vandnps, vandpd, vandps,
     vblendpd, vblendps, vblendvpd, vblendvps,
     vbroadcastf128, vbroadcastsd, vbroadcastss,
@@ -341,6 +360,7 @@ pub const Mnemonic = enum {
     vdivpd, vdivps, vdivsd, vdivss,
     vextractf128, vextractps,
     vinsertf128, vinsertps,
+    vldmxcsr,
     vmaxpd, vmaxps, vmaxsd, vmaxss,
     vminpd, vminps, vminsd, vminss,
     vmovapd, vmovaps,
@@ -348,6 +368,7 @@ pub const Mnemonic = enum {
     vmovddup,
     vmovdqa, vmovdqu,
     vmovhlps, vmovlhps,
+    vmovmskpd, vmovmskps,
     vmovq,
     vmovsd,
     vmovshdup, vmovsldup,
@@ -358,15 +379,20 @@ pub const Mnemonic = enum {
     vpabsb, vpabsd, vpabsw,
     vpackssdw, vpacksswb, vpackusdw, vpackuswb,
     vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
-    vpand, vpandn,
+    vpalignr, vpand, vpandn, vpclmulqdq,
+    vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
+    vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
     vpextrb, vpextrd, vpextrq, vpextrw,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
     vpminsb, vpminsd, vpminsw, vpminub, vpminud, vpminuw,
+    vpmovmskb,
     vpmulhw, vpmulld, vpmullw,
     vpor,
-    vpshufhw, vpshuflw,
-    vpsrld, vpsrlq, vpsrlw,
+    vpshufd, vpshufhw, vpshuflw,
+    vpslld, vpslldq, vpsllq, vpsllw,
+    vpsrad, vpsraq, vpsraw,
+    vpsrld, vpsrldq, vpsrlq, vpsrlw,
     vpsubb, vpsubd, vpsubq, vpsubsb, vpsubsw, vpsubusb, vpsubusw, vpsubw,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
@@ -374,6 +400,7 @@ pub const Mnemonic = enum {
     vroundpd, vroundps, vroundsd, vroundss,
     vshufpd, vshufps,
     vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
+    vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
     vxorpd, vxorps,
     // F16C
@@ -388,7 +415,7 @@ pub const Mnemonic = enum {
 
 pub const OpEn = enum {
     // zig fmt: off
-    np,
+    zo,
     o, oi,
     i, zi,
     d, m,
@@ -458,6 +485,7 @@ pub const Op = enum {
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
                 .sib, .rip => switch (mem.bitSize()) {
+                    0 => .m,
                     8 => .m8,
                     16 => .m16,
                     32 => .m32,
@@ -587,7 +615,7 @@ pub const Op = enum {
             .imm8s, .imm16s, .imm32s,
             .rel8, .rel16, .rel32,
             .unity,
-            =>  true,
+            => true,
             else => false,
         };
         // zig fmt: on
@@ -603,7 +631,7 @@ pub const Op = enum {
             .mm_m64,
             .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
-            =>  true,
+            => true,
             else => false,
         };
         // zig fmt: on
@@ -634,7 +662,7 @@ pub const Op = enum {
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
-            .m, .o16, .o32, .o64 => unreachable,
+            .o16, .o32, .o64 => unreachable,
             .moffs, .sreg => return op == target,
             .none => switch (target) {
                 .o16, .o32, .o64, .none => return true,
@@ -742,6 +770,8 @@ pub const Mode = enum {
 
 pub const Feature = enum {
     none,
+    aes,
+    @"aes avx",
     avx,
     avx2,
     bmi,
@@ -749,12 +779,18 @@ pub const Feature = enum {
     fma,
     lzcnt,
     movbe,
+    pclmul,
+    @"pclmul avx",
     popcnt,
     sse,
     sse2,
     sse3,
     sse4_1,
+    sse4_2,
     ssse3,
+    sha,
+    vaes,
+    vpclmulqdq,
     x87,
 };
 
@@ -767,12 +803,15 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     @memcpy(inst.ops[0..ops.len], ops);
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
+    inst.encode(cwriter.writer(), .{
+        .allow_frame_locs = true,
+        .allow_symbols = true,
+    }) catch unreachable; // Not allowed to fail here unless OOM.
     return @as(usize, @intCast(cwriter.bytes_written));
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(50_000);
+    @setEvalBranchQuota(60_000);
     const encodings = @import("encodings.zig");
     var entries = encodings.table;
     std.mem.sort(encodings.Entry, &entries, {}, struct {

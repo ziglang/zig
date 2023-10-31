@@ -761,8 +761,11 @@ const FileType = enum {
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
+        if (ascii.endsWithIgnoreCase(file_path, ".tgz")) return .@"tar.gz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.gz")) return .@"tar.gz";
+        if (ascii.endsWithIgnoreCase(file_path, ".txz")) return .@"tar.xz";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
+        if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         return null;
     }
@@ -826,7 +829,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         var h = std.http.Headers{ .allocator = gpa };
         defer h.deinit();
 
-        var req = http_client.request(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -834,7 +837,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         };
         errdefer req.deinit(); // releases more than memory
 
-        req.start(.{}) catch |err| {
+        req.send(.{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "HTTP request failed: {s}",
                 .{@errorName(err)},

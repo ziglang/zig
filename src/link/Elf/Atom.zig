@@ -14,13 +14,13 @@ size: u64 = 0,
 alignment: Alignment = .@"1",
 
 /// Index of the input section.
-input_section_index: u16 = 0,
+input_section_index: u32 = 0,
 
 /// Index of the output section.
 output_section_index: u16 = 0,
 
 /// Index of the input section containing this atom's relocs.
-relocs_section_index: u16 = 0,
+relocs_section_index: u32 = 0,
 
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
@@ -52,7 +52,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
     return switch (self.file(elf_file).?) {
         .object => |x| x.shdrs.items[self.input_section_index],
-        .zig_module => |x| x.inputShdr(self.atom_index, elf_file),
+        .zig_object => |x| x.inputShdr(self.atom_index, elf_file),
         else => unreachable,
     };
 }
@@ -166,15 +166,16 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
-        if (elf_file.dwarf) |_| {
+        const zig_object = elf_file.zigObjectPtr().?;
+        if (zig_object.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
             // range of the compilation unit. When we expand the text section, this range changes,
             // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            elf_file.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
             // This becomes dirty for the same reason. We could potentially make this more
             // fine-grained with the addition of support for more compilation units. It is planned to
             // model each package as a different compilation unit.
-            elf_file.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnitsOptional().?);
@@ -270,14 +271,14 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     // TODO create relocs free list
     self.freeRelocs(elf_file);
     // TODO figure out how to free input section mappind in ZigModule
-    // const zig_module = self.file(elf_file).?.zig_module;
-    // assert(zig_module.atoms.swapRemove(self.atom_index));
+    // const zig_object = elf_file.zigObjectPtr().?
+    // assert(zig_object.atoms.swapRemove(self.atom_index));
     self.* = .{};
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
     return switch (self.file(elf_file).?) {
-        .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
+        .zig_object => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
         else => unreachable,
     };
@@ -298,17 +299,17 @@ pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
     const gpa = elf_file.base.allocator;
     const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_module);
-    const zig_module = file_ptr.zig_module;
-    const rels = &zig_module.relocs.items[self.relocs_section_index];
+    assert(file_ptr == .zig_object);
+    const zig_object = file_ptr.zig_object;
+    const rels = &zig_object.relocs.items[self.relocs_section_index];
     try rels.append(gpa, reloc);
 }
 
 pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
     const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_module);
-    const zig_module = file_ptr.zig_module;
-    zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
+    assert(file_ptr == .zig_object);
+    const zig_object = file_ptr.zig_object;
+    zig_object.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
 pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
@@ -332,7 +333,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         const symbol_index = switch (file_ptr) {
-            .zig_module => |x| x.symbol(rel.r_sym()),
+            .zig_object => |x| x.symbol(rel.r_sym()),
             .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };
@@ -370,6 +371,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 try self.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
             },
 
+            elf.R_X86_64_GOT32,
             elf.R_X86_64_GOTPC32,
             elf.R_X86_64_GOTPC64,
             elf.R_X86_64_GOTPCREL,
@@ -600,7 +602,7 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    return switch (elf_file.base.options.output_mode) {
+    return switch (elf_file.base.options.effectiveOutputMode()) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => if (elf_file.base.options.pie) 1 else 2,
@@ -689,7 +691,7 @@ fn reportUndefined(
     undefs: anytype,
 ) !void {
     const rel_esym = switch (self.file(elf_file).?) {
-        .zig_module => |x| x.elfSym(rel.r_sym()).*,
+        .zig_object => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
         else => unreachable,
     };
@@ -723,7 +725,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
         if (r_type == elf.R_X86_64_NONE) continue;
 
         const target = switch (file_ptr) {
-            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
+            .zig_object => |x| elf_file.symbol(x.symbol(rel.r_sym())),
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
@@ -879,6 +881,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
                 }
             },
 
+            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A))),
+
             // Zig custom relocations
             Elf.R_X86_64_ZIG_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(ZIG_GOT + A))),
             Elf.R_X86_64_ZIG_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(ZIG_GOT + A - P))),
@@ -1001,7 +1005,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         const target_index = switch (file_ptr) {
-            .zig_module => |x| x.symbol(rel.r_sym()),
+            .zig_object => |x| x.symbol(rel.r_sym()),
             .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };

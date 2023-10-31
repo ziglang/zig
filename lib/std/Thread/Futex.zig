@@ -136,8 +136,8 @@ const WindowsImpl = struct {
         }
 
         const rc = os.windows.ntdll.RtlWaitOnAddress(
-            @as(?*const anyopaque, @ptrCast(ptr)),
-            @as(?*const anyopaque, @ptrCast(&expect)),
+            ptr,
+            &expect,
             @sizeOf(@TypeOf(expect)),
             timeout_ptr,
         );
@@ -153,7 +153,7 @@ const WindowsImpl = struct {
     }
 
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
-        const address = @as(?*const anyopaque, @ptrCast(ptr));
+        const address: ?*const anyopaque = ptr;
         assert(max_waiters != 0);
 
         switch (max_waiters) {
@@ -188,7 +188,7 @@ const DarwinImpl = struct {
         // true so that we we know to ignore the ETIMEDOUT result.
         var timeout_overflowed = false;
 
-        const addr = @as(*const anyopaque, @ptrCast(ptr));
+        const addr: *const anyopaque = ptr;
         const flags = os.darwin.UL_COMPARE_AND_WAIT | os.darwin.ULF_NO_ERRNO;
         const status = blk: {
             if (supports_ulock_wait2) {
@@ -227,7 +227,7 @@ const DarwinImpl = struct {
         }
 
         while (true) {
-            const addr = @as(*const anyopaque, @ptrCast(ptr));
+            const addr: *const anyopaque = ptr;
             const status = os.darwin.__ulock_wake(flags, addr, 0);
 
             if (status >= 0) return;

@@ -167,11 +167,7 @@ pub fn generateSymbol(
 
     const mod = bin_file.options.module.?;
     const ip = &mod.intern_pool;
-    var typed_value = arg_tv;
-    switch (ip.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
@@ -206,7 +202,7 @@ pub fn generateSymbol(
         .inferred_error_set_type,
         => unreachable, // types, not values
 
-        .undef, .runtime_value => unreachable, // handled above
+        .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
             .undefined,
             .void,
@@ -545,7 +541,7 @@ pub fn generateSymbol(
 
             if (layout.payload_size == 0) {
                 return generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info);
             }
@@ -553,7 +549,7 @@ pub fn generateSymbol(
             // Check if we should store the tag first.
             if (layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align)) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType(mod).?,
+                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
                     .val = un.tag.toValue(),
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
@@ -713,7 +709,7 @@ const RelocInfo = struct {
 fn lowerAnonDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    decl_val: InternPool.Index,
+    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
@@ -723,14 +719,17 @@ fn lowerAnonDeclRef(
     const mod = bin_file.options.module.?;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
+    const decl_val = anon_decl.val;
     const decl_ty = mod.intern_pool.typeOf(decl_val).toType();
+    log.debug("lowerAnonDecl: ty = {}", .{decl_ty.fmt(mod)});
     const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
         return Result.ok;
     }
 
-    const res = try bin_file.lowerAnonDecl(decl_val, src_loc);
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try bin_file.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
         .fail => |em| return .{ .fail = em },
@@ -793,13 +792,11 @@ fn lowerDeclRef(
 
 /// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
 /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
-/// * extern_got - pointer to extern variable referenced via GOT
 /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
 /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
 pub const LinkerLoad = struct {
     type: enum {
         got,
-        extern_got,
         direct,
         import,
     },
@@ -829,8 +826,9 @@ pub const GenResult = union(enum) {
         load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
-        /// Pointer to extern variable via GOT.
-        load_extern_got: u32,
+        /// Reference to memory location but deferred until linker allocated the Decl in memory.
+        /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
+        load_symbol: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -852,7 +850,7 @@ fn genDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
-    decl_index: Module.Decl.Index,
+    ptr_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
@@ -861,6 +859,12 @@ fn genDeclRef(
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
+    const ptr_decl = mod.declPtr(ptr_decl_index);
+    const decl_index = switch (mod.intern_pool.indexToKey(try ptr_decl.internValue(mod))) {
+        .func => |func| func.owner_decl,
+        .extern_func => |extern_func| extern_func.decl,
+        else => ptr_decl_index,
+    };
     const decl = mod.declPtr(decl_index);
 
     if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
@@ -899,17 +903,23 @@ fn genDeclRef(
                 mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
             else
                 null;
-            return GenResult.mcv(.{ .load_extern_got = try elf_file.getGlobalSymbol(name, lib_name) });
+            const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
+            elf_file.symbol(elf_file.zigObjectPtr().?.symbol(sym_index)).flags.needs_got = true;
+            return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const sym_index = try elf_file.getOrCreateMetadataForDecl(decl_index);
+        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
         const sym = elf_file.symbol(sym_index);
         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-        if (bin_file.options.pic) {
-            return GenResult.mcv(.{ .load_got = sym.esym_index });
-        } else {
-            return GenResult.mcv(.{ .memory = sym.zigGotAddress(elf_file) });
-        }
+        return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
+        if (is_extern) {
+            // TODO make this part of getGlobalSymbol
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            const sym_name = try std.fmt.allocPrint(bin_file.allocator, "_{s}", .{name});
+            defer bin_file.allocator.free(sym_name);
+            const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
+            return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
+        }
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         if (is_threadlocal) {
@@ -917,6 +927,17 @@ fn genDeclRef(
         }
         return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Coff)) |coff_file| {
+        if (is_extern) {
+            const name = mod.intern_pool.stringToSlice(decl.name);
+            // TODO audit this
+            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
+                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            else
+                null;
+            const global_index = try coff_file.getGlobalSymbol(name, lib_name);
+            try coff_file.need_got_table.put(bin_file.allocator, global_index, {}); // needs GOT
+            return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
+        }
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
@@ -944,11 +965,7 @@ fn genUnnamedConst(
     };
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const local = elf_file.symbol(local_sym_index);
-        if (bin_file.options.pic) {
-            return GenResult.mcv(.{ .load_direct = local.esym_index });
-        } else {
-            return GenResult.mcv(.{ .memory = local.value });
-        }
+        return GenResult.mcv(.{ .load_symbol = local.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {
@@ -968,11 +985,7 @@ pub fn genTypedValue(
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
-    var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
-        .runtime_value => |rt| typed_value.val = rt.val.toValue(),
-        else => {},
-    }
+    const typed_value = arg_tv;
 
     log.debug("genTypedValue: ty = {}, val = {}", .{
         typed_value.ty.fmt(mod),
@@ -1052,6 +1065,7 @@ pub fn genTypedValue(
             const payload_type = typed_value.ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
+                const err_int_ty = try mod.errorIntType();
                 switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
                     .err_name => |err_name| return genTypedValue(bin_file, src_loc, .{
                         .ty = err_type,
@@ -1061,8 +1075,8 @@ pub fn genTypedValue(
                         } })).toValue(),
                     }, owner_decl_index),
                     .payload => return genTypedValue(bin_file, src_loc, .{
-                        .ty = Type.err_int,
-                        .val = try mod.intValue(Type.err_int, 0),
+                        .ty = err_int_ty,
+                        .val = try mod.intValue(err_int_ty, 0),
                     }, owner_decl_index),
                 }
             }

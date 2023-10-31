@@ -22,10 +22,11 @@ num_dynrelocs: u32 = 0,
 
 output_symtab_size: Elf.SymtabSize = .{},
 
-pub fn isObject(file: std.fs.File) bool {
+pub fn isObject(path: []const u8) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
     const reader = file.reader();
     const header = reader.readStruct(elf.Elf64_Ehdr) catch return false;
-    defer file.seekTo(0) catch {};
     if (!mem.eql(u8, header.e_ident[0..4], "\x7fELF")) return false;
     if (header.e_ident[elf.EI_VERSION] != 1) return false;
     if (header.e_type != elf.ET.REL) return false;
@@ -34,6 +35,8 @@ pub fn isObject(file: std.fs.File) bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
+    if (self.archive) |path| allocator.free(path);
+    allocator.free(self.path);
     allocator.free(self.data);
     self.shdrs.deinit(allocator);
     self.strings.deinit(allocator);

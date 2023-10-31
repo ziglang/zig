@@ -609,7 +609,7 @@ pub fn call_wWinMain() std.os.windows.INT {
 
     // There's no (documented) way to get the nCmdShow parameter, so we're
     // using this fairly standard default.
-    const nCmdShow = std.os.windows.user32.SW_SHOW;
+    const nCmdShow = 5;
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);

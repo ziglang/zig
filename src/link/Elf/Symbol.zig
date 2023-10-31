@@ -72,7 +72,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
     switch (file_ptr) {
-        .zig_module => |x| return x.elfSym(symbol.esym_index).*,
+        .zig_object => |x| return x.elfSym(symbol.esym_index).*,
         .linker_defined => |x| return x.symtab.items[symbol.esym_index],
         inline else => |x| return x.symtab[symbol.esym_index],
     }
@@ -406,4 +406,3 @@ const PltSection = synthetic_sections.PltSection;
 const SharedObject = @import("SharedObject.zig");
 const Symbol = @This();
 const ZigGotSection = synthetic_sections.ZigGotSection;
-const ZigModule = @import("ZigModule.zig");

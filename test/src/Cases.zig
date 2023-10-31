@@ -640,7 +640,7 @@ pub fn lowerToBuildSteps(
             },
             .Error => |expected_msgs| {
                 assert(expected_msgs.len != 0);
-                artifact.expect_errors = expected_msgs;
+                artifact.expect_errors = .{ .exact = expected_msgs };
                 parent_step.dependOn(&artifact.step);
             },
             .Execution => |expected_stdout| no_exec: {

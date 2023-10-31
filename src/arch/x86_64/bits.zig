@@ -181,6 +181,8 @@ pub const Register = enum(u7) {
 
     es, cs, ss, ds, fs, gs,
 
+    rip, eip, ip,
+
     none,
     // zig fmt: on
 
@@ -232,7 +234,7 @@ pub const Register = enum(u7) {
             else => unreachable,
             // zig fmt: on
         };
-        return @as(u6, @intCast(@intFromEnum(reg) - base));
+        return @intCast(@intFromEnum(reg) - base);
     }
 
     pub fn bitSize(reg: Register) u64 {
@@ -291,11 +293,11 @@ pub const Register = enum(u7) {
             else => unreachable,
             // zig fmt: on
         };
-        return @as(u4, @truncate(@intFromEnum(reg) - base));
+        return @truncate(@intFromEnum(reg) - base);
     }
 
     pub fn lowEnc(reg: Register) u3 {
-        return @as(u3, @truncate(reg.enc()));
+        return @truncate(reg.enc());
     }
 
     pub fn toBitSize(reg: Register, bit_size: u64) Register {
@@ -325,19 +327,19 @@ pub const Register = enum(u7) {
     }
 
     pub fn to64(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax)));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax));
     }
 
     pub fn to32(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax)));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax));
     }
 
     pub fn to16(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax)));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax));
     }
 
     pub fn to8(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al)));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al));
     }
 
     fn sseBase(reg: Register) u7 {
@@ -350,11 +352,11 @@ pub const Register = enum(u7) {
     }
 
     pub fn to256(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.ymm0)));
+        return @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.ymm0));
     }
 
     pub fn to128(reg: Register) Register {
-        return @as(Register, @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.xmm0)));
+        return @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.xmm0));
     }
 
     /// DWARF register encoding
@@ -442,34 +444,59 @@ pub const FrameIndex = enum(u32) {
     }
 };
 
-pub const Memory = union(enum) {
-    sib: Sib,
-    rip: Rip,
-    moffs: Moffs,
+/// A linker symbol not yet allocated in VM.
+pub const Symbol = struct {
+    /// Index of the containing atom.
+    atom_index: u32,
+    /// Index into the linker's symbol table.
+    sym_index: u32,
 
-    pub const Base = union(enum) {
+    pub fn format(
+        sym: Symbol,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try writer.writeAll("Symbol(");
+        try std.fmt.formatType(sym.atom_index, fmt, options, writer, 0);
+        try writer.writeAll(", ");
+        try std.fmt.formatType(sym.sym_index, fmt, options, writer, 0);
+        try writer.writeByte(')');
+    }
+};
+
+pub const Memory = struct {
+    base: Base,
+    mod: Mod,
+
+    pub const Base = union(enum(u2)) {
         none,
         reg: Register,
         frame: FrameIndex,
+        reloc: Symbol,
 
         pub const Tag = @typeInfo(Base).Union.tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {
-                .none, .frame => false, // neither rsp nor rbp are extended
+                .none, .frame, .reloc => false, // rsp, rbp, and rip are not extended
                 .reg => |reg| reg.isExtended(),
             };
         }
     };
 
-    pub const ScaleIndex = struct {
-        scale: u4,
-        index: Register,
-
-        const none = ScaleIndex{ .scale = 0, .index = undefined };
+    pub const Mod = union(enum(u1)) {
+        rm: struct {
+            size: Size,
+            index: Register = .none,
+            scale: Scale = .@"1",
+            disp: i32 = 0,
+        },
+        off: u64,
     };
 
-    pub const PtrSize = enum {
+    pub const Size = enum(u4) {
+        none,
         byte,
         word,
         dword,
@@ -479,7 +506,7 @@ pub const Memory = union(enum) {
         yword,
         zword,
 
-        pub fn fromSize(size: u32) PtrSize {
+        pub fn fromSize(size: u32) Size {
             return switch (size) {
                 1...1 => .byte,
                 2...2 => .word,
@@ -492,7 +519,7 @@ pub const Memory = union(enum) {
             };
         }
 
-        pub fn fromBitSize(bit_size: u64) PtrSize {
+        pub fn fromBitSize(bit_size: u64) Size {
             return switch (bit_size) {
                 8 => .byte,
                 16 => .word,
@@ -506,8 +533,9 @@ pub const Memory = union(enum) {
             };
         }
 
-        pub fn bitSize(s: PtrSize) u64 {
+        pub fn bitSize(s: Size) u64 {
             return switch (s) {
+                .none => 0,
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -518,81 +546,20 @@ pub const Memory = union(enum) {
                 .zword => 512,
             };
         }
+
+        pub fn format(
+            s: Size,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            if (s == .none) return;
+            try writer.writeAll(@tagName(s));
+            try writer.writeAll(" ptr");
+        }
     };
 
-    pub const Sib = struct {
-        ptr_size: PtrSize,
-        base: Base,
-        scale_index: ScaleIndex,
-        disp: i32,
-    };
-
-    pub const Rip = struct {
-        ptr_size: PtrSize,
-        disp: i32,
-    };
-
-    pub const Moffs = struct {
-        seg: Register,
-        offset: u64,
-    };
-
-    pub fn moffs(reg: Register, offset: u64) Memory {
-        assert(reg.class() == .segment);
-        return .{ .moffs = .{ .seg = reg, .offset = offset } };
-    }
-
-    pub fn sib(ptr_size: PtrSize, args: struct {
-        disp: i32 = 0,
-        base: Base = .none,
-        scale_index: ?ScaleIndex = null,
-    }) Memory {
-        if (args.scale_index) |si| assert(std.math.isPowerOfTwo(si.scale));
-        return .{ .sib = .{
-            .base = args.base,
-            .disp = args.disp,
-            .ptr_size = ptr_size,
-            .scale_index = if (args.scale_index) |si| si else ScaleIndex.none,
-        } };
-    }
-
-    pub fn rip(ptr_size: PtrSize, disp: i32) Memory {
-        return .{ .rip = .{ .ptr_size = ptr_size, .disp = disp } };
-    }
-
-    pub fn isSegmentRegister(mem: Memory) bool {
-        return switch (mem) {
-            .moffs => true,
-            .rip => false,
-            .sib => |s| switch (s.base) {
-                .none, .frame => false,
-                .reg => |reg| reg.class() == .segment,
-            },
-        };
-    }
-
-    pub fn base(mem: Memory) Base {
-        return switch (mem) {
-            .moffs => |m| .{ .reg = m.seg },
-            .sib => |s| s.base,
-            .rip => .none,
-        };
-    }
-
-    pub fn scaleIndex(mem: Memory) ?ScaleIndex {
-        return switch (mem) {
-            .moffs, .rip => null,
-            .sib => |s| if (s.scale_index.scale > 0) s.scale_index else null,
-        };
-    }
-
-    pub fn bitSize(mem: Memory) u64 {
-        return switch (mem) {
-            .rip => |r| r.ptr_size.bitSize(),
-            .sib => |s| s.ptr_size.bitSize(),
-            .moffs => 64,
-        };
-    }
+    pub const Scale = enum(u2) { @"1", @"2", @"4", @"8" };
 };
 
 pub const Immediate = union(enum) {
@@ -619,7 +586,7 @@ pub const Immediate = union(enum) {
                 1, 8 => @as(i8, @bitCast(@as(u8, @intCast(x)))),
                 16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
                 32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
-                64 => @as(i64, @bitCast(x)),
+                64 => @bitCast(x),
                 else => unreachable,
             },
         };

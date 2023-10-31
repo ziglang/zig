@@ -1,32 +1,7 @@
-const Dwarf = @This();
-
-const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const fs = std.fs;
-const leb128 = std.leb;
-const log = std.log.scoped(.dwarf);
-const mem = std.mem;
-
-const link = @import("../link.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Allocator = mem.Allocator;
-const DW = std.dwarf;
-const File = link.File;
-const LinkBlock = File.LinkBlock;
-const LinkFn = File.LinkFn;
-const LinkerLoad = @import("../codegen.zig").LinkerLoad;
-const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
-const StringTable = @import("strtab.zig").StringTable;
-const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
-
 allocator: Allocator,
 bin_file: *File,
+format: Format,
 ptr_width: PtrWidth,
-target: std.Target,
 
 /// A list of `Atom`s whose Line Number Programs have surplus capacity.
 /// This is the same concept as `Section.free_list` in Elf; see those doc comments.
@@ -110,15 +85,6 @@ pub const DeclState = struct {
         self.abbrev_resolver.deinit(self.gpa);
         self.abbrev_relocs.deinit(self.gpa);
         self.exprloc_relocs.deinit(self.gpa);
-    }
-
-    fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
-        log.debug("{x}: target sym %{d}, via GOT {}", .{ offset, target, is_ptr });
-        try self.exprloc_relocs.append(self.gpa, .{
-            .type = if (is_ptr) .got_load else .direct_load,
-            .target = target,
-            .offset = offset,
-        });
     }
 
     /// Adds local type relocation of the form: @offset => @this + addend
@@ -316,44 +282,19 @@ pub const DeclState = struct {
                 // DW.AT.array_type delimit children
                 try dbg_info_buffer.append(0);
             },
-            .Struct => blk: {
+            .Struct => {
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
-                switch (ip.indexToKey(ty.ip_index)) {
-                    .anon_struct_type => |fields| {
-                        // DW.AT.name, DW.FORM.string
-                        try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
-
-                        for (fields.types.get(ip), 0..) |field_ty, field_index| {
-                            // DW.AT.member
-                            try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                blk: {
+                    switch (ip.indexToKey(ty.ip_index)) {
+                        .anon_struct_type => |fields| {
                             // DW.AT.name, DW.FORM.string
-                            try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
-                            // DW.AT.type, DW.FORM.ref4
-                            var index = dbg_info_buffer.items.len;
-                            try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @as(u32, @intCast(index)));
-                            // DW.AT.data_member_location, DW.FORM.udata
-                            const field_off = ty.structFieldOffset(field_index, mod);
-                            try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
-                        }
-                    },
-                    .struct_type => |struct_type| {
-                        // DW.AT.name, DW.FORM.string
-                        try ty.print(dbg_info_buffer.writer(), mod);
-                        try dbg_info_buffer.append(0);
+                            try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
 
-                        if (struct_type.layout == .Packed) {
-                            log.debug("TODO implement .debug_info for packed structs", .{});
-                            break :blk;
-                        }
-
-                        if (struct_type.isTuple(ip)) {
-                            for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
-                                if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                            for (fields.types.get(ip), 0..) |field_ty, field_index| {
                                 // DW.AT.member
                                 try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                                 // DW.AT.name, DW.FORM.string
@@ -363,32 +304,59 @@ pub const DeclState = struct {
                                 try dbg_info_buffer.resize(index + 4);
                                 try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @as(u32, @intCast(index)));
                                 // DW.AT.data_member_location, DW.FORM.udata
+                                const field_off = ty.structFieldOffset(field_index, mod);
                                 try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                             }
-                        } else {
-                            for (
-                                struct_type.field_names.get(ip),
-                                struct_type.field_types.get(ip),
-                                struct_type.offsets.get(ip),
-                            ) |field_name_ip, field_ty, field_off| {
-                                if (!field_ty.toType().hasRuntimeBits(mod)) continue;
-                                const field_name = ip.stringToSlice(field_name_ip);
-                                // DW.AT.member
-                                try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
-                                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
-                                // DW.AT.name, DW.FORM.string
-                                dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                                dbg_info_buffer.appendAssumeCapacity(0);
-                                // DW.AT.type, DW.FORM.ref4
-                                var index = dbg_info_buffer.items.len;
-                                try dbg_info_buffer.resize(index + 4);
-                                try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
-                                // DW.AT.data_member_location, DW.FORM.udata
-                                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                        },
+                        .struct_type => |struct_type| {
+                            // DW.AT.name, DW.FORM.string
+                            try ty.print(dbg_info_buffer.writer(), mod);
+                            try dbg_info_buffer.append(0);
+
+                            if (struct_type.layout == .Packed) {
+                                log.debug("TODO implement .debug_info for packed structs", .{});
+                                break :blk;
                             }
-                        }
-                    },
-                    else => unreachable,
+
+                            if (struct_type.isTuple(ip)) {
+                                for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
+                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    // DW.AT.member
+                                    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                                    // DW.AT.name, DW.FORM.string
+                                    try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
+                                    // DW.AT.type, DW.FORM.ref4
+                                    var index = dbg_info_buffer.items.len;
+                                    try dbg_info_buffer.resize(index + 4);
+                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @as(u32, @intCast(index)));
+                                    // DW.AT.data_member_location, DW.FORM.udata
+                                    try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                                }
+                            } else {
+                                for (
+                                    struct_type.field_names.get(ip),
+                                    struct_type.field_types.get(ip),
+                                    struct_type.offsets.get(ip),
+                                ) |field_name_ip, field_ty, field_off| {
+                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    const field_name = ip.stringToSlice(field_name_ip);
+                                    // DW.AT.member
+                                    try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                                    // DW.AT.name, DW.FORM.string
+                                    dbg_info_buffer.appendSliceAssumeCapacity(field_name);
+                                    dbg_info_buffer.appendAssumeCapacity(0);
+                                    // DW.AT.type, DW.FORM.ref4
+                                    var index = dbg_info_buffer.items.len;
+                                    try dbg_info_buffer.resize(index + 4);
+                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                    // DW.AT.data_member_location, DW.FORM.udata
+                                    try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                                }
+                            }
+                        },
+                        else => unreachable,
+                    }
                 }
 
                 // DW.AT.structure_type delimit children
@@ -832,11 +800,25 @@ pub const DeclState = struct {
                     try dbg_info.append(DW.OP.deref);
                 }
                 switch (loc) {
-                    .linker_load => |load_struct| try self.addExprlocReloc(
-                        load_struct.sym_index,
-                        offset,
-                        is_ptr,
-                    ),
+                    .linker_load => |load_struct| switch (load_struct.type) {
+                        .direct => {
+                            log.debug("{x}: target sym %{d}", .{ offset, load_struct.sym_index });
+                            try self.exprloc_relocs.append(self.gpa, .{
+                                .type = .direct_load,
+                                .target = load_struct.sym_index,
+                                .offset = offset,
+                            });
+                        },
+                        .got => {
+                            log.debug("{x}: target sym %{d} via GOT", .{ offset, load_struct.sym_index });
+                            try self.exprloc_relocs.append(self.gpa, .{
+                                .type = .got_load,
+                                .target = load_struct.sym_index,
+                                .offset = offset,
+                            });
+                        },
+                        else => {}, // TODO
+                    },
                     else => {},
                 }
             },
@@ -983,17 +965,17 @@ const min_nop_size = 2;
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
 
-pub fn init(allocator: Allocator, bin_file: *File, target: std.Target) Dwarf {
-    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
+pub fn init(allocator: Allocator, bin_file: *File, format: Format) Dwarf {
+    const ptr_width: PtrWidth = switch (bin_file.options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => unreachable,
     };
-    return Dwarf{
+    return .{
         .allocator = allocator,
         .bin_file = bin_file,
+        .format = format,
         .ptr_width = ptr_width,
-        .target = target,
     };
 }
 
@@ -1129,7 +1111,7 @@ pub fn commitDeclState(
     const decl = mod.declPtr(decl_index);
     const ip = &mod.intern_pool;
 
-    const target_endian = self.target.cpu.arch.endian();
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
 
     assert(decl.has_tv);
     switch (decl.ty.zigTypeTag(mod)) {
@@ -1788,8 +1770,6 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.count,          DW.FORM.udata,
         0,
         0, // table sentinel
-        0,
-        0,
         0, // section sentinel
     };
     const abbrev_offset = 0;
@@ -1839,12 +1819,10 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
     defer di_buf.deinit();
 
-    const target_endian = self.target.cpu.arch.endian();
-    const init_len_size: usize = if (self.bin_file.tag == .macho)
-        4
-    else switch (self.ptr_width) {
-        .p32 => @as(usize, 4),
-        .p64 => 12,
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const init_len_size: usize = switch (self.format) {
+        .dwarf32 => 4,
+        .dwarf64 => 12,
     };
 
     // initial length - length of the .debug_info contribution for this compilation unit,
@@ -1852,33 +1830,17 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     // We have to come back and write it later after we know the size.
     const after_init_len = di_buf.items.len + init_len_size;
     const dbg_info_end = self.getDebugInfoEnd().?;
-    const init_len = dbg_info_end - after_init_len;
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(init_len)));
-    } else switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(init_len)), target_endian);
-        },
-        .p64 => {
-            di_buf.appendNTimesAssumeCapacity(0xff, 4);
-            mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
-        },
-    }
+    const init_len = dbg_info_end - after_init_len + 1;
+
+    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
+    self.writeOffsetAssumeCapacity(&di_buf, init_len);
+
     mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // DWARF version
     const abbrev_offset = self.abbrev_table_offset.?;
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(abbrev_offset)));
-        di_buf.appendAssumeCapacity(8); // address size
-    } else switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(abbrev_offset)), target_endian);
-            di_buf.appendAssumeCapacity(4); // address size
-        },
-        .p64 => {
-            mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset, target_endian);
-            di_buf.appendAssumeCapacity(8); // address size
-        },
-    }
+
+    self.writeOffsetAssumeCapacity(&di_buf, abbrev_offset);
+    di_buf.appendAssumeCapacity(self.ptrWidthBytes()); // address size
+
     // Write the form for the compile unit, which must match the abbrev table above.
     const name_strp = try self.strtab.insert(self.allocator, module.root_mod.root_src_path);
     var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -1887,21 +1849,13 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
 
     di_buf.appendAssumeCapacity(@intFromEnum(AbbrevKind.compile_unit));
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // DW.AT.stmt_list, DW.FORM.sec_offset
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), low_pc);
-        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), high_pc);
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(name_strp)));
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(comp_dir_strp)));
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(producer_strp)));
-    } else {
-        self.writeAddrAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
-        self.writeAddrAssumeCapacity(&di_buf, low_pc);
-        self.writeAddrAssumeCapacity(&di_buf, high_pc);
-        self.writeAddrAssumeCapacity(&di_buf, name_strp);
-        self.writeAddrAssumeCapacity(&di_buf, comp_dir_strp);
-        self.writeAddrAssumeCapacity(&di_buf, producer_strp);
-    }
+    self.writeOffsetAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
+    self.writeAddrAssumeCapacity(&di_buf, low_pc);
+    self.writeAddrAssumeCapacity(&di_buf, high_pc);
+    self.writeOffsetAssumeCapacity(&di_buf, name_strp);
+    self.writeOffsetAssumeCapacity(&di_buf, comp_dir_strp);
+    self.writeOffsetAssumeCapacity(&di_buf, producer_strp);
+
     // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
     // http://dwarfstd.org/ShowIssue.php?issue=171115.1
     // Until then we say it is C99.
@@ -1954,10 +1908,23 @@ fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []
 }
 
 fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target_endian = self.target.cpu.arch.endian();
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
         .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
+    }
+}
+
+fn writeOffsetAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), off: u64) void {
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    switch (self.format) {
+        .dwarf32 => mem.writeInt(
+            u32,
+            buf.addManyAsArrayAssumeCapacity(4),
+            @as(u32, @intCast(off)),
+            target_endian,
+        ),
+        .dwarf64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), off, target_endian),
     }
 }
 
@@ -2176,13 +2143,7 @@ fn writeDbgInfoNopsToArrayList(
 }
 
 pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
-    const target_endian = self.target.cpu.arch.endian();
-    const init_len_size: usize = if (self.bin_file.tag == .macho)
-        4
-    else switch (self.ptr_width) {
-        .p32 => @as(usize, 4),
-        .p64 => 12,
-    };
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
     const ptr_width_bytes = self.ptrWidthBytes();
 
     // Enough for all the data without resizing. When support for more compilation units
@@ -2193,17 +2154,15 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     // initial length - length of the .debug_aranges contribution for this compilation unit,
     // not including the initial length itself.
     // We have to come back and write it later after we know the size.
+    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
     const init_len_index = di_buf.items.len;
-    di_buf.items.len += init_len_size;
+    self.writeOffsetAssumeCapacity(&di_buf, 0);
     const after_init_len = di_buf.items.len;
     mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2, target_endian); // version
+
     // When more than one compilation unit is supported, this will be the offset to it.
     // For now it is always at offset 0 in .debug_info.
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0); // __debug_info offset
-    } else {
-        self.writeAddrAssumeCapacity(&di_buf, 0); // .debug_info offset
-    }
+    self.writeOffsetAssumeCapacity(&di_buf, 0); // .debug_info offset
     di_buf.appendAssumeCapacity(ptr_width_bytes); // address_size
     di_buf.appendAssumeCapacity(0); // segment_selector_size
 
@@ -2222,18 +2181,14 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
 
     // Go back and populate the initial length.
     const init_len = di_buf.items.len - after_init_len;
-    if (self.bin_file.tag == .macho) {
-        mem.writeIntLittle(u32, di_buf.items[init_len_index..][0..4], @as(u32, @intCast(init_len)));
-    } else switch (self.ptr_width) {
-        .p32 => {
-            mem.writeInt(u32, di_buf.items[init_len_index..][0..4], @as(u32, @intCast(init_len)), target_endian);
-        },
-        .p64 => {
-            // initial length - length of the .debug_aranges contribution for this compilation unit,
-            // not including the initial length itself.
-            di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
-            mem.writeInt(u64, di_buf.items[init_len_index + 4 ..][0..8], init_len, target_endian);
-        },
+    switch (self.format) {
+        .dwarf32 => mem.writeInt(
+            u32,
+            di_buf.items[init_len_index..][0..4],
+            @as(u32, @intCast(init_len)),
+            target_endian,
+        ),
+        .dwarf64 => mem.writeInt(u64, di_buf.items[init_len_index..][0..8], init_len, target_endian),
     }
 
     const needed_size = @as(u32, @intCast(di_buf.items.len));
@@ -2267,13 +2222,10 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
 pub fn writeDbgLineHeader(self: *Dwarf) !void {
     const gpa = self.allocator;
 
-    const ptr_width_bytes: u8 = self.ptrWidthBytes();
-    const target_endian = self.target.cpu.arch.endian();
-    const init_len_size: usize = if (self.bin_file.tag == .macho)
-        4
-    else switch (self.ptr_width) {
-        .p32 => @as(usize, 4),
-        .p64 => 12,
+    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const init_len_size: usize = switch (self.format) {
+        .dwarf32 => 4,
+        .dwarf64 => 12,
     };
 
     const dbg_line_prg_off = self.getDebugLineProgramOff() orelse return;
@@ -2291,25 +2243,8 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     var di_buf = try std.ArrayList(u8).initCapacity(gpa, needed_bytes);
     defer di_buf.deinit();
 
-    // initial length - length of the .debug_line contribution for this compilation unit,
-    // not including the initial length itself.
-    // We will backpatch this value later so just remember where we need to write it.
-    const before_init_len = di_buf.items.len;
-
-    switch (self.bin_file.tag) {
-        .macho => {
-            mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, 0));
-        },
-        else => switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @as(u32, 0), target_endian);
-            },
-            .p64 => {
-                di_buf.appendNTimesAssumeCapacity(0xff, 4);
-                mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), @as(u64, 0), target_endian);
-            },
-        },
-    }
+    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
+    self.writeOffsetAssumeCapacity(&di_buf, 0);
 
     mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // version
 
@@ -2318,12 +2253,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
     // padding rather than this field.
     const before_header_len = di_buf.items.len;
-
-    di_buf.items.len += switch (self.bin_file.tag) { // We will come back and write this.
-        .macho => @sizeOf(u32),
-        else => ptr_width_bytes,
-    };
-
+    self.writeOffsetAssumeCapacity(&di_buf, 0); // We will come back and write this.
     const after_header_len = di_buf.items.len;
 
     const opcode_base = DW.LNS.set_isa + 1;
@@ -2360,7 +2290,11 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
 
     for (paths.files, 0..) |file, i| {
         const dir_index = paths.files_dirs_indexes[i];
-        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{ i + 1, file, dir_index + 1 });
+        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{
+            i + 1,
+            file,
+            dir_index + 1,
+        });
         di_buf.appendSliceAssumeCapacity(file);
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
@@ -2372,19 +2306,14 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     di_buf.appendAssumeCapacity(0); // file names sentinel
 
     const header_len = di_buf.items.len - after_header_len;
-
-    switch (self.bin_file.tag) {
-        .macho => {
-            mem.writeIntLittle(u32, di_buf.items[before_header_len..][0..4], @as(u32, @intCast(header_len)));
-        },
-        else => switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @as(u32, @intCast(header_len)), target_endian);
-            },
-            .p64 => {
-                mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian);
-            },
-        },
+    switch (self.format) {
+        .dwarf32 => mem.writeInt(
+            u32,
+            di_buf.items[before_header_len..][0..4],
+            @as(u32, @intCast(header_len)),
+            target_endian,
+        ),
+        .dwarf64 => mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian),
     }
 
     assert(needed_bytes == di_buf.items.len);
@@ -2452,18 +2381,13 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
     }
 
     // Backpatch actual length of the debug line program
-    const init_len = self.getDebugLineProgramEnd().? - before_init_len - init_len_size;
-    switch (self.bin_file.tag) {
-        .macho => {
-            mem.writeIntLittle(u32, di_buf.items[before_init_len..][0..4], @as(u32, @intCast(init_len)));
+    const init_len = self.getDebugLineProgramEnd().? - init_len_size;
+    switch (self.format) {
+        .dwarf32 => {
+            mem.writeInt(u32, di_buf.items[0..4], @as(u32, @intCast(init_len)), target_endian);
         },
-        else => switch (self.ptr_width) {
-            .p32 => {
-                mem.writeInt(u32, di_buf.items[before_init_len..][0..4], @as(u32, @intCast(init_len)), target_endian);
-            },
-            .p64 => {
-                mem.writeInt(u64, di_buf.items[before_init_len + 4 ..][0..8], init_len, target_endian);
-            },
+        .dwarf64 => {
+            mem.writeInt(u64, di_buf.items[4..][0..8], init_len, target_endian);
         },
     }
 
@@ -2500,7 +2424,7 @@ fn getDebugInfoOff(self: Dwarf) ?u32 {
 fn getDebugInfoEnd(self: Dwarf) ?u32 {
     const last_index = self.di_atom_last_index orelse return null;
     const last = self.getAtom(.di_atom, last_index);
-    return last.off + last.len + 1;
+    return last.off + last.len;
 }
 
 fn getDebugLineProgramOff(self: Dwarf) ?u32 {
@@ -2524,17 +2448,14 @@ fn ptrWidthBytes(self: Dwarf) u8 {
 }
 
 fn dbgLineNeededHeaderBytes(self: Dwarf, dirs: []const []const u8, files: []const []const u8) u32 {
-    var size = switch (self.bin_file.tag) { // length field
-        .macho => @sizeOf(u32),
-        else => switch (self.ptr_width) {
-            .p32 => @as(usize, @sizeOf(u32)),
-            .p64 => @sizeOf(u32) + @sizeOf(u64),
-        },
+    var size: usize = switch (self.format) { // length field
+        .dwarf32 => @as(usize, 4),
+        .dwarf64 => 12,
     };
     size += @sizeOf(u16); // version field
-    size += switch (self.bin_file.tag) { // offset to end-of-header
-        .macho => @sizeOf(u32),
-        else => self.ptrWidthBytes(),
+    size += switch (self.format) { // offset to end-of-header
+        .dwarf32 => @as(usize, 4),
+        .dwarf64 => 8,
     };
     size += 18; // opcodes
 
@@ -2570,6 +2491,8 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 pub fn flushModule(self: *Dwarf, module: *Module) !void {
+    const target = self.bin_file.options.target;
+
     if (self.global_abbrev_relocs.items.len > 0) {
         const gpa = self.allocator;
         var arena_alloc = std.heap.ArenaAllocator.init(gpa);
@@ -2581,7 +2504,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
             module,
             Type.anyerror,
             module.global_error_set.keys(),
-            self.target,
+            target,
             &dbg_info_buffer,
         );
 
@@ -2610,7 +2533,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         };
 
         var buf: [@sizeOf(u32)]u8 = undefined;
-        mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, self.target.cpu.arch.endian());
+        mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, target.cpu.arch.endian());
 
         while (self.global_abbrev_relocs.popOrNull()) |reloc| {
             const atom = self.getAtom(.di_atom, reloc.atom_index);
@@ -2670,21 +2593,18 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
     try files_dir_indexes.ensureTotalCapacity(self.di_files.count());
 
     for (self.di_files.keys()) |dif| {
-        const dir_path = d: {
-            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const dir_path = try dif.mod.root.joinString(arena, dif.mod.root.sub_path);
-            const abs_dir_path = if (std.fs.path.isAbsolute(dir_path))
-                dir_path
-            else
-                std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
-            break :d try std.fs.path.join(arena, &.{
-                abs_dir_path, std.fs.path.dirname(dif.sub_file_path) orelse "",
-            });
-        };
-        const sub_file_path = try arena.dupe(u8, std.fs.path.basename(dif.sub_file_path));
+        const full_path = try dif.mod.root.joinString(arena, dif.sub_file_path);
+        const dir_path = std.fs.path.dirname(full_path) orelse ".";
+        const sub_file_path = std.fs.path.basename(full_path);
+        // TODO re-investigate if realpath is needed here
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const resolved = if (!std.fs.path.isAbsolute(dir_path))
+            std.os.realpath(dir_path, &buffer) catch dir_path
+        else
+            dir_path;
 
         const dir_index: u28 = blk: {
-            const dirs_gop = dirs.getOrPutAssumeCapacity(dir_path);
+            const dirs_gop = dirs.getOrPutAssumeCapacity(try arena.dupe(u8, resolved));
             break :blk @as(u28, @intCast(dirs_gop.index + 1));
         };
 
@@ -2813,3 +2733,33 @@ fn getAtomPtr(self: *Dwarf, comptime kind: Kind, index: Atom.Index) *Atom {
         .di_atom => &self.di_atoms.items[index],
     };
 }
+
+pub const Format = enum {
+    dwarf32,
+    dwarf64,
+};
+
+const Dwarf = @This();
+
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const fs = std.fs;
+const leb128 = std.leb;
+const log = std.log.scoped(.dwarf);
+const mem = std.mem;
+
+const link = @import("../link.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const DW = std.dwarf;
+const File = link.File;
+const LinkBlock = File.LinkBlock;
+const LinkFn = File.LinkFn;
+const LinkerLoad = @import("../codegen.zig").LinkerLoad;
+const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
+const StringTable = @import("strtab.zig").StringTable;
+const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;

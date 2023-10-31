@@ -916,6 +916,7 @@ test "big.int mul multi-single" {
 
 test "big.int mul multi-multi" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1037,6 +1038,7 @@ test "big.int mulWrap single-single signed" {
 
 test "big.int mulWrap multi-multi unsigned" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1053,7 +1055,10 @@ test "big.int mulWrap multi-multi unsigned" {
 }
 
 test "big.int mulWrap multi-multi signed" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    switch (builtin.zig_backend) {
+        .stage2_c => return error.SkipZigTest,
+        else => {},
+    }
 
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb) - 1);
     defer a.deinit();
@@ -1684,6 +1689,7 @@ test "big.int div multi-multi (2 branch)" {
 
 test "big.int div multi-multi (3.1/3.3 branch)" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x11111111111111111111111111111111111111111111111111111111111111);
     defer a.deinit();
@@ -2097,6 +2103,8 @@ test "big.int sat shift-left signed simple positive" {
 }
 
 test "big.int sat shift-left signed multi positive" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var x: SignedDoubleLimb = 1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
@@ -2108,6 +2116,8 @@ test "big.int sat shift-left signed multi positive" {
 }
 
 test "big.int sat shift-left signed multi negative" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var x: SignedDoubleLimb = -1;
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
@@ -2508,6 +2518,7 @@ test "big.int gcd non-one large" {
 
 test "big.int gcd large multi-limb result" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x12345678123456781234567812345678123456781234567812345678);
     defer a.deinit();
@@ -2557,6 +2568,8 @@ test "big.int const to managed" {
 }
 
 test "big.int pow" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     {
         var a = try Managed.initSet(testing.allocator, -3);
         defer a.deinit();
@@ -2750,6 +2763,8 @@ fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
 }
 
 test "big int conversion read/write twos complement" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
@@ -2848,6 +2863,8 @@ test "big int write twos complement +/- zero" {
 }
 
 test "big int conversion write twos complement with padding" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
     defer a.deinit();
 

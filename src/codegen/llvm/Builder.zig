@@ -159,7 +159,6 @@ pub const Type = enum(u32) {
     none = std.math.maxInt(u32),
     _,
 
-    pub const err_int = Type.i16;
     pub const ptr_amdgpu_constant =
         @field(Type, std.fmt.comptimePrint("ptr{ }", .{AddrSpace.amdgpu.constant}));
 
@@ -2475,6 +2474,12 @@ pub const Variable = struct {
             if (builder.useLibLlvm())
                 self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
             self.ptr(builder).alignment = alignment;
+        }
+
+        pub fn getAlignment(self: Index, builder: *Builder) Alignment {
+            if (builder.useLibLlvm())
+                return Alignment.fromByteUnits(self.toLlvm(builder).getAlignment());
+            return self.ptr(builder).alignment;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {
@@ -7999,11 +8004,13 @@ pub fn init(options: Options) InitError!Builder {
     assert(try self.string("") == .empty);
 
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
-    self.initializeLLVMTarget(options.target.cpu.arch);
-    if (self.useLibLlvm()) self.llvm.module = llvm.Module.createWithName(
-        (self.source_filename.slice(&self) orelse ""),
-        self.llvm.context,
-    );
+    if (self.useLibLlvm()) {
+        initializeLLVMTarget(options.target.cpu.arch);
+        self.llvm.module = llvm.Module.createWithName(
+            (self.source_filename.slice(&self) orelse ""),
+            self.llvm.context,
+        );
+    }
 
     if (options.triple.len > 0) {
         self.target_triple = try self.string(options.triple);
@@ -8117,8 +8124,7 @@ pub fn deinit(self: *Builder) void {
     self.* = undefined;
 }
 
-pub fn initializeLLVMTarget(self: *const Builder, arch: std.Target.Cpu.Arch) void {
-    if (!self.useLibLlvm()) return;
+pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             llvm.LLVMInitializeAArch64Target();
@@ -10462,7 +10468,7 @@ fn bigIntConstAssumeCapacity(
                         const overflow = @subWithOverflow(borrow, llvm_limb);
                         llvm_limb = overflow[0];
                         borrow -%= overflow[1];
-                        assert(borrow == 0 or borrow == std.math.maxInt(u64));
+                        assert(borrow == 0 or borrow == std.math.maxInt(std.math.big.Limb));
                     }
                     result_limb.* = llvm_limb;
                 }

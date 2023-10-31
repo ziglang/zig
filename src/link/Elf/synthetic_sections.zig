@@ -54,7 +54,7 @@ pub const DynamicSection = struct {
         if (elf_file.base.options.z_now) {
             flags_1 |= elf.DF_1_NOW;
         }
-        if (elf_file.base.options.pie) {
+        if (elf_file.isExe() and elf_file.base.options.pie) {
             flags_1 |= elf.DF_1_PIE;
         }
         // if (elf_file.base.options.z_nodlopen) {
@@ -226,7 +226,7 @@ pub const ZigGotSection = struct {
     flags: Flags = .{},
 
     const Flags = packed struct {
-        needs_rela: bool = false, // TODO in prep for PIC/PIE and base relocations
+        needs_rela: bool = false,
         dirty: bool = false,
     };
 
@@ -251,7 +251,7 @@ pub const ZigGotSection = struct {
         entry.* = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_zig_got = true;
-        if (elf_file.base.options.pic) {
+        if (elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) {
             zig_got.flags.needs_rela = true;
         }
         if (symbol.extra(elf_file)) |extra| {
@@ -491,7 +491,7 @@ pub const GotSection = struct {
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_got = true;
         if (symbol.flags.import or symbol.isIFunc(elf_file) or
-            (elf_file.base.options.pic and !symbol.isAbs(elf_file)))
+            ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and !symbol.isAbs(elf_file)))
         {
             got.flags.needs_rela = true;
         }
@@ -582,8 +582,11 @@ pub const GotSection = struct {
                         if (symbol.?.flags.import) break :blk 0;
                         if (symbol.?.isIFunc(elf_file))
                             break :blk if (apply_relocs) value else 0;
-                        if (elf_file.base.options.pic and !symbol.?.isAbs(elf_file))
+                        if ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                            !symbol.?.isAbs(elf_file))
+                        {
                             break :blk if (apply_relocs) value else 0;
+                        }
                         break :blk value;
                     };
                     try writeInt(value, elf_file, writer);
@@ -655,7 +658,9 @@ pub const GotSection = struct {
                         });
                         continue;
                     }
-                    if (elf_file.base.options.pic and !symbol.?.isAbs(elf_file)) {
+                    if ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                        !symbol.?.isAbs(elf_file))
+                    {
                         elf_file.addRelaDynAssumeCapacity(.{
                             .offset = offset,
                             .type = elf.R_X86_64_RELATIVE,
@@ -734,8 +739,9 @@ pub const GotSection = struct {
                 inline else => elf_file.symbol(entry.symbol_index),
             };
             switch (entry.tag) {
-                .got => if (symbol.?.flags.import or
-                    symbol.?.isIFunc(elf_file) or (elf_file.base.options.pic and !symbol.?.isAbs(elf_file)))
+                .got => if (symbol.?.flags.import or symbol.?.isIFunc(elf_file) or
+                    ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                    !symbol.?.isAbs(elf_file)))
                 {
                     num += 1;
                 },

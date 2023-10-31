@@ -6,10 +6,8 @@
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
 
 const std = @import("std");
-const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
-const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
 pub const panic = common.panic;

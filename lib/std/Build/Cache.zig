@@ -1072,6 +1072,7 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1193,6 +1194,7 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 

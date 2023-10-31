@@ -242,7 +242,7 @@ pub fn LinearFifo(
             return self.buf.len - self.count;
         }
 
-        /// Returns the first section of writable buffer
+        /// Returns the first section of writable buffer.
         /// Note that this may be of length 0
         pub fn writableSlice(self: SliceSelfArg, offset: usize) []T {
             if (offset > self.buf.len) return &[_]T{};
@@ -371,8 +371,8 @@ pub fn LinearFifo(
             return self.buf[index];
         }
 
-        /// Pump data from a reader into a writer
-        /// stops when reader returns 0 bytes (EOF)
+        /// Pump data from a reader into a writer.
+        /// Stops when reader returns 0 bytes (EOF).
         /// Buffer size must be set before calling; a buffer length of 0 is invalid.
         pub fn pump(self: *Self, src_reader: anytype, dest_writer: anytype) !void {
             assert(self.buf.len > 0);

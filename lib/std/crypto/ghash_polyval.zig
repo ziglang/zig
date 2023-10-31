@@ -422,6 +422,8 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
 const htest = @import("test.zig");
 
 test "ghash" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     const key = [_]u8{0x42} ** 16;
     const m = [_]u8{0x69} ** 256;
 
@@ -439,6 +441,8 @@ test "ghash" {
 }
 
 test "ghash2" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var key: [16]u8 = undefined;
     var i: usize = 0;
     while (i < key.len) : (i += 1) {

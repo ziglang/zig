@@ -1,5 +1,6 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 
@@ -203,8 +204,8 @@ pub const Base64Decoder = struct {
     }
 
     /// dest.len must be what you get from ::calcSize.
-    /// invalid characters result in error.InvalidCharacter.
-    /// invalid padding results in error.InvalidPadding.
+    /// Invalid characters result in `error.InvalidCharacter`.
+    /// Invalid padding results in `error.InvalidPadding`.
     pub fn decode(decoder: *const Base64Decoder, dest: []u8, source: []const u8) Error!void {
         if (decoder.pad_char != null and source.len % 4 != 0) return error.InvalidPadding;
         var dest_idx: usize = 0;
@@ -291,7 +292,7 @@ pub const Base64DecoderWithIgnore = struct {
         return result;
     }
 
-    /// Return the maximum possible decoded size for a given input length - The actual length may be less if the input includes padding
+    /// Return the maximum possible decoded size for a given input length - The actual length may be less if the input includes padding.
     /// `InvalidPadding` is returned if the input length is not valid.
     pub fn calcSizeUpperBound(decoder_with_ignore: *const Base64DecoderWithIgnore, source_len: usize) Error!usize {
         var result = source_len / 4 * 3;
@@ -354,6 +355,8 @@ pub const Base64DecoderWithIgnore = struct {
 };
 
 test "base64" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     @setEvalBranchQuota(8000);
     try testBase64();
     try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
@@ -374,6 +377,8 @@ test "base64 padding dest overflow" {
 }
 
 test "base64 url_safe_no_pad" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
     try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");

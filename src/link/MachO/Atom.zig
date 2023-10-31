@@ -300,7 +300,7 @@ pub fn resolveRelocations(
     relocs: []*const Relocation,
     code: []u8,
 ) void {
-    log.debug("relocating '{s}'", .{macho_file.getAtom(atom_index).getName(macho_file)});
+    relocs_log.debug("relocating '{s}'", .{macho_file.getAtom(atom_index).getName(macho_file)});
     for (relocs) |reloc| {
         reloc.resolve(macho_file, atom_index, code);
     }
@@ -603,7 +603,7 @@ pub fn resolveRelocs(
     const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
-    log.debug("resolving relocations in ATOM(%{d}, '{s}')", .{
+    relocs_log.debug("resolving relocations in ATOM(%{d}, '{s}')", .{
         atom.sym_index,
         macho_file.getSymbolName(atom.getSymbolWithLoc()),
     });
@@ -683,7 +683,7 @@ fn resolveRelocsArm64(
             .ARM64_RELOC_ADDEND => {
                 assert(addend == null);
 
-                log.debug("  RELA({s}) @ {x} => {x}", .{ @tagName(rel_type), rel.r_address, rel.r_symbolnum });
+                relocs_log.debug("  RELA({s}) @ {x} => {x}", .{ @tagName(rel_type), rel.r_address, rel.r_symbolnum });
 
                 addend = rel.r_symbolnum;
                 continue;
@@ -691,7 +691,7 @@ fn resolveRelocsArm64(
             .ARM64_RELOC_SUBTRACTOR => {
                 assert(subtractor == null);
 
-                log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
+                relocs_log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
                     @tagName(rel_type),
                     rel.r_address,
                     rel.r_symbolnum,
@@ -719,7 +719,7 @@ fn resolveRelocsArm64(
         });
         const rel_offset = @as(u32, @intCast(rel.r_address - context.base_offset));
 
-        log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
+        relocs_log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
@@ -745,11 +745,11 @@ fn resolveRelocsArm64(
             break :blk getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
-        log.debug("    | source_addr = 0x{x}", .{source_addr});
+        relocs_log.debug("    | source_addr = 0x{x}", .{source_addr});
 
         switch (rel_type) {
             .ARM64_RELOC_BRANCH26 => {
-                log.debug("  source {s} (object({?})), target {s}", .{
+                relocs_log.debug("  source {s} (object({?})), target {s}", .{
                     macho_file.getSymbolName(atom.getSymbolWithLoc()),
                     atom.getFile(),
                     macho_file.getSymbolName(target),
@@ -759,7 +759,7 @@ fn resolveRelocsArm64(
                     source_addr,
                     target_addr,
                 )) |disp| blk: {
-                    log.debug("    | target_addr = 0x{x}", .{target_addr});
+                    relocs_log.debug("    | target_addr = 0x{x}", .{target_addr});
                     break :blk disp;
                 } else |_| blk: {
                     const thunk_index = macho_file.thunk_table.get(atom_index).?;
@@ -769,7 +769,7 @@ fn resolveRelocsArm64(
                     else
                         thunk.getTrampoline(macho_file, .atom, target).?;
                     const thunk_addr = macho_file.getSymbol(thunk_sym_loc).n_value;
-                    log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_addr});
+                    relocs_log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_addr});
                     break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_addr);
                 };
 
@@ -790,7 +790,7 @@ fn resolveRelocsArm64(
             => {
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const pages = @as(u21, @bitCast(Relocation.calcNumberOfPages(source_addr, adjusted_target_addr)));
                 const code = atom_code[rel_offset..][0..4];
@@ -809,7 +809,7 @@ fn resolveRelocsArm64(
             .ARM64_RELOC_PAGEOFF12 => {
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const code = atom_code[rel_offset..][0..4];
                 if (Relocation.isArithmeticOp(code)) {
@@ -848,7 +848,7 @@ fn resolveRelocsArm64(
                 const code = atom_code[rel_offset..][0..4];
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const off = try Relocation.calcPageOffset(adjusted_target_addr, .load_store_64);
                 var inst: aarch64.Instruction = .{
@@ -866,7 +866,7 @@ fn resolveRelocsArm64(
                 const code = atom_code[rel_offset..][0..4];
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + (addend orelse 0)));
 
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const RegInfo = struct {
                     rd: u5,
@@ -923,7 +923,7 @@ fn resolveRelocsArm64(
             },
 
             .ARM64_RELOC_POINTER_TO_GOT => {
-                log.debug("    | target_addr = 0x{x}", .{target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{target_addr});
                 const result = math.cast(i32, @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr))) orelse
                     return error.Overflow;
                 mem.writeIntLittle(u32, atom_code[rel_offset..][0..4], @as(u32, @bitCast(result)));
@@ -951,7 +951,7 @@ fn resolveRelocsArm64(
                         break :blk @as(i64, @intCast(target_addr)) + ptr_addend;
                     }
                 };
-                log.debug("    | target_addr = 0x{x}", .{result});
+                relocs_log.debug("    | target_addr = 0x{x}", .{result});
 
                 if (rel.r_length == 3) {
                     mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @as(u64, @bitCast(result)));
@@ -987,7 +987,7 @@ fn resolveRelocsX86(
             .X86_64_RELOC_SUBTRACTOR => {
                 assert(subtractor == null);
 
-                log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
+                relocs_log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
                     @tagName(rel_type),
                     rel.r_address,
                     rel.r_symbolnum,
@@ -1015,7 +1015,7 @@ fn resolveRelocsX86(
         });
         const rel_offset = @as(u32, @intCast(rel.r_address - context.base_offset));
 
-        log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
+        relocs_log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
@@ -1041,13 +1041,13 @@ fn resolveRelocsX86(
             break :blk getRelocTargetAddress(macho_file, target, is_tlv);
         };
 
-        log.debug("    | source_addr = 0x{x}", .{source_addr});
+        relocs_log.debug("    | source_addr = 0x{x}", .{source_addr});
 
         switch (rel_type) {
             .X86_64_RELOC_BRANCH => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
@@ -1057,7 +1057,7 @@ fn resolveRelocsX86(
             => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
@@ -1065,7 +1065,7 @@ fn resolveRelocsX86(
             .X86_64_RELOC_TLV => {
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
                 if (macho_file.tlv_ptr_table.lookup.get(target) == null) {
@@ -1101,7 +1101,7 @@ fn resolveRelocsX86(
 
                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
 
-                log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
+                relocs_log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
@@ -1129,7 +1129,7 @@ fn resolveRelocsX86(
                         break :blk @as(i64, @intCast(target_addr)) + addend;
                     }
                 };
-                log.debug("    | target_addr = 0x{x}", .{result});
+                relocs_log.debug("    | target_addr = 0x{x}", .{result});
 
                 if (rel.r_length == 3) {
                     mem.writeIntLittle(u64, atom_code[rel_offset..][0..8], @as(u64, @bitCast(result)));
@@ -1247,6 +1247,7 @@ const build_options = @import("build_options");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;

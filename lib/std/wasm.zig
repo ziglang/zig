@@ -216,7 +216,7 @@ test "Wasm - opcodes" {
     try testing.expectEqual(@as(u16, 0xC4), i64_extend32_s);
 }
 
-/// Opcodes that require a prefix `0xFC`
+/// Opcodes that require a prefix `0xFC`.
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
 pub const MiscOpcode = enum(u32) {
@@ -793,7 +793,7 @@ pub fn section(val: Section) u8 {
     return @intFromEnum(val);
 }
 
-/// The kind of the type when importing or exporting to/from the host environment
+/// The kind of the type when importing or exporting to/from the host environment.
 /// https://webassembly.github.io/spec/core/syntax/modules.html
 pub const ExternalKind = enum(u8) {
     function,

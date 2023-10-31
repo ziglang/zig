@@ -274,7 +274,7 @@ pub const LibCInstallation = struct {
             dev_null,
         });
 
-        const exec_res = std.ChildProcess.exec(.{
+        const run_res = std.ChildProcess.run(.{
             .allocator = allocator,
             .argv = argv.items,
             .max_output_bytes = 1024 * 1024,
@@ -292,21 +292,21 @@ pub const LibCInstallation = struct {
             },
         };
         defer {
-            allocator.free(exec_res.stdout);
-            allocator.free(exec_res.stderr);
+            allocator.free(run_res.stdout);
+            allocator.free(run_res.stderr);
         }
-        switch (exec_res.term) {
+        switch (run_res.term) {
             .Exited => |code| if (code != 0) {
-                printVerboseInvocation(argv.items, null, args.verbose, exec_res.stderr);
+                printVerboseInvocation(argv.items, null, args.verbose, run_res.stderr);
                 return error.CCompilerExitCode;
             },
             else => {
-                printVerboseInvocation(argv.items, null, args.verbose, exec_res.stderr);
+                printVerboseInvocation(argv.items, null, args.verbose, run_res.stderr);
                 return error.CCompilerCrashed;
             },
         }
 
-        var it = std.mem.tokenizeAny(u8, exec_res.stderr, "\n\r");
+        var it = std.mem.tokenizeAny(u8, run_res.stderr, "\n\r");
         var search_paths = std.ArrayList([]const u8).init(allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
@@ -596,7 +596,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     try appendCcExe(&argv, skip_cc_env_var);
     try argv.append(arg1);
 
-    const exec_res = std.ChildProcess.exec(.{
+    const run_res = std.ChildProcess.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
@@ -611,21 +611,21 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
         else => return error.UnableToSpawnCCompiler,
     };
     defer {
-        allocator.free(exec_res.stdout);
-        allocator.free(exec_res.stderr);
+        allocator.free(run_res.stdout);
+        allocator.free(run_res.stderr);
     }
-    switch (exec_res.term) {
+    switch (run_res.term) {
         .Exited => |code| if (code != 0) {
-            printVerboseInvocation(argv.items, args.search_basename, args.verbose, exec_res.stderr);
+            printVerboseInvocation(argv.items, args.search_basename, args.verbose, run_res.stderr);
             return error.CCompilerExitCode;
         },
         else => {
-            printVerboseInvocation(argv.items, args.search_basename, args.verbose, exec_res.stderr);
+            printVerboseInvocation(argv.items, args.search_basename, args.verbose, run_res.stderr);
             return error.CCompilerCrashed;
         },
     }
 
-    var it = std.mem.tokenizeAny(u8, exec_res.stdout, "\n\r");
+    var it = std.mem.tokenizeAny(u8, run_res.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
     // When this command fails, it returns exit code 0 and duplicates the input file name.
     // So we detect failure by checking if the output matches exactly the input.

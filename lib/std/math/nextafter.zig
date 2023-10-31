@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
@@ -103,6 +102,8 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
 }
 
 test "math.nextAfter.int" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try expect(nextAfter(i0, 0, 0) == 0);
     try expect(nextAfter(u0, 0, 0) == 0);
     try expect(nextAfter(i1, 0, 0) == 0);

@@ -149,6 +149,8 @@ test "crypto.utils.timingSafeEql" {
 }
 
 test "crypto.utils.timingSafeEql (vectors)" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
     random.bytes(a[0..]);

@@ -2355,7 +2355,10 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
 
 /// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
 pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
-    return windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd });
+    windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd }) catch |err| switch (err) {
+        error.DirNotEmpty => unreachable, // we're not passing .remove_dir = true
+        else => |e| return e,
+    };
 }
 
 pub const UnlinkatError = UnlinkError || error{
@@ -3026,6 +3029,7 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
+    if (dirfd == AT.FDCWD) return;
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,

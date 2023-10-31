@@ -1752,7 +1752,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (try self.air.value(callee, mod)) |func_value| {
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
-                    const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                    const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
                     _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
@@ -2591,7 +2591,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_extern_got, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

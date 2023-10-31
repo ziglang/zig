@@ -395,6 +395,10 @@ pub const ErrorDetails = struct {
         // General (used in various places)
         /// `number` is populated and contains the value that the ordinal would have in the Win32 RC compiler implementation
         win32_non_ascii_ordinal,
+
+        // Initialization
+        /// `file_open_error` is populated, but `filename_string_index` is not
+        failed_to_open_cwd,
     };
 
     pub fn render(self: ErrorDetails, writer: anytype, source: []const u8, strings: []const []const u8) !void {
@@ -766,6 +770,9 @@ pub const ErrorDetails = struct {
                 .note => return writer.print("the Win32 RC compiler would accept this as an ordinal but its value would be {}", .{self.extra.number}),
                 .hint => return,
             },
+            .failed_to_open_cwd => {
+                try writer.print("failed to open CWD for compilation: {s}", .{@tagName(self.extra.file_open_error.err)});
+            },
         }
     }
 
@@ -804,7 +811,8 @@ pub const ErrorDetails = struct {
                 .point_offset = self.token.start - source_line_start,
                 .after_len = after: {
                     const end = @min(source_line_end, if (self.token_span_end) |span_end| span_end.end else self.token.end);
-                    if (end == self.token.start) break :after 0;
+                    // end may be less than start when pointing to EOF
+                    if (end <= self.token.start) break :after 0;
                     break :after end - self.token.start - 1;
                 },
             },
@@ -816,13 +824,18 @@ pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_con
     if (err_details.type == .hint) return;
 
     const source_line_start = err_details.token.getLineStart(source);
-    const column = err_details.token.calculateColumn(source, 1, source_line_start);
+    // Treat tab stops as 1 column wide for error display purposes,
+    // and add one to get a 1-based column
+    const column = err_details.token.calculateColumn(source, 1, source_line_start) + 1;
 
-    // var counting_writer_container = std.io.countingWriter(writer);
-    // const counting_writer = counting_writer_container.writer();
-
-    const corresponding_span: ?SourceMappings.SourceSpan = if (source_mappings) |mappings| mappings.get(err_details.token.line_number) else null;
-    const corresponding_file: ?[]const u8 = if (source_mappings) |mappings| mappings.files.get(corresponding_span.?.filename_offset) else null;
+    const corresponding_span: ?SourceMappings.SourceSpan = if (source_mappings != null and source_mappings.?.has(err_details.token.line_number))
+        source_mappings.?.get(err_details.token.line_number)
+    else
+        null;
+    const corresponding_file: ?[]const u8 = if (source_mappings != null and corresponding_span != null)
+        source_mappings.?.files.get(corresponding_span.?.filename_offset)
+    else
+        null;
 
     const err_line = if (corresponding_span) |span| span.start_line else err_details.token.line_number;
 
@@ -897,7 +910,7 @@ pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_con
     try writer.writeByte('\n');
     try tty_config.setColor(writer, .reset);
 
-    if (source_mappings) |_| {
+    if (corresponding_span != null and corresponding_file != null) {
         var corresponding_lines = try CorrespondingLines.init(allocator, cwd, err_details, source_line_for_display_buf.items, corresponding_span.?, corresponding_file.?);
         defer corresponding_lines.deinit(allocator);
 
