@@ -330,3 +330,7 @@ pub extern "ntdll" fn NtProtectVirtualMemory(
     NewAccessProtection: ULONG,
     OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn RtlExitUserProcess(
+    ExitStatus: u32,
+) callconv(WINAPI) noreturn;
