@@ -36,7 +36,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
 const spec = @import("../codegen/spirv/spec.zig");

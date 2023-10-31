@@ -20,7 +20,7 @@ const Module = @import("Module.zig");
 const Target = std.Target;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Zir = @import("Zir.zig");
 const Alignment = InternPool.Alignment;
 
@@ -678,7 +678,6 @@ fn lowerParentPtr(
     const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
     return switch (ptr.addr) {
         .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
-        .mut_decl => |md| try lowerDeclRef(bin_file, src_loc, md.decl, code, debug_output, reloc_info),
         .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info),
         .int => |int| try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
@@ -1087,7 +1086,6 @@ pub fn genTypedValue(
     if (!typed_value.ty.isSlice(zcu)) switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return genDeclRef(lf, src_loc, typed_value, decl),
-            .mut_decl => |mut_decl| return genDeclRef(lf, src_loc, typed_value, mut_decl.decl),
             else => {},
         },
         else => {},

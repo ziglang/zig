@@ -1,6 +1,6 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();
@@ -327,14 +327,6 @@ pub fn print(
                         return print(.{
                             .ty = Type.fromInterned(ip.typeOf(decl_val)),
                             .val = Value.fromInterned(decl_val),
-                        }, writer, level - 1, mod);
-                    },
-                    .mut_decl => |mut_decl| {
-                        const decl = mod.declPtr(mut_decl.decl);
-                        if (level == 0) return writer.print("(mut decl '{}')", .{decl.name.fmt(ip)});
-                        return print(.{
-                            .ty = decl.ty,
-                            .val = decl.val,
                         }, writer, level - 1, mod);
                     },
                     .comptime_field => |field_val_ip| {

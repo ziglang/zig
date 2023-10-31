@@ -2211,6 +2211,11 @@ pub const Inst = struct {
         empty_struct = @intFromEnum(InternPool.Index.empty_struct),
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
+        /// This Ref does not correspond to any ZIR instruction.
+        /// It is a special value recognized only by Sema.
+        /// It indicates the value is mutable comptime memory, and represented
+        /// via the comptime_memory field of Sema. This value never occurs in ZIR.
+        mutable_comptime = @intFromEnum(InternPool.Index.mutable_comptime),
         /// This tag is here to match Air and InternPool, however it is unused
         /// for ZIR purposes.
         var_args_param_type = @intFromEnum(InternPool.Index.var_args_param_type),

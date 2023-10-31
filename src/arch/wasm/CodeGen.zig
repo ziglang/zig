@@ -14,7 +14,7 @@ const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 const link = @import("../../link.zig");
@@ -3082,10 +3082,6 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .anon_decl => |ad| return func.lowerAnonDeclRef(ad, offset),
-        .mut_decl => |mut_decl| {
-            const decl_index = mut_decl.decl;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
-        },
         .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
         .int => |base| return func.lowerConstant(Value.fromInterned(base), Type.usize),
         .opt_payload => |base_ptr| return func.lowerParentPtr(Value.fromInterned(base_ptr), offset),
@@ -3346,7 +3342,6 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         },
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
-            .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
             .int => |int| return func.lowerConstant(Value.fromInterned(int), Type.fromInterned(ip.typeOf(int))),
             .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
             .anon_decl => |ad| return func.lowerAnonDeclRef(ad, 0),

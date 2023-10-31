@@ -8,7 +8,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Air = @This();
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
 const Module = @import("Module.zig");
@@ -986,6 +986,12 @@ pub const Inst = struct {
         empty_struct = @intFromEnum(InternPool.Index.empty_struct),
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
+        /// This Ref does not correspond to any AIR instruction.
+        /// It is a special value recognized only by Sema.
+        /// It indicates the value is mutable comptime memory, and represented
+        /// via the comptime_memory field of Sema. This value never occurs
+        /// in AIR which is emitted to backends.
+        mutable_comptime = @intFromEnum(InternPool.Index.mutable_comptime),
         /// This Ref does not correspond to any AIR instruction or constant
         /// value. It is used to handle argument types of var args functions.
         var_args_param_type = @intFromEnum(InternPool.Index.var_args_param_type),
@@ -1095,7 +1101,7 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: InternPool.DeclIndex,
+            comptime_memory_value_index: @import("Sema/ComptimeMemory.zig").Value.Index,
             alignment: InternPool.Alignment,
             is_const: bool,
         };

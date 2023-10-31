@@ -11,7 +11,7 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
