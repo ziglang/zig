@@ -1440,6 +1440,244 @@ pub const CompletionQueue = struct {
     }
 };
 
+/// Group of application provided buffers. Uses newer type, called ring mapped
+/// buffers, supported since kernel 5.19. Buffers are identified by a buffer
+/// group ID, and within that group, a buffer ID. IO_Uring can have multiple
+/// buffer groups, each with unique group ID.
+///
+/// In `init` application provides contiguous block of memory `buffers` for
+/// `buffers_count` buffers of size `buffers_size`. Application can then submit
+/// `recv` operation without providing buffer upfront. Once the operation is
+/// ready to receive data, a buffer is picked automatically and the resulting
+/// CQE will contain the buffer ID in `cqe.buffer_id()`. Use `get` method to get
+/// buffer for buffer ID identified by CQE. Once the application has processed
+/// the buffer, it may hand ownership back to the kernel, by calling `put`
+/// allowing the cycle to repeat.
+///
+/// Depending on the rate of arrival of data, it is possible that a given buffer
+/// group will run out of buffers before those in CQEs can be put back to the
+/// kernel. If this happens, a `cqe.err()` will have ENOBUFS as the error value.
+///
+/// Example:
+///     // setup buffer group
+///     const group_id: u16 = 0;
+///     const buffers_count: u16 = 256;
+///     const buffer_size: u32 = 4096;
+///     const buffers = try allocator.alloc(u8, buffers_count * buffers_size);
+///     var buf_grp = try BuffersGroup.init.ring(&ring, group_id, buffers, buffer_size, buffers_count);
+///
+///     // prepare recv on fd with buffer picked from group
+///     _ = try buf_grp.recv(user_data, fd, 0);
+///
+///     // ... when we have completion for recv operation
+///     // (assuming cqe.err() == .SUCCESS)
+///     const buffer_id = try cqe.buffer_id();
+///     const len = @as(usize, @intCast(cqe.res));
+///     var buf = buf_grp.get(buffer_id)[0..len];
+///     // ... use buf
+///     buf_grp.release(buffer_id);
+///
+///     // ...
+///     buf_grp.deinit();
+///
+pub const BufferGroup = struct {
+    /// Parent ring for which this group is registered.
+    ring: *IoUring,
+    /// Pointer to the memory shared by the kernel.
+    /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
+    /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
+    br: *align(mem.page_size) linux.io_uring_buf_ring,
+    /// Contiguous block of memory of size (buffers_count * buffer_size).
+    buffers: []u8,
+    /// Size of each buffer in buffers.
+    buffer_size: u32,
+    // Number of buffers in `buffers`, number of `io_uring_buf structures` in br.
+    buffers_count: u16,
+    /// ID of this group, must be unique in ring.
+    group_id: u16,
+
+    pub fn init(
+        ring: *IoUring,
+        group_id: u16,
+        buffers: []u8,
+        buffer_size: u32,
+        buffers_count: u16,
+    ) !BufferGroup {
+        assert(buffers.len == buffers_count * buffer_size);
+
+        const br = try io_uring_setup_buf_ring(ring.fd, buffers_count, group_id);
+        io_uring_buf_ring_init(br);
+
+        const mask = io_uring_buf_ring_mask(buffers_count);
+        var i: u16 = 0;
+        while (i < buffers_count) : (i += 1) {
+            const start = buffer_size * i;
+            const buf = buffers[start .. start + buffer_size];
+            io_uring_buf_ring_add(br, buf, i, mask, i);
+        }
+        io_uring_buf_ring_advance(br, buffers_count);
+
+        return BufferGroup{
+            .ring = ring,
+            .group_id = group_id,
+            .br = br,
+            .buffers = buffers,
+            .buffer_size = buffer_size,
+            .buffers_count = buffers_count,
+        };
+    }
+
+    // Prepare recv operation which will select buffer from this group.
+    pub fn recv(self: *BufferGroup, user_data: u64, fd: os.fd_t, flags: u32) !*linux.io_uring_sqe {
+        var sqe = try self.ring.get_sqe();
+        sqe.prep_rw(.RECV, fd, 0, 0, 0);
+        sqe.rw_flags = flags;
+        sqe.flags |= linux.IOSQE_BUFFER_SELECT;
+        sqe.buf_index = self.group_id;
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    // Get buffer by id.
+    pub fn get(self: *BufferGroup, buffer_id: u16) []u8 {
+        const head = self.buffer_size * buffer_id;
+        return self.buffers[head .. head + self.buffer_size];
+    }
+
+    // Get buffer by CQE.
+    pub fn get_cqe(self: *BufferGroup, cqe: linux.io_uring_cqe) ![]u8 {
+        const buffer_id = try cqe.buffer_id();
+        const used_len = @as(usize, @intCast(cqe.res));
+        return self.get(buffer_id)[0..used_len];
+    }
+
+    // Release buffer to the kernel.
+    pub fn put(self: *BufferGroup, buffer_id: u16) void {
+        const mask = io_uring_buf_ring_mask(self.buffers_count);
+        const buffer = self.get(buffer_id);
+        io_uring_buf_ring_add(self.br, buffer, buffer_id, mask, 0);
+        io_uring_buf_ring_advance(self.br, 1);
+    }
+
+    // Release buffer from CQE to the kernel.
+    pub fn put_cqe(self: *BufferGroup, cqe: linux.io_uring_cqe) !void {
+        self.put(try cqe.buffer_id());
+    }
+
+    pub fn deinit(self: *BufferGroup) void {
+        io_uring_free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
+    }
+};
+
+/// Registers a shared buffer ring to be used with provided buffers.
+/// `entries` number of `io_uring_buf` structures is mem mapped and shared by kernel.
+/// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
+/// `entries` is the number of entries requested in the buffer ring, must be power of 2.
+/// `group_id` is the chosen buffer group ID, unique in IO_Uring.
+pub fn io_uring_setup_buf_ring(fd: os.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
+    if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
+    if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
+
+    const mmap_size = entries * @sizeOf(linux.io_uring_buf);
+    const mmap = try os.mmap(
+        null,
+        mmap_size,
+        os.PROT.READ | os.PROT.WRITE,
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        -1,
+        0,
+    );
+    errdefer os.munmap(mmap);
+    assert(mmap.len == mmap_size);
+
+    const br: *align(mem.page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
+    try io_uring_register_buf_ring(fd, @intFromPtr(br), entries, group_id);
+    return br;
+}
+
+fn io_uring_register_buf_ring(fd: os.fd_t, addr: u64, entries: u32, group_id: u16) !void {
+    var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
+        .ring_addr = addr,
+        .ring_entries = entries,
+        .bgid = group_id,
+    });
+    const res = linux.io_uring_register(
+        fd,
+        .REGISTER_PBUF_RING,
+        @as(*const anyopaque, @ptrCast(&reg)),
+        1,
+    );
+    try handle_register_buf_ring_result(res);
+}
+
+fn io_uring_unregister_buf_ring(fd: os.fd_t, group_id: u16) !void {
+    var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
+        .bgid = group_id,
+    });
+    const res = linux.io_uring_register(
+        fd,
+        .UNREGISTER_PBUF_RING,
+        @as(*const anyopaque, @ptrCast(&reg)),
+        1,
+    );
+    try handle_register_buf_ring_result(res);
+}
+
+fn handle_register_buf_ring_result(res: usize) !void {
+    switch (linux.getErrno(res)) {
+        .SUCCESS => {},
+        .INVAL => return error.ArgumentsInvalid,
+        else => |errno| return os.unexpectedErrno(errno),
+    }
+}
+
+// Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
+pub fn io_uring_free_buf_ring(fd: os.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
+    io_uring_unregister_buf_ring(fd, group_id) catch {};
+    var mmap: []align(mem.page_size) u8 = undefined;
+    mmap.ptr = @ptrCast(br);
+    mmap.len = entries * @sizeOf(linux.io_uring_buf);
+    os.munmap(mmap);
+}
+
+/// Initialises `br` so that it is ready to be used.
+pub inline fn io_uring_buf_ring_init(br: *linux.io_uring_buf_ring) void {
+    br.tail = 0;
+}
+
+/// Calculates the appropriate size mask for a buffer ring.
+/// `entries` is the ring entries as specified in io_uring_register_buf_ring.
+pub inline fn io_uring_buf_ring_mask(entries: u16) u16 {
+    return entries - 1;
+}
+
+/// Assigns `buffer` with the `br` buffer ring.
+/// `buffer_id` is identifier which will be returned in the CQE.
+/// `buffer_offset` is the offset to insert at from the current tail.
+/// If just one buffer is provided before the ring tail is committed with advance then offset should be 0.
+/// If buffers are provided in a loop before being committed, the offset must be incremented by one for each buffer added.
+pub inline fn io_uring_buf_ring_add(
+    br: *linux.io_uring_buf_ring,
+    buffer: []u8,
+    buffer_id: u16,
+    mask: u16,
+    buffer_offset: u16,
+) void {
+    const bufs: [*]linux.io_uring_buf = @ptrCast(br);
+    const buf: *linux.io_uring_buf = &bufs[(br.tail +% buffer_offset) & mask];
+
+    buf.addr = @intFromPtr(buffer.ptr);
+    buf.len = @intCast(buffer.len);
+    buf.bid = buffer_id;
+}
+
+/// Make `count` new buffers visible to the kernel. Called after
+/// `io_uring_buf_ring_add` has been called `count` times to fill in new buffers.
+pub inline fn io_uring_buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
+    const tail: u16 = br.tail +% count;
+    @atomicStore(u16, &br.tail, tail, .Release);
+}
+
 test "structs/offsets/entries" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -3652,7 +3890,7 @@ test "waitid" {
     try testing.expectEqual(7, siginfo.fields.common.second.sigchld.status);
 }
 
-/// For use in tests. Returns SkipZigTest is kernel version is less than required.
+/// For use in tests. Returns SkipZigTest if kernel version is less than required.
 inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -3667,4 +3905,122 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     var current = try std.SemanticVersion.parse(release);
     current.pre = null; // don't check pre field
     if (required.order(current) == .gt) return error.SkipZigTest;
+}
+
+test "ring mapped buffers recv" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 2; // number of buffers in buffer group
+    const buffer_size: usize = 4; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+
+    // for random user_data in sqe/cqe
+    var Rnd = std.rand.DefaultPrng.init(0);
+    var rnd = Rnd.random();
+
+    var round: usize = 4; // repeat send/recv cycle round times
+    while (round > 0) : (round -= 1) {
+        // client sends data
+        const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+        {
+            const user_data = rnd.int(u64);
+            _ = try ring.send(user_data, fds.client, data[0..], 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe_send = try ring.copy_cqe();
+            if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+            try testing.expectEqual(linux.io_uring_cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+        }
+
+        // server reads data into provided buffers
+        // there are 2 buffers of size 4, so each read gets only chunk of data
+        // we read four chunks of 4, 4, 4, 3 bytes each
+        var chunk: []const u8 = data[0..buffer_size]; // first chunk
+        const id1 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        chunk = data[buffer_size .. buffer_size * 2]; // second chunk
+        const id2 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+
+        // both buffers provided to the kernel are used so we get error
+        // 'no more buffers', until we put buffers to the kernel
+        {
+            const user_data = rnd.int(u64);
+            _ = try buf_grp.recv(user_data, fds.server, 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe = try ring.copy_cqe();
+            try testing.expectEqual(user_data, cqe.user_data);
+            try testing.expect(cqe.res < 0); // fail
+            try testing.expectEqual(os.E.NOBUFS, cqe.err());
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == 0); // IORING_CQE_F_BUFFER flags is set on success only
+            try testing.expectError(error.NoBufferSelected, cqe.buffer_id());
+        }
+
+        // put buffers back to the kernel
+        buf_grp.put(id1);
+        buf_grp.put(id2);
+
+        chunk = data[buffer_size * 2 .. buffer_size * 3]; // third chunk
+        const id3 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        buf_grp.put(id3);
+
+        chunk = data[buffer_size * 3 ..]; // last chunk
+        const id4 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        buf_grp.put(id4);
+    }
+}
+
+// Prepare and submit recv using buffer group.
+// Test that buffer from group, pointed by cqe, matches expected.
+fn expect_buf_grp_recv(
+    ring: *IoUring,
+    buf_grp: *BufferGroup,
+    fd: os.fd_t,
+    user_data: u64,
+    expected: []const u8,
+) !u16 {
+    // prepare and submit read
+    const sqe = try buf_grp.recv(user_data, fd, 0);
+    try testing.expect(sqe.flags & linux.IOSQE_BUFFER_SELECT == linux.IOSQE_BUFFER_SELECT);
+    try testing.expect(sqe.buf_index == buf_grp.group_id);
+    try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+    // get cqe
+    const cqe = try ring.copy_cqe();
+    try testing.expectEqual(user_data, cqe.user_data);
+    try testing.expect(cqe.res >= 0); // success
+    try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER); // IORING_CQE_F_BUFFER flag is set
+    try testing.expectEqual(expected.len, @as(usize, @intCast(cqe.res)));
+    try testing.expectEqual(os.E.SUCCESS, cqe.err());
+
+    // get buffer from pool
+    const buffer_id = try cqe.buffer_id();
+    const len = @as(usize, @intCast(cqe.res));
+    const buf = buf_grp.get(buffer_id)[0..len];
+    try testing.expectEqualSlices(u8, expected, buf);
+
+    return buffer_id;
 }
