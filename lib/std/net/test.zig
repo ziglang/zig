@@ -340,3 +340,27 @@ fn generateFileName(base_name: []const u8) ![]const u8 {
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
     return std.fmt.allocPrint(testing.allocator, "{s}-{s}", .{ sub_path[0..], base_name });
 }
+
+test "non-blocking tcp server" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    var server = net.StreamServer.init(.{ .force_nonblocking = true });
+    defer server.deinit();
+    try server.listen(localhost);
+
+    const accept_err = server.accept();
+    try testing.expectError(error.WouldBlock, accept_err);
+
+    const socket_file = try net.tcpConnectToAddress(server.listen_address);
+    defer socket_file.close();
+
+    var client = try server.accept();
+    const stream = client.stream.writer();
+    try stream.print("hello from server\n", .{});
+
+    var buf: [100]u8 = undefined;
+    const len = try socket_file.read(&buf);
+    const msg = buf[0..len];
+    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
+}
