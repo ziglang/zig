@@ -41,7 +41,7 @@ pub const Secp256k1 = struct {
 
         const lambda_s = s: {
             var buf: [32]u8 = undefined;
-            mem.writeIntLittle(u256, &buf, Endormorphism.lambda);
+            mem.writeInt(u256, &buf, Endormorphism.lambda, .Little);
             break :s buf;
         };
 
@@ -54,12 +54,12 @@ pub const Secp256k1 = struct {
         pub fn splitScalar(s: [32]u8, endian: std.builtin.Endian) NonCanonicalError!SplitScalar {
             const b1_neg_s = comptime s: {
                 var buf: [32]u8 = undefined;
-                mem.writeIntLittle(u256, &buf, 303414439467246543595250775667605759171);
+                mem.writeInt(u256, &buf, 303414439467246543595250775667605759171, .Little);
                 break :s buf;
             };
             const b2_neg_s = comptime s: {
                 var buf: [32]u8 = undefined;
-                mem.writeIntLittle(u256, &buf, scalar.field_order - 64502973549206556628585045361533709077);
+                mem.writeInt(u256, &buf, scalar.field_order - 64502973549206556628585045361533709077, .Little);
                 break :s buf;
             };
             const k = mem.readInt(u256, &s, endian);
@@ -72,10 +72,10 @@ pub const Secp256k1 = struct {
 
             var buf: [32]u8 = undefined;
 
-            mem.writeIntLittle(u256, &buf, c1);
+            mem.writeInt(u256, &buf, c1, .Little);
             const c1x = try scalar.mul(buf, b1_neg_s, .Little);
 
-            mem.writeIntLittle(u256, &buf, c2);
+            mem.writeInt(u256, &buf, c2, .Little);
             const c2x = try scalar.mul(buf, b2_neg_s, .Little);
 
             const r2 = try scalar.add(c1x, c2x, .Little);

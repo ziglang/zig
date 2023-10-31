@@ -111,8 +111,8 @@ test "pcg fill" {
     var i: u32 = 0;
     while (i < seq.len) : (i += 2) {
         var buf0: [8]u8 = undefined;
-        std.mem.writeIntLittle(u32, buf0[0..4], seq[i]);
-        std.mem.writeIntLittle(u32, buf0[4..8], seq[i + 1]);
+        std.mem.writeInt(u32, buf0[0..4], seq[i], .Little);
+        std.mem.writeInt(u32, buf0[4..8], seq[i + 1], .Little);
 
         var buf1: [7]u8 = undefined;
         r.fill(&buf1);

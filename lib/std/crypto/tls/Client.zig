@@ -1049,10 +1049,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         }
         const ct: tls.ContentType = @enumFromInt(frag[in]);
         in += 1;
-        const legacy_version = mem.readIntBig(u16, frag[in..][0..2]);
+        const legacy_version = mem.readInt(u16, frag[in..][0..2], .Big);
         in += 2;
         _ = legacy_version;
-        const record_len = mem.readIntBig(u16, frag[in..][0..2]);
+        const record_len = mem.readInt(u16, frag[in..][0..2], .Big);
         if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
         in += 2;
         const end = in + record_len;
@@ -1136,7 +1136,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                         while (true) {
                             const handshake_type: tls.HandshakeType = @enumFromInt(cleartext[ct_i]);
                             ct_i += 1;
-                            const handshake_len = mem.readIntBig(u24, cleartext[ct_i..][0..3]);
+                            const handshake_len = mem.readInt(u24, cleartext[ct_i..][0..3], .Big);
                             ct_i += 3;
                             const next_handshake_i = ct_i + handshake_len;
                             if (next_handshake_i > cleartext.len - 1)

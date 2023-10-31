@@ -1135,8 +1135,8 @@ pub fn readElfDebugInfo(
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
                 const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
                 const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
-                const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
-                separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
+                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
+                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
                 separate_debug_filename = debug_filename;
                 continue;
             }
@@ -1868,10 +1868,10 @@ pub const DebugInfo = struct {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
                             const note_bytes = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
-                            const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
+                            const name_size = mem.readInt(u32, note_bytes[0..4], native_endian);
                             if (name_size != 4) continue;
-                            const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
-                            const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
+                            const desc_size = mem.readInt(u32, note_bytes[4..8], native_endian);
+                            const note_type = mem.readInt(u32, note_bytes[8..12], native_endian);
                             if (note_type != elf.NT_GNU_BUILD_ID) continue;
                             if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
                             context.build_id = note_bytes[16..][0..desc_size];

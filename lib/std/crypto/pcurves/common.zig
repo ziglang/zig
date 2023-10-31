@@ -54,7 +54,7 @@ pub fn Field(comptime params: FieldParams) type {
             var s = if (endian == .Little) s_ else orderSwap(s_);
             const field_order_s = comptime fos: {
                 var fos: [encoded_length]u8 = undefined;
-                mem.writeIntLittle(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order);
+                mem.writeInt(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order, .Little);
                 break :fos fos;
             };
             if (crypto.utils.timingSafeCompare(u8, &s, &field_order_s, .Little) != .lt) {
@@ -95,14 +95,14 @@ pub fn Field(comptime params: FieldParams) type {
         /// Create a field element from an integer.
         pub fn fromInt(comptime x: IntRepr) NonCanonicalError!Fe {
             var s: [encoded_length]u8 = undefined;
-            mem.writeIntLittle(IntRepr, &s, x);
+            mem.writeInt(IntRepr, &s, x, .Little);
             return fromBytes(s, .Little);
         }
 
         /// Return the field element as an integer.
         pub fn toInt(fe: Fe) IntRepr {
             const s = fe.toBytes(.Little);
-            return mem.readIntLittle(IntRepr, &s);
+            return mem.readInt(IntRepr, &s, .Little);
         }
 
         /// Return true if the field element is zero.

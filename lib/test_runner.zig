@@ -13,7 +13,9 @@ var cmdline_buffer: [4096]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&cmdline_buffer);
 
 pub fn main() void {
-    if (builtin.zig_backend == .stage2_aarch64) {
+    if (builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_wasm)
+    {
         return mainSimple() catch @panic("test failure");
     }
 

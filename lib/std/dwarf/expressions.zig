@@ -6,6 +6,7 @@ const dwarf = std.dwarf;
 const abi = dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
+const native_endian = builtin.cpu.arch.endian();
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -147,10 +148,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     .regval_type => |regval_type| regval_type.value,
                     .const_type => |const_type| {
                         const value: u64 = switch (const_type.value_bytes.len) {
-                            1 => mem.readIntSliceNative(u8, const_type.value_bytes),
-                            2 => mem.readIntSliceNative(u16, const_type.value_bytes),
-                            4 => mem.readIntSliceNative(u32, const_type.value_bytes),
-                            8 => mem.readIntSliceNative(u64, const_type.value_bytes),
+                            1 => mem.readInt(u8, const_type.value_bytes[0..1], native_endian),
+                            2 => mem.readInt(u16, const_type.value_bytes[0..2], native_endian),
+                            4 => mem.readInt(u32, const_type.value_bytes[0..4], native_endian),
+                            8 => mem.readInt(u64, const_type.value_bytes[0..8], native_endian),
                             else => return error.InvalidIntegralTypeSize,
                         };
 
@@ -352,7 +353,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     const debug_addr_index = operand.?.generic;
                     const offset = context.compile_unit.?.addr_base + debug_addr_index;
                     if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
-                    const value = mem.readIntSliceNative(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)]);
+                    const value = mem.readInt(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)], native_endian);
                     try self.stack.append(allocator, .{ .generic = value });
                 },
 
@@ -386,21 +387,21 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     if (context.thread_context == null) return error.IncompleteExpressionContext;
 
                     const base_register = operand.?.base_register;
-                    var value: i64 = @intCast(mem.readIntSliceNative(usize, try abi.regBytes(
+                    var value: i64 = @intCast(mem.readInt(usize, (try abi.regBytes(
                         context.thread_context.?,
                         base_register.base_register,
                         context.reg_context,
-                    )));
+                    ))[0..@sizeOf(usize)], native_endian));
                     value += base_register.offset;
                     try self.stack.append(allocator, .{ .generic = @intCast(value) });
                 },
                 OP.regval_type => {
                     const register_type = operand.?.register_type;
-                    const value = mem.readIntSliceNative(usize, try abi.regBytes(
+                    const value = mem.readInt(usize, (try abi.regBytes(
                         context.thread_context.?,
                         register_type.register,
                         context.reg_context,
-                    ));
+                    ))[0..@sizeOf(usize)], native_endian);
                     try self.stack.append(allocator, .{
                         .regval_type = .{
                             .type_offset = register_type.type_offset,
@@ -756,7 +757,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
 
                         var block_stream = std.io.fixedBufferStream(block);
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
-                        const value = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context.?, register, context.reg_context));
+                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                         try self.stack.append(allocator, .{ .generic = value });
                     } else {
                         var stack_machine: Self = .{};
@@ -1121,9 +1122,9 @@ test "DWARF expressions" {
         var mock_debug_addr = std.ArrayList(u8).init(allocator);
         defer mock_debug_addr.deinit();
 
-        try mock_debug_addr.writer().writeIntNative(u16, 0);
-        try mock_debug_addr.writer().writeIntNative(usize, input[11]);
-        try mock_debug_addr.writer().writeIntNative(usize, input[12]);
+        try mock_debug_addr.writer().writeInt(u16, 0, native_endian);
+        try mock_debug_addr.writer().writeInt(usize, input[11], native_endian);
+        try mock_debug_addr.writer().writeInt(usize, input[12], native_endian);
 
         const context = ExpressionContext{
             .compile_unit = &mock_compile_unit,
@@ -1185,7 +1186,7 @@ test "DWARF expressions" {
 
             // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-            mem.writeIntSliceNative(usize, reg_bytes, 0xee);
+            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
             (try abi.regValueNative(usize, &thread_context, abi.fpRegNum(reg_context), reg_context)).* = 1;
             (try abi.regValueNative(usize, &thread_context, abi.spRegNum(reg_context), reg_context)).* = 2;
             (try abi.regValueNative(usize, &thread_context, abi.ipRegNum(), reg_context)).* = 3;
@@ -1538,7 +1539,7 @@ test "DWARF expressions" {
 
         const value: usize = @truncate(0xffeeffee_ffeeffee);
         var value_bytes: [options.addr_size]u8 = undefined;
-        mem.writeIntSliceNative(usize, &value_bytes, value);
+        mem.writeInt(usize, &value_bytes, value, native_endian);
 
         // Convert to generic type
         stack_machine.reset();
@@ -1613,7 +1614,7 @@ test "DWARF expressions" {
         };
 
         if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
-            mem.writeIntSliceNative(usize, reg_bytes, 0xee);
+            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
 
             var sub_program = std.ArrayList(u8).init(allocator);
             defer sub_program.deinit();

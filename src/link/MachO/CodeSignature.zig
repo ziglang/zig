@@ -115,14 +115,14 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.length = self.code_directory.size();
     header.length += self.code_directory.size();
 
-    try writer.writeIntBig(u32, header.magic);
-    try writer.writeIntBig(u32, header.length);
-    try writer.writeIntBig(u32, header.count);
+    try writer.writeInt(u32, header.magic, .Big);
+    try writer.writeInt(u32, header.length, .Big);
+    try writer.writeInt(u32, header.count, .Big);
 
     var offset: u32 = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) * @as(u32, @intCast(blobs.items.len));
     for (blobs.items) |blob| {
-        try writer.writeIntBig(u32, blob.slotType());
-        try writer.writeIntBig(u32, offset);
+        try writer.writeInt(u32, blob.slotType(), .Big);
+        try writer.writeInt(u32, offset, .Big);
         offset += blob.size();
     }
 
@@ -272,27 +272,27 @@ const CodeDirectory = struct {
     }
 
     fn write(self: CodeDirectory, writer: anytype) !void {
-        try writer.writeIntBig(u32, self.inner.magic);
-        try writer.writeIntBig(u32, self.inner.length);
-        try writer.writeIntBig(u32, self.inner.version);
-        try writer.writeIntBig(u32, self.inner.flags);
-        try writer.writeIntBig(u32, self.inner.hashOffset);
-        try writer.writeIntBig(u32, self.inner.identOffset);
-        try writer.writeIntBig(u32, self.inner.nSpecialSlots);
-        try writer.writeIntBig(u32, self.inner.nCodeSlots);
-        try writer.writeIntBig(u32, self.inner.codeLimit);
+        try writer.writeInt(u32, self.inner.magic, .Big);
+        try writer.writeInt(u32, self.inner.length, .Big);
+        try writer.writeInt(u32, self.inner.version, .Big);
+        try writer.writeInt(u32, self.inner.flags, .Big);
+        try writer.writeInt(u32, self.inner.hashOffset, .Big);
+        try writer.writeInt(u32, self.inner.identOffset, .Big);
+        try writer.writeInt(u32, self.inner.nSpecialSlots, .Big);
+        try writer.writeInt(u32, self.inner.nCodeSlots, .Big);
+        try writer.writeInt(u32, self.inner.codeLimit, .Big);
         try writer.writeByte(self.inner.hashSize);
         try writer.writeByte(self.inner.hashType);
         try writer.writeByte(self.inner.platform);
         try writer.writeByte(self.inner.pageSize);
-        try writer.writeIntBig(u32, self.inner.spare2);
-        try writer.writeIntBig(u32, self.inner.scatterOffset);
-        try writer.writeIntBig(u32, self.inner.teamOffset);
-        try writer.writeIntBig(u32, self.inner.spare3);
-        try writer.writeIntBig(u64, self.inner.codeLimit64);
-        try writer.writeIntBig(u64, self.inner.execSegBase);
-        try writer.writeIntBig(u64, self.inner.execSegLimit);
-        try writer.writeIntBig(u64, self.inner.execSegFlags);
+        try writer.writeInt(u32, self.inner.spare2, .Big);
+        try writer.writeInt(u32, self.inner.scatterOffset, .Big);
+        try writer.writeInt(u32, self.inner.teamOffset, .Big);
+        try writer.writeInt(u32, self.inner.spare3, .Big);
+        try writer.writeInt(u64, self.inner.codeLimit64, .Big);
+        try writer.writeInt(u64, self.inner.execSegBase, .Big);
+        try writer.writeInt(u64, self.inner.execSegLimit, .Big);
+        try writer.writeInt(u64, self.inner.execSegFlags, .Big);
 
         try writer.writeAll(self.ident);
         try writer.writeByte(0);
@@ -325,9 +325,9 @@ const Requirements = struct {
     }
 
     fn write(self: Requirements, writer: anytype) !void {
-        try writer.writeIntBig(u32, macho.CSMAGIC_REQUIREMENTS);
-        try writer.writeIntBig(u32, self.size());
-        try writer.writeIntBig(u32, 0);
+        try writer.writeInt(u32, macho.CSMAGIC_REQUIREMENTS, .Big);
+        try writer.writeInt(u32, self.size(), .Big);
+        try writer.writeInt(u32, 0, .Big);
     }
 };
 
@@ -348,8 +348,8 @@ const Entitlements = struct {
     }
 
     fn write(self: Entitlements, writer: anytype) !void {
-        try writer.writeIntBig(u32, macho.CSMAGIC_EMBEDDED_ENTITLEMENTS);
-        try writer.writeIntBig(u32, self.size());
+        try writer.writeInt(u32, macho.CSMAGIC_EMBEDDED_ENTITLEMENTS, .Big);
+        try writer.writeInt(u32, self.size(), .Big);
         try writer.writeAll(self.inner);
     }
 };
@@ -371,8 +371,8 @@ const Signature = struct {
     }
 
     fn write(self: Signature, writer: anytype) !void {
-        try writer.writeIntBig(u32, macho.CSMAGIC_BLOBWRAPPER);
-        try writer.writeIntBig(u32, self.size());
+        try writer.writeInt(u32, macho.CSMAGIC_BLOBWRAPPER, .Big);
+        try writer.writeInt(u32, self.size(), .Big);
     }
 };
 

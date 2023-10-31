@@ -52,7 +52,7 @@ pub fn Decompress(comptime ReaderType: type) type {
                 break :blk hasher.hasher.final();
             };
 
-            const hash_b = try source.readIntLittle(u32);
+            const hash_b = try source.readInt(u32, .Little);
             if (hash_a != hash_b)
                 return error.WrongChecksum;
 
@@ -105,20 +105,20 @@ pub fn Decompress(comptime ReaderType: type) type {
                 }
 
                 const hash_a = hasher.hasher.final();
-                const hash_b = try counting_reader.readIntLittle(u32);
+                const hash_b = try counting_reader.readInt(u32, .Little);
                 if (hash_a != hash_b)
                     return error.WrongChecksum;
 
                 break :blk counter.bytes_read;
             };
 
-            const hash_a = try self.in_reader.readIntLittle(u32);
+            const hash_a = try self.in_reader.readInt(u32, .Little);
 
             const hash_b = blk: {
                 var hasher = std.compress.hashedReader(self.in_reader, Crc32.init());
                 const hashed_reader = hasher.reader();
 
-                const backward_size = (@as(u64, try hashed_reader.readIntLittle(u32)) + 1) * 4;
+                const backward_size = (@as(u64, try hashed_reader.readInt(u32, .Little)) + 1) * 4;
                 if (backward_size != index_size)
                     return error.CorruptInput;
 

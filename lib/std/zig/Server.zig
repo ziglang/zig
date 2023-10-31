@@ -279,12 +279,12 @@ fn bswap_u32_array(slice: []u32) void {
 
 /// workaround for https://github.com/ziglang/zig/issues/14904
 fn bswap_and_workaround_u32(bytes_ptr: *const [4]u8) u32 {
-    return std.mem.readIntLittle(u32, bytes_ptr);
+    return std.mem.readInt(u32, bytes_ptr, .Little);
 }
 
 /// workaround for https://github.com/ziglang/zig/issues/14904
 fn bswap_and_workaround_tag(bytes_ptr: *const [4]u8) InMessage.Tag {
-    const int = std.mem.readIntLittle(u32, bytes_ptr);
+    const int = std.mem.readInt(u32, bytes_ptr, .Little);
     return @as(InMessage.Tag, @enumFromInt(int));
 }
 
