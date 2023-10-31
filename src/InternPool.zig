@@ -491,7 +491,7 @@ pub const Key = union(enum) {
 
         /// The returned pointer expires with any addition to the `InternPool`.
         /// Asserts the struct is not packed.
-        pub fn flagsPtr(self: @This(), ip: *InternPool) *Tag.TypeStruct.Flags {
+        pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeStruct.Flags {
             assert(self.layout != .Packed);
             const flags_field_index = std.meta.fieldIndex(Tag.TypeStruct, "flags").?;
             return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
@@ -685,6 +685,18 @@ pub const Key = union(enum) {
         pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeUnion.Flags {
             const flags_field_index = std.meta.fieldIndex(Tag.TypeUnion, "flags").?;
             return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
+        }
+
+        /// The returned pointer expires with any addition to the `InternPool`.
+        pub fn size(self: @This(), ip: *InternPool) *u32 {
+            const size_field_index = std.meta.fieldIndex(Tag.TypeUnion, "size").?;
+            return &ip.extra.items[self.extra_index + size_field_index];
+        }
+
+        /// The returned pointer expires with any addition to the `InternPool`.
+        pub fn padding(self: @This(), ip: *InternPool) *u32 {
+            const padding_field_index = std.meta.fieldIndex(Tag.TypeUnion, "padding").?;
+            return &ip.extra.items[self.extra_index + padding_field_index];
         }
 
         pub fn haveFieldTypes(self: @This(), ip: *const InternPool) bool {
@@ -1744,6 +1756,10 @@ pub const UnionType = struct {
     enum_tag_ty: Index,
     /// The integer tag type of the enum.
     int_tag_ty: Index,
+    /// ABI size of the union, including padding
+    size: u64,
+    /// Trailing padding bytes
+    padding: u32,
     /// List of field names in declaration order.
     field_names: NullTerminatedString.Slice,
     /// List of field types in declaration order.
@@ -1830,6 +1846,10 @@ pub const UnionType = struct {
         return self.flagsPtr(ip).runtime_tag.hasTag();
     }
 
+    pub fn haveFieldTypes(self: UnionType, ip: *const InternPool) bool {
+        return self.flagsPtr(ip).status.haveFieldTypes();
+    }
+
     pub fn haveLayout(self: UnionType, ip: *const InternPool) bool {
         return self.flagsPtr(ip).status.haveLayout();
     }
@@ -1867,6 +1887,8 @@ pub fn loadUnionType(ip: *InternPool, key: Key.UnionType) UnionType {
         .namespace = type_union.data.namespace,
         .enum_tag_ty = enum_ty,
         .int_tag_ty = enum_info.tag_ty,
+        .size = type_union.data.padding,
+        .padding = type_union.data.padding,
         .field_names = enum_info.names,
         .names_map = enum_info.names_map,
         .field_types = .{
@@ -2943,6 +2965,10 @@ pub const Tag = enum(u8) {
     /// 1. field align: Alignment for each field; declaration order
     pub const TypeUnion = struct {
         flags: Flags,
+        /// Only valid after .have_layout
+        size: u32,
+        /// Only valid after .have_layout
+        padding: u32,
         decl: Module.Decl.Index,
         namespace: Module.Namespace.Index,
         /// The enum that provides the list of field names and values.
@@ -2957,7 +2983,9 @@ pub const Tag = enum(u8) {
             status: UnionType.Status,
             requires_comptime: RequiresComptime,
             assumed_runtime_bits: bool,
-            _: u21 = 0,
+            assumed_pointer_aligned: bool,
+            alignment: Alignment,
+            _: u14 = 0,
         };
     };
 
@@ -3021,7 +3049,7 @@ pub const Tag = enum(u8) {
             any_comptime_fields: bool,
             any_default_inits: bool,
             any_aligned_fields: bool,
-            /// `undefined` until the layout_resolved
+            /// `.none` until layout_resolved
             alignment: Alignment,
             /// Dependency loop detection when resolving struct alignment.
             alignment_wip: bool,
@@ -5262,6 +5290,8 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
 
     const union_type_extra_index = ip.addExtraAssumeCapacity(Tag.TypeUnion{
         .flags = ini.flags,
+        .size = std.math.maxInt(u32),
+        .padding = std.math.maxInt(u32),
         .decl = ini.decl,
         .namespace = ini.namespace,
         .tag_ty = ini.enum_tag_ty,

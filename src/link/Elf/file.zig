@@ -1,5 +1,5 @@
 pub const File = union(enum) {
-    zig_module: *ZigModule,
+    zig_object: *ZigObject,
     linker_defined: *LinkerDefined,
     object: *Object,
     shared_object: *SharedObject,
@@ -23,7 +23,7 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_module => |x| try writer.print("{s}", .{x.path}),
+            .zig_object => |x| try writer.print("{s}", .{x.path}),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
             .shared_object => |x| try writer.writeAll(x.path),
@@ -32,7 +32,7 @@ pub const File = union(enum) {
 
     pub fn isAlive(file: File) bool {
         return switch (file) {
-            .zig_module => true,
+            .zig_object => true,
             .linker_defined => true,
             inline else => |x| x.alive,
         };
@@ -76,7 +76,7 @@ pub const File = union(enum) {
 
     pub fn setAlive(file: File) void {
         switch (file) {
-            .zig_module, .linker_defined => {},
+            .zig_object, .linker_defined => {},
             inline else => |x| x.alive = true,
         }
     }
@@ -92,7 +92,7 @@ pub const File = union(enum) {
         return switch (file) {
             .linker_defined => unreachable,
             .shared_object => unreachable,
-            .zig_module => |x| x.atoms.items,
+            .zig_object => |x| x.atoms.items,
             .object => |x| x.atoms.items,
         };
     }
@@ -115,7 +115,7 @@ pub const File = union(enum) {
 
     pub const Entry = union(enum) {
         null: void,
-        zig_module: ZigModule,
+        zig_object: ZigObject,
         linker_defined: LinkerDefined,
         object: Object,
         shared_object: SharedObject,
@@ -132,4 +132,4 @@ const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");
 const SharedObject = @import("SharedObject.zig");
 const Symbol = @import("Symbol.zig");
-const ZigModule = @import("ZigModule.zig");
+const ZigObject = @import("ZigObject.zig");

@@ -140,8 +140,6 @@ pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
 }
 
 test "sin32" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const epsilon = 0.00001;
 
     try expect(math.approxEqAbs(f32, sinf(0.0), 0.0, epsilon));

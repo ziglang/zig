@@ -3316,10 +3316,12 @@ test "default struct initialization fields" {
       {#header_close#}
 
       {#header_open|extern struct#}
-      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
-      C ABI for the target.</p>
-      <p>This kind of struct should only be used for compatibility with the C ABI. Every other
-      use case should be solved with {#link|packed struct#} or normal {#link|struct#}.</p>
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout matching
+      the C ABI for the target.</p>
+      <p>If well-defined in-memory layout is not required, {#link|struct#} is a better choice
+      because it places fewer restrictions on the compiler.</p>
+      <p>See {#link|packed struct#} for a struct that has the ABI of its backing integer,
+      which can be useful for modeling flags.</p>
       {#see_also|extern union|extern enum#}
       {#header_close#}
 
@@ -3338,9 +3340,6 @@ test "default struct initialization fields" {
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Non-ABI-aligned fields are packed into the smallest possible
-        ABI-aligned integers in accordance with the target endianness.
-        </li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate

@@ -98,8 +98,6 @@ pub inline fn cmp_f80(comptime RT: type, a: f80, b: f80) RT {
 }
 
 test "cmp_f80" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (.{ LE, GE }) |RT| {
         try std.testing.expect(cmp_f80(RT, 1.0, 1.0) == RT.Equal);
         try std.testing.expect(cmp_f80(RT, 0.0, -0.0) == RT.Equal);

@@ -363,8 +363,6 @@ test "phc format - hash without salt" {
 }
 
 test "phc format - calcSize" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
     const v = try deserialize(struct {
         alg_id: []const u8,

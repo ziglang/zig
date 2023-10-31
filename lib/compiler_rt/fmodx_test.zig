@@ -23,9 +23,6 @@ fn test_fmodx_infs() !void {
 }
 
 test "fmodx" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .lzcnt)) return error.SkipZigTest;
-
     try test_fmodx(6.4, 4.0, 2.4);
     try test_fmodx(6.4, -4.0, 2.4);
     try test_fmodx(-6.4, 4.0, -2.4);

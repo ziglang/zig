@@ -134,8 +134,6 @@ pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {
 }
 
 test "cos32" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const epsilon = 0.00001;
 
     try expect(math.approxEqAbs(f32, cosf(0.0), 1.0, epsilon));

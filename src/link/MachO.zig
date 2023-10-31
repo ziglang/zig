@@ -50,7 +50,7 @@ tlv_ptr_section_index: ?u8 = null,
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
 resolver: std.StringHashMapUnmanaged(u32) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, ResolveAction.Kind) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -115,6 +115,10 @@ anon_decls: AnonDeclTable = .{},
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
 /// this will be a table indexed by index into the list of Atoms.
 relocs: RelocationTable = .{},
+/// TODO I do not have time to make this right but this will go once
+/// MachO linker is rewritten more-or-less to feature the same resolution
+/// mechanism as the ELF linker.
+actions: ActionTable = .{},
 
 /// A table of rebases indexed by the owning them `Atom`.
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
@@ -130,7 +134,7 @@ bindings: BindingTable = .{},
 lazy_syms: LazySymbolTable = .{},
 
 /// Table of tracked Decls.
-decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: DeclTable = .{},
 
 /// Table of threadlocal variables descriptors.
 /// They are emitted in the `__thread_vars` section.
@@ -417,9 +421,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.parseDependentLibs(&dependent_libs);
     }
 
-    var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
-    defer actions.deinit();
-    try self.resolveSymbols(&actions);
+    try self.resolveSymbols();
 
     if (self.getEntryPoint() == null) {
         self.error_flags.no_entry_point_found = true;
@@ -429,11 +431,16 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         return error.FlushFailure;
     }
 
-    for (actions.items) |action| switch (action.kind) {
-        .none => {},
-        .add_got => try self.addGotEntry(action.target),
-        .add_stub => try self.addStubEntry(action.target),
-    };
+    {
+        var it = self.actions.iterator();
+        while (it.next()) |entry| {
+            const global_index = entry.key_ptr.*;
+            const global = self.globals.items[global_index];
+            const flags = entry.value_ptr.*;
+            if (flags.add_got) try self.addGotEntry(global);
+            if (flags.add_stub) try self.addStubEntry(global);
+        }
+    }
 
     try self.createDyldPrivateAtom();
     try self.writeStubHelperPreamble();
@@ -1589,18 +1596,18 @@ pub fn createDsoHandleSymbol(self: *MachO) !void {
     _ = self.unresolved.swapRemove(self.getGlobalIndex("___dso_handle").?);
 }
 
-pub fn resolveSymbols(self: *MachO, actions: *std.ArrayList(ResolveAction)) !void {
+pub fn resolveSymbols(self: *MachO) !void {
     // We add the specified entrypoint as the first unresolved symbols so that
     // we search for it in libraries should there be no object files specified
     // on the linker line.
     if (self.base.options.output_mode == .Exe) {
         const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
-        _ = try self.addUndefined(entry_name, .none);
+        _ = try self.addUndefined(entry_name, .{});
     }
 
     // Force resolution of any symbols requested by the user.
     for (self.base.options.force_undefined_symbols.keys()) |sym_name| {
-        _ = try self.addUndefined(sym_name, .none);
+        _ = try self.addUndefined(sym_name, .{});
     }
 
     for (self.objects.items, 0..) |_, object_id| {
@@ -1612,13 +1619,13 @@ pub fn resolveSymbols(self: *MachO, actions: *std.ArrayList(ResolveAction)) !voi
     // Finally, force resolution of dyld_stub_binder if there are imports
     // requested.
     if (self.unresolved.count() > 0 and self.dyld_stub_binder_index == null) {
-        self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
+        self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .{ .add_got = true });
     }
     if (!self.base.options.single_threaded and self.mode == .incremental) {
-        _ = try self.addUndefined("__tlv_bootstrap", .none);
+        _ = try self.addUndefined("__tlv_bootstrap", .{});
     }
 
-    try self.resolveSymbolsInDylibs(actions);
+    try self.resolveSymbolsInDylibs();
 
     try self.createMhExecuteHeaderSymbol();
     try self.createDsoHandleSymbol();
@@ -1634,7 +1641,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     if (!gop.found_existing) {
         gop.value_ptr.* = current;
         if (sym.undf() and !sym.tentative()) {
-            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, .none);
+            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, {});
         }
         return;
     }
@@ -1766,7 +1773,7 @@ fn resolveSymbolsInArchives(self: *MachO) !void {
     }
 }
 
-fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) !void {
+fn resolveSymbolsInDylibs(self: *MachO) !void {
     if (self.dylibs.items.len == 0) return;
 
     const gpa = self.base.allocator;
@@ -1793,11 +1800,7 @@ fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) 
                 sym.n_desc |= macho.N_WEAK_REF;
             }
 
-            if (self.unresolved.fetchSwapRemove(global_index)) |entry| blk: {
-                if (!sym.undf()) break :blk;
-                if (self.mode == .zld) break :blk;
-                try actions.append(.{ .kind = entry.value, .target = global });
-            }
+            _ = self.unresolved.swapRemove(global_index);
 
             continue :loop;
         }
@@ -1904,6 +1907,7 @@ pub fn deinit(self: *MachO) void {
         m.exports.deinit(gpa);
     }
     self.decls.deinit(gpa);
+
     self.lazy_syms.deinit(gpa);
     self.tlv_table.deinit(gpa);
 
@@ -1911,7 +1915,14 @@ pub fn deinit(self: *MachO) void {
         atoms.deinit(gpa);
     }
     self.unnamed_const_atoms.deinit(gpa);
-    self.anon_decls.deinit(gpa);
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.anon_decls.deinit(gpa);
+    }
 
     self.atom_by_index_table.deinit(gpa);
 
@@ -1919,6 +1930,7 @@ pub fn deinit(self: *MachO) void {
         relocs.deinit(gpa);
     }
     self.relocs.deinit(gpa);
+    self.actions.deinit(gpa);
 
     for (self.rebases.values()) |*rebases| {
         rebases.deinit(gpa);
@@ -2258,6 +2270,7 @@ fn lowerConst(
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     try self.writeAtom(atom_index, code);
+    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
 
     return .{ .ok = atom_index };
 }
@@ -2273,12 +2286,16 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
     const decl = mod.declPtr(decl_index);
 
     if (decl.val.getExternFunc(mod)) |_| {
-        return; // TODO Should we do more when front-end analyzed extern decl?
+        return;
     }
-    if (decl.val.getVariable(mod)) |variable| {
-        if (variable.is_extern) {
-            return; // TODO Should we do more when front-end analyzed extern decl?
-        }
+
+    if (decl.isExtern(mod)) {
+        // TODO make this part of getGlobalSymbol
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
+        defer self.base.allocator.free(sym_name);
+        _ = try self.addUndefined(sym_name, .{ .add_got = true });
+        return;
     }
 
     const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
@@ -2689,18 +2706,30 @@ pub fn updateExports(
 
     const gpa = self.base.allocator;
 
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
-            @panic("TODO: implement MachO linker code for exporting a constant value");
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateAtomForDecl(decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
         },
     };
-    const decl = mod.declPtr(decl_index);
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const atom_index = metadata.atom;
     const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
-    const decl_metadata = self.decls.getPtr(decl_index).?;
+    const sym = atom.getSymbol(self);
 
     for (exports) |exp| {
         const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{
@@ -2712,73 +2741,75 @@ pub fn updateExports(
 
         if (exp.opts.section.unwrap()) |section_name| {
             if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
-                try mod.failed_exports.putNoClobber(
-                    mod.gpa,
-                    exp,
-                    try Module.ErrorMsg.create(
-                        gpa,
-                        decl.srcLoc(mod),
-                        "Unimplemented: ExportOptions.section",
-                        .{},
-                    ),
-                );
+                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
                 continue;
             }
         }
 
         if (exp.opts.linkage == .LinkOnce) {
-            try mod.failed_exports.putNoClobber(
-                mod.gpa,
-                exp,
-                try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(mod),
-                    "Unimplemented: GlobalLinkage.LinkOnce",
-                    .{},
-                ),
-            );
+            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                exp.getSrcLoc(mod),
+                "Unimplemented: GlobalLinkage.LinkOnce",
+                .{},
+            ));
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
-            const sym_index = try self.allocateSymbol();
-            try decl_metadata.exports.append(gpa, sym_index);
-            break :blk sym_index;
+        const global_sym_index = metadata.getExport(self, exp_name) orelse blk: {
+            const global_sym_index = if (self.getGlobalIndex(exp_name)) |global_index| ind: {
+                const global = self.globals.items[global_index];
+                // TODO this is just plain wrong as it all should happen in a single `resolveSymbols`
+                // pass. This will go away once we abstact away Zig's incremental compilation into
+                // its own module.
+                if (global.getFile() == null and self.getSymbol(global).undf()) {
+                    _ = self.unresolved.swapRemove(global_index);
+                    break :ind global.sym_index;
+                }
+                break :ind try self.allocateSymbol();
+            } else try self.allocateSymbol();
+            try metadata.exports.append(gpa, global_sym_index);
+            break :blk global_sym_index;
         };
-        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
-        const sym = self.getSymbolPtr(sym_loc);
-        sym.* = .{
+        const global_sym_loc = SymbolWithLoc{ .sym_index = global_sym_index };
+        const global_sym = self.getSymbolPtr(global_sym_loc);
+        global_sym.* = .{
             .n_strx = try self.strtab.insert(gpa, exp_name),
             .n_type = macho.N_SECT | macho.N_EXT,
-            .n_sect = self.text_section_index.? + 1, // TODO what if we export a variable?
+            .n_sect = metadata.section + 1,
             .n_desc = 0,
-            .n_value = decl_sym.n_value,
+            .n_value = sym.n_value,
         };
 
         switch (exp.opts.linkage) {
             .Internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
-                sym.n_type |= macho.N_PEXT;
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_type |= macho.N_PEXT;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             .Strong => {},
             .Weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             else => unreachable,
         }
 
-        self.resolveGlobalSymbol(sym_loc) catch |err| switch (err) {
+        self.resolveGlobalSymbol(global_sym_loc) catch |err| switch (err) {
             error.MultipleSymbolDefinitions => {
                 // TODO: this needs rethinking
                 const global = self.getGlobal(exp_name).?;
-                if (sym_loc.sym_index != global.sym_index and global.getFile() != null) {
+                if (global_sym_loc.sym_index != global.sym_index and global.getFile() != null) {
                     _ = try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(mod),
+                        exp.getSrcLoc(mod),
                         \\LinkError: symbol '{s}' defined multiple times
                     ,
                         .{exp_name},
@@ -2886,8 +2917,8 @@ pub fn lowerAnonDecl(
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
     };
-    if (self.anon_decls.get(decl_val)) |atom_index| {
-        const existing_addr = self.getAtom(atom_index).getSymbol(self).n_value;
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_addr = self.getAtom(metadata.atom).getSymbol(self).n_value;
         if (decl_alignment.check(existing_addr))
             return .ok;
     }
@@ -2917,14 +2948,17 @@ pub fn lowerAnonDecl(
         .ok => |atom_index| atom_index,
         .fail => |em| return .{ .fail = em },
     };
-    try self.anon_decls.put(gpa, decl_val, atom_index);
+    try self.anon_decls.put(gpa, decl_val, .{
+        .atom = atom_index,
+        .section = self.data_const_section_index.?,
+    });
     return .ok;
 }
 
 pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
-    const this_atom_index = self.anon_decls.get(decl_val).?;
+    const this_atom_index = self.anon_decls.get(decl_val).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index }).?;
     try Atom.addRelocation(self, atom_index, .{
@@ -3407,7 +3441,7 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u
     const gpa = self.base.allocator;
     const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
     defer gpa.free(sym_name);
-    return self.addUndefined(sym_name, .add_stub);
+    return self.addUndefined(sym_name, .{ .add_stub = true });
 }
 
 pub fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
@@ -4691,13 +4725,16 @@ pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
     self.hot_state.mach_task = null;
 }
 
-fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32 {
+pub fn addUndefined(self: *MachO, name: []const u8, flags: RelocFlags) !u32 {
     const gpa = self.base.allocator;
 
     const gop = try self.getOrPutGlobalPtr(name);
     const global_index = self.getGlobalIndex(name).?;
 
-    if (gop.found_existing) return global_index;
+    if (gop.found_existing) {
+        try self.updateRelocActions(global_index, flags);
+        return global_index;
+    }
 
     const sym_index = try self.allocateSymbol();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
@@ -4705,11 +4742,21 @@ fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32
 
     const sym = self.getSymbolPtr(sym_loc);
     sym.n_strx = try self.strtab.insert(gpa, name);
-    sym.n_type = macho.N_UNDF;
+    sym.n_type = macho.N_EXT | macho.N_UNDF;
 
-    try self.unresolved.putNoClobber(gpa, global_index, action);
+    try self.unresolved.putNoClobber(gpa, global_index, {});
+    try self.updateRelocActions(global_index, flags);
 
     return global_index;
+}
+
+fn updateRelocActions(self: *MachO, global_index: u32, flags: RelocFlags) !void {
+    const act_gop = try self.actions.getOrPut(self.base.allocator, global_index);
+    if (!act_gop.found_existing) {
+        act_gop.value_ptr.* = .{};
+    }
+    act_gop.value_ptr.add_got = act_gop.value_ptr.add_got or flags.add_got;
+    act_gop.value_ptr.add_stub = act_gop.value_ptr.add_stub or flags.add_stub;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
@@ -4822,6 +4869,11 @@ const GetOrPutGlobalPtrResult = struct {
     found_existing: bool,
     value_ptr: *SymbolWithLoc,
 };
+
+/// Used only for disambiguating local from global at relocation level.
+/// TODO this must go away.
+pub const global_symbol_bit: u32 = 0x80000000;
+pub const global_symbol_mask: u32 = 0x7fffffff;
 
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and
@@ -5489,21 +5541,17 @@ const DeclMetadata = struct {
     }
 };
 
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index);
+const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
+const ActionTable = std.AutoHashMapUnmanaged(u32, RelocFlags);
 
-pub const ResolveAction = struct {
-    kind: Kind,
-    target: SymbolWithLoc,
-
-    const Kind = enum {
-        none,
-        add_got,
-        add_stub,
-    };
+pub const RelocFlags = packed struct {
+    add_got: bool = false,
+    add_stub: bool = false,
 };
 
 pub const SymbolWithLoc = extern struct {

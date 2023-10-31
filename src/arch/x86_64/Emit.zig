@@ -1,7 +1,6 @@
 //! This file contains the functionality for emitting x86_64 MIR as machine code
 
 lower: Lower,
-bin_file: *link.File,
 debug_output: DebugInfoOutput,
 code: *std.ArrayList(u8),
 
@@ -41,7 +40,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .offset = end_offset - 4,
                     .length = @intCast(end_offset - start_offset),
                 }),
-                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     // Add relocation to the decl.
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
                     try atom_ptr.addReloc(elf_file, .{
@@ -49,10 +48,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | std.elf.R_X86_64_PLT32,
                         .r_addend = -4,
                     });
-                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
-                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = macho_file.getGlobalByIndex(symbol.sym_index);
+                    const atom_index =
+                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = .branch,
                         .target = target,
@@ -61,12 +64,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     // Add relocation to the decl.
                     const atom_index = coff_file.getAtomIndexForSymbol(
                         .{ .sym_index = symbol.atom_index, .file = null },
                     ).?;
-                    const target = coff_file.getGlobalByIndex(symbol.sym_index);
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = .direct,
                         .target = target,
@@ -76,12 +82,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .length = 2,
                     });
                 } else return emit.fail("TODO implement extern reloc for {s}", .{
-                    @tagName(emit.bin_file.tag),
+                    @tagName(emit.lower.bin_file.tag),
                 }),
-                .linker_reloc => |data| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
-                    const sym = elf_file.symbol(elf_file.zigModulePtr().symbol(data.sym_index));
-                    if (emit.bin_file.options.pic) {
+                    const sym = elf_file.symbol(elf_file.zigObjectPtr().?.symbol(data.sym_index));
+                    if (emit.lower.bin_file.options.pic) {
                         const r_type: u32 = if (sym.flags.has_zig_got)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
@@ -111,10 +117,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_direct,
                 .linker_import,
                 .linker_tlv,
-                => |symbol| if (emit.bin_file.cast(link.File.Elf)) |_| {
+                => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
                     unreachable;
-                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom_index =
+                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -122,17 +133,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_tlv => .tlv,
                             else => unreachable,
                         },
-                        .target = .{ .sym_index = symbol.sym_index },
+                        .target = target,
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom_index = coff_file.getAtomIndexForSymbol(.{
                         .sym_index = symbol.atom_index,
                         .file = null,
                     }).?;
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -140,19 +155,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_import => .import,
                             else => unreachable,
                         },
-                        .target = switch (lowered_relocs[0].target) {
-                            .linker_got,
-                            .linker_direct,
-                            => .{ .sym_index = symbol.sym_index, .file = null },
-                            .linker_import => coff_file.getGlobalByIndex(symbol.sym_index),
-                            else => unreachable,
-                        },
+                        .target = target,
                         .offset = @as(u32, @intCast(end_offset - 4)),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Plan9)) |p9_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Plan9)) |p9_file| {
                     const atom_index = symbol.atom_index;
                     try p9_file.addReloc(atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
                         .target = symbol.sym_index, // we set sym_index to just be the atom index
@@ -161,7 +170,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .type = .pcrel,
                     });
                 } else return emit.fail("TODO implement linker reloc for {s}", .{
-                    @tagName(emit.bin_file.tag),
+                    @tagName(emit.lower.bin_file.tag),
                 }),
             };
         }

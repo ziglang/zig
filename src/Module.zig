@@ -6538,31 +6538,11 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
             .padding = 0,
         };
     }
-    // Put the tag before or after the payload depending on which one's
-    // alignment is greater.
+
     const tag_size = u.enum_tag_ty.toType().abiSize(mod);
     const tag_align = u.enum_tag_ty.toType().abiAlignment(mod).max(.@"1");
-    var size: u64 = 0;
-    var padding: u32 = undefined;
-    if (tag_align.compare(.gte, payload_align)) {
-        // {Tag, Payload}
-        size += tag_size;
-        size = payload_align.forward(size);
-        size += payload_size;
-        const prev_size = size;
-        size = tag_align.forward(size);
-        padding = @intCast(size - prev_size);
-    } else {
-        // {Payload, Tag}
-        size += payload_size;
-        size = tag_align.forward(size);
-        size += tag_size;
-        const prev_size = size;
-        size = payload_align.forward(size);
-        padding = @intCast(size - prev_size);
-    }
     return .{
-        .abi_size = size,
+        .abi_size = u.size,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6571,7 +6551,7 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = padding,
+        .padding = u.padding,
     };
 }
 
