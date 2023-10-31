@@ -29684,6 +29684,7 @@ fn storePtrVal(
     try sema.checkComptimeVarStore(block, src, mut_kit.mut_decl);
 
     switch (mut_kit.pointee) {
+        .opv => {},
         .direct => |val_ptr| {
             if (mut_kit.mut_decl.runtime_index == .comptime_field_ptr) {
                 val_ptr.* = (try val_ptr.intern(operand_ty, mod)).toValue();
@@ -29741,6 +29742,7 @@ fn storePtrVal(
 const ComptimePtrMutationKit = struct {
     mut_decl: InternPool.Key.Ptr.Addr.MutDecl,
     pointee: union(enum) {
+        opv,
         /// The pointer type matches the actual comptime Value so a direct
         /// modification is possible.
         direct: *Value,
@@ -29793,6 +29795,7 @@ fn beginComptimePtrMutation(
             const eu_ty = mod.intern_pool.typeOf(eu_ptr).toType().childType(mod);
             var parent = try sema.beginComptimePtrMutation(block, src, eu_ptr.toValue(), eu_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.errorUnionPayload(mod);
                     if (val_ptr.ip_index == .none and val_ptr.tag() == .eu_payload) {
@@ -29835,6 +29838,7 @@ fn beginComptimePtrMutation(
             const opt_ty = mod.intern_pool.typeOf(opt_ptr).toType().childType(mod);
             var parent = try sema.beginComptimePtrMutation(block, src, opt_ptr.toValue(), opt_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.optionalChild(mod);
                     switch (val_ptr.ip_index) {
@@ -29888,16 +29892,30 @@ fn beginComptimePtrMutation(
             var parent = try sema.beginComptimePtrMutation(block, src, elem_ptr.base.toValue(), base_elem_ty);
 
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| switch (parent.ty.zigTypeTag(mod)) {
                     .Array, .Vector => {
+                        const elem_ty = parent.ty.childType(mod);
                         const check_len = parent.ty.arrayLenIncludingSentinel(mod);
+                        if ((try sema.typeHasOnePossibleValue(ptr_elem_ty)) != null) {
+                            if (elem_ptr.index > check_len) {
+                                // TODO have the parent include the decl so we can say "declared here"
+                                return sema.fail(block, src, "comptime store of index {d} out of bounds of array length {d}", .{
+                                    elem_ptr.index, check_len,
+                                });
+                            }
+                            return .{
+                                .mut_decl = parent.mut_decl,
+                                .pointee = .opv,
+                                .ty = elem_ty,
+                            };
+                        }
                         if (elem_ptr.index >= check_len) {
                             // TODO have the parent include the decl so we can say "declared here"
                             return sema.fail(block, src, "comptime store of index {d} out of bounds of array length {d}", .{
                                 elem_ptr.index, check_len,
                             });
                         }
-                        const elem_ty = parent.ty.childType(mod);
 
                         // We might have a pointer to multiple elements of the array (e.g. a pointer
                         // to a sub-array). In this case, we just have to reinterpret the relevant
@@ -30072,6 +30090,7 @@ fn beginComptimePtrMutation(
 
             var parent = try sema.beginComptimePtrMutation(block, src, field_ptr.base.toValue(), base_child_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| switch (val_ptr.ip_index) {
                     .empty_struct => {
                         const duped = try sema.arena.create(Value);

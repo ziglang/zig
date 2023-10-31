@@ -451,3 +451,11 @@ test "type pun null pointer-like optional" {
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
 }
+
+test "write empty array to end" {
+    comptime var array: [5]u8 = "hello".*;
+    array[5..5].* = .{};
+    array[5..5].* = [0]u8{};
+    array[5..5].* = [_]u8{};
+    try testing.expectEqualStrings("hello", &array);
+}
