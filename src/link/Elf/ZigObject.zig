@@ -9,6 +9,7 @@ index: File.Index,
 
 local_esyms: std.MultiArrayList(ElfSym) = .{},
 global_esyms: std.MultiArrayList(ElfSym) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
@@ -74,8 +75,9 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
     try self.atoms.append(gpa, 0); // null input section
+    try self.strtab.append(gpa, 0);
 
-    const name_off = try elf_file.strtab.insert(gpa, std.fs.path.stem(self.path));
+    const name_off = try self.insertString(gpa, std.fs.path.stem(self.path));
     const symbol_index = try elf_file.addSymbol();
     try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
@@ -97,6 +99,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.local_esyms.deinit(allocator);
     self.global_esyms.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.local_symbols.deinit(allocator);
     self.global_symbols.deinit(allocator);
     self.globals_lookup.deinit(allocator);
@@ -379,15 +382,6 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
     }
 }
 
-pub fn resetGlobals(self: *ZigObject, elf_file: *Elf) void {
-    for (self.globals()) |index| {
-        const global = elf_file.symbol(index);
-        const off = global.name_offset;
-        global.* = .{};
-        global.name_offset = off;
-    }
-}
-
 pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
         const esym = self.global_esyms.items(.elf_sym)[i];
@@ -400,60 +394,6 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
         if (should_keep and !file.isAlive()) {
             file.setAlive();
             file.markLive(elf_file);
-        }
-    }
-}
-
-pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) void {
-    for (self.locals()) |local_index| {
-        const local = elf_file.symbol(local_index);
-        const esym = local.elfSym(elf_file);
-        switch (esym.st_type()) {
-            elf.STT_SECTION, elf.STT_NOTYPE => {
-                local.flags.output_symtab = false;
-                continue;
-            },
-            else => {},
-        }
-        local.flags.output_symtab = true;
-        self.output_symtab_size.nlocals += 1;
-    }
-
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) {
-            global.flags.output_symtab = false;
-            continue;
-        };
-        global.flags.output_symtab = true;
-        if (global.isLocal()) {
-            self.output_symtab_size.nlocals += 1;
-        } else {
-            self.output_symtab_size.nglobals += 1;
-        }
-    }
-}
-
-pub fn writeSymtab(self: *ZigObject, elf_file: *Elf, ctx: anytype) void {
-    var ilocal = ctx.ilocal;
-    for (self.locals()) |local_index| {
-        const local = elf_file.symbol(local_index);
-        if (!local.flags.output_symtab) continue;
-        local.setOutputSym(elf_file, &ctx.symtab[ilocal]);
-        ilocal += 1;
-    }
-
-    var iglobal = ctx.iglobal;
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (!global.flags.output_symtab) continue;
-        if (global.isLocal()) {
-            global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
-            ilocal += 1;
-        } else {
-            global.setOutputSym(elf_file, &ctx.symtab[iglobal]);
-            iglobal += 1;
         }
     }
 }
@@ -727,7 +667,7 @@ fn updateDeclCode(
     sym.output_section_index = shdr_index;
     atom_ptr.output_section_index = shdr_index;
 
-    sym.name_offset = try elf_file.strtab.insert(gpa, decl_name);
+    sym.name_offset = try self.insertString(gpa, decl_name);
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
@@ -967,7 +907,7 @@ fn updateLazySymbol(
             sym.ty.fmt(mod),
         });
         defer gpa.free(name);
-        break :blk try elf_file.strtab.insert(gpa, name);
+        break :blk try self.insertString(gpa, name);
     };
 
     const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
@@ -1100,7 +1040,7 @@ fn lowerConst(
 
     const phdr_index = elf_file.phdr_to_shdr_table.get(output_section_index).?;
     const local_sym = elf_file.symbol(sym_index);
-    const name_str_index = try elf_file.strtab.insert(gpa, name);
+    const name_str_index = try self.insertString(gpa, name);
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
     const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
@@ -1195,8 +1135,8 @@ pub fn updateExports(
         };
         const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
-        const name_off = try elf_file.strtab.insert(gpa, exp_name);
-        const global_esym_index = if (metadata.@"export"(self, elf_file, exp_name)) |exp_index|
+        const name_off = try self.insertString(gpa, exp_name);
+        const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {
             const global_esym_index = try self.addGlobalEsym(gpa);
@@ -1205,7 +1145,7 @@ pub fn updateExports(
             global_esym.st_name = name_off;
             lookup_gop.value_ptr.* = global_esym_index;
             try metadata.exports.append(gpa, global_esym_index);
-            const gop = try elf_file.getOrPutGlobal(name_off);
+            const gop = try elf_file.getOrPutGlobal(exp_name);
             try self.global_symbols.append(gpa, gop.index);
             break :blk global_esym_index;
         };
@@ -1248,7 +1188,7 @@ pub fn deleteDeclExport(
     const metadata = self.decls.getPtr(decl_index) orelse return;
     const mod = elf_file.base.options.module.?;
     const exp_name = mod.intern_pool.stringToSlice(name);
-    const esym_index = metadata.@"export"(self, elf_file, exp_name) orelse return;
+    const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
     const esym = &self.global_esyms.items(.elf_sym)[esym_index.*];
     _ = self.globals_lookup.remove(esym.st_name);
@@ -1265,17 +1205,29 @@ pub fn deleteDeclExport(
 pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
     const gpa = elf_file.base.allocator;
-    const off = try elf_file.strtab.insert(gpa, name);
+    const off = try self.insertString(gpa, name);
     const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
         const esym_index = try self.addGlobalEsym(gpa);
         const esym = self.elfSym(esym_index);
         esym.st_name = off;
         lookup_gop.value_ptr.* = esym_index;
-        const gop = try elf_file.getOrPutGlobal(off);
+        const gop = try elf_file.getOrPutGlobal(name);
         try self.global_symbols.append(gpa, gop.index);
     }
     return lookup_gop.value_ptr.*;
+}
+
+pub fn getString(self: ZigObject, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
+}
+
+pub fn insertString(self: *ZigObject, allocator: Allocator, name: []const u8) error{OutOfMemory}!u32 {
+    const off = @as(u32, @intCast(self.strtab.items.len));
+    try self.strtab.ensureUnusedCapacity(allocator, name.len + 1);
+    self.strtab.writer(allocator).print("{s}\x00", .{name}) catch unreachable;
+    return off;
 }
 
 pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
@@ -1350,9 +1302,9 @@ const DeclMetadata = struct {
     /// A list of all exports aliases of this Decl.
     exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
-    fn @"export"(m: DeclMetadata, zig_object: *ZigObject, elf_file: *Elf, name: []const u8) ?*u32 {
+    fn @"export"(m: DeclMetadata, zig_object: *ZigObject, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            const exp_name = elf_file.strtab.getAssumeExists(zig_object.elfSym(exp.*).st_name);
+            const exp_name = zig_object.getString(zig_object.elfSym(exp.*).st_name);
             if (mem.eql(u8, name, exp_name)) return exp;
         }
         return null;

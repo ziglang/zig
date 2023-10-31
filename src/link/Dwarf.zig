@@ -23,7 +23,7 @@ abbrev_table_offset: ?u64 = null,
 
 /// TODO replace with InternPool
 /// Table of debug symbol names.
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 
 /// Quick lookup array of all defined source files referenced by at least one Decl.
 /// They will end up in the DWARF debug_line header as two lists:
@@ -2760,6 +2760,6 @@ const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
 const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
-const StringTable = @import("strtab.zig").StringTable;
+const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;

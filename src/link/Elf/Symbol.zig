@@ -58,7 +58,11 @@ pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
-    return elf_file.strtab.getAssumeExists(symbol.name_offset);
+    if (symbol.flags.global) return elf_file.strings.getAssumeExists(symbol.name_offset);
+    const file_ptr = symbol.file(elf_file).?;
+    return switch (file_ptr) {
+        inline else => |x| x.getString(symbol.name_offset),
+    };
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
@@ -71,11 +75,10 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
-    switch (file_ptr) {
-        .zig_object => |x| return x.elfSym(symbol.esym_index).*,
-        .linker_defined => |x| return x.symtab.items[symbol.esym_index],
-        inline else => |x| return x.symtab[symbol.esym_index],
-    }
+    return switch (file_ptr) {
+        .zig_object => |x| x.elfSym(symbol.esym_index).*,
+        inline else => |x| x.symtab.items[symbol.esym_index],
+    };
 }
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
@@ -201,10 +204,7 @@ pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
 }
 
 pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
-    const file_ptr = symbol.file(elf_file) orelse {
-        out.* = Elf.null_sym;
-        return;
-    };
+    const file_ptr = symbol.file(elf_file).?;
     const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
@@ -232,14 +232,11 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             break :blk symbol.value - elf_file.tlsAddress();
         break :blk symbol.value;
     };
-    out.* = .{
-        .st_name = symbol.name_offset,
-        .st_info = (st_bind << 4) | st_type,
-        .st_other = esym.st_other,
-        .st_shndx = st_shndx,
-        .st_value = st_value,
-        .st_size = esym.st_size,
-    };
+    out.st_info = (st_bind << 4) | st_type;
+    out.st_other = esym.st_other;
+    out.st_shndx = st_shndx;
+    out.st_value = st_value;
+    out.st_size = esym.st_size;
 }
 
 pub fn format(
@@ -339,6 +336,12 @@ pub const Flags = packed struct {
 
     /// Whether this symbol is weak.
     weak: bool = false,
+
+    /// Whether the symbol has its name interned in global symbol
+    /// resolver table.
+    /// This happens for any symbol that is considered a global
+    /// symbol, but is not necessarily an import or export.
+    global: bool = false,
 
     /// Whether the symbol makes into the output symtab.
     output_symtab: bool = false,

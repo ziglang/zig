@@ -33,10 +33,10 @@ need_got_table: std.AutoHashMapUnmanaged(u32, void) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 strtab_offset: ?u32 = null,
 
-temp_strtab: StringTable(.temp_strtab) = .{},
+temp_strtab: StringTable = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 
@@ -418,7 +418,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.strtab_offset == null) {
-        const file_size = @as(u32, @intCast(self.strtab.len()));
+        const file_size = @as(u32, @intCast(self.strtab.buffer.items.len));
         self.strtab_offset = self.findFreeSpace(file_size, @alignOf(u32)); // 4bytes aligned seems like a good idea here
         log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + file_size });
     }
@@ -2142,7 +2142,7 @@ fn writeStrtab(self: *Coff) !void {
     if (self.strtab_offset == null) return;
 
     const allocated_size = self.allocatedSize(self.strtab_offset.?);
-    const needed_size = @as(u32, @intCast(self.strtab.len()));
+    const needed_size = @as(u32, @intCast(self.strtab.buffer.items.len));
 
     if (needed_size > allocated_size) {
         self.strtab_offset = null;
@@ -2154,10 +2154,10 @@ fn writeStrtab(self: *Coff) !void {
     var buffer = std.ArrayList(u8).init(self.base.allocator);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
-    buffer.appendSliceAssumeCapacity(self.strtab.items());
+    buffer.appendSliceAssumeCapacity(self.strtab.buffer.items);
     // Here, we do a trick in that we do not commit the size of the strtab to strtab buffer, instead
     // we write the length of the strtab to a temporary buffer that goes to file.
-    mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.len())), .little);
+    mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.buffer.items.len)), .little);
 
     try self.base.file.?.pwriteAll(buffer.items, self.strtab_offset.?);
 }
@@ -2325,7 +2325,7 @@ fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     const end = start + padToIdeal(size);
 
     if (self.strtab_offset) |off| {
-        const tight_size = @as(u32, @intCast(self.strtab.len()));
+        const tight_size = @as(u32, @intCast(self.strtab.buffer.items.len));
         const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
@@ -2666,7 +2666,7 @@ const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
-const StringTable = @import("strtab.zig").StringTable;
+const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
 
