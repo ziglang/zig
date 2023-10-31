@@ -342,7 +342,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         else => unreachable,
     };
 
-    if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
     const aro = @import("aro");
     var aro_comp = aro.Compilation.init(comp.gpa);
     defer aro_comp.deinit();
