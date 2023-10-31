@@ -168,14 +168,12 @@ fn exit2(code: usize) noreturn {
         // exits(0)
         .plan9 => std.os.plan9.exits(null),
         .windows => {
-            ExitProcess(@as(u32, @truncate(code)));
+            std.os.windows.ntdll.RtlExitUserProcess(@as(u32, @truncate(code)));
         },
         else => @compileError("TODO"),
     }
     unreachable;
 }
-
-extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.C) noreturn;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -345,7 +343,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
+    std.os.windows.ntdll.RtlExitUserProcess(initEventLoopAndCallMain());
 }
 
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -357,7 +355,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.debug.maybeEnableSegfaultHandler();
 
     const result: std.os.windows.INT = initEventLoopAndCallWinMain();
-    std.os.windows.kernel32.ExitProcess(@as(std.os.windows.UINT, @bitCast(result)));
+    std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
 fn posixCallMainAndExit() callconv(.C) noreturn {
@@ -605,8 +603,8 @@ pub fn callMain() u8 {
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
-    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(std.os.windows.kernel32.GetModuleHandleW(null).?));
-    const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
+    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
+    const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 
     // There are various types used for the 'show window' variable through the Win32 APIs:
     // - u16 in STARTUPINFOA.wShowWindow / STARTUPINFOW.wShowWindow
