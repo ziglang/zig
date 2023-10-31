@@ -757,8 +757,34 @@ pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
-    var out_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            // We allocated enough space to encode every UTF-16 code unit
+            // as ASCII, so if the entire string is ASCII then we are
+            // guaranteed to have enough space allocated
+            result.appendSliceAssumeCapacity(&ascii_bytes);
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var out_index: usize = result.items.len;
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.items.len + utf8_len);
@@ -774,8 +800,34 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
-    var out_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            // We allocated enough space to encode every UTF-16 code unit
+            // as ASCII, so if the entire string is ASCII then we are
+            // guaranteed to have enough space allocated
+            result.appendSliceAssumeCapacity(&ascii_bytes);
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var out_index = result.items.len;
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.items.len + utf8_len);
@@ -789,7 +841,31 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
 /// Returns end byte index into utf8.
 pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
     var end_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            @memcpy(utf8[end_index .. end_index + chunk_len], &ascii_bytes);
+            end_index += chunk_len;
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         end_index += try utf8Encode(codepoint, utf8[end_index..]);
     }
