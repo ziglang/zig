@@ -85,12 +85,12 @@ pub fn Blake2s(comptime out_bits: usize) type {
             d.buf_len = 0;
 
             if (options.salt) |salt| {
-                d.h[4] ^= mem.readInt(u32, salt[0..4], .Little);
-                d.h[5] ^= mem.readInt(u32, salt[4..8], .Little);
+                d.h[4] ^= mem.readInt(u32, salt[0..4], .little);
+                d.h[5] ^= mem.readInt(u32, salt[4..8], .little);
             }
             if (options.context) |context| {
-                d.h[6] ^= mem.readInt(u32, context[0..4], .Little);
-                d.h[7] ^= mem.readInt(u32, context[4..8], .Little);
+                d.h[6] ^= mem.readInt(u32, context[0..4], .little);
+                d.h[7] ^= mem.readInt(u32, context[4..8], .little);
             }
             if (key_len > 0) {
                 @memset(d.buf[key_len..], 0);
@@ -143,7 +143,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             var v: [16]u32 = undefined;
 
             for (&m, 0..) |*r, i| {
-                r.* = mem.readInt(u32, b[4 * i ..][0..4], .Little);
+                r.* = mem.readInt(u32, b[4 * i ..][0..4], .little);
             }
 
             var k: usize = 0;
@@ -521,12 +521,12 @@ pub fn Blake2b(comptime out_bits: usize) type {
             d.buf_len = 0;
 
             if (options.salt) |salt| {
-                d.h[4] ^= mem.readInt(u64, salt[0..8], .Little);
-                d.h[5] ^= mem.readInt(u64, salt[8..16], .Little);
+                d.h[4] ^= mem.readInt(u64, salt[0..8], .little);
+                d.h[5] ^= mem.readInt(u64, salt[8..16], .little);
             }
             if (options.context) |context| {
-                d.h[6] ^= mem.readInt(u64, context[0..8], .Little);
-                d.h[7] ^= mem.readInt(u64, context[8..16], .Little);
+                d.h[6] ^= mem.readInt(u64, context[0..8], .little);
+                d.h[7] ^= mem.readInt(u64, context[8..16], .little);
             }
             if (key_len > 0) {
                 @memset(d.buf[key_len..], 0);
@@ -579,7 +579,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             var v: [16]u64 = undefined;
 
             for (&m, 0..) |*r, i| {
-                r.* = mem.readInt(u64, b[8 * i ..][0..8], .Little);
+                r.* = mem.readInt(u64, b[8 * i ..][0..8], .little);
             }
 
             var k: usize = 0;

@@ -12,7 +12,7 @@ pub const RangeDecoder = struct {
         }
         return RangeDecoder{
             .range = 0xFFFF_FFFF,
-            .code = try reader.readInt(u32, .Big),
+            .code = try reader.readInt(u32, .big),
         };
     }
 

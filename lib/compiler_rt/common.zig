@@ -249,7 +249,7 @@ pub fn HalveInt(comptime T: type, comptime signed_half: bool) type {
         pub const HalfT = if (signed_half) HalfTS else HalfTU;
 
         all: T,
-        s: if (native_endian == .Little)
+        s: if (native_endian == .little)
             extern struct { low: HalfT, high: HalfT }
         else
             extern struct { high: HalfT, low: HalfT },

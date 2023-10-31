@@ -183,7 +183,7 @@ test "GenericReader methods can return error.EndOfStream" {
     var fbs = std.io.fixedBufferStream("");
     try std.testing.expectError(
         error.EndOfStream,
-        fbs.reader().readEnum(enum(u8) { a, b }, .Little),
+        fbs.reader().readEnum(enum(u8) { a, b }, .little),
     );
     try std.testing.expectError(
         error.EndOfStream,

@@ -15,7 +15,7 @@ pub const zero = [_]u8{0} ** 32;
 
 const field_order_s = s: {
     var s: [32]u8 = undefined;
-    mem.writeInt(u256, &s, field_order, .Little);
+    mem.writeInt(u256, &s, field_order, .little);
     break :s s;
 };
 
@@ -127,9 +127,9 @@ pub const Scalar = struct {
         var bytes: CompressedScalar = undefined;
         var i: usize = 0;
         while (i < 4) : (i += 1) {
-            mem.writeInt(u64, bytes[i * 7 ..][0..8], expanded.limbs[i], .Little);
+            mem.writeInt(u64, bytes[i * 7 ..][0..8], expanded.limbs[i], .little);
         }
-        mem.writeInt(u32, bytes[i * 7 ..][0..4], @intCast(expanded.limbs[i]), .Little);
+        mem.writeInt(u32, bytes[i * 7 ..][0..4], @intCast(expanded.limbs[i]), .little);
         return bytes;
     }
 
@@ -580,7 +580,7 @@ const ScalarDouble = struct {
         var limbs: Limbs = undefined;
         var i: usize = 0;
         while (i < 9) : (i += 1) {
-            limbs[i] = mem.readInt(u64, bytes[i * 7 ..][0..8], .Little) & 0xffffffffffffff;
+            limbs[i] = mem.readInt(u64, bytes[i * 7 ..][0..8], .little) & 0xffffffffffffff;
         }
         limbs[i] = @as(u64, bytes[i * 7]);
         return ScalarDouble{ .limbs = limbs };
@@ -590,9 +590,9 @@ const ScalarDouble = struct {
         var limbs: Limbs = undefined;
         var i: usize = 0;
         while (i < 4) : (i += 1) {
-            limbs[i] = mem.readInt(u64, bytes[i * 7 ..][0..8], .Little) & 0xffffffffffffff;
+            limbs[i] = mem.readInt(u64, bytes[i * 7 ..][0..8], .little) & 0xffffffffffffff;
         }
-        limbs[i] = @as(u64, mem.readInt(u32, bytes[i * 7 ..][0..4], .Little));
+        limbs[i] = @as(u64, mem.readInt(u32, bytes[i * 7 ..][0..4], .little));
         @memset(limbs[5..], 0);
         return ScalarDouble{ .limbs = limbs };
     }

@@ -26835,7 +26835,7 @@ fn structFieldPtrByIndex(
         // cause miscompilations; it only means the field pointer uses bit masking when it
         // might not be strictly necessary.
         if (parent_align != .none and ptr_ty_data.packed_offset.bit_offset % 8 == 0 and
-            target.cpu.arch.endian() == .Little)
+            target.cpu.arch.endian() == .little)
         {
             const elem_size_bytes = try sema.typeAbiSize(ptr_ty_data.child.toType());
             const elem_size_bits = ptr_ty_data.child.toType().bitSize(mod);
@@ -30736,8 +30736,8 @@ fn bitCastUnionFieldVal(
             if (field_size > old_size) {
                 const min_size = @max(old_size, 1);
                 switch (endian) {
-                    .Little => @memset(buffer[min_size - 1 ..], 0xaa),
-                    .Big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
+                    .little => @memset(buffer[min_size - 1 ..], 0xaa),
+                    .big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
                 }
             }
 
@@ -30746,7 +30746,7 @@ fn bitCastUnionFieldVal(
                 error.ReinterpretDeclRef => return null,
             };
 
-            break :offset if (endian == .Big) buffer.len - field_size else 0;
+            break :offset if (endian == .big) buffer.len - field_size else 0;
         },
         .Auto => unreachable,
     };

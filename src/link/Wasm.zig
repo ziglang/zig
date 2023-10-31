@@ -2380,7 +2380,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
     atom.* = Atom.empty;
     atom.sym_index = loc.index;
     atom.size = 2;
-    try atom.code.writer(wasm.base.allocator).writeInt(u16, @intCast(errors_len), .Little);
+    try atom.code.writer(wasm.base.allocator).writeInt(u16, @intCast(errors_len), .little);
 
     try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
@@ -3151,7 +3151,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         const offset = @as(u32, @intCast(atom.code.items.len));
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
-        try atom.code.writer(wasm.base.allocator).writeInt(u32, len - 1, .Little);
+        try atom.code.writer(wasm.base.allocator).writeInt(u32, len - 1, .little);
         // create relocation to the error name
         try atom.relocs.append(wasm.base.allocator, .{
             .index = names_atom.sym_index,
@@ -4286,11 +4286,11 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
         },
         .f32_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f32_const));
-            try writer.writeInt(u32, @bitCast(val), .Little);
+            try writer.writeInt(u32, @bitCast(val), .little);
         },
         .f64_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f64_const));
-            try writer.writeInt(u64, @bitCast(val), .Little);
+            try writer.writeInt(u64, @bitCast(val), .little);
         },
         .global_get => |val| {
             try writer.writeByte(std.wasm.opcode(.global_get));

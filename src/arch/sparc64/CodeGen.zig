@@ -1231,8 +1231,8 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                 const abi_size = int_info.bits >> 3;
                 const abi_align = operand_ty.abiAlignment(mod);
                 const opposite_endian_asi = switch (self.target.cpu.arch.endian()) {
-                    Endian.Big => ASI.asi_primary_little,
-                    Endian.Little => ASI.asi_primary,
+                    Endian.big => ASI.asi_primary_little,
+                    Endian.little => ASI.asi_primary,
                 };
 
                 switch (operand) {

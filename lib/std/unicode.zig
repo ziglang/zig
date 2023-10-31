@@ -452,12 +452,12 @@ pub const Utf16LeIterator = struct {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
         var code_units: [2]u16 = undefined;
-        code_units[0] = mem.readInt(u16, it.bytes[it.i..][0..2], .Little);
+        code_units[0] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
         it.i += 2;
         if (utf16IsHighSurrogate(code_units[0])) {
             // surrogate pair
             if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
-            code_units[1] = mem.readInt(u16, it.bytes[it.i..][0..2], .Little);
+            code_units[1] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
             const codepoint = try utf16DecodeSurrogatePair(&code_units);
             it.i += 2;
             return codepoint;
@@ -878,16 +878,16 @@ test "utf16leToUtf8" {
     const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
     {
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 'A', .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 'a', .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 'A', .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 'a', .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0x80, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xffff, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0x80, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xffff, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
@@ -895,8 +895,8 @@ test "utf16leToUtf8" {
 
     {
         // the values just outside the surrogate half range
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd7ff, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xe000, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd7ff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xe000, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
@@ -904,8 +904,8 @@ test "utf16leToUtf8" {
 
     {
         // smallest surrogate pair
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd800, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd800, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
@@ -913,24 +913,24 @@ test "utf16leToUtf8" {
 
     {
         // largest surrogate pair
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdfff, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdfff, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 
     {
-        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdcdc, .Little);
-        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdcdc, .Little);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdcdc, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdcdc, .little);
         const result = utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result);
     }

@@ -2719,8 +2719,8 @@ fn writeHeader(self: *Elf) !void {
 
     const endian = self.base.options.target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
-        .Little => elf.ELFDATA2LSB,
-        .Big => elf.ELFDATA2MSB,
+        .little => elf.ELFDATA2LSB,
+        .big => elf.ELFDATA2MSB,
     };
     index += 1;
 

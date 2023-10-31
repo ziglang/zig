@@ -56,8 +56,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         msg_len: u8,
 
         fn init(key: *const [key_length]u8) Self {
-            const k0 = mem.readInt(u64, key[0..8], .Little);
-            const k1 = mem.readInt(u64, key[8..16], .Little);
+            const k0 = mem.readInt(u64, key[0..8], .little);
+            const k1 = mem.readInt(u64, key[8..16], .little);
 
             var d = Self{
                 .v0 = k0 ^ 0x736f6d6570736575,
@@ -124,7 +124,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         }
 
         fn round(self: *Self, b: [8]u8) void {
-            const m = mem.readInt(u64, &b, .Little);
+            const m = mem.readInt(u64, &b, .little);
             self.v3 ^= m;
 
             comptime var i: usize = 0;
@@ -213,7 +213,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         /// Return an authentication tag for the current state
         /// Assumes `out` is less than or equal to `mac_length`.
         pub fn final(self: *Self, out: *[mac_length]u8) void {
-            mem.writeInt(T, out, self.state.final(self.buf[0..self.buf_len]), .Little);
+            mem.writeInt(T, out, self.state.final(self.buf[0..self.buf_len]), .little);
         }
 
         pub fn finalResult(self: *Self) [mac_length]u8 {

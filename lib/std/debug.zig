@@ -1098,8 +1098,8 @@ pub fn readElfDebugInfo(
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-            elf.ELFDATA2LSB => .Little,
-            elf.ELFDATA2MSB => .Big,
+            elf.ELFDATA2LSB => .little,
+            elf.ELFDATA2MSB => .big,
             else => return error.InvalidElfEndian,
         };
         assert(endian == native_endian); // this is our own debug info
@@ -2040,7 +2040,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (missing_debug_info) return error.MissingDebugInfo;
 
             var di = DW.DwarfInfo{
-                .endian = .Little,
+                .endian = .little,
                 .sections = sections,
                 .is_macho = true,
             };

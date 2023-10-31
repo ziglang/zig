@@ -334,7 +334,7 @@ pub fn readStruct(self: Self, comptime T: type) anyerror!T {
 
 pub fn readStructBig(self: Self, comptime T: type) anyerror!T {
     var res = try self.readStruct(T);
-    if (native_endian != std.builtin.Endian.Big) {
+    if (native_endian != std.builtin.Endian.big) {
         mem.byteSwapAllFields(T, &res);
     }
     return res;

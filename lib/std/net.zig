@@ -602,8 +602,8 @@ pub const Ip6Address = extern struct {
         }
         const big_endian_parts = @as(*align(1) const [8]u16, @ptrCast(&self.sa.addr));
         const native_endian_parts = switch (native_endian) {
-            .Big => big_endian_parts.*,
-            .Little => blk: {
+            .big => big_endian_parts.*,
+            .little => blk: {
                 var buf: [8]u16 = undefined;
                 for (big_endian_parts, 0..) |part, i| {
                     buf[i] = mem.bigToNative(u16, part);

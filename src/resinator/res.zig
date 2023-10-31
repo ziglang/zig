@@ -249,14 +249,14 @@ pub const NameOrOrdinal = union(enum) {
                 try writer.writeAll(std.mem.sliceAsBytes(name[0 .. name.len + 1]));
             },
             .ordinal => |ordinal| {
-                try writer.writeInt(u16, 0xffff, .Little);
-                try writer.writeInt(u16, ordinal, .Little);
+                try writer.writeInt(u16, 0xffff, .little);
+                try writer.writeInt(u16, ordinal, .little);
             },
         }
     }
 
     pub fn writeEmpty(writer: anytype) !void {
-        try writer.writeInt(u16, 0, .Little);
+        try writer.writeInt(u16, 0, .little);
     }
 
     pub fn fromString(allocator: Allocator, bytes: SourceBytes) !NameOrOrdinal {
@@ -963,19 +963,19 @@ pub const FixedFileInfo = struct {
     };
 
     pub fn write(self: FixedFileInfo, writer: anytype) !void {
-        try writer.writeInt(u32, signature, .Little);
-        try writer.writeInt(u32, version, .Little);
-        try writer.writeInt(u32, self.file_version.mostSignificantCombinedParts(), .Little);
-        try writer.writeInt(u32, self.file_version.leastSignificantCombinedParts(), .Little);
-        try writer.writeInt(u32, self.product_version.mostSignificantCombinedParts(), .Little);
-        try writer.writeInt(u32, self.product_version.leastSignificantCombinedParts(), .Little);
-        try writer.writeInt(u32, self.file_flags_mask, .Little);
-        try writer.writeInt(u32, self.file_flags, .Little);
-        try writer.writeInt(u32, self.file_os, .Little);
-        try writer.writeInt(u32, self.file_type, .Little);
-        try writer.writeInt(u32, self.file_subtype, .Little);
-        try writer.writeInt(u32, self.file_date.mostSignificantCombinedParts(), .Little);
-        try writer.writeInt(u32, self.file_date.leastSignificantCombinedParts(), .Little);
+        try writer.writeInt(u32, signature, .little);
+        try writer.writeInt(u32, version, .little);
+        try writer.writeInt(u32, self.file_version.mostSignificantCombinedParts(), .little);
+        try writer.writeInt(u32, self.file_version.leastSignificantCombinedParts(), .little);
+        try writer.writeInt(u32, self.product_version.mostSignificantCombinedParts(), .little);
+        try writer.writeInt(u32, self.product_version.leastSignificantCombinedParts(), .little);
+        try writer.writeInt(u32, self.file_flags_mask, .little);
+        try writer.writeInt(u32, self.file_flags, .little);
+        try writer.writeInt(u32, self.file_os, .little);
+        try writer.writeInt(u32, self.file_type, .little);
+        try writer.writeInt(u32, self.file_subtype, .little);
+        try writer.writeInt(u32, self.file_date.mostSignificantCombinedParts(), .little);
+        try writer.writeInt(u32, self.file_date.leastSignificantCombinedParts(), .little);
     }
 };
 

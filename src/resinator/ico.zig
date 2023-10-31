@@ -39,17 +39,17 @@ pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadEr
 //       to do this. Maybe it makes more sense to handle the translation
 //       at the call site instead of having a helper function here.
 pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64) !IconDir {
-    const reserved = try reader.readInt(u16, .Little);
+    const reserved = try reader.readInt(u16, .little);
     if (reserved != 0) {
         return error.InvalidHeader;
     }
 
-    const image_type = reader.readEnum(ImageType, .Little) catch |err| switch (err) {
+    const image_type = reader.readEnum(ImageType, .little) catch |err| switch (err) {
         error.InvalidValue => return error.InvalidImageType,
         else => |e| return e,
     };
 
-    const num_images = try reader.readInt(u16, .Little);
+    const num_images = try reader.readInt(u16, .little);
 
     // To avoid over-allocation in the case of a file that says it has way more
     // entries than it actually does, we use an ArrayList with a conservatively
@@ -68,19 +68,19 @@ pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64
         switch (image_type) {
             .icon => {
                 entry.type_specific_data = .{ .icon = .{
-                    .color_planes = try reader.readInt(u16, .Little),
-                    .bits_per_pixel = try reader.readInt(u16, .Little),
+                    .color_planes = try reader.readInt(u16, .little),
+                    .bits_per_pixel = try reader.readInt(u16, .little),
                 } };
             },
             .cursor => {
                 entry.type_specific_data = .{ .cursor = .{
-                    .hotspot_x = try reader.readInt(u16, .Little),
-                    .hotspot_y = try reader.readInt(u16, .Little),
+                    .hotspot_x = try reader.readInt(u16, .little),
+                    .hotspot_y = try reader.readInt(u16, .little),
                 } };
             },
         }
-        entry.data_size_in_bytes = try reader.readInt(u32, .Little);
-        entry.data_offset_from_start_of_file = try reader.readInt(u32, .Little);
+        entry.data_size_in_bytes = try reader.readInt(u32, .little);
+        entry.data_offset_from_start_of_file = try reader.readInt(u32, .little);
         // Validate that the offset/data size is feasible
         if (@as(u64, entry.data_offset_from_start_of_file) + entry.data_size_in_bytes > max_size) {
             return error.ImpossibleDataSize;
@@ -135,10 +135,10 @@ pub const IconDir = struct {
     }
 
     pub fn writeResData(self: IconDir, writer: anytype, first_image_id: u16) !void {
-        try writer.writeInt(u16, 0, .Little);
-        try writer.writeInt(u16, @intFromEnum(self.image_type), .Little);
+        try writer.writeInt(u16, 0, .little);
+        try writer.writeInt(u16, @intFromEnum(self.image_type), .little);
         // We know that entries.len must fit into a u16
-        try writer.writeInt(u16, @as(u16, @intCast(self.entries.len)), .Little);
+        try writer.writeInt(u16, @as(u16, @intCast(self.entries.len)), .little);
 
         var image_id = first_image_id;
         for (self.entries) |entry| {
@@ -175,23 +175,23 @@ pub const Entry = struct {
     pub fn writeResData(self: Entry, writer: anytype, id: u16) !void {
         switch (self.type_specific_data) {
             .icon => |icon_data| {
-                try writer.writeInt(u8, @as(u8, @truncate(self.width)), .Little);
-                try writer.writeInt(u8, @as(u8, @truncate(self.height)), .Little);
-                try writer.writeInt(u8, self.num_colors, .Little);
-                try writer.writeInt(u8, self.reserved, .Little);
-                try writer.writeInt(u16, icon_data.color_planes, .Little);
-                try writer.writeInt(u16, icon_data.bits_per_pixel, .Little);
-                try writer.writeInt(u32, self.data_size_in_bytes, .Little);
+                try writer.writeInt(u8, @as(u8, @truncate(self.width)), .little);
+                try writer.writeInt(u8, @as(u8, @truncate(self.height)), .little);
+                try writer.writeInt(u8, self.num_colors, .little);
+                try writer.writeInt(u8, self.reserved, .little);
+                try writer.writeInt(u16, icon_data.color_planes, .little);
+                try writer.writeInt(u16, icon_data.bits_per_pixel, .little);
+                try writer.writeInt(u32, self.data_size_in_bytes, .little);
             },
             .cursor => |cursor_data| {
-                try writer.writeInt(u16, self.width, .Little);
-                try writer.writeInt(u16, self.height, .Little);
-                try writer.writeInt(u16, cursor_data.hotspot_x, .Little);
-                try writer.writeInt(u16, cursor_data.hotspot_y, .Little);
-                try writer.writeInt(u32, self.data_size_in_bytes + 4, .Little);
+                try writer.writeInt(u16, self.width, .little);
+                try writer.writeInt(u16, self.height, .little);
+                try writer.writeInt(u16, cursor_data.hotspot_x, .little);
+                try writer.writeInt(u16, cursor_data.hotspot_y, .little);
+                try writer.writeInt(u32, self.data_size_in_bytes + 4, .little);
             },
         }
-        try writer.writeInt(u16, id, .Little);
+        try writer.writeInt(u16, id, .little);
     }
 };
 

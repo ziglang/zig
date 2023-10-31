@@ -4666,8 +4666,8 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
         try f.writeCValue(writer, local, .Other);
         if (dest_cty.castTag(.array)) |pl| {
             try writer.print("[{d}]", .{switch (target.cpu.arch.endian()) {
-                .Little => pl.data.len - 1,
-                .Big => 0,
+                .little => pl.data.len - 1,
+                .big => 0,
             }});
             const elem_cty = f.indexToCType(pl.data.elem_type);
             wrap_cty = elem_cty.toSignedness(dest_info.signedness);
@@ -4697,8 +4697,8 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
         try f.writeCValue(writer, local, .Other);
         if (dest_cty.castTag(.array)) |pl| {
             try writer.print("[{d}]", .{switch (target.cpu.arch.endian()) {
-                .Little => pl.data.len - 1,
-                .Big => 0,
+                .little => pl.data.len - 1,
+                .big => 0,
             }});
         }
         if (need_bitcasts) try writer.writeByte(')');
@@ -7652,13 +7652,13 @@ fn formatIntLiteral(
         else => .{
             .cty = CType.initTag(.void),
             .count = 1,
-            .endian = .Little,
+            .endian = .little,
             .homogeneous = true,
         },
         .zig_u128, .zig_i128 => .{
             .cty = CType.initTag(.uint64_t),
             .count = 2,
-            .endian = .Big,
+            .endian = .big,
             .homogeneous = false,
         },
         .array => info: {
@@ -7729,8 +7729,8 @@ fn formatIntLiteral(
         const most_significant_limb_i = wrap.len - limbs_per_c_limb;
         while (limb_offset < wrap.len) : (limb_offset += limbs_per_c_limb) {
             const limb_i = switch (c_limb_info.endian) {
-                .Little => limb_offset,
-                .Big => most_significant_limb_i - limb_offset,
+                .little => limb_offset,
+                .big => most_significant_limb_i - limb_offset,
             };
             var c_limb_mut = BigInt.Mutable{
                 .limbs = wrap.limbs[limb_i..][0..limbs_per_c_limb],

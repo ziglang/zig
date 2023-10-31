@@ -798,7 +798,7 @@ pub const Mutable = struct {
         const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
 
         var bytes = std.mem.sliceAsBytes(r.limbs);
-        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .Little).init(bytes, limbs_required * @bitSizeOf(Limb));
+        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .little).init(bytes, limbs_required * @bitSizeOf(Limb));
 
         var k: usize = 0;
         while (k < ((bit_count + 1) / 2)) : (k += 1) {
@@ -807,7 +807,7 @@ pub const Mutable = struct {
 
             // This "endian mask" remaps a low (LE) byte to the corresponding high
             // (BE) byte in the Limb, without changing which limbs we are indexing
-            if (native_endian == .Big) {
+            if (native_endian == .big) {
                 i ^= endian_mask;
                 rev_i ^= endian_mask;
             }
@@ -821,8 +821,8 @@ pub const Mutable = struct {
         // Calculate signed-magnitude representation for output
         if (signedness == .signed) {
             const last_bit = switch (native_endian) {
-                .Little => bits.get(bit_count - 1),
-                .Big => bits.get((bit_count - 1) ^ endian_mask),
+                .little => bits.get(bit_count - 1),
+                .big => bits.get((bit_count - 1) ^ endian_mask),
             };
             if (last_bit == 1) {
                 r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
@@ -869,7 +869,7 @@ pub const Mutable = struct {
 
             // This "endian mask" remaps a low (LE) byte to the corresponding high
             // (BE) byte in the Limb, without changing which limbs we are indexing
-            if (native_endian == .Big) {
+            if (native_endian == .big) {
                 i ^= endian_mask;
                 rev_i ^= endian_mask;
             }
@@ -883,8 +883,8 @@ pub const Mutable = struct {
         // Calculate signed-magnitude representation for output
         if (signedness == .signed) {
             const last_byte = switch (native_endian) {
-                .Little => bytes[byte_count - 1],
-                .Big => bytes[(byte_count - 1) ^ endian_mask],
+                .little => bytes[byte_count - 1],
+                .big => bytes[(byte_count - 1) ^ endian_mask],
             };
 
             if (last_byte & (1 << 7) != 0) { // Check sign bit of last byte
@@ -1912,8 +1912,8 @@ pub const Mutable = struct {
         if (signedness == .signed) {
             const total_bits = bit_offset + bit_count;
             var last_byte = switch (endian) {
-                .Little => ((total_bits + 7) / 8) - 1,
-                .Big => buffer.len - ((total_bits + 7) / 8),
+                .little => ((total_bits + 7) / 8) - 1,
+                .big => buffer.len - ((total_bits + 7) / 8),
             };
 
             const sign_bit = @as(u8, 1) << @as(u3, @intCast((total_bits - 1) % 8));

@@ -33,7 +33,7 @@ pub const Fde = struct {
 
     pub fn ciePointer(fde: Fde, elf_file: *Elf) u32 {
         const fde_data = fde.data(elf_file);
-        return std.mem.readInt(u32, fde_data[4..8], .Little);
+        return std.mem.readInt(u32, fde_data[4..8], .little);
     }
 
     pub fn calcSize(fde: Fde) usize {
@@ -217,10 +217,10 @@ pub const Iterator = struct {
         var stream = std.io.fixedBufferStream(it.data[it.pos..]);
         const reader = stream.reader();
 
-        var size = try reader.readInt(u32, .Little);
+        var size = try reader.readInt(u32, .little);
         if (size == 0xFFFFFFFF) @panic("TODO");
 
-        const id = try reader.readInt(u32, .Little);
+        const id = try reader.readInt(u32, .little);
         const record = Record{
             .tag = if (id == 0) .cie else .fde,
             .offset = it.pos,
@@ -298,10 +298,10 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 
     var where = contents[offset..];
     switch (rel.r_type()) {
-        elf.R_X86_64_32 => std.mem.writeInt(i32, where[0..4], @as(i32, @truncate(S + A)), .Little),
-        elf.R_X86_64_64 => std.mem.writeInt(i64, where[0..8], S + A, .Little),
-        elf.R_X86_64_PC32 => std.mem.writeInt(i32, where[0..4], @as(i32, @intCast(S - P + A)), .Little),
-        elf.R_X86_64_PC64 => std.mem.writeInt(i64, where[0..8], S - P + A, .Little),
+        elf.R_X86_64_32 => std.mem.writeInt(i32, where[0..4], @as(i32, @truncate(S + A)), .little),
+        elf.R_X86_64_64 => std.mem.writeInt(i64, where[0..8], S + A, .little),
+        elf.R_X86_64_PC32 => std.mem.writeInt(i32, where[0..4], @as(i32, @intCast(S - P + A)), .little),
+        elf.R_X86_64_PC64 => std.mem.writeInt(i64, where[0..8], S - P + A, .little),
         else => unreachable,
     }
 }
@@ -342,7 +342,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
                 i32,
                 contents[4..8],
                 @truncate(@as(i64, @intCast(fde.out_offset + 4)) - @as(i64, @intCast(fde.cie(elf_file).out_offset))),
-                .Little,
+                .little,
             );
 
             for (fde.relocs(elf_file)) |rel| {
@@ -354,7 +354,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
         }
     }
 
-    try writer.writeInt(u32, 0, .Little);
+    try writer.writeInt(u32, 0, .little);
 }
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
@@ -372,9 +372,9 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
             i32,
             @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
-        .Little,
+        .little,
     );
-    try writer.writeInt(u32, num_fdes, .Little);
+    try writer.writeInt(u32, num_fdes, .little);
 
     const Entry = struct {
         init_addr: u32,

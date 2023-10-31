@@ -113,7 +113,7 @@ pub const Random = struct {
         // use LE instead of native endian for better portability maybe?
         // TODO: endian portability is pointless if the underlying prng isn't endian portable.
         // TODO: document the endian portability of this library.
-        const byte_aligned_result = mem.readInt(ByteAlignedT, &rand_bytes, .Little);
+        const byte_aligned_result = mem.readInt(ByteAlignedT, &rand_bytes, .little);
         const unsigned_result: UnsignedT = @truncate(byte_aligned_result);
         return @bitCast(unsigned_result);
     }

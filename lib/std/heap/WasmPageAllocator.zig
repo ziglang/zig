@@ -28,7 +28,7 @@ const PageStatus = enum(u1) {
 const FreeBlock = struct {
     data: []u128,
 
-    const Io = std.packed_int_array.PackedIntIo(u1, .Little);
+    const Io = std.packed_int_array.PackedIntIo(u1, .little);
 
     fn totalPages(self: FreeBlock) usize {
         return self.data.len * 128;

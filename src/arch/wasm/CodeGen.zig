@@ -3364,7 +3364,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 const backing_int_ty = struct_type.backingIntType(ip).toType();
                 const int_val = try mod.intValue(
                     backing_int_ty,
-                    mem.readInt(u64, &buf, .Little),
+                    mem.readInt(u64, &buf, .little),
                 );
                 return func.lowerConstant(int_val, backing_int_ty);
             },

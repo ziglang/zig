@@ -616,8 +616,8 @@ test "sub-aligned pointer field access" {
     const ptr: *align(1) Header = @ptrCast(buf[1..][0..8]);
     const x = ptr.bytes_len;
     switch (builtin.cpu.arch.endian()) {
-        .Big => try expect(x == 0x06070809),
-        .Little => try expect(x == 0x09080706),
+        .big => try expect(x == 0x06070809),
+        .little => try expect(x == 0x09080706),
     }
 }
 

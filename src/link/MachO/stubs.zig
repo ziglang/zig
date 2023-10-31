@@ -53,7 +53,7 @@ pub fn writeStubHelperPreambleCode(args: struct {
                     args.dyld_private_addr,
                     0,
                 );
-                try writer.writeInt(i32, disp, .Little);
+                try writer.writeInt(i32, disp, .little);
             }
             try writer.writeAll(&.{ 0x41, 0x53, 0xff, 0x25 });
             {
@@ -62,27 +62,27 @@ pub fn writeStubHelperPreambleCode(args: struct {
                     args.dyld_stub_binder_got_addr,
                     0,
                 );
-                try writer.writeInt(i32, disp, .Little);
+                try writer.writeInt(i32, disp, .little);
             }
         },
         .aarch64 => {
             {
                 const pages = Relocation.calcNumberOfPages(args.source_addr, args.dyld_private_addr);
-                try writer.writeInt(u32, aarch64.Instruction.adrp(.x17, pages).toU32(), .Little);
+                try writer.writeInt(u32, aarch64.Instruction.adrp(.x17, pages).toU32(), .little);
             }
             {
                 const off = try Relocation.calcPageOffset(args.dyld_private_addr, .arithmetic);
-                try writer.writeInt(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32(), .Little);
+                try writer.writeInt(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32(), .little);
             }
             try writer.writeInt(u32, aarch64.Instruction.stp(
                 .x16,
                 .x17,
                 aarch64.Register.sp,
                 aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
-            ).toU32(), .Little);
+            ).toU32(), .little);
             {
                 const pages = Relocation.calcNumberOfPages(args.source_addr + 12, args.dyld_stub_binder_got_addr);
-                try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .Little);
+                try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
             }
             {
                 const off = try Relocation.calcPageOffset(args.dyld_stub_binder_got_addr, .load_store_64);
@@ -90,9 +90,9 @@ pub fn writeStubHelperPreambleCode(args: struct {
                     .x16,
                     .x16,
                     aarch64.Instruction.LoadStoreOffset.imm(off),
-                ).toU32(), .Little);
+                ).toU32(), .little);
             }
-            try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .Little);
+            try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
         },
         else => unreachable,
     }
@@ -108,7 +108,7 @@ pub fn writeStubHelperCode(args: struct {
             try writer.writeAll(&.{ 0x68, 0x0, 0x0, 0x0, 0x0, 0xe9 });
             {
                 const disp = try Relocation.calcPcRelativeDisplacementX86(args.source_addr + 6, args.target_addr, 0);
-                try writer.writeInt(i32, disp, .Little);
+                try writer.writeInt(i32, disp, .little);
             }
         },
         .aarch64 => {
@@ -120,10 +120,10 @@ pub fn writeStubHelperCode(args: struct {
             try writer.writeInt(u32, aarch64.Instruction.ldrLiteral(
                 .w16,
                 literal,
-            ).toU32(), .Little);
+            ).toU32(), .little);
             {
                 const disp = try Relocation.calcPcRelativeDisplacementArm64(args.source_addr + 4, args.target_addr);
-                try writer.writeInt(u32, aarch64.Instruction.b(disp).toU32(), .Little);
+                try writer.writeInt(u32, aarch64.Instruction.b(disp).toU32(), .little);
             }
             try writer.writeAll(&.{ 0x0, 0x0, 0x0, 0x0 });
         },
@@ -141,13 +141,13 @@ pub fn writeStubCode(args: struct {
             try writer.writeAll(&.{ 0xff, 0x25 });
             {
                 const disp = try Relocation.calcPcRelativeDisplacementX86(args.source_addr + 2, args.target_addr, 0);
-                try writer.writeInt(i32, disp, .Little);
+                try writer.writeInt(i32, disp, .little);
             }
         },
         .aarch64 => {
             {
                 const pages = Relocation.calcNumberOfPages(args.source_addr, args.target_addr);
-                try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .Little);
+                try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
             }
             {
                 const off = try Relocation.calcPageOffset(args.target_addr, .load_store_64);
@@ -155,9 +155,9 @@ pub fn writeStubCode(args: struct {
                     .x16,
                     .x16,
                     aarch64.Instruction.LoadStoreOffset.imm(off),
-                ).toU32(), .Little);
+                ).toU32(), .little);
             }
-            try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .Little);
+            try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
         },
         else => unreachable,
     }

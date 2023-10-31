@@ -121,19 +121,19 @@ pub const CompileUnit = struct {
         address_size: u8,
 
         fn read(reader: anytype) !Header {
-            var length: u64 = try reader.readInt(u32, .Little);
+            var length: u64 = try reader.readInt(u32, .little);
 
             const is_64bit = length == 0xffffffff;
             if (is_64bit) {
-                length = try reader.readInt(u64, .Little);
+                length = try reader.readInt(u64, .little);
             }
 
-            const version = try reader.readInt(u16, .Little);
+            const version = try reader.readInt(u16, .little);
             const debug_abbrev_offset = if (is_64bit)
-                try reader.readInt(u64, .Little)
+                try reader.readInt(u64, .little)
             else
-                try reader.readInt(u32, .Little);
-            const address_size = try reader.readInt(u8, .Little);
+                try reader.readInt(u32, .little);
+            const address_size = try reader.readInt(u8, .little);
 
             return Header{
                 .is_64bit = is_64bit,
@@ -251,9 +251,9 @@ pub const Attribute = struct {
             },
             dwarf.FORM.strp => {
                 const off = if (cuh.is_64bit)
-                    mem.readInt(u64, debug_info[0..8], .Little)
+                    mem.readInt(u64, debug_info[0..8], .little)
                 else
-                    mem.readInt(u32, debug_info[0..4], .Little);
+                    mem.readInt(u32, debug_info[0..4], .little);
                 return ctx.getString(off);
             },
             else => return null,
@@ -267,9 +267,9 @@ pub const Attribute = struct {
 
         return switch (self.form) {
             dwarf.FORM.data1 => debug_info[0],
-            dwarf.FORM.data2 => mem.readInt(u16, debug_info[0..2], .Little),
-            dwarf.FORM.data4 => mem.readInt(u32, debug_info[0..4], .Little),
-            dwarf.FORM.data8 => mem.readInt(u64, debug_info[0..8], .Little),
+            dwarf.FORM.data2 => mem.readInt(u16, debug_info[0..2], .little),
+            dwarf.FORM.data4 => mem.readInt(u32, debug_info[0..4], .little),
+            dwarf.FORM.data8 => mem.readInt(u64, debug_info[0..8], .little),
             dwarf.FORM.udata => try leb.readULEB128(u64, reader),
             dwarf.FORM.sdata => try leb.readILEB128(i64, reader),
             else => null,
@@ -281,9 +281,9 @@ pub const Attribute = struct {
         const debug_info = self.getDebugInfo(ctx);
         return switch (cuh.address_size) {
             1 => debug_info[0],
-            2 => mem.readInt(u16, debug_info[0..2], .Little),
-            4 => mem.readInt(u32, debug_info[0..4], .Little),
-            8 => mem.readInt(u64, debug_info[0..8], .Little),
+            2 => mem.readInt(u16, debug_info[0..2], .little),
+            4 => mem.readInt(u32, debug_info[0..4], .little),
+            8 => mem.readInt(u64, debug_info[0..8], .little),
             else => unreachable,
         };
     }
@@ -380,9 +380,9 @@ fn findFormSize(self: DwarfInfo, form: u64, di_off: usize, cuh: CompileUnit.Head
         dwarf.FORM.block,
         => {
             const len: u64 = switch (form) {
-                dwarf.FORM.block1 => try reader.readInt(u8, .Little),
-                dwarf.FORM.block2 => try reader.readInt(u16, .Little),
-                dwarf.FORM.block4 => try reader.readInt(u32, .Little),
+                dwarf.FORM.block1 => try reader.readInt(u8, .little),
+                dwarf.FORM.block2 => try reader.readInt(u16, .little),
+                dwarf.FORM.block4 => try reader.readInt(u32, .little),
                 dwarf.FORM.block => try leb.readULEB128(u64, reader),
                 else => unreachable,
             };

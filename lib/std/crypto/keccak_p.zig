@@ -45,7 +45,7 @@ pub fn KeccakF(comptime f: u11) type {
         pub fn init(bytes: [block_bytes]u8) Self {
             var self: Self = undefined;
             inline for (&self.st, 0..) |*r, i| {
-                r.* = mem.readInt(T, bytes[@sizeOf(T) * i ..][0..@sizeOf(T)], .Little);
+                r.* = mem.readInt(T, bytes[@sizeOf(T) * i ..][0..@sizeOf(T)], .little);
             }
             return self;
         }
@@ -66,12 +66,12 @@ pub fn KeccakF(comptime f: u11) type {
         pub fn setBytes(self: *Self, bytes: []const u8) void {
             var i: usize = 0;
             while (i + @sizeOf(T) <= bytes.len) : (i += @sizeOf(T)) {
-                self.st[i / @sizeOf(T)] = mem.readInt(T, bytes[i..][0..@sizeOf(T)], .Little);
+                self.st[i / @sizeOf(T)] = mem.readInt(T, bytes[i..][0..@sizeOf(T)], .little);
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
-                self.st[i / @sizeOf(T)] = mem.readInt(T, padded[0..], .Little);
+                self.st[i / @sizeOf(T)] = mem.readInt(T, padded[0..], .little);
             }
         }
 
@@ -85,12 +85,12 @@ pub fn KeccakF(comptime f: u11) type {
         pub fn addBytes(self: *Self, bytes: []const u8) void {
             var i: usize = 0;
             while (i + @sizeOf(T) <= bytes.len) : (i += @sizeOf(T)) {
-                self.st[i / @sizeOf(T)] ^= mem.readInt(T, bytes[i..][0..@sizeOf(T)], .Little);
+                self.st[i / @sizeOf(T)] ^= mem.readInt(T, bytes[i..][0..@sizeOf(T)], .little);
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
-                self.st[i / @sizeOf(T)] ^= mem.readInt(T, padded[0..], .Little);
+                self.st[i / @sizeOf(T)] ^= mem.readInt(T, padded[0..], .little);
             }
         }
 
@@ -98,11 +98,11 @@ pub fn KeccakF(comptime f: u11) type {
         pub fn extractBytes(self: *Self, out: []u8) void {
             var i: usize = 0;
             while (i + @sizeOf(T) <= out.len) : (i += @sizeOf(T)) {
-                mem.writeInt(T, out[i..][0..@sizeOf(T)], self.st[i / @sizeOf(T)], .Little);
+                mem.writeInt(T, out[i..][0..@sizeOf(T)], self.st[i / @sizeOf(T)], .little);
             }
             if (i < out.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
-                mem.writeInt(T, padded[0..], self.st[i / @sizeOf(T)], .Little);
+                mem.writeInt(T, padded[0..], self.st[i / @sizeOf(T)], .little);
                 @memcpy(out[i..], padded[0 .. out.len - i]);
             }
         }

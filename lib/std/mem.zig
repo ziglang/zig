@@ -1499,12 +1499,12 @@ test "containsAtLeast" {
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
     var result: ReturnType = 0;
     switch (endian) {
-        .Big => {
+        .big => {
             for (bytes) |b| {
                 result = (result << 8) | b;
             }
         },
-        .Little => {
+        .little => {
             const ShiftType = math.Log2Int(ReturnType);
             for (bytes, 0..) |b, index| {
                 result = result | (@as(ReturnType, b) << @as(ShiftType, @intCast(index * 8)));
@@ -1539,8 +1539,8 @@ pub fn readVarPackedInt(
     const pad = @as(Log2N, @intCast(@bitSizeOf(T) - bit_count));
 
     const lowest_byte = switch (endian) {
-        .Big => bytes.len - (bit_offset / 8) - read_size,
-        .Little => bit_offset / 8,
+        .big => bytes.len - (bit_offset / 8) - read_size,
+        .little => bit_offset / 8,
     };
     const read_bytes = bytes[lowest_byte..][0..read_size];
 
@@ -1550,7 +1550,7 @@ pub fn readVarPackedInt(
         const value = if (read_size == 1) b: {
             break :b @as(uN, @truncate(read_bytes[0] >> bit_shift));
         } else b: {
-            const i: u1 = @intFromBool(endian == .Big);
+            const i: u1 = @intFromBool(endian == .big);
             const head = @as(uN, @truncate(read_bytes[i] >> bit_shift));
             const tail_shift = @as(Log2N, @intCast(@as(u4, 8) - bit_shift));
             const tail = @as(uN, @truncate(read_bytes[1 - i]));
@@ -1565,13 +1565,13 @@ pub fn readVarPackedInt(
     // Copy the value out (respecting endianness), accounting for bit_shift
     var int: uN = 0;
     switch (endian) {
-        .Big => {
+        .big => {
             for (read_bytes[0 .. read_size - 1]) |elem| {
                 int = elem | (int << 8);
             }
             int = (read_bytes[read_size - 1] >> bit_shift) | (int << (@as(u4, 8) - bit_shift));
         },
-        .Little => {
+        .little => {
             int = read_bytes[0] >> bit_shift;
             for (read_bytes[1..], 0..) |elem, i| {
                 int |= (@as(uN, elem) << @as(Log2N, @intCast((8 * (i + 1) - bit_shift))));
@@ -1593,23 +1593,23 @@ pub inline fn readInt(comptime T: type, buffer: *const [@divExact(@typeInfo(T).I
 }
 
 test readInt {
-    try testing.expect(readInt(u0, &[_]u8{}, .Big) == 0x0);
-    try testing.expect(readInt(u0, &[_]u8{}, .Little) == 0x0);
+    try testing.expect(readInt(u0, &[_]u8{}, .big) == 0x0);
+    try testing.expect(readInt(u0, &[_]u8{}, .little) == 0x0);
 
-    try testing.expect(readInt(u8, &[_]u8{0x32}, .Big) == 0x32);
-    try testing.expect(readInt(u8, &[_]u8{0x12}, .Little) == 0x12);
+    try testing.expect(readInt(u8, &[_]u8{0x32}, .big) == 0x32);
+    try testing.expect(readInt(u8, &[_]u8{0x12}, .little) == 0x12);
 
-    try testing.expect(readInt(u16, &[_]u8{ 0x12, 0x34 }, .Big) == 0x1234);
-    try testing.expect(readInt(u16, &[_]u8{ 0x12, 0x34 }, .Little) == 0x3412);
+    try testing.expect(readInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
+    try testing.expect(readInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
 
-    try testing.expect(readInt(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .Big) == 0x123456789abcdef024);
-    try testing.expect(readInt(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .Little) == 0xfedcba9876543210ec);
+    try testing.expect(readInt(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
+    try testing.expect(readInt(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
 
-    try testing.expect(readInt(i8, &[_]u8{0xff}, .Big) == -1);
-    try testing.expect(readInt(i8, &[_]u8{0xfe}, .Little) == -2);
+    try testing.expect(readInt(i8, &[_]u8{0xff}, .big) == -1);
+    try testing.expect(readInt(i8, &[_]u8{0xfe}, .little) == -2);
 
-    try testing.expect(readInt(i16, &[_]u8{ 0xff, 0xfd }, .Big) == -3);
-    try testing.expect(readInt(i16, &[_]u8{ 0xfc, 0xff }, .Little) == -4);
+    try testing.expect(readInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
+    try testing.expect(readInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
 }
 
 fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T {
@@ -1629,7 +1629,7 @@ fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T
     // Read by loading a LoadInt, and then follow it up with a 1-byte read
     // of the tail if bit_offset pushed us over a byte boundary.
     const read_bytes = bytes[bit_offset / 8 ..];
-    const val = @as(uN, @truncate(readInt(LoadInt, read_bytes[0..load_size], .Little) >> bit_shift));
+    const val = @as(uN, @truncate(readInt(LoadInt, read_bytes[0..load_size], .little) >> bit_shift));
     if (bit_shift > load_tail_bits) {
         const tail_bits = @as(Log2N, @intCast(bit_shift - load_tail_bits));
         const tail_byte = read_bytes[load_size];
@@ -1657,7 +1657,7 @@ fn readPackedIntBig(comptime T: type, bytes: []const u8, bit_offset: usize) T {
     // of the tail if bit_offset pushed us over a byte boundary.
     const end = bytes.len - (bit_offset / 8);
     const read_bytes = bytes[(end - byte_count)..end];
-    const val = @as(uN, @truncate(readInt(LoadInt, bytes[(end - load_size)..end][0..load_size], .Big) >> bit_shift));
+    const val = @as(uN, @truncate(readInt(LoadInt, bytes[(end - load_size)..end][0..load_size], .big) >> bit_shift));
     if (bit_shift > load_tail_bits) {
         const tail_bits = @as(Log2N, @intCast(bit_shift - load_tail_bits));
         const tail_byte = if (bit_count < 8) @as(uN, @truncate(read_bytes[0])) else @as(uN, read_bytes[0]);
@@ -1666,13 +1666,13 @@ fn readPackedIntBig(comptime T: type, bytes: []const u8, bit_offset: usize) T {
 }
 
 pub const readPackedIntNative = switch (native_endian) {
-    .Little => readPackedIntLittle,
-    .Big => readPackedIntBig,
+    .little => readPackedIntLittle,
+    .big => readPackedIntBig,
 };
 
 pub const readPackedIntForeign = switch (native_endian) {
-    .Little => readPackedIntBig,
-    .Big => readPackedIntLittle,
+    .little => readPackedIntBig,
+    .big => readPackedIntLittle,
 };
 
 /// Loads an integer from packed memory.
@@ -1685,22 +1685,22 @@ pub const readPackedIntForeign = switch (native_endian) {
 ///
 pub fn readPackedInt(comptime T: type, bytes: []const u8, bit_offset: usize, endian: Endian) T {
     switch (endian) {
-        .Little => return readPackedIntLittle(T, bytes, bit_offset),
-        .Big => return readPackedIntBig(T, bytes, bit_offset),
+        .little => return readPackedIntLittle(T, bytes, bit_offset),
+        .big => return readPackedIntBig(T, bytes, bit_offset),
     }
 }
 
 test "comptime read/write int" {
     comptime {
         var bytes: [2]u8 = undefined;
-        writeInt(u16, &bytes, 0x1234, .Little);
-        const result = readInt(u16, &bytes, .Big);
+        writeInt(u16, &bytes, 0x1234, .little);
+        const result = readInt(u16, &bytes, .big);
         try testing.expect(result == 0x3412);
     }
     comptime {
         var bytes: [2]u8 = undefined;
-        writeInt(u16, &bytes, 0x1234, .Big);
-        const result = readInt(u16, &bytes, .Little);
+        writeInt(u16, &bytes, 0x1234, .big);
+        const result = readInt(u16, &bytes, .little);
         try testing.expect(result == 0x3412);
     }
 }
@@ -1718,34 +1718,34 @@ test writeInt {
     var buf2: [2]u8 = undefined;
     var buf9: [9]u8 = undefined;
 
-    writeInt(u0, &buf0, 0x0, .Big);
+    writeInt(u0, &buf0, 0x0, .big);
     try testing.expect(eql(u8, buf0[0..], &[_]u8{}));
-    writeInt(u0, &buf0, 0x0, .Little);
+    writeInt(u0, &buf0, 0x0, .little);
     try testing.expect(eql(u8, buf0[0..], &[_]u8{}));
 
-    writeInt(u8, &buf1, 0x12, .Big);
+    writeInt(u8, &buf1, 0x12, .big);
     try testing.expect(eql(u8, buf1[0..], &[_]u8{0x12}));
-    writeInt(u8, &buf1, 0x34, .Little);
+    writeInt(u8, &buf1, 0x34, .little);
     try testing.expect(eql(u8, buf1[0..], &[_]u8{0x34}));
 
-    writeInt(u16, &buf2, 0x1234, .Big);
+    writeInt(u16, &buf2, 0x1234, .big);
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x12, 0x34 }));
-    writeInt(u16, &buf2, 0x5678, .Little);
+    writeInt(u16, &buf2, 0x5678, .little);
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x78, 0x56 }));
 
-    writeInt(u72, &buf9, 0x123456789abcdef024, .Big);
+    writeInt(u72, &buf9, 0x123456789abcdef024, .big);
     try testing.expect(eql(u8, buf9[0..], &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
-    writeInt(u72, &buf9, 0xfedcba9876543210ec, .Little);
+    writeInt(u72, &buf9, 0xfedcba9876543210ec, .little);
     try testing.expect(eql(u8, buf9[0..], &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
-    writeInt(i8, &buf1, -1, .Big);
+    writeInt(i8, &buf1, -1, .big);
     try testing.expect(eql(u8, buf1[0..], &[_]u8{0xff}));
-    writeInt(i8, &buf1, -2, .Little);
+    writeInt(i8, &buf1, -2, .little);
     try testing.expect(eql(u8, buf1[0..], &[_]u8{0xfe}));
 
-    writeInt(i16, &buf2, -3, .Big);
+    writeInt(i16, &buf2, -3, .big);
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xff, 0xfd }));
-    writeInt(i16, &buf2, -4, .Little);
+    writeInt(i16, &buf2, -4, .little);
     try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
 
@@ -1779,7 +1779,7 @@ fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value:
         write_value |= @as(StoreInt, tail) << (8 * (store_size - 1));
     }
 
-    writeInt(StoreInt, write_bytes[0..store_size], write_value, .Little);
+    writeInt(StoreInt, write_bytes[0..store_size], write_value, .little);
 }
 
 fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
@@ -1814,17 +1814,17 @@ fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T)
         write_value |= @as(StoreInt, tail) << (8 * (store_size - 1));
     }
 
-    writeInt(StoreInt, write_bytes[(byte_count - store_size)..][0..store_size], write_value, .Big);
+    writeInt(StoreInt, write_bytes[(byte_count - store_size)..][0..store_size], write_value, .big);
 }
 
 pub const writePackedIntNative = switch (native_endian) {
-    .Little => writePackedIntLittle,
-    .Big => writePackedIntBig,
+    .little => writePackedIntLittle,
+    .big => writePackedIntBig,
 };
 
 pub const writePackedIntForeign = switch (native_endian) {
-    .Little => writePackedIntBig,
-    .Big => writePackedIntLittle,
+    .little => writePackedIntBig,
+    .big => writePackedIntLittle,
 };
 
 /// Stores an integer to packed memory.
@@ -1838,8 +1838,8 @@ pub const writePackedIntForeign = switch (native_endian) {
 ///
 pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T, endian: Endian) void {
     switch (endian) {
-        .Little => writePackedIntLittle(T, bytes, bit_offset, value),
-        .Big => writePackedIntBig(T, bytes, bit_offset, value),
+        .little => writePackedIntLittle(T, bytes, bit_offset, value),
+        .big => writePackedIntBig(T, bytes, bit_offset, value),
     }
 }
 
@@ -1860,8 +1860,8 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     const bit_shift = @as(u3, @intCast(bit_offset % 8));
     const write_size = (bit_count + bit_shift + 7) / 8;
     const lowest_byte = switch (endian) {
-        .Big => bytes.len - (bit_offset / 8) - write_size,
-        .Little => bit_offset / 8,
+        .big => bytes.len - (bit_offset / 8) - write_size,
+        .little => bit_offset / 8,
     };
     const write_bytes = bytes[lowest_byte..][0..write_size];
 
@@ -1877,8 +1877,8 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     var remaining: T = value;
 
     // Iterate bytes forward for Little-endian, backward for Big-endian
-    const delta: i2 = if (endian == .Big) -1 else 1;
-    const start = if (endian == .Big) @as(isize, @intCast(write_bytes.len - 1)) else 0;
+    const delta: i2 = if (endian == .big) -1 else 1;
+    const start = if (endian == .big) @as(isize, @intCast(write_bytes.len - 1)) else 0;
 
     var i: isize = start; // isize for signed index arithmetic
 
@@ -3122,12 +3122,12 @@ fn testReadIntImpl() !void {
             0x56,
             0x78,
         };
-        try testing.expect(readInt(u32, &bytes, .Big) == 0x12345678);
-        try testing.expect(readInt(u32, &bytes, .Big) == 0x12345678);
-        try testing.expect(readInt(i32, &bytes, .Big) == 0x12345678);
-        try testing.expect(readInt(u32, &bytes, .Little) == 0x78563412);
-        try testing.expect(readInt(u32, &bytes, .Little) == 0x78563412);
-        try testing.expect(readInt(i32, &bytes, .Little) == 0x78563412);
+        try testing.expect(readInt(u32, &bytes, .big) == 0x12345678);
+        try testing.expect(readInt(u32, &bytes, .big) == 0x12345678);
+        try testing.expect(readInt(i32, &bytes, .big) == 0x12345678);
+        try testing.expect(readInt(u32, &bytes, .little) == 0x78563412);
+        try testing.expect(readInt(u32, &bytes, .little) == 0x78563412);
+        try testing.expect(readInt(i32, &bytes, .little) == 0x78563412);
     }
     {
         const buf = [_]u8{
@@ -3136,7 +3136,7 @@ fn testReadIntImpl() !void {
             0x12,
             0x34,
         };
-        const answer = readInt(u32, &buf, .Big);
+        const answer = readInt(u32, &buf, .big);
         try testing.expect(answer == 0x00001234);
     }
     {
@@ -3146,7 +3146,7 @@ fn testReadIntImpl() !void {
             0x00,
             0x00,
         };
-        const answer = readInt(u32, &buf, .Little);
+        const answer = readInt(u32, &buf, .little);
         try testing.expect(answer == 0x00003412);
     }
     {
@@ -3154,10 +3154,10 @@ fn testReadIntImpl() !void {
             0xff,
             0xfe,
         };
-        try testing.expect(readInt(u16, &bytes, .Big) == 0xfffe);
-        try testing.expect(readInt(i16, &bytes, .Big) == -0x0002);
-        try testing.expect(readInt(u16, &bytes, .Little) == 0xfeff);
-        try testing.expect(readInt(i16, &bytes, .Little) == -0x0101);
+        try testing.expect(readInt(u16, &bytes, .big) == 0xfffe);
+        try testing.expect(readInt(i16, &bytes, .big) == -0x0002);
+        try testing.expect(readInt(u16, &bytes, .little) == 0xfeff);
+        try testing.expect(readInt(i16, &bytes, .little) == -0x0101);
     }
 }
 
@@ -3603,48 +3603,48 @@ test "replaceOwned" {
 /// Converts a little-endian integer to host endianness.
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => x,
-        .Big => @byteSwap(x),
+        .little => x,
+        .big => @byteSwap(x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(x),
-        .Big => x,
+        .little => @byteSwap(x),
+        .big => x,
     };
 }
 
 /// Converts an integer from specified endianness to host endianness.
 pub fn toNative(comptime T: type, x: T, endianness_of_x: Endian) T {
     return switch (endianness_of_x) {
-        .Little => littleToNative(T, x),
-        .Big => bigToNative(T, x),
+        .little => littleToNative(T, x),
+        .big => bigToNative(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to the desired endianness.
 pub fn nativeTo(comptime T: type, x: T, desired_endianness: Endian) T {
     return switch (desired_endianness) {
-        .Little => nativeToLittle(T, x),
-        .Big => nativeToBig(T, x),
+        .little => nativeToLittle(T, x),
+        .big => nativeToBig(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to little endian.
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => x,
-        .Big => @byteSwap(x),
+        .little => x,
+        .big => @byteSwap(x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(x),
-        .Big => x,
+        .little => @byteSwap(x),
+        .big => x,
     };
 }
 
@@ -3748,8 +3748,8 @@ pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
 test "asBytes" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
-        .Big => "\xDE\xAD\xBE\xEF",
-        .Little => "\xEF\xBE\xAD\xDE",
+        .big => "\xDE\xAD\xBE\xEF",
+        .little => "\xEF\xBE\xAD\xDE",
     };
 
     try testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
@@ -3773,10 +3773,10 @@ test "asBytes" {
         .d = 0xA1,
     };
     switch (native_endian) {
-        .Little => {
+        .little => {
             try testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
         },
-        .Big => {
+        .big => {
             try testing.expect(eql(u8, asBytes(&inst), "\xA1\xDE\xEF\xBE"));
         },
     }
@@ -3808,14 +3808,14 @@ pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
 test "toBytes" {
     var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (native_endian) {
-        .Big => try testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
-        .Little => try testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
+        .big => try testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
+        .little => try testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (native_endian) {
-        .Big => try testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
-        .Little => try testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
+        .big => try testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
+        .little => try testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
@@ -3840,15 +3840,15 @@ pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, 
 test "bytesAsValue" {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
-        .Big => "\xDE\xAD\xBE\xEF",
-        .Little => "\xEF\xBE\xAD\xDE",
+        .big => "\xDE\xAD\xBE\xEF",
+        .little => "\xEF\xBE\xAD\xDE",
     };
 
     try testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
     var codeface_bytes: [4]u8 = switch (native_endian) {
-        .Big => "\xC0\xDE\xFA\xCE",
-        .Little => "\xCE\xFA\xDE\xC0",
+        .big => "\xC0\xDE\xFA\xCE",
+        .little => "\xCE\xFA\xDE\xC0",
     }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
     try testing.expect(codeface.* == 0xC0DEFACE);
@@ -3870,8 +3870,8 @@ test "bytesAsValue" {
         .d = 0xA1,
     };
     const inst_bytes = switch (native_endian) {
-        .Little => "\xBE\xEF\xDE\xA1",
-        .Big => "\xA1\xDE\xEF\xBE",
+        .little => "\xBE\xEF\xDE\xA1",
+        .big => "\xA1\xDE\xEF\xBE",
     };
     const inst2 = bytesAsValue(S, inst_bytes);
     try testing.expect(meta.eql(inst, inst2.*));
@@ -3898,8 +3898,8 @@ pub fn bytesToValue(comptime T: type, bytes: anytype) T {
 }
 test "bytesToValue" {
     const deadbeef_bytes = switch (native_endian) {
-        .Big => "\xDE\xAD\xBE\xEF",
-        .Little => "\xEF\xBE\xAD\xDE",
+        .big => "\xDE\xAD\xBE\xEF",
+        .little => "\xEF\xBE\xAD\xDE",
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
@@ -4028,8 +4028,8 @@ test "sliceAsBytes" {
     const slice = sliceAsBytes(bytes[0..]);
     try testing.expect(slice.len == 4);
     try testing.expect(eql(u8, slice, switch (native_endian) {
-        .Big => "\xDE\xAD\xBE\xEF",
-        .Little => "\xAD\xDE\xEF\xBE",
+        .big => "\xDE\xAD\xBE\xEF",
+        .little => "\xAD\xDE\xEF\xBE",
     }));
 }
 
@@ -4204,7 +4204,7 @@ test "doNotOptimizeAway" {
     doNotOptimizeAway(@as(f64, 0.0));
     doNotOptimizeAway([_]u8{0} ** 4);
     doNotOptimizeAway([_]u8{0} ** 100);
-    doNotOptimizeAway(@as(std.builtin.Endian, .Little));
+    doNotOptimizeAway(@as(std.builtin.Endian, .little));
 }
 
 test "alignForward" {
@@ -4356,7 +4356,7 @@ test "read/write(Var)PackedInt" {
         return error.SkipZigTest;
     }
 
-    const foreign_endian: Endian = if (native_endian == .Big) .Little else .Big;
+    const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
     var prng = std.rand.DefaultPrng.init(1234);
     const random = prng.random();

@@ -1191,7 +1191,7 @@ pub const Target = struct {
                     .loongarch32,
                     .loongarch64,
                     .arc,
-                    => .Little,
+                    => .little,
 
                     .armeb,
                     .aarch64_be,
@@ -1207,7 +1207,7 @@ pub const Target = struct {
                     .tce,
                     .lanai,
                     .s390x,
-                    => .Big,
+                    => .big,
                 };
             }
 

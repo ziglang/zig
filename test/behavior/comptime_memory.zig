@@ -73,7 +73,7 @@ test "type pun value and struct" {
 }
 
 fn bigToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Big) v else @byteSwap(v);
+    return if (endian == .big) v else @byteSwap(v);
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -385,7 +385,7 @@ test "accessing reinterpreted memory of parent object" {
         b: [4]u8,
         c: f32,
     };
-    const expected = if (endian == .Little) 102 else 38;
+    const expected = if (endian == .little) 102 else 38;
 
     comptime {
         const x = S{

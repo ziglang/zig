@@ -137,7 +137,7 @@ fn resolveAarch64(self: Relocation, ctx: Context) void {
             };
             inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
             inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-            mem.writeInt(u32, buffer[0..4], inst.toU32(), .Little);
+            mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
         },
         .got_pageoff, .import_pageoff, .pageoff => {
             assert(!self.pcrel);
@@ -151,7 +151,7 @@ fn resolveAarch64(self: Relocation, ctx: Context) void {
                     ), buffer[0..4]),
                 };
                 inst.add_subtract_immediate.imm12 = narrowed;
-                mem.writeInt(u32, buffer[0..4], inst.toU32(), .Little);
+                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
             } else {
                 var inst = aarch64.Instruction{
                     .load_store_register = mem.bytesToValue(meta.TagPayload(
@@ -173,7 +173,7 @@ fn resolveAarch64(self: Relocation, ctx: Context) void {
                     }
                 };
                 inst.load_store_register.offset = offset;
-                mem.writeInt(u32, buffer[0..4], inst.toU32(), .Little);
+                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
             }
         },
         .direct => {
@@ -183,9 +183,9 @@ fn resolveAarch64(self: Relocation, ctx: Context) void {
                     u32,
                     buffer[0..4],
                     @as(u32, @truncate(ctx.target_vaddr + ctx.image_base)),
-                    .Little,
+                    .little,
                 ),
-                3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .Little),
+                3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .little),
                 else => unreachable,
             }
         },
@@ -208,17 +208,17 @@ fn resolveX86(self: Relocation, ctx: Context) void {
         .got, .import => {
             assert(self.pcrel);
             const disp = @as(i32, @intCast(ctx.target_vaddr)) - @as(i32, @intCast(ctx.source_vaddr)) - 4;
-            mem.writeInt(i32, buffer[0..4], disp, .Little);
+            mem.writeInt(i32, buffer[0..4], disp, .little);
         },
         .direct => {
             if (self.pcrel) {
                 const disp = @as(i32, @intCast(ctx.target_vaddr)) - @as(i32, @intCast(ctx.source_vaddr)) - 4;
-                mem.writeInt(i32, buffer[0..4], disp, .Little);
+                mem.writeInt(i32, buffer[0..4], disp, .little);
             } else switch (ctx.ptr_width) {
-                .p32 => mem.writeInt(u32, buffer[0..4], @as(u32, @intCast(ctx.target_vaddr + ctx.image_base)), .Little),
+                .p32 => mem.writeInt(u32, buffer[0..4], @as(u32, @intCast(ctx.target_vaddr + ctx.image_base)), .little),
                 .p64 => switch (self.length) {
-                    2 => mem.writeInt(u32, buffer[0..4], @as(u32, @truncate(ctx.target_vaddr + ctx.image_base)), .Little),
-                    3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .Little),
+                    2 => mem.writeInt(u32, buffer[0..4], @as(u32, @truncate(ctx.target_vaddr + ctx.image_base)), .little),
+                    3 => mem.writeInt(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base, .little),
                     else => unreachable,
                 },
             }

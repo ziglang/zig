@@ -94,16 +94,16 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
     const id = std.mem.readInt(u16, file_header[0..2], native_endian);
     if (id != windows_format_id) return error.InvalidFileHeader;
 
-    bitmap_info.pixel_data_offset = std.mem.readInt(u32, file_header[10..14], .Little);
+    bitmap_info.pixel_data_offset = std.mem.readInt(u32, file_header[10..14], .little);
     if (bitmap_info.pixel_data_offset > max_size) return error.ImpossiblePixelDataOffset;
 
-    bitmap_info.dib_header_size = reader.readInt(u32, .Little) catch return error.UnexpectedEOF;
+    bitmap_info.dib_header_size = reader.readInt(u32, .little) catch return error.UnexpectedEOF;
     if (bitmap_info.pixel_data_offset < file_header_len + bitmap_info.dib_header_size) return error.ImpossiblePixelDataOffset;
     const dib_version = BitmapHeader.Version.get(bitmap_info.dib_header_size);
     switch (dib_version) {
         .@"nt3.1", .@"nt4.0", .@"nt5.0" => {
             var dib_header_buf: [@sizeOf(BITMAPINFOHEADER)]u8 align(@alignOf(BITMAPINFOHEADER)) = undefined;
-            std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .Little);
+            std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .little);
             reader.readNoEof(dib_header_buf[4..]) catch return error.UnexpectedEOF;
             var dib_header: *BITMAPINFOHEADER = @ptrCast(&dib_header_buf);
             structFieldsLittleToNative(BITMAPINFOHEADER, dib_header);
@@ -118,7 +118,7 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
         },
         .@"win2.0" => {
             var dib_header_buf: [@sizeOf(BITMAPCOREHEADER)]u8 align(@alignOf(BITMAPCOREHEADER)) = undefined;
-            std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .Little);
+            std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .little);
             reader.readNoEof(dib_header_buf[4..]) catch return error.UnexpectedEOF;
             var dib_header: *BITMAPCOREHEADER = @ptrCast(&dib_header_buf);
             structFieldsLittleToNative(BITMAPCOREHEADER, dib_header);

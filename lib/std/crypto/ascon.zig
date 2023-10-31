@@ -96,8 +96,8 @@ pub fn State(comptime endian: std.builtin.Endian) type {
         /// XOR a byte into the state at a given offset.
         pub fn addByte(self: *Self, byte: u8, offset: usize) void {
             const z = switch (endian) {
-                .Big => 64 - 8 - 8 * @as(u6, @truncate(offset % 8)),
-                .Little => 8 * @as(u6, @truncate(offset % 8)),
+                .big => 64 - 8 - 8 * @as(u6, @truncate(offset % 8)),
+                .little => 8 * @as(u6, @truncate(offset % 8)),
             };
             self.st[offset / 8] ^= @as(u64, byte) << z;
         }
@@ -215,7 +215,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 }
 
 test "ascon" {
-    const Ascon = State(.Big);
+    const Ascon = State(.big);
     const bytes = [_]u8{0x01} ** Ascon.block_bytes;
     var st = Ascon.init(bytes);
     var out: [Ascon.block_bytes]u8 = undefined;

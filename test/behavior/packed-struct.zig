@@ -165,7 +165,7 @@ test "correct sizeOf and offsets in packed structs" {
     try expectEqual(22, @bitOffsetOf(PStruct, "u10_b"));
     try expectEqual(4, @sizeOf(PStruct));
 
-    if (native_endian == .Little) {
+    if (native_endian == .little) {
         const s1 = @as(PStruct, @bitCast(@as(u32, 0x12345678)));
         try expectEqual(false, s1.bool_a);
         try expectEqual(false, s1.bool_b);
@@ -206,7 +206,7 @@ test "nested packed structs" {
     try expectEqual(3, @offsetOf(S3, "y"));
     try expectEqual(24, @bitOffsetOf(S3, "y"));
 
-    if (native_endian == .Little) {
+    if (native_endian == .little) {
         const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
         try expectEqual(@as(u8, 0xf4), s3.x.a);
         try expectEqual(@as(u8, 0x1f), s3.x.b);
@@ -258,7 +258,7 @@ test "nested packed struct unaligned" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+    if (native_endian != .little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
 
     const S1 = packed struct {
         a: u4,
@@ -352,13 +352,13 @@ test "byte-aligned field pointer offsets" {
                 .d = 4,
             };
             switch (comptime builtin.cpu.arch.endian()) {
-                .Little => {
+                .little => {
                     comptime assert(@TypeOf(&a.a) == *align(4) u8);
                     comptime assert(@TypeOf(&a.b) == *u8);
                     comptime assert(@TypeOf(&a.c) == *align(2) u8);
                     comptime assert(@TypeOf(&a.d) == *u8);
                 },
-                .Big => {
+                .big => {
                     // TODO re-evaluate packed struct endianness
                     comptime assert(@TypeOf(&a.a) == *align(4:0:4) u8);
                     comptime assert(@TypeOf(&a.b) == *align(4:8:4) u8);
@@ -400,11 +400,11 @@ test "byte-aligned field pointer offsets" {
                 .b = 2,
             };
             switch (comptime builtin.cpu.arch.endian()) {
-                .Little => {
+                .little => {
                     comptime assert(@TypeOf(&b.a) == *align(4) u16);
                     comptime assert(@TypeOf(&b.b) == *u16);
                 },
-                .Big => {
+                .big => {
                     comptime assert(@TypeOf(&b.a) == *align(4:0:4) u16);
                     comptime assert(@TypeOf(&b.b) == *align(4:16:4) u16);
                 },
@@ -433,7 +433,7 @@ test "nested packed struct field pointers" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // ubsan unaligned pointer access
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+    if (native_endian != .little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
 
     const S2 = packed struct {
         base: u8,
@@ -491,7 +491,7 @@ test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (native_endian != .Little) return error.SkipZigTest;
+    if (native_endian != .little) return error.SkipZigTest;
 
     const S = struct {
         const P = packed struct {
@@ -515,7 +515,7 @@ test "@intFromPtr on a packed struct field unaligned and nested" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (native_endian != .Little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
+    if (native_endian != .little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
 
     const S1 = packed struct {
         a: u4,
@@ -921,11 +921,11 @@ test "overaligned pointer to packed struct" {
     var foo: S align(4) = .{ .a = 123, .b = 456 };
     const ptr: *align(4) S = &foo;
     switch (comptime builtin.cpu.arch.endian()) {
-        .Little => {
+        .little => {
             const ptr_to_b: *u32 = &ptr.b;
             try expect(ptr_to_b.* == 456);
         },
-        .Big => {
+        .big => {
             // Byte aligned packed struct field pointers have not been implemented yet.
             const ptr_to_a: *align(4:0:8) u32 = &ptr.a;
             try expect(ptr_to_a.* == 123);

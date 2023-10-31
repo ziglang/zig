@@ -15,12 +15,12 @@ const endian = builtin.cpu.arch.endian();
 
 /// Get the value of a limb.
 inline fn limb(x: []const u32, i: usize) u32 {
-    return if (endian == .Little) x[i] else x[x.len - 1 - i];
+    return if (endian == .little) x[i] else x[x.len - 1 - i];
 }
 
 /// Change the value of a limb.
 inline fn limb_set(x: []u32, i: usize, v: u32) void {
-    if (endian == .Little) {
+    if (endian == .little) {
         x[i] = v;
     } else {
         x[x.len - 1 - i] = v;
