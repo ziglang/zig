@@ -484,38 +484,6 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     return start;
 }
 
-const AllocateSegmentOpts = struct {
-    addr: u64,
-    memsz: u64,
-    filesz: u64,
-    alignment: u64,
-    flags: u32 = elf.PF_R,
-};
-
-pub fn allocateSegment(self: *Elf, opts: AllocateSegmentOpts) error{OutOfMemory}!u16 {
-    const off = self.findFreeSpace(opts.filesz, opts.alignment);
-    const index = try self.addPhdr(.{
-        .type = elf.PT_LOAD,
-        .offset = off,
-        .filesz = opts.filesz,
-        .addr = opts.addr,
-        .memsz = opts.memsz,
-        .@"align" = opts.alignment,
-        .flags = opts.flags,
-    });
-    log.debug("allocating phdr({d})({c}{c}{c}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
-        index,
-        if (opts.flags & elf.PF_R != 0) @as(u8, 'R') else '_',
-        if (opts.flags & elf.PF_W != 0) @as(u8, 'W') else '_',
-        if (opts.flags & elf.PF_X != 0) @as(u8, 'X') else '_',
-        off,
-        off + opts.filesz,
-        opts.addr,
-        opts.addr + opts.memsz,
-    });
-    return index;
-}
-
 const AllocateAllocSectionOpts = struct {
     name: [:0]const u8,
     phdr_index: u16,
@@ -590,11 +558,15 @@ pub fn initMetadata(self: *Elf) !void {
     comptime assert(number_of_zig_segments == 5);
 
     if (self.phdr_zig_load_re_index == null) {
-        self.phdr_zig_load_re_index = try self.allocateSegment(.{
+        const filesz = self.base.options.program_code_size_hint;
+        const off = self.findFreeSpace(filesz, self.page_size);
+        self.phdr_zig_load_re_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
+            .offset = off,
+            .filesz = filesz,
             .addr = if (ptr_bit_width >= 32) 0x8000000 else 0x8000,
-            .memsz = self.base.options.program_code_size_hint,
-            .filesz = self.base.options.program_code_size_hint,
-            .alignment = self.page_size,
+            .memsz = filesz,
+            .@"align" = self.page_size,
             .flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
     }
@@ -603,33 +575,45 @@ pub fn initMetadata(self: *Elf) !void {
         // We really only need ptr alignment but since we are using PROGBITS, linux requires
         // page align.
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_zig_got_index = try self.allocateSegment(.{
+        const filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+        const off = self.findFreeSpace(filesz, alignment);
+        self.phdr_zig_got_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
+            .offset = off,
+            .filesz = filesz,
             .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
-            .memsz = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
-            .filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint,
-            .alignment = alignment,
+            .memsz = filesz,
+            .@"align" = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
 
     if (self.phdr_zig_load_ro_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_zig_load_ro_index = try self.allocateSegment(.{
+        const filesz: u64 = 1024;
+        const off = self.findFreeSpace(filesz, alignment);
+        self.phdr_zig_load_ro_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
+            .offset = off,
+            .filesz = filesz,
             .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
-            .memsz = 1024,
-            .filesz = 1024,
-            .alignment = alignment,
+            .memsz = filesz,
+            .@"align" = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
 
     if (self.phdr_zig_load_rw_index == null) {
         const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_zig_load_rw_index = try self.allocateSegment(.{
+        const filesz: u64 = 1024;
+        const off = self.findFreeSpace(filesz, alignment);
+        self.phdr_zig_load_rw_index = try self.addPhdr(.{
+            .type = elf.PT_LOAD,
+            .offset = off,
+            .filesz = filesz,
             .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
-            .memsz = 1024,
-            .filesz = 1024,
-            .alignment = alignment,
+            .memsz = filesz,
+            .@"align" = alignment,
             .flags = elf.PF_R | elf.PF_W,
         });
     }
