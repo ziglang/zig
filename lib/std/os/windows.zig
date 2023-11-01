@@ -2532,7 +2532,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
     const rc = ws2_32.WSAIoctl(
         sock,
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        @as(*const anyopaque, @ptrCast(&guid)),
+        &guid,
         @sizeOf(GUID),
         @as(?*anyopaque, @ptrFromInt(@intFromPtr(&function))),
         @sizeOf(T),
@@ -5208,7 +5208,7 @@ pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) Wri
     switch (ntdll.NtWriteVirtualMemory(
         handle,
         addr,
-        @as(*const anyopaque, @ptrCast(buffer.ptr)),
+        buffer.ptr,
         buffer.len,
         &nwritten,
     )) {
