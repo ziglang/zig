@@ -1943,7 +1943,7 @@ fn scanRelocs(self: *Elf) !void {
 
     for (self.symbols.items, 0..) |*sym, i| {
         const index = @as(u32, @intCast(i));
-        if (!sym.isLocal() and !sym.flags.has_dynamic) {
+        if (!sym.isLocal(self) and !sym.flags.has_dynamic) {
             log.debug("'{s}' is non-local", .{sym.name(self)});
             try self.dynsym.addSymbol(index, self);
         }

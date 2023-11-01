@@ -150,7 +150,7 @@ pub const File = union(enum) {
             if (file_ptr.index() != file.index()) continue;
             if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
             global.flags.output_symtab = true;
-            if (global.isLocal()) {
+            if (global.isLocal(elf_file)) {
                 output_symtab_size.nlocals += 1;
             } else {
                 output_symtab_size.nglobals += 1;
@@ -181,7 +181,7 @@ pub const File = union(enum) {
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
             elf_file.strtab.appendAssumeCapacity(0);
-            if (global.isLocal()) {
+            if (global.isLocal(elf_file)) {
                 const out_sym = &elf_file.symtab.items[ilocal];
                 out_sym.st_name = st_name;
                 global.setOutputSym(elf_file, out_sym);

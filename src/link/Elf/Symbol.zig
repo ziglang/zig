@@ -42,7 +42,8 @@ pub fn outputShndx(symbol: Symbol) ?u16 {
     return symbol.output_section_index;
 }
 
-pub fn isLocal(symbol: Symbol) bool {
+pub fn isLocal(symbol: Symbol, elf_file: *Elf) bool {
+    if (elf_file.isObject()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
@@ -208,7 +209,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
-        if (symbol.isLocal()) break :blk 0;
+        if (symbol.isLocal(elf_file)) break :blk 0;
         if (symbol.flags.weak) break :blk elf.STB_WEAK;
         if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
         break :blk esym.st_bind();

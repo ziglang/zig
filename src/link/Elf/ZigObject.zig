@@ -1192,6 +1192,7 @@ pub fn updateExports(
         global_esym.st_shndx = esym.st_shndx;
         global_esym.st_info = (stb_bits << 4) | stt_bits;
         global_esym.st_name = name_off;
+        global_esym.st_size = esym.st_size;
         self.global_esyms.items(.shndx)[actual_esym_index] = esym_shndx;
     }
 }
