@@ -104,7 +104,7 @@ zig_got: ZigGotSection = .{},
 
 /// Tracked section headers with incremental updates to Zig object
 zig_text_section_index: ?u16 = null,
-zig_rodata_section_index: ?u16 = null,
+zig_data_rel_ro_section_index: ?u16 = null,
 zig_data_section_index: ?u16 = null,
 zig_bss_section_index: ?u16 = null,
 zig_got_section_index: ?u16 = null,
@@ -484,40 +484,6 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     return start;
 }
 
-const AllocateAllocSectionOpts = struct {
-    name: [:0]const u8,
-    phdr_index: u16,
-    alignment: u64 = 1,
-    flags: u64 = elf.SHF_ALLOC,
-    type: u32 = elf.SHT_PROGBITS,
-};
-
-pub fn allocateAllocSection(self: *Elf, opts: AllocateAllocSectionOpts) error{OutOfMemory}!u16 {
-    const gpa = self.base.allocator;
-    const phdr = &self.phdrs.items[opts.phdr_index];
-    const index = try self.addSection(.{
-        .name = opts.name,
-        .type = opts.type,
-        .flags = opts.flags,
-        .addralign = opts.alignment,
-        .offset = std.math.maxInt(u64),
-    });
-    const shdr = &self.shdrs.items[index];
-    try self.phdr_to_shdr_table.putNoClobber(gpa, index, opts.phdr_index);
-    log.debug("allocating '{s}' in phdr({d}) from 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
-        opts.name,
-        opts.phdr_index,
-        phdr.p_offset,
-        phdr.p_offset + phdr.p_filesz,
-        phdr.p_vaddr,
-        phdr.p_vaddr + phdr.p_memsz,
-    });
-    shdr.sh_addr = phdr.p_vaddr;
-    shdr.sh_offset = phdr.p_offset;
-    shdr.sh_size = phdr.p_memsz;
-    return index;
-}
-
 const AllocateNonAllocSectionOpts = struct {
     name: [:0]const u8,
     size: u64,
@@ -557,123 +523,193 @@ pub fn initMetadata(self: *Elf) !void {
 
     comptime assert(number_of_zig_segments == 5);
 
-    if (self.phdr_zig_load_re_index == null) {
-        const filesz = self.base.options.program_code_size_hint;
-        const off = self.findFreeSpace(filesz, self.page_size);
-        self.phdr_zig_load_re_index = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = off,
-            .filesz = filesz,
-            .addr = if (ptr_bit_width >= 32) 0x8000000 else 0x8000,
-            .memsz = filesz,
-            .@"align" = self.page_size,
-            .flags = elf.PF_X | elf.PF_R | elf.PF_W,
-        });
-    }
+    if (!self.isObject()) {
+        if (self.phdr_zig_load_re_index == null) {
+            const filesz = self.base.options.program_code_size_hint;
+            const off = self.findFreeSpace(filesz, self.page_size);
+            self.phdr_zig_load_re_index = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0x8000000 else 0x8000,
+                .memsz = filesz,
+                .@"align" = self.page_size,
+                .flags = elf.PF_X | elf.PF_R | elf.PF_W,
+            });
+        }
 
-    if (self.phdr_zig_got_index == null) {
-        // We really only need ptr alignment but since we are using PROGBITS, linux requires
-        // page align.
-        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        const filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
-        const off = self.findFreeSpace(filesz, alignment);
-        self.phdr_zig_got_index = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = off,
-            .filesz = filesz,
-            .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
-            .memsz = filesz,
-            .@"align" = alignment,
-            .flags = elf.PF_R | elf.PF_W,
-        });
-    }
+        if (self.phdr_zig_got_index == null) {
+            // We really only need ptr alignment but since we are using PROGBITS, linux requires
+            // page align.
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+            const off = self.findFreeSpace(filesz, alignment);
+            self.phdr_zig_got_index = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
+                .memsz = filesz,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
 
-    if (self.phdr_zig_load_ro_index == null) {
-        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        const filesz: u64 = 1024;
-        const off = self.findFreeSpace(filesz, alignment);
-        self.phdr_zig_load_ro_index = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = off,
-            .filesz = filesz,
-            .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
-            .memsz = filesz,
-            .@"align" = alignment,
-            .flags = elf.PF_R | elf.PF_W,
-        });
-    }
+        if (self.phdr_zig_load_ro_index == null) {
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const filesz: u64 = 1024;
+            const off = self.findFreeSpace(filesz, alignment);
+            self.phdr_zig_load_ro_index = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
+                .memsz = filesz,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
 
-    if (self.phdr_zig_load_rw_index == null) {
-        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        const filesz: u64 = 1024;
-        const off = self.findFreeSpace(filesz, alignment);
-        self.phdr_zig_load_rw_index = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .offset = off,
-            .filesz = filesz,
-            .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
-            .memsz = filesz,
-            .@"align" = alignment,
-            .flags = elf.PF_R | elf.PF_W,
-        });
-    }
+        if (self.phdr_zig_load_rw_index == null) {
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const filesz: u64 = 1024;
+            const off = self.findFreeSpace(filesz, alignment);
+            self.phdr_zig_load_rw_index = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
+                .memsz = filesz,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
 
-    if (self.phdr_zig_load_zerofill_index == null) {
-        const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-        self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
-            .type = elf.PT_LOAD,
-            .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
-            .memsz = 1024,
-            .@"align" = alignment,
-            .flags = elf.PF_R | elf.PF_W,
-        });
+        if (self.phdr_zig_load_zerofill_index == null) {
+            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
+                .memsz = 1024,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
     }
 
     if (self.zig_text_section_index == null) {
-        self.zig_text_section_index = try self.allocateAllocSection(.{
+        self.zig_text_section_index = try self.addSection(.{
             .name = ".zig.text",
-            .phdr_index = self.phdr_zig_load_re_index.?,
+            .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+            .addralign = 1,
+            .offset = std.math.maxInt(u64),
         });
+        const shdr = &self.shdrs.items[self.zig_text_section_index.?];
+        if (self.phdr_zig_load_re_index) |phndx| {
+            const phdr = self.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_offset = phdr.p_offset;
+            shdr.sh_size = phdr.p_memsz;
+            try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_text_section_index.?, phndx);
+        } else {
+            const size = self.base.options.program_code_size_hint;
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
+        }
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
     if (self.zig_got_section_index == null) {
-        self.zig_got_section_index = try self.allocateAllocSection(.{
+        // TODO we don't actually need this section in a relocatable object file
+        self.zig_got_section_index = try self.addSection(.{
             .name = ".zig.got",
-            .phdr_index = self.phdr_zig_got_index.?,
-            .alignment = ptr_size,
+            .type = elf.SHT_PROGBITS,
+            .addralign = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
         });
+        const shdr = &self.shdrs.items[self.zig_got_section_index.?];
+        if (self.phdr_zig_got_index) |phndx| {
+            const phdr = self.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_offset = phdr.p_offset;
+            shdr.sh_size = phdr.p_memsz;
+            try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_got_section_index.?, phndx);
+        } else {
+            const size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+            const off = self.findFreeSpace(size, ptr_size);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
+        }
     }
 
-    if (self.zig_rodata_section_index == null) {
-        self.zig_rodata_section_index = try self.allocateAllocSection(.{
-            .name = ".zig.rodata",
-            .phdr_index = self.phdr_zig_load_ro_index.?,
+    if (self.zig_data_rel_ro_section_index == null) {
+        self.zig_data_rel_ro_section_index = try self.addSection(.{
+            .name = ".zig.data.rel.ro",
+            .type = elf.SHT_PROGBITS,
+            .addralign = 1,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE, // TODO rename this section to .data.rel.ro
+            .offset = std.math.maxInt(u64),
         });
-        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_rodata_section_index.?, .{});
+        const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
+        if (self.phdr_zig_load_ro_index) |phndx| {
+            const phdr = self.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_offset = phdr.p_offset;
+            shdr.sh_size = phdr.p_memsz;
+            try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, phndx);
+        } else {
+            const size: u64 = 1024;
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
+        }
+        try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, .{});
     }
 
     if (self.zig_data_section_index == null) {
-        self.zig_data_section_index = try self.allocateAllocSection(.{
+        self.zig_data_section_index = try self.addSection(.{
             .name = ".zig.data",
-            .phdr_index = self.phdr_zig_load_rw_index.?,
-            .alignment = ptr_size,
+            .type = elf.SHT_PROGBITS,
+            .addralign = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
         });
+        const shdr = &self.shdrs.items[self.zig_data_section_index.?];
+        if (self.phdr_zig_load_rw_index) |phndx| {
+            const phdr = self.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_offset = phdr.p_offset;
+            shdr.sh_size = phdr.p_memsz;
+            try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_data_section_index.?, phndx);
+        } else {
+            const size: u64 = 1024;
+            const off = self.findFreeSpace(size, ptr_size);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
+        }
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_data_section_index.?, .{});
     }
 
     if (self.zig_bss_section_index == null) {
-        self.zig_bss_section_index = try self.allocateAllocSection(.{
+        self.zig_bss_section_index = try self.addSection(.{
             .name = ".zig.bss",
-            .phdr_index = self.phdr_zig_load_zerofill_index.?,
-            .alignment = ptr_size,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .type = elf.SHT_NOBITS,
+            .addralign = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = 0,
         });
+        const shdr = &self.shdrs.items[self.zig_bss_section_index.?];
+        if (self.phdr_zig_load_zerofill_index) |phndx| {
+            const phdr = self.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_size = phdr.p_memsz;
+            try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_bss_section_index.?, phndx);
+        } else {
+            shdr.sh_size = 1024;
+        }
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
@@ -3628,7 +3664,7 @@ fn sortShdrs(self: *Elf) !void {
         &self.verneed_section_index,
         &self.zig_text_section_index,
         &self.zig_got_section_index,
-        &self.zig_rodata_section_index,
+        &self.zig_data_rel_ro_section_index,
         &self.zig_data_section_index,
         &self.zig_bss_section_index,
         &self.debug_str_section_index,
@@ -4856,7 +4892,7 @@ pub fn isDynLib(self: Elf) bool {
 pub fn isZigSection(self: Elf, shndx: u16) bool {
     inline for (&[_]?u16{
         self.zig_text_section_index,
-        self.zig_rodata_section_index,
+        self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
         self.zig_bss_section_index,
         self.zig_got_section_index,

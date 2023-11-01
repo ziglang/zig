@@ -510,7 +510,7 @@ pub fn lowerAnonDecl(
         name,
         tv,
         decl_alignment,
-        elf_file.zig_rodata_section_index.?,
+        elf_file.zig_data_rel_ro_section_index.?,
         src_loc,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -622,7 +622,7 @@ fn getDeclShdrIndex(self: *ZigObject, elf_file: *Elf, decl_index: Module.Decl.In
         .Fn => elf_file.zig_text_section_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
-                if (variable.is_const) break :blk elf_file.zig_rodata_section_index.?;
+                if (variable.is_const) break :blk elf_file.zig_data_rel_ro_section_index.?;
                 if (variable.init.toValue().isUndefDeep(mod)) {
                     const mode = elf_file.base.options.optimize_mode;
                     if (mode == .Debug or mode == .ReleaseSafe) break :blk elf_file.zig_data_section_index.?;
@@ -636,7 +636,7 @@ fn getDeclShdrIndex(self: *ZigObject, elf_file: *Elf, decl_index: Module.Decl.In
                 if (is_all_zeroes) break :blk elf_file.zig_bss_section_index.?;
                 break :blk elf_file.zig_data_section_index.?;
             }
-            break :blk elf_file.zig_rodata_section_index.?;
+            break :blk elf_file.zig_data_rel_ro_section_index.?;
         },
     };
     return shdr_index;
@@ -937,7 +937,7 @@ fn updateLazySymbol(
 
     const output_section_index = switch (sym.kind) {
         .code => elf_file.zig_text_section_index.?,
-        .const_data => elf_file.zig_rodata_section_index.?,
+        .const_data => elf_file.zig_data_rel_ro_section_index.?,
     };
     const local_sym = elf_file.symbol(symbol_index);
     const phdr_index = elf_file.phdr_to_shdr_table.get(output_section_index).?;
@@ -991,7 +991,7 @@ pub fn lowerUnnamedConst(
         name,
         typed_value,
         typed_value.ty.abiAlignment(mod),
-        elf_file.zig_rodata_section_index.?,
+        elf_file.zig_data_rel_ro_section_index.?,
         decl.srcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
