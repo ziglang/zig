@@ -897,7 +897,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.base.options.output_mode == .Obj and self.zig_object_index == null) {
+    if (self.isObject() and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
         assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
@@ -1364,7 +1364,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // If we haven't already, create a linker-generated input file comprising of
     // linker-defined synthetic symbols only such as `_DYNAMIC`, etc.
-    if (self.linker_defined_index == null) {
+    if (self.linker_defined_index == null and !self.isObject()) {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
@@ -1377,6 +1377,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
+
+    if (self.isObject()) {
+        return self.flushObject(comp);
+    }
+
     try self.convertCommonSymbols();
     self.markImportsExports();
 
@@ -1468,6 +1473,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
+}
+
+pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
+    _ = comp;
+    try self.initSections();
+    try self.writeShdrTable();
+    try self.writeHeader();
 }
 
 const ParseError = error{
@@ -2766,7 +2778,7 @@ fn writeHeader(self: *Elf) !void {
     index += 4;
 
     const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).value else 0;
-    const phdr_table_offset = self.phdrs.items[self.phdr_table_index.?].p_offset;
+    const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @as(u32, @intCast(e_entry)), endian);
@@ -4843,6 +4855,10 @@ pub fn calcImageBase(self: Elf) u64 {
 
 pub fn isStatic(self: Elf) bool {
     return self.base.options.link_mode == .Static;
+}
+
+pub fn isObject(self: Elf) bool {
+    return self.base.options.effectiveOutputMode() == .Obj;
 }
 
 pub fn isExe(self: Elf) bool {
