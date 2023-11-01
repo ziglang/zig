@@ -4924,8 +4924,6 @@ fn finishTransFnProto(
     const is_inline = if (fn_decl_context) |ctx| ctx.is_always_inline else false;
     const scope = &c.global_scope.base;
 
-    // TODO check for align attribute
-
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
     var fn_params = try std.ArrayList(ast.Payload.Param).initCapacity(c.gpa, param_count);
     defer fn_params.deinit();
