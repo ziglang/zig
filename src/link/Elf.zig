@@ -484,36 +484,6 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     return start;
 }
 
-const AllocateNonAllocSectionOpts = struct {
-    name: [:0]const u8,
-    size: u64,
-    alignment: u16 = 1,
-    flags: u32 = 0,
-    type: u32 = elf.SHT_PROGBITS,
-    link: u32 = 0,
-    info: u32 = 0,
-    entsize: u64 = 0,
-};
-
-fn allocateNonAllocSection(self: *Elf, opts: AllocateNonAllocSectionOpts) error{OutOfMemory}!u16 {
-    const index = try self.addSection(.{
-        .name = opts.name,
-        .type = opts.type,
-        .flags = opts.flags,
-        .link = opts.link,
-        .info = opts.info,
-        .addralign = opts.alignment,
-        .entsize = opts.entsize,
-        .offset = std.math.maxInt(u64),
-    });
-    const shdr = &self.shdrs.items[index];
-    const off = self.findFreeSpace(opts.size, opts.alignment);
-    log.debug("allocating '{s}' from 0x{x} to 0x{x} ", .{ opts.name, off, off + opts.size });
-    shdr.sh_offset = off;
-    shdr.sh_size = opts.size;
-    return index;
-}
-
 /// TODO move to ZigObject
 pub fn initMetadata(self: *Elf) !void {
     const gpa = self.base.allocator;
@@ -718,48 +688,79 @@ pub fn initMetadata(self: *Elf) !void {
         if (self.debug_str_section_index == null) {
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
-            self.debug_str_section_index = try self.allocateNonAllocSection(.{
+            self.debug_str_section_index = try self.addSection(.{
                 .name = ".debug_str",
-                .size = @intCast(dw.strtab.buffer.items.len),
                 .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                 .entsize = 1,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
             });
+            const shdr = &self.shdrs.items[self.debug_str_section_index.?];
+            const size = @as(u64, @intCast(dw.strtab.buffer.items.len));
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
             zig_object.debug_strtab_dirty = true;
         }
 
         if (self.debug_info_section_index == null) {
-            self.debug_info_section_index = try self.allocateNonAllocSection(.{
+            self.debug_info_section_index = try self.addSection(.{
                 .name = ".debug_info",
-                .size = 200,
-                .alignment = 1,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
             });
+            const shdr = &self.shdrs.items[self.debug_info_section_index.?];
+            const size: u64 = 200;
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
             zig_object.debug_info_header_dirty = true;
         }
 
         if (self.debug_abbrev_section_index == null) {
-            self.debug_abbrev_section_index = try self.allocateNonAllocSection(.{
+            self.debug_abbrev_section_index = try self.addSection(.{
                 .name = ".debug_abbrev",
-                .size = 128,
-                .alignment = 1,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
             });
+            const shdr = &self.shdrs.items[self.debug_abbrev_section_index.?];
+            const size: u64 = 128;
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
             zig_object.debug_abbrev_section_dirty = true;
         }
 
         if (self.debug_aranges_section_index == null) {
-            self.debug_aranges_section_index = try self.allocateNonAllocSection(.{
+            self.debug_aranges_section_index = try self.addSection(.{
                 .name = ".debug_aranges",
-                .size = 160,
-                .alignment = 16,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 16,
+                .offset = std.math.maxInt(u64),
             });
+            const shdr = &self.shdrs.items[self.debug_aranges_section_index.?];
+            const size: u64 = 160;
+            const off = self.findFreeSpace(size, 16);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
             zig_object.debug_aranges_section_dirty = true;
         }
 
         if (self.debug_line_section_index == null) {
-            self.debug_line_section_index = try self.allocateNonAllocSection(.{
+            self.debug_line_section_index = try self.addSection(.{
                 .name = ".debug_line",
-                .size = 250,
-                .alignment = 1,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .offset = std.math.maxInt(u64),
             });
+            const shdr = &self.shdrs.items[self.debug_line_section_index.?];
+            const size: u64 = 250;
+            const off = self.findFreeSpace(size, 1);
+            shdr.sh_offset = off;
+            shdr.sh_size = size;
             zig_object.debug_line_header_dirty = true;
         }
     }
