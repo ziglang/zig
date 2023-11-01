@@ -112,7 +112,6 @@ zig_data_section_index: ?u16 = null,
 zig_data_rela_section_index: ?u16 = null,
 zig_bss_section_index: ?u16 = null,
 zig_got_section_index: ?u16 = null,
-zig_got_rela_section_index: ?u16 = null,
 
 debug_info_section_index: ?u16 = null,
 debug_abbrev_section_index: ?u16 = null,
@@ -612,8 +611,7 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
-    if (self.zig_got_section_index == null) {
-        // TODO we don't actually need this section in a relocatable object file
+    if (self.zig_got_section_index == null and !self.isObject()) {
         self.zig_got_section_index = try self.addSection(.{
             .name = ".got.zig",
             .type = elf.SHT_PROGBITS,
@@ -622,18 +620,11 @@ pub fn initMetadata(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_got_section_index.?];
-        fillSection(
-            self,
-            shdr,
-            @as(u64, ptr_size) * self.base.options.symbol_count_hint,
-            self.phdr_zig_got_index,
-        );
-        if (self.isObject()) {
-            self.zig_got_rela_section_index = try self.addRelaShdr(
-                ".rela.got.zig",
-                self.zig_got_section_index.?,
-            );
-        }
+        const phndx = self.phdr_zig_got_index.?;
+        const phdr = self.phdrs.items[phndx];
+        shdr.sh_addr = phdr.p_vaddr;
+        shdr.sh_offset = phdr.p_offset;
+        shdr.sh_size = phdr.p_memsz;
     }
 
     if (self.zig_data_rel_ro_section_index == null) {
@@ -3701,7 +3692,6 @@ fn sortShdrs(self: *Elf) !void {
         &self.zig_text_section_index,
         &self.zig_text_rela_section_index,
         &self.zig_got_section_index,
-        &self.zig_got_rela_section_index,
         &self.zig_data_rel_ro_section_index,
         &self.zig_data_rel_ro_rela_section_index,
         &self.zig_data_section_index,
@@ -3766,7 +3756,6 @@ fn sortShdrs(self: *Elf) !void {
 
     for (&[_]?u16{
         self.zig_text_rela_section_index,
-        self.zig_got_rela_section_index,
         self.zig_data_rel_ro_rela_section_index,
         self.zig_data_rela_section_index,
     }) |maybe_index| {
@@ -3774,6 +3763,20 @@ fn sortShdrs(self: *Elf) !void {
         const shdr = &self.shdrs.items[index];
         shdr.sh_link = self.symtab_section_index.?;
         shdr.sh_info = backlinks[shdr.sh_info];
+    }
+
+    {
+        var last_atom_and_free_list_table = try self.last_atom_and_free_list_table.clone(gpa);
+        defer last_atom_and_free_list_table.deinit(gpa);
+
+        self.last_atom_and_free_list_table.clearRetainingCapacity();
+
+        var it = last_atom_and_free_list_table.iterator();
+        while (it.next()) |entry| {
+            const shndx = entry.key_ptr.*;
+            const meta = entry.value_ptr.*;
+            self.last_atom_and_free_list_table.putAssumeCapacityNoClobber(backlinks[shndx], meta);
+        }
     }
 
     {
@@ -3830,6 +3833,10 @@ fn updateSectionSizes(self: *Elf) !void {
             shdr.sh_size += padding + atom_ptr.size;
             shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
         }
+    }
+
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.updateRelaSectionSizes(self);
     }
 
     if (self.eh_frame_section_index) |index| {

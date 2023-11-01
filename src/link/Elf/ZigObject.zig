@@ -398,6 +398,40 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     }
 }
 
+pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
+    _ = self;
+
+    for (&[_]?u16{
+        elf_file.zig_text_rela_section_index,
+        elf_file.zig_data_rel_ro_rela_section_index,
+        elf_file.zig_data_rela_section_index,
+    }) |maybe_index| {
+        const index = maybe_index orelse continue;
+        const shdr = &elf_file.shdrs.items[index];
+        const meta = elf_file.last_atom_and_free_list_table.get(@intCast(shdr.sh_info)).?;
+        const last_atom_index = meta.last_atom_index;
+
+        var atom = elf_file.atom(last_atom_index) orelse continue;
+        while (true) {
+            const relocs = atom.relocs(elf_file);
+            shdr.sh_size += relocs.len * shdr.sh_entsize;
+            if (elf_file.atom(atom.prev_index)) |prev| {
+                atom = prev;
+            } else break;
+        }
+    }
+
+    for (&[_]?u16{
+        elf_file.zig_text_rela_section_index,
+        elf_file.zig_data_rel_ro_rela_section_index,
+        elf_file.zig_data_rela_section_index,
+    }) |maybe_index| {
+        const index = maybe_index orelse continue;
+        const shdr = &elf_file.shdrs.items[index];
+        if (shdr.sh_size == 0) shdr.sh_offset = 0;
+    }
+}
+
 pub fn symbol(self: *ZigObject, index: Symbol.Index) Symbol.Index {
     const is_global = index & global_symbol_bit != 0;
     const actual_index = index & symbol_mask;
@@ -689,10 +723,12 @@ fn updateDeclCode(
                 sym.value = atom_ptr.value;
                 esym.st_value = atom_ptr.value;
 
-                log.debug("  (writing new offset table entry)", .{});
-                assert(sym.flags.has_zig_got);
-                const extra = sym.extra(elf_file).?;
-                try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
+                if (!elf_file.isObject()) {
+                    log.debug("  (writing new offset table entry)", .{});
+                    assert(sym.flags.has_zig_got);
+                    const extra = sym.extra(elf_file).?;
+                    try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
+                }
             }
         } else if (code.len < old_size) {
             atom_ptr.shrink(elf_file);
@@ -704,8 +740,10 @@ fn updateDeclCode(
         sym.value = atom_ptr.value;
         esym.st_value = atom_ptr.value;
 
-        const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-        try elf_file.zig_got.writeOne(elf_file, gop.index);
+        if (!elf_file.isObject()) {
+            const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+            try elf_file.zig_got.writeOne(elf_file, gop.index);
+        }
     }
 
     if (elf_file.base.child_pid) |pid| {
@@ -957,8 +995,10 @@ fn updateLazySymbol(
     local_sym.value = atom_ptr.value;
     local_esym.st_value = atom_ptr.value;
 
-    const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, elf_file);
-    try elf_file.zig_got.writeOne(elf_file, gop.index);
+    if (!elf_file.isObject()) {
+        const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, elf_file);
+        try elf_file.zig_got.writeOne(elf_file, gop.index);
+    }
 
     const shdr = elf_file.shdrs.items[output_section_index];
     const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
