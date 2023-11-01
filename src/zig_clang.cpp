@@ -3245,6 +3245,17 @@ double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatin
     return casted->getValueAsApproximateDouble();
 }
 
+void ZigClangFloatingLiteral_getValueAsApproximateQuadBits(const ZigClangFloatingLiteral *self, uint64_t *low, uint64_t *high) {
+    auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
+    llvm::APFloat apf = casted->getValue();
+    bool ignored;
+    apf.convert(llvm::APFloat::IEEEquad(), llvm::APFloat::rmNearestTiesToEven, &ignored);
+    const llvm::APInt api = apf.bitcastToAPInt();
+    const uint64_t *api_data = api.getRawData();
+    *low = api_data[0];
+    *high = api_data[1];
+}
+
 struct ZigClangSourceLocation ZigClangFloatingLiteral_getBeginLoc(const struct ZigClangFloatingLiteral *self) {
     auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
     return bitcast(casted->getBeginLoc());
