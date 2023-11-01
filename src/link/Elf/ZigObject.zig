@@ -180,16 +180,16 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf) !void {
         }
 
         if (self.debug_info_header_dirty) {
-            const text_phdr = &elf_file.phdrs.items[elf_file.phdr_zig_load_re_index.?];
-            const low_pc = text_phdr.p_vaddr;
-            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            const text_shdr = elf_file.shdrs.items[elf_file.zig_text_section_index.?];
+            const low_pc = text_shdr.sh_addr;
+            const high_pc = text_shdr.sh_addr + text_shdr.sh_size;
             try dw.writeDbgInfoHeader(elf_file.base.options.module.?, low_pc, high_pc);
             self.debug_info_header_dirty = false;
         }
 
         if (self.debug_aranges_section_dirty) {
-            const text_phdr = &elf_file.phdrs.items[elf_file.phdr_zig_load_re_index.?];
-            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+            const text_shdr = elf_file.shdrs.items[elf_file.zig_text_section_index.?];
+            try dw.writeDbgAranges(text_shdr.sh_addr, text_shdr.sh_size);
             self.debug_aranges_section_dirty = false;
         }
 
@@ -731,9 +731,7 @@ fn updateDeclCode(
 
     const shdr = elf_file.shdrs.items[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
-        const phdr_index = elf_file.phdr_to_shdr_table.get(shdr_index).?;
-        const section_offset = sym.value - elf_file.phdrs.items[phdr_index].p_vaddr;
-        const file_offset = shdr.sh_offset + section_offset;
+        const file_offset = shdr.sh_offset + sym.value - shdr.sh_addr;
         try elf_file.base.file.?.pwriteAll(code, file_offset);
     }
 }
@@ -940,7 +938,6 @@ fn updateLazySymbol(
         .const_data => elf_file.zig_data_rel_ro_section_index.?,
     };
     const local_sym = elf_file.symbol(symbol_index);
-    const phdr_index = elf_file.phdr_to_shdr_table.get(output_section_index).?;
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
     const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
@@ -963,8 +960,8 @@ fn updateLazySymbol(
     const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, elf_file);
     try elf_file.zig_got.writeOne(elf_file, gop.index);
 
-    const section_offset = atom_ptr.value - elf_file.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = elf_file.shdrs.items[output_section_index].sh_offset + section_offset;
+    const shdr = elf_file.shdrs.items[output_section_index];
+    const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -1038,7 +1035,6 @@ fn lowerConst(
         .fail => |em| return .{ .fail = em },
     };
 
-    const phdr_index = elf_file.phdr_to_shdr_table.get(output_section_index).?;
     const local_sym = elf_file.symbol(sym_index);
     const name_str_index = try self.insertString(gpa, name);
     local_sym.name_offset = name_str_index;
@@ -1061,8 +1057,8 @@ fn lowerConst(
     local_sym.value = atom_ptr.value;
     local_esym.st_value = atom_ptr.value;
 
-    const section_offset = atom_ptr.value - elf_file.phdrs.items[phdr_index].p_vaddr;
-    const file_offset = elf_file.shdrs.items[output_section_index].sh_offset + section_offset;
+    const shdr = elf_file.shdrs.items[output_section_index];
+    const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 
     return .{ .ok = sym_index };

@@ -768,15 +768,15 @@ pub fn initMetadata(self: *Elf) !void {
 
 pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
-    const phdr_index = self.phdr_to_shdr_table.get(shdr_index).?;
-    const phdr = &self.phdrs.items[phdr_index];
+    const maybe_phdr = if (self.phdr_to_shdr_table.get(shdr_index)) |phndx| &self.phdrs.items[phndx] else null;
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
 
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
         // Must move the entire section.
-        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
+        const new_offset = self.findFreeSpace(needed_size, alignment);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.getShString(shdr.sh_name),
@@ -789,25 +789,27 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
         if (amt != existing_size) return error.InputOutput;
 
         shdr.sh_offset = new_offset;
-        phdr.p_offset = new_offset;
+        if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
     }
 
     shdr.sh_size = needed_size;
     if (!is_zerofill) {
-        phdr.p_filesz = needed_size;
+        if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
 
-    const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
-    if (needed_size > mem_capacity) {
-        var err = try self.addErrorWithNotes(2);
-        try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
-            phdr_index,
-        });
-        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-    }
+    if (maybe_phdr) |phdr| {
+        const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
+        if (needed_size > mem_capacity) {
+            var err = try self.addErrorWithNotes(2);
+            try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
+                self.phdr_to_shdr_table.get(shdr_index).?,
+            });
+            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        }
 
-    phdr.p_memsz = needed_size;
+        phdr.p_memsz = needed_size;
+    }
 
     self.markDirty(shdr_index);
 }
@@ -1499,7 +1501,17 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
     try self.initSections();
+    try self.sortShdrs();
+    try self.updateSectionSizes();
+
+    try self.allocateNonAllocSections();
+
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
+
     try self.writeShdrTable();
+    try self.writeSyntheticSections();
     try self.writeHeader();
 }
 
