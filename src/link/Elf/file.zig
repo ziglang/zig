@@ -99,6 +99,21 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn cies(file: File) []const Cie {
+        return switch (file) {
+            .zig_object => &[0]Cie{},
+            .object => |x| x.cies.items,
+            inline else => unreachable,
+        };
+    }
+
+    pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
+        return switch (file) {
+            .zig_object => |x| x.symbol(ind),
+            inline else => |x| x.symbols.items[ind],
+        };
+    }
+
     pub fn locals(file: File) []const Symbol.Index {
         return switch (file) {
             .linker_defined, .shared_object => &[0]Symbol.Index{},
@@ -196,6 +211,7 @@ const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
+const Cie = @import("eh_frame.zig").Cie;
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");
