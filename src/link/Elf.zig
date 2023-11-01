@@ -625,6 +625,11 @@ pub fn initMetadata(self: *Elf) !void {
         shdr.sh_addr = phdr.p_vaddr;
         shdr.sh_offset = phdr.p_offset;
         shdr.sh_size = phdr.p_memsz;
+        try self.phdr_to_shdr_table.putNoClobber(
+            gpa,
+            self.zig_got_section_index.?,
+            self.phdr_zig_got_index.?,
+        );
     }
 
     if (self.zig_data_rel_ro_section_index == null) {
