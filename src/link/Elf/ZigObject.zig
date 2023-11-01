@@ -432,6 +432,60 @@ pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
     }
 }
 
+pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
+    _ = self;
+    const gpa = elf_file.base.allocator;
+
+    for (&[_]?u16{
+        elf_file.zig_text_rela_section_index,
+        elf_file.zig_data_rel_ro_rela_section_index,
+        elf_file.zig_data_rela_section_index,
+    }) |maybe_index| {
+        const index = maybe_index orelse continue;
+        const shdr = elf_file.shdrs.items[index];
+        const meta = elf_file.last_atom_and_free_list_table.get(@intCast(shdr.sh_info)).?;
+        const last_atom_index = meta.last_atom_index;
+
+        var atom = elf_file.atom(last_atom_index) orelse continue;
+
+        var relocs = std.ArrayList(elf.Elf64_Rela).init(gpa);
+        defer relocs.deinit();
+        try relocs.ensureTotalCapacityPrecise(@divExact(shdr.sh_size, shdr.sh_entsize));
+
+        while (true) {
+            for (atom.relocs(elf_file)) |rel| {
+                relocs.appendAssumeCapacity(switch (rel.r_type()) {
+                    Elf.R_X86_64_ZIG_GOT32 => .{
+                        .r_offset = rel.r_offset,
+                        .r_addend = rel.r_addend,
+                        .r_info = (@as(u64, @intCast(rel.r_sym())) << 32) | elf.R_X86_64_32,
+                    },
+                    Elf.R_X86_64_ZIG_GOTPCREL => .{
+                        .r_offset = rel.r_offset,
+                        .r_addend = rel.r_addend,
+                        .r_info = (@as(u64, @intCast(rel.r_sym())) << 32) | elf.R_X86_64_PC32,
+                    },
+                    else => rel,
+                });
+            }
+            if (elf_file.atom(atom.prev_index)) |prev| {
+                atom = prev;
+            } else break;
+        }
+
+        const SortRelocs = struct {
+            pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+                _ = ctx;
+                return lhs.r_offset < rhs.r_offset;
+            }
+        };
+
+        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+
+        try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
+    }
+}
+
 pub fn symbol(self: *ZigObject, index: Symbol.Index) Symbol.Index {
     const is_global = index & global_symbol_bit != 0;
     const actual_index = index & symbol_mask;

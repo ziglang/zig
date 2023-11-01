@@ -4400,6 +4400,10 @@ fn updateSymtabSize(self: *Elf) !void {
 fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.allocator;
 
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.writeRelaSections(self);
+    }
+
     if (self.interp_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
