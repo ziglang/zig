@@ -390,9 +390,7 @@ pub fn linkWithZld(
 
         try macho_file.parseDependentLibs(&dependent_libs);
 
-        var actions = std.ArrayList(MachO.ResolveAction).init(gpa);
-        defer actions.deinit();
-        try macho_file.resolveSymbols(&actions);
+        try macho_file.resolveSymbols();
         if (macho_file.unresolved.count() > 0) {
             try macho_file.reportUndefined();
             return error.FlushFailure;

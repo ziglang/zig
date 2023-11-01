@@ -552,7 +552,7 @@ const WindowsThreadImpl = struct {
             null,
             stack_size,
             Instance.entryFn,
-            @as(*anyopaque, @ptrCast(instance)),
+            instance,
             0,
             null,
         ) orelse {
