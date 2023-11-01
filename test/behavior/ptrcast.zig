@@ -13,8 +13,8 @@ test "reinterpret bytes as integer with nonzero offset" {
 fn testReinterpretBytesAsInteger() !void {
     const bytes = "\x12\x34\x56\x78\xab";
     const expected = switch (native_endian) {
-        .Little => 0xab785634,
-        .Big => 0x345678ab,
+        .little => 0xab785634,
+        .big => 0x345678ab,
     };
     try expect(@as(*align(1) const u32, @ptrCast(bytes[1..5])).* == expected);
 }
@@ -48,8 +48,8 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
     const S = struct { bytes: [5:0]u8 };
     const obj = S{ .bytes = "\x12\x34\x56\x78\xab".* };
     const expected = switch (native_endian) {
-        .Little => 0xab785634,
-        .Big => 0x345678ab,
+        .little => 0xab785634,
+        .big => 0x345678ab,
     };
     try expect(@as(*align(1) const u32, @ptrCast(obj.bytes[1..5])).* == expected);
 }
@@ -176,7 +176,7 @@ test "reinterpret struct field at comptime" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const numNative = comptime Bytes.init(0x12345678);
-    if (native_endian != .Little) {
+    if (native_endian != .little) {
         try expect(std.mem.eql(u8, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, &numNative.bytes));
     } else {
         try expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numNative.bytes));
@@ -201,7 +201,7 @@ test "ptrcast of const integer has the correct object size" {
     const is_bytes = @as([*]const u8, @ptrCast(&is_value))[0..@sizeOf(isize)];
     if (@sizeOf(isize) == 8) {
         switch (native_endian) {
-            .Little => {
+            .little => {
                 try expect(is_bytes[0] == 0xff);
                 try expect(is_bytes[1] == 0xff);
                 try expect(is_bytes[2] == 0xff);
@@ -212,7 +212,7 @@ test "ptrcast of const integer has the correct object size" {
                 try expect(is_bytes[6] == 0xff);
                 try expect(is_bytes[7] == 0x7f);
             },
-            .Big => {
+            .big => {
                 try expect(is_bytes[0] == 0x7f);
                 try expect(is_bytes[1] == 0xff);
                 try expect(is_bytes[2] == 0xff);

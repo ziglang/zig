@@ -1828,7 +1828,7 @@ test "ComponentIterator windows" {
 
 test "ComponentIterator windows UTF-16" {
     // TODO: Fix on big endian architectures
-    if (builtin.cpu.arch.endian() != .Little) {
+    if (builtin.cpu.arch.endian() != .little) {
         return error.SkipZigTest;
     }
 

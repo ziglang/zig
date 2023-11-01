@@ -521,7 +521,7 @@ pub const Response = struct {
 
 /// A HTTP request that has been sent.
 ///
-/// Order of operations: request -> start[ -> write -> finish] -> wait -> read
+/// Order of operations: open -> send[ -> write -> finish] -> wait -> read
 pub const Request = struct {
     uri: Uri,
     client: *Client,
@@ -754,7 +754,7 @@ pub const Request = struct {
     /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
     /// redirects. If a request payload is present, then this function will error with error.RedirectRequiresResend.
     ///
-    /// Must be called after `start` and, if any data was written to the request body, then also after `finish`.
+    /// Must be called after `send` and, if any data was written to the request body, then also after `finish`.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
@@ -943,7 +943,7 @@ pub const Request = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
-    /// Must be called after `start` and before `finish`.
+    /// Must be called after `send` and before `finish`.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
@@ -965,7 +965,7 @@ pub const Request = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
-    /// Must be called after `start` and before `finish`.
+    /// Must be called after `send` and before `finish`.
     pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -976,7 +976,7 @@ pub const Request = struct {
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
-    /// Must be called after `start`.
+    /// Must be called after `send`.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
             .chunked => try req.connection.?.writer().writeAll("0\r\n\r\n"),
@@ -1308,7 +1308,7 @@ pub fn connectTunnel(
     };
 }
 
-// Prevents a dependency loop in request()
+// Prevents a dependency loop in open()
 const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, ConnectionRefused };
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
@@ -1581,7 +1581,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
 
 test {
     const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }

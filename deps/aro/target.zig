@@ -398,8 +398,8 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .thumb,
         .thumbeb,
         => switch (arm_endianness orelse target.cpu.arch.endian()) {
-            .Little => "armelf_linux_eabi",
-            .Big => "armelfb_linux_eabi",
+            .little => "armelf_linux_eabi",
+            .big => "armelfb_linux_eabi",
         },
         .aarch64 => "aarch64linux",
         .aarch64_be => "aarch64linuxb",

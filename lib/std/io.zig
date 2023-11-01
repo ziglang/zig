@@ -269,22 +269,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readBoundedBytes(num_bytes));
         }
 
-        pub inline fn readIntNative(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readIntNative(T));
-        }
-
-        pub inline fn readIntForeign(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readIntForeign(T));
-        }
-
-        pub inline fn readIntLittle(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readIntLittle(T));
-        }
-
-        pub inline fn readIntBig(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readIntBig(T));
-        }
-
         pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
             return @errorCast(self.any().readInt(T, endian));
         }

@@ -37,7 +37,7 @@ pub fn smhasher(comptime hash_fn: anytype) u32 {
     for (0..256) |i| {
         buf[i] = @intCast(i);
         const h = hashMaybeSeed(hash_fn, 256 - i, buf[0..i]);
-        std.mem.writeIntLittle(HashResult, buf_all[i * hash_size ..][0..hash_size], h);
+        std.mem.writeInt(HashResult, buf_all[i * hash_size ..][0..hash_size], h, .little);
     }
 
     return @truncate(hashMaybeSeed(hash_fn, 0, buf_all[0..]));

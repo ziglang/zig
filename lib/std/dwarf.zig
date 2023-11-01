@@ -7,6 +7,7 @@ const mem = std.mem;
 const math = std.math;
 const leb = @import("leb128.zig");
 const assert = std.debug.assert;
+const native_endian = builtin.cpu.arch.endian();
 
 pub const TAG = @import("dwarf/TAG.zig");
 pub const AT = @import("dwarf/AT.zig");
@@ -1741,7 +1742,7 @@ pub const DwarfInfo = struct {
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = mem.readIntSliceNative(usize, try abi.regBytes(context.thread_context, register, context.reg_context));
+                const value = mem.readInt(usize, (try abi.regBytes(context.thread_context, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                 break :blk try call_frame.applyOffset(value, offset);
             },
             .expression => |expression| blk: {
@@ -1814,11 +1815,11 @@ pub const DwarfInfo = struct {
         }
 
         if (has_return_address) {
-            context.pc = abi.stripInstructionPtrAuthCode(mem.readIntSliceNative(usize, try abi.regBytes(
+            context.pc = abi.stripInstructionPtrAuthCode(mem.readInt(usize, (try abi.regBytes(
                 context.thread_context,
                 cie.return_address_register,
                 context.reg_context,
-            )));
+            ))[0..@sizeOf(usize)], native_endian));
         } else {
             context.pc = 0;
         }

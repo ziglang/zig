@@ -141,11 +141,11 @@ fn parseTableOfContents(archive: *Archive, allocator: Allocator, reader: anytype
     const size_trimmed = mem.trim(u8, &archive.header.ar_size, " ");
     const sym_tab_size = try std.fmt.parseInt(u32, size_trimmed, 10);
 
-    const num_symbols = try reader.readIntBig(u32);
+    const num_symbols = try reader.readInt(u32, .big);
     const symbol_positions = try allocator.alloc(u32, num_symbols);
     defer allocator.free(symbol_positions);
     for (symbol_positions) |*index| {
-        index.* = try reader.readIntBig(u32);
+        index.* = try reader.readInt(u32, .big);
     }
 
     const sym_tab = try allocator.alloc(u8, sym_tab_size - 4 - (4 * num_symbols));

@@ -5,22 +5,22 @@ const testing = std.testing;
 const Secp256k1 = @import("../secp256k1.zig").Secp256k1;
 
 test "secp256k1 ECDH key exchange" {
-    const dha = Secp256k1.scalar.random(.Little);
-    const dhb = Secp256k1.scalar.random(.Little);
-    const dhA = try Secp256k1.basePoint.mul(dha, .Little);
-    const dhB = try Secp256k1.basePoint.mul(dhb, .Little);
-    const shareda = try dhA.mul(dhb, .Little);
-    const sharedb = try dhB.mul(dha, .Little);
+    const dha = Secp256k1.scalar.random(.little);
+    const dhb = Secp256k1.scalar.random(.little);
+    const dhA = try Secp256k1.basePoint.mul(dha, .little);
+    const dhB = try Secp256k1.basePoint.mul(dhb, .little);
+    const shareda = try dhA.mul(dhb, .little);
+    const sharedb = try dhB.mul(dha, .little);
     try testing.expect(shareda.equivalent(sharedb));
 }
 
 test "secp256k1 ECDH key exchange including public multiplication" {
-    const dha = Secp256k1.scalar.random(.Little);
-    const dhb = Secp256k1.scalar.random(.Little);
-    const dhA = try Secp256k1.basePoint.mul(dha, .Little);
-    const dhB = try Secp256k1.basePoint.mulPublic(dhb, .Little);
-    const shareda = try dhA.mul(dhb, .Little);
-    const sharedb = try dhB.mulPublic(dha, .Little);
+    const dha = Secp256k1.scalar.random(.little);
+    const dhb = Secp256k1.scalar.random(.little);
+    const dhA = try Secp256k1.basePoint.mul(dha, .little);
+    const dhB = try Secp256k1.basePoint.mulPublic(dhb, .little);
+    const shareda = try dhA.mul(dhb, .little);
+    const sharedb = try dhB.mulPublic(dha, .little);
     try testing.expect(shareda.equivalent(sharedb));
 }
 
@@ -31,7 +31,7 @@ test "secp256k1 point from affine coordinates" {
     _ = try fmt.hexToBytes(&xs, xh);
     var ys: [32]u8 = undefined;
     _ = try fmt.hexToBytes(&ys, yh);
-    var p = try Secp256k1.fromSerializedAffineCoordinates(xs, ys, .Big);
+    var p = try Secp256k1.fromSerializedAffineCoordinates(xs, ys, .big);
     try testing.expect(p.equivalent(Secp256k1.basePoint));
 }
 
@@ -54,7 +54,7 @@ test "secp256k1 test vectors" {
         p = p.add(Secp256k1.basePoint);
         var xs: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.big), &xs);
     }
 }
 
@@ -72,7 +72,7 @@ test "secp256k1 test vectors - doubling" {
         p = p.dbl();
         var xs: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.big), &xs);
     }
 }
 
@@ -91,20 +91,20 @@ test "secp256k1 uncompressed sec1 encoding/decoding" {
 }
 
 test "secp256k1 public key is the neutral element" {
-    const n = Secp256k1.scalar.Scalar.zero.toBytes(.Little);
+    const n = Secp256k1.scalar.Scalar.zero.toBytes(.little);
     const p = Secp256k1.random();
-    try testing.expectError(error.IdentityElement, p.mul(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mul(n, .little));
 }
 
 test "secp256k1 public key is the neutral element (public verification)" {
-    const n = Secp256k1.scalar.Scalar.zero.toBytes(.Little);
+    const n = Secp256k1.scalar.Scalar.zero.toBytes(.little);
     const p = Secp256k1.random();
-    try testing.expectError(error.IdentityElement, p.mulPublic(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mulPublic(n, .little));
 }
 
 test "secp256k1 field element non-canonical encoding" {
     const s = [_]u8{0xff} ** 32;
-    try testing.expectError(error.NonCanonical, Secp256k1.Fe.fromBytes(s, .Little));
+    try testing.expectError(error.NonCanonical, Secp256k1.Fe.fromBytes(s, .little));
 }
 
 test "secp256k1 neutral element decoding" {
@@ -118,8 +118,8 @@ test "secp256k1 double base multiplication" {
     const p2 = Secp256k1.basePoint.dbl();
     const s1 = [_]u8{0x01} ** 32;
     const s2 = [_]u8{0x02} ** 32;
-    const pr1 = try Secp256k1.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
-    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    const pr1 = try Secp256k1.mulDoubleBasePublic(p1, s1, p2, s2, .little);
+    const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));
 }
 
@@ -131,9 +131,9 @@ test "secp256k1 scalar inverse" {
     const scalar = try Secp256k1.scalar.Scalar.fromBytes(.{
         0x94, 0xa1, 0xbb, 0xb1, 0x4b, 0x90, 0x6a, 0x61, 0xa2, 0x80, 0xf2, 0x45, 0xf9, 0xe9, 0x3c, 0x7f,
         0x3b, 0x4a, 0x62, 0x47, 0x82, 0x4f, 0x5d, 0x33, 0xb9, 0x67, 0x07, 0x87, 0x64, 0x2a, 0x68, 0xde,
-    }, .Big);
+    }, .big);
     const inverse = scalar.invert();
-    try std.testing.expectEqualSlices(u8, &out, &inverse.toBytes(.Big));
+    try std.testing.expectEqualSlices(u8, &out, &inverse.toBytes(.big));
 }
 
 test "secp256k1 scalar parity" {

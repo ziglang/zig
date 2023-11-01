@@ -253,7 +253,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("JMP/CALL relocation target not found!", .{});
         const disp = @as(i32, @intCast(@as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length))));
-        mem.writeIntLittle(i32, emit.code.items[reloc.offset..][0..4], disp);
+        mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], disp, .little);
     }
 }
 

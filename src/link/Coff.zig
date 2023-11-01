@@ -856,12 +856,12 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     switch (self.ptr_width) {
         .p32 => {
             var buf: [4]u8 = undefined;
-            mem.writeIntLittle(u32, &buf, @as(u32, @intCast(entry_value + self.getImageBase())));
+            mem.writeInt(u32, &buf, @as(u32, @intCast(entry_value + self.getImageBase())), .little);
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
         .p64 => {
             var buf: [8]u8 = undefined;
-            mem.writeIntLittle(u64, &buf, entry_value + self.getImageBase());
+            mem.writeInt(u64, &buf, entry_value + self.getImageBase(), .little);
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
     }
@@ -889,14 +889,14 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
             switch (self.ptr_width) {
                 .p32 => {
                     var buf: [4]u8 = undefined;
-                    mem.writeIntLittle(u32, &buf, @as(u32, @intCast(entry_value + slide)));
+                    mem.writeInt(u32, &buf, @as(u32, @intCast(entry_value + slide)), .little);
                     writeMem(handle, pvaddr, &buf) catch |err| {
                         log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
                     };
                 },
                 .p64 => {
                     var buf: [8]u8 = undefined;
-                    mem.writeIntLittle(u64, &buf, entry_value + slide);
+                    mem.writeInt(u64, &buf, entry_value + slide, .little);
                     writeMem(handle, pvaddr, &buf) catch |err| {
                         log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
                     };
@@ -2076,7 +2076,7 @@ fn writeImportTables(self: *Coff) !void {
             lookup_table_offset += lookup_entry_size;
 
             // Names table entry
-            mem.writeIntLittle(u16, buffer.items[names_table_offset..][0..2], 0); // Hint set to 0 until we learn how to parse DLLs
+            mem.writeInt(u16, buffer.items[names_table_offset..][0..2], 0, .little); // Hint set to 0 until we learn how to parse DLLs
             names_table_offset += 2;
             @memcpy(buffer.items[names_table_offset..][0..import_name.len], import_name);
             names_table_offset += @as(u32, @intCast(import_name.len));
@@ -2089,7 +2089,7 @@ fn writeImportTables(self: *Coff) !void {
         }
 
         // IAT sentinel
-        mem.writeIntLittle(u64, buffer.items[iat_offset..][0..lookup_entry_size], 0);
+        mem.writeInt(u64, buffer.items[iat_offset..][0..lookup_entry_size], 0, .little);
         iat_offset += 8;
 
         // Lookup table sentinel
@@ -2157,7 +2157,7 @@ fn writeStrtab(self: *Coff) !void {
     buffer.appendSliceAssumeCapacity(self.strtab.items());
     // Here, we do a trick in that we do not commit the size of the strtab to strtab buffer, instead
     // we write the length of the strtab to a temporary buffer that goes to file.
-    mem.writeIntLittle(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.len())));
+    mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.len())), .little);
 
     try self.base.file.?.pwriteAll(buffer.items, self.strtab_offset.?);
 }
@@ -2180,7 +2180,7 @@ fn writeHeader(self: *Coff) !void {
 
     try buffer.ensureTotalCapacity(self.getSizeOfHeaders());
     writer.writeAll(msdos_stub) catch unreachable;
-    mem.writeIntLittle(u32, buffer.items[0x3c..][0..4], msdos_stub.len);
+    mem.writeInt(u32, buffer.items[0x3c..][0..4], msdos_stub.len, .little);
 
     writer.writeAll("PE\x00\x00") catch unreachable;
     var flags = coff.CoffHeaderFlags{
@@ -2548,7 +2548,7 @@ fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
     @memset(symbol.name[0..4], 0);
-    mem.writeIntLittle(u32, symbol.name[4..8], offset);
+    mem.writeInt(u32, symbol.name[4..8], offset, .little);
 }
 
 fn logSymAttributes(sym: *const coff.Symbol, buf: *[4]u8) []const u8 {

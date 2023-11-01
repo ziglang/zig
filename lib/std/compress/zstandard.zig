@@ -201,7 +201,7 @@ pub fn DecompressStream(
                 if (block_header.last_block) {
                     self.state = .LastBlock;
                     if (self.frame_context.has_checksum) {
-                        const checksum = source_reader.readIntLittle(u32) catch
+                        const checksum = source_reader.readInt(u32, .little) catch
                             return error.MalformedFrame;
                         if (comptime options.verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {

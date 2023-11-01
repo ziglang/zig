@@ -370,7 +370,7 @@ pub fn hkdfExpandLabel(
     const max_context_len = 255;
     const tls13 = "tls13 ";
     var buf: [2 + 1 + tls13.len + max_label_len + 1 + max_context_len]u8 = undefined;
-    mem.writeIntBig(u16, buf[0..2], len);
+    mem.writeInt(u16, buf[0..2], len, .big);
     buf[2] = @as(u8, @intCast(tls13.len + label.len));
     buf[3..][0..tls13.len].* = tls13.*;
     var i: usize = 3 + tls13.len;

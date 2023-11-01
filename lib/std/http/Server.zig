@@ -290,7 +290,7 @@ pub const Request = struct {
 /// A HTTP response waiting to be sent.
 ///
 ///                                  [/ <----------------------------------- \]
-/// Order of operations: accept -> wait -> do  [ -> write -> finish][ -> reset /]
+/// Order of operations: accept -> wait -> send  [ -> write -> finish][ -> reset /]
 ///                                   \ -> read /
 pub const Response = struct {
     version: http.Version = .@"HTTP/1.1",
@@ -346,7 +346,7 @@ pub const Response = struct {
         // A connection is only keep-alive if the Connection header is present and it's value is not "close".
         // The server and client must both agree
         //
-        // do() defaults to using keep-alive if the client requests it.
+        // send() defaults to using keep-alive if the client requests it.
         const res_connection = res.headers.getFirstValue("connection");
         const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
 
@@ -610,7 +610,7 @@ pub const Response = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
-    /// Must be called after `start` and before `finish`.
+    /// Must be called after `send` and before `finish`.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
         switch (res.state) {
             .responded => {},
@@ -637,7 +637,7 @@ pub const Response = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
-    /// Must be called after `start` and before `finish`.
+    /// Must be called after `send` and before `finish`.
     pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -648,7 +648,7 @@ pub const Response = struct {
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
-    /// Must be called after `start`.
+    /// Must be called after `send`.
     pub fn finish(res: *Response) FinishError!void {
         switch (res.state) {
             .responded => res.state = .finished,
@@ -739,7 +739,7 @@ test "HTTP server handles a chunked transfer coding request" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }

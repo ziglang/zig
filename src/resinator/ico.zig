@@ -5,6 +5,8 @@
 //! https://learn.microsoft.com/en-us/windows/win32/menurc/localheader
 
 const std = @import("std");
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
 
 pub const ReadError = std.mem.Allocator.Error || error{ InvalidHeader, InvalidImageType, ImpossibleDataSize, UnexpectedEOF, ReadError };
 
@@ -37,17 +39,17 @@ pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadEr
 //       to do this. Maybe it makes more sense to handle the translation
 //       at the call site instead of having a helper function here.
 pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64) !IconDir {
-    const reserved = try reader.readIntLittle(u16);
+    const reserved = try reader.readInt(u16, .little);
     if (reserved != 0) {
         return error.InvalidHeader;
     }
 
-    const image_type = reader.readEnum(ImageType, .Little) catch |err| switch (err) {
+    const image_type = reader.readEnum(ImageType, .little) catch |err| switch (err) {
         error.InvalidValue => return error.InvalidImageType,
         else => |e| return e,
     };
 
-    const num_images = try reader.readIntLittle(u16);
+    const num_images = try reader.readInt(u16, .little);
 
     // To avoid over-allocation in the case of a file that says it has way more
     // entries than it actually does, we use an ArrayList with a conservatively
@@ -66,19 +68,19 @@ pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64
         switch (image_type) {
             .icon => {
                 entry.type_specific_data = .{ .icon = .{
-                    .color_planes = try reader.readIntLittle(u16),
-                    .bits_per_pixel = try reader.readIntLittle(u16),
+                    .color_planes = try reader.readInt(u16, .little),
+                    .bits_per_pixel = try reader.readInt(u16, .little),
                 } };
             },
             .cursor => {
                 entry.type_specific_data = .{ .cursor = .{
-                    .hotspot_x = try reader.readIntLittle(u16),
-                    .hotspot_y = try reader.readIntLittle(u16),
+                    .hotspot_x = try reader.readInt(u16, .little),
+                    .hotspot_y = try reader.readInt(u16, .little),
                 } };
             },
         }
-        entry.data_size_in_bytes = try reader.readIntLittle(u32);
-        entry.data_offset_from_start_of_file = try reader.readIntLittle(u32);
+        entry.data_size_in_bytes = try reader.readInt(u32, .little);
+        entry.data_offset_from_start_of_file = try reader.readInt(u32, .little);
         // Validate that the offset/data size is feasible
         if (@as(u64, entry.data_offset_from_start_of_file) + entry.data_size_in_bytes > max_size) {
             return error.ImpossibleDataSize;
@@ -133,10 +135,10 @@ pub const IconDir = struct {
     }
 
     pub fn writeResData(self: IconDir, writer: anytype, first_image_id: u16) !void {
-        try writer.writeIntLittle(u16, 0);
-        try writer.writeIntLittle(u16, @intFromEnum(self.image_type));
+        try writer.writeInt(u16, 0, .little);
+        try writer.writeInt(u16, @intFromEnum(self.image_type), .little);
         // We know that entries.len must fit into a u16
-        try writer.writeIntLittle(u16, @as(u16, @intCast(self.entries.len)));
+        try writer.writeInt(u16, @as(u16, @intCast(self.entries.len)), .little);
 
         var image_id = first_image_id;
         for (self.entries) |entry| {
@@ -173,23 +175,23 @@ pub const Entry = struct {
     pub fn writeResData(self: Entry, writer: anytype, id: u16) !void {
         switch (self.type_specific_data) {
             .icon => |icon_data| {
-                try writer.writeIntLittle(u8, @as(u8, @truncate(self.width)));
-                try writer.writeIntLittle(u8, @as(u8, @truncate(self.height)));
-                try writer.writeIntLittle(u8, self.num_colors);
-                try writer.writeIntLittle(u8, self.reserved);
-                try writer.writeIntLittle(u16, icon_data.color_planes);
-                try writer.writeIntLittle(u16, icon_data.bits_per_pixel);
-                try writer.writeIntLittle(u32, self.data_size_in_bytes);
+                try writer.writeInt(u8, @as(u8, @truncate(self.width)), .little);
+                try writer.writeInt(u8, @as(u8, @truncate(self.height)), .little);
+                try writer.writeInt(u8, self.num_colors, .little);
+                try writer.writeInt(u8, self.reserved, .little);
+                try writer.writeInt(u16, icon_data.color_planes, .little);
+                try writer.writeInt(u16, icon_data.bits_per_pixel, .little);
+                try writer.writeInt(u32, self.data_size_in_bytes, .little);
             },
             .cursor => |cursor_data| {
-                try writer.writeIntLittle(u16, self.width);
-                try writer.writeIntLittle(u16, self.height);
-                try writer.writeIntLittle(u16, cursor_data.hotspot_x);
-                try writer.writeIntLittle(u16, cursor_data.hotspot_y);
-                try writer.writeIntLittle(u32, self.data_size_in_bytes + 4);
+                try writer.writeInt(u16, self.width, .little);
+                try writer.writeInt(u16, self.height, .little);
+                try writer.writeInt(u16, cursor_data.hotspot_x, .little);
+                try writer.writeInt(u16, cursor_data.hotspot_y, .little);
+                try writer.writeInt(u32, self.data_size_in_bytes + 4, .little);
             },
         }
-        try writer.writeIntLittle(u16, id);
+        try writer.writeInt(u16, id, .little);
     }
 };
 
@@ -235,21 +237,21 @@ pub const ImageFormat = enum {
     png,
     riff,
 
-    const riff_header = std.mem.readIntNative(u32, "RIFF");
-    const png_signature = std.mem.readIntNative(u64, "\x89PNG\r\n\x1a\n");
-    const ihdr_code = std.mem.readIntNative(u32, "IHDR");
-    const acon_form_type = std.mem.readIntNative(u32, "ACON");
+    const riff_header = std.mem.readInt(u32, "RIFF", native_endian);
+    const png_signature = std.mem.readInt(u64, "\x89PNG\r\n\x1a\n", native_endian);
+    const ihdr_code = std.mem.readInt(u32, "IHDR", native_endian);
+    const acon_form_type = std.mem.readInt(u32, "ACON", native_endian);
 
     pub fn detect(header_bytes: *const [16]u8) ImageFormat {
-        if (std.mem.readIntNative(u32, header_bytes[0..4]) == riff_header) return .riff;
-        if (std.mem.readIntNative(u64, header_bytes[0..8]) == png_signature) return .png;
+        if (std.mem.readInt(u32, header_bytes[0..4], native_endian) == riff_header) return .riff;
+        if (std.mem.readInt(u64, header_bytes[0..8], native_endian) == png_signature) return .png;
         return .dib;
     }
 
     pub fn validate(format: ImageFormat, header_bytes: *const [16]u8) bool {
         return switch (format) {
-            .png => std.mem.readIntNative(u32, header_bytes[12..16]) == ihdr_code,
-            .riff => std.mem.readIntNative(u32, header_bytes[8..12]) == acon_form_type,
+            .png => std.mem.readInt(u32, header_bytes[12..16], native_endian) == ihdr_code,
+            .riff => std.mem.readInt(u32, header_bytes[8..12], native_endian) == acon_form_type,
             .dib => true,
         };
     }

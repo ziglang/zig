@@ -9,6 +9,8 @@ const bmp = @import("bmp.zig");
 const parse = @import("parse.zig");
 const lang = @import("lang.zig");
 const CodePage = @import("code_pages.zig").CodePage;
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
 
 pub const Diagnostics = struct {
     errors: std.ArrayListUnmanaged(ErrorDetails) = .{},
@@ -649,24 +651,24 @@ pub const ErrorDetails = struct {
             },
             .bmp_ignored_palette_bytes => {
                 const bytes = strings[self.extra.number];
-                const ignored_bytes = std.mem.readIntNative(u64, bytes[0..8]);
+                const ignored_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
                 try writer.print("bitmap has {d} extra bytes preceding the pixel data which will be ignored", .{ignored_bytes});
             },
             .bmp_missing_palette_bytes => {
                 const bytes = strings[self.extra.number];
-                const missing_bytes = std.mem.readIntNative(u64, bytes[0..8]);
+                const missing_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
                 try writer.print("bitmap has {d} missing color palette bytes which will be padded with zeroes", .{missing_bytes});
             },
             .rc_would_miscompile_bmp_palette_padding => {
                 const bytes = strings[self.extra.number];
-                const miscompiled_bytes = std.mem.readIntNative(u64, bytes[0..8]);
+                const miscompiled_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
                 try writer.print("the missing color palette bytes would be miscompiled by the Win32 RC compiler (the added padding bytes would include {d} bytes of the pixel data)", .{miscompiled_bytes});
             },
             .bmp_too_many_missing_palette_bytes => switch (self.type) {
                 .err, .warning => {
                     const bytes = strings[self.extra.number];
-                    const missing_bytes = std.mem.readIntNative(u64, bytes[0..8]);
-                    const max_missing_bytes = std.mem.readIntNative(u64, bytes[8..16]);
+                    const missing_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
+                    const max_missing_bytes = std.mem.readInt(u64, bytes[8..16], native_endian);
                     try writer.print("bitmap has {} missing color palette bytes which exceeds the maximum of {}", .{ missing_bytes, max_missing_bytes });
                 },
                 // TODO: command line option

@@ -58,12 +58,12 @@ pub const Params = struct {
         props /= 5;
         const pb = @as(u3, @intCast(props));
 
-        const dict_size_provided = try reader.readIntLittle(u32);
+        const dict_size_provided = try reader.readInt(u32, .little);
         const dict_size = @max(0x1000, dict_size_provided);
 
         const unpacked_size = switch (options.unpacked_size) {
             .read_from_header => blk: {
-                const unpacked_size_provided = try reader.readIntLittle(u64);
+                const unpacked_size_provided = try reader.readInt(u64, .little);
                 const marker_mandatory = unpacked_size_provided == 0xFFFF_FFFF_FFFF_FFFF;
                 break :blk if (marker_mandatory)
                     null
@@ -71,7 +71,7 @@ pub const Params = struct {
                     unpacked_size_provided;
             },
             .read_header_but_use_provided => |x| blk: {
-                _ = try reader.readIntLittle(u64);
+                _ = try reader.readInt(u64, .little);
                 break :blk x;
             },
             .use_provided => |x| x,

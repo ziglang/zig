@@ -1624,8 +1624,8 @@ const WasmDumper = struct {
         switch (opcode) {
             .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
             .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
-            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readIntLittle(u32)))}),
-            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readIntLittle(u64)))}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readInt(u32, .little)))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readInt(u64, .little)))}),
             .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
             else => unreachable,
         }

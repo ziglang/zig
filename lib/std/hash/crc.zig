@@ -163,7 +163,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
                 const p = input[i..][0..8];
 
                 // Unrolling this way gives ~50Mb/s increase
-                self.crc ^= std.mem.readIntLittle(u32, p[0..4]);
+                self.crc ^= std.mem.readInt(u32, p[0..4], .little);
 
                 self.crc =
                     lookup_tables[0][p[7]] ^

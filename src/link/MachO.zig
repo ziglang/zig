@@ -1222,7 +1222,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
 
     var buf: [@sizeOf(u64)]u8 = undefined;
-    mem.writeIntLittle(u64, &buf, entry_value);
+    mem.writeInt(u64, &buf, entry_value, .little);
     try self.base.file.?.pwriteAll(&buf, file_offset);
 
     if (is_hot_update_compatible) {
@@ -1329,7 +1329,7 @@ fn writeStubTableEntry(self: *MachO, index: usize) !void {
 
     {
         var buf: [@sizeOf(u64)]u8 = undefined;
-        mem.writeIntLittle(u64, &buf, stub_helper_addr);
+        mem.writeInt(u64, &buf, stub_helper_addr, .little);
         const off = laptr_header.offset + @sizeOf(u64) * index;
         try self.base.file.?.pwriteAll(&buf, off);
     }
@@ -3773,7 +3773,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
                 const base_offset = sym.n_value - segment.vmaddr;
                 const rel_offset = @as(u32, @intCast(rel.r_address - ctx.base_offset));
                 const offset = @as(u64, @intCast(base_offset + rel_offset));
-                const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
+                const addend = mem.readInt(i64, code[rel_offset..][0..8], .little);
 
                 const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                 log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
@@ -4502,7 +4502,7 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.stub_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+            try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
         }
     }
 
@@ -4513,9 +4513,9 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.got_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             if (target_sym.undf()) {
-                try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+                try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
             } else {
-                try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
+                try writer.writeInt(u32, macho.INDIRECT_SYMBOL_LOCAL, .little);
             }
         }
     }
@@ -4527,7 +4527,7 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.stub_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+            try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
         }
     }
 

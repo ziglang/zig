@@ -206,11 +206,11 @@ fn splitValueBE64(val: i64) [2]u32 {
 fn splitValue64(val: i64) [2]u32 {
     const u: u64 = @bitCast(val);
     switch (native_endian) {
-        .Little => return [2]u32{
+        .little => return [2]u32{
             @as(u32, @truncate(u)),
             @as(u32, @truncate(u >> 32)),
         },
-        .Big => return [2]u32{
+        .big => return [2]u32{
             @as(u32, @truncate(u >> 32)),
             @as(u32, @truncate(u)),
         },
@@ -4044,7 +4044,7 @@ pub const io_sqring_offsets = extern struct {
     array: u32,
 
     resv1: u32,
-    resv2: u64,
+    user_addr: u64,
 };
 
 // io_sqring_offsets.flags
@@ -6028,7 +6028,7 @@ pub const AUDIT = struct {
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @intFromEnum(arch.toElfMachine());
-            if (arch.endian() == .Little) res |= LE;
+            if (arch.endian() == .little) res |= LE;
             switch (arch) {
                 .aarch64,
                 .mips64,

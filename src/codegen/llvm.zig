@@ -342,8 +342,8 @@ const DataLayoutBuilder = struct {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         try writer.writeByte(switch (self.target.cpu.arch.endian()) {
-            .Little => 'e',
-            .Big => 'E',
+            .little => 'e',
+            .big => 'E',
         });
         switch (self.target.cpu.arch) {
             .amdgcn,
@@ -10453,7 +10453,7 @@ pub const FuncGen = struct {
         else
             payload_llvm_ty;
         const loaded = try fg.wip.load(access_kind, load_llvm_ty, payload_ptr, payload_alignment, "");
-        const shifted = if (payload_llvm_ty != load_llvm_ty and o.target.cpu.arch.endian() == .Big)
+        const shifted = if (payload_llvm_ty != load_llvm_ty and o.target.cpu.arch.endian() == .big)
             try fg.wip.bin(.lshr, loaded, try o.builder.intValue(
                 load_llvm_ty,
                 (payload_ty.abiSize(mod) - (std.math.divCeil(u64, payload_ty.bitSize(mod), 8) catch unreachable)) * 8,

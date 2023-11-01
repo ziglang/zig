@@ -137,8 +137,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             @memset(bytes, 0);
             var shift: usize = 0;
             var out_i: usize = switch (endian) {
-                .Big => bytes.len - 1,
-                .Little => 0,
+                .big => bytes.len - 1,
+                .little => 0,
             };
             for (0..self.limbs.len) |i| {
                 var remaining_bits = t_bits;
@@ -150,7 +150,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                     remaining_bits -= consumed;
                     shift = 0;
                     switch (endian) {
-                        .Big => {
+                        .big => {
                             if (out_i == 0) {
                                 if (i != self.limbs.len - 1 or limb != 0) {
                                     return error.Overflow;
@@ -159,7 +159,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                             }
                             out_i -= 1;
                         },
-                        .Little => {
+                        .little => {
                             out_i += 1;
                             if (out_i == bytes.len) {
                                 if (i != self.limbs.len - 1 or limb != 0) {
@@ -182,8 +182,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var out = Self.zero;
             var out_i: usize = 0;
             var i: usize = switch (endian) {
-                .Big => bytes.len - 1,
-                .Little => 0,
+                .big => bytes.len - 1,
+                .little => 0,
             };
             while (true) {
                 const bi = bytes[i];
@@ -203,11 +203,11 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                     out.limbs.set(out_i, overflow);
                 }
                 switch (endian) {
-                    .Big => {
+                    .big => {
                         if (i == 0) break;
                         i -= 1;
                     },
-                    .Little => {
+                    .little => {
                         i += 1;
                         if (i == bytes.len) break;
                     },
@@ -227,7 +227,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                 Limb,
                 x.limbs.constSlice(),
                 y.limbs.constSlice(),
-                .Little,
+                .little,
             );
         }
 
@@ -667,15 +667,15 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var out = self.one();
             self.toMontgomery(&out) catch unreachable;
 
-            if (public and e.len < 3 or (e.len == 3 and e[if (endian == .Big) 0 else 2] <= 0b1111)) {
+            if (public and e.len < 3 or (e.len == 3 and e[if (endian == .big) 0 else 2] <= 0b1111)) {
                 // Do not use a precomputation table for short, public exponents
                 var x_m = x;
                 if (x.montgomery == false) {
                     self.toMontgomery(&x_m) catch unreachable;
                 }
                 var s = switch (endian) {
-                    .Big => 0,
-                    .Little => e.len - 1,
+                    .big => 0,
+                    .little => e.len - 1,
                 };
                 while (true) {
                     const b = e[s];
@@ -690,11 +690,11 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                         if (j == 0) break;
                     }
                     switch (endian) {
-                        .Big => {
+                        .big => {
                             s += 1;
                             if (s == e.len) break;
                         },
-                        .Little => {
+                        .little => {
                             if (s == 0) break;
                             s -= 1;
                         },
@@ -711,8 +711,8 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                 }
                 var t0 = self.zero;
                 var s = switch (endian) {
-                    .Big => 0,
-                    .Little => e.len - 1,
+                    .big => 0,
+                    .little => e.len - 1,
                 };
                 while (true) {
                     const b = e[s];
@@ -737,11 +737,11 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                         }
                     }
                     switch (endian) {
-                        .Big => {
+                        .big => {
                             s += 1;
                             if (s == e.len) break;
                         },
-                        .Little => {
+                        .little => {
                             if (s == 0) break;
                             s -= 1;
                         },
@@ -791,10 +791,10 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var e_normalized = Fe{ .v = e.v.normalize() };
             var buf_: [Fe.encoded_bytes]u8 = undefined;
             var buf = buf_[0 .. math.divCeil(usize, e_normalized.v.limbs_count() * t_bits, 8) catch unreachable];
-            e_normalized.toBytes(buf, .Little) catch unreachable;
+            e_normalized.toBytes(buf, .little) catch unreachable;
             const leading = @clz(e_normalized.v.limbs.get(e_normalized.v.limbs_count() - carry_bits));
             buf = buf[0 .. buf.len - leading / 8];
-            return self.powWithEncodedPublicExponent(x, buf, .Little);
+            return self.powWithEncodedPublicExponent(x, buf, .little);
         }
 
         /// Returns x^e (mod m), with the exponent provided as a byte string.

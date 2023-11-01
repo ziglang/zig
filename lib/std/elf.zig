@@ -497,8 +497,8 @@ pub const Header = struct {
         if (hdr32.e_ident[EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const endian: std.builtin.Endian = switch (hdr32.e_ident[EI_DATA]) {
-            ELFDATA2LSB => .Little,
-            ELFDATA2MSB => .Big,
+            ELFDATA2LSB => .little,
+            ELFDATA2MSB => .big,
             else => return error.InvalidElfEndian,
         };
         const need_bswap = endian != native_endian;
