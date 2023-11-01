@@ -4652,7 +4652,10 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     try writer.writeAll(", &");
     try f.writeCValue(writer, operand_lval, .Other);
     try writer.writeAll(", sizeof(");
-    try f.renderType(writer, dest_ty);
+    try f.renderType(
+        writer,
+        if (dest_ty.abiSize(mod) <= operand_ty.abiSize(mod)) dest_ty else operand_ty,
+    );
     try writer.writeAll("));\n");
 
     // Ensure padding bits have the expected value.
