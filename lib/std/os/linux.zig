@@ -4044,7 +4044,7 @@ pub const io_sqring_offsets = extern struct {
     array: u32,
 
     resv1: u32,
-    resv2: u64,
+    user_addr: u64,
 };
 
 // io_sqring_offsets.flags
