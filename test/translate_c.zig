@@ -1240,6 +1240,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern const float my_float = 1.0f;
         \\extern const double my_double = 1.0;
         \\extern const long double my_longdouble = 1.0l;
+        \\extern const long double my_extended_precision_longdouble = 1.0000000000000003l;
     , &([_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.0e-2);",
@@ -1250,13 +1251,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const foobar = -@as(c_longdouble, 73.0);",
         "pub export const my_float: f32 = 1.0;",
         "pub export const my_double: f64 = 1.0;",
-    } ++ if (@bitSizeOf(c_longdouble) != 64) .{
-        // TODO properly translate non-64-bit long doubles
-        "source.h:10:42: warning: unsupported floating point constant format",
-        "source.h:10:26: warning: unable to translate variable initializer, demoted to extern",
-        "pub extern const my_longdouble: c_longdouble;",
-    } else .{
         "pub export const my_longdouble: c_longdouble = 1.0;",
+        switch (@bitSizeOf(c_longdouble)) {
+            // TODO implement decimal format for f128 <https://github.com/ziglang/zig/issues/1181>
+            // (so that f80/f128 values not exactly representable as f64 can be emitted in decimal form)
+            80 => "pub export const my_extended_precision_longdouble: c_longdouble = 0x1.000000000000159ep0;",
+            128 => "pub export const my_extended_precision_longdouble: c_longdouble = 0x1.000000000000159e05f1e2674d21p0;",
+            else => "pub export const my_extended_precision_longdouble: c_longdouble = 1.0000000000000002;",
+        },
     }));
 
     cases.add("macro defines hexadecimal float",
