@@ -602,8 +602,8 @@ pub const Ip6Address = extern struct {
         }
         const big_endian_parts = @as(*align(1) const [8]u16, @ptrCast(&self.sa.addr));
         const native_endian_parts = switch (native_endian) {
-            .Big => big_endian_parts.*,
-            .Little => blk: {
+            .big => big_endian_parts.*,
+            .little => blk: {
                 var buf: [8]u16 = undefined;
                 for (big_endian_parts, 0..) |part, i| {
                     buf[i] = mem.bigToNative(u16, part);
@@ -1052,7 +1052,7 @@ fn linuxLookupName(
         } else {
             sa6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             da6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-            mem.writeIntNative(u32, da6.addr[12..], addr.addr.in.sa.addr);
+            mem.writeInt(u32, da6.addr[12..], addr.addr.in.sa.addr, native_endian);
             da4.addr = addr.addr.in.sa.addr;
             da = @ptrCast(&da4);
             dalen = @sizeOf(os.sockaddr.in);
@@ -1073,7 +1073,7 @@ fn linuxLookupName(
             os.getsockname(fd, sa, &salen) catch break :syscalls;
             if (addr.addr.any.family == os.AF.INET) {
                 // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
-                mem.writeIntNative(u32, @as(*[4]u8, @ptrCast(&sa6.addr[12])), sa4.addr);
+                mem.writeInt(u32, @as(*[4]u8, @ptrCast(&sa6.addr[12])), sa4.addr, native_endian);
             }
             if (dscope == @as(i32, scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
             if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
@@ -1569,7 +1569,7 @@ fn resMSendRc(
         );
         for (0..ns.len) |i| {
             if (ns[i].any.family != os.AF.INET) continue;
-            mem.writeIntNative(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr);
+            mem.writeInt(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr, native_endian);
             ns[i].in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             ns[i].any.family = os.AF.INET6;
             ns[i].in6.sa.flowinfo = 0;

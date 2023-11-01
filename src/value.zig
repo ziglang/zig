@@ -778,8 +778,8 @@ pub const Value = struct {
             .Void => {},
             .Bool => {
                 const byte_index = switch (endian) {
-                    .Little => bit_offset / 8,
-                    .Big => buffer.len - bit_offset / 8 - 1,
+                    .little => bit_offset / 8,
+                    .big => buffer.len - bit_offset / 8 - 1,
                 };
                 if (val.toBool()) {
                     buffer[byte_index] |= (@as(u8, 1) << @as(u3, @intCast(bit_offset % 8)));
@@ -815,7 +815,7 @@ pub const Value = struct {
                 var elem_i: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
-                    const tgt_elem_i = if (endian == .Big) len - elem_i - 1 else elem_i;
+                    const tgt_elem_i = if (endian == .big) len - elem_i - 1 else elem_i;
                     const elem_val = try val.elemValue(mod, tgt_elem_i);
                     try elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
                     bits += elem_bit_size;
@@ -1064,8 +1064,8 @@ pub const Value = struct {
             .Void => return Value.void,
             .Bool => {
                 const byte = switch (endian) {
-                    .Big => buffer[buffer.len - bit_offset / 8 - 1],
-                    .Little => buffer[bit_offset / 8],
+                    .big => buffer[buffer.len - bit_offset / 8 - 1],
+                    .little => buffer[bit_offset / 8],
                 };
                 if (((byte >> @as(u3, @intCast(bit_offset % 8))) & 1) == 0) {
                     return Value.false;
@@ -1127,7 +1127,7 @@ pub const Value = struct {
                 const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
                 for (elems, 0..) |_, i| {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
-                    const tgt_elem_i = if (endian == .Big) elems.len - i - 1 else i;
+                    const tgt_elem_i = if (endian == .big) elems.len - i - 1 else i;
                     elems[tgt_elem_i] = try (try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena)).intern(elem_ty, mod);
                     bits += elem_bit_size;
                 }

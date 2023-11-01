@@ -1376,7 +1376,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.writer().writeIntNative(u64, @as(u64, @intCast(value))) catch return error.SystemResources;
+    file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -1385,7 +1385,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    return @as(ErrInt, @intCast(file.reader().readIntNative(u64) catch return error.SystemResources));
+    return @as(ErrInt, @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources));
 }
 
 /// Caller must free result.

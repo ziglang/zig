@@ -344,7 +344,7 @@ fn Parser(comptime ReaderType: type) type {
         fn parseObject(parser: *ObjectParser, gpa: Allocator, is_object_file: *bool) Error!void {
             errdefer parser.object.deinit(gpa);
             try parser.verifyMagicBytes();
-            const version = try parser.reader.reader().readIntLittle(u32);
+            const version = try parser.reader.reader().readInt(u32, .little);
 
             parser.object.version = version;
             var relocatable_data = std.ArrayList(RelocatableData).init(gpa);

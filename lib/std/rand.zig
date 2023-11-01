@@ -104,15 +104,16 @@ pub const Random = struct {
     pub fn int(r: Random, comptime T: type) T {
         const bits = @typeInfo(T).Int.bits;
         const UnsignedT = std.meta.Int(.unsigned, bits);
-        const ByteAlignedT = std.meta.Int(.unsigned, @divTrunc(bits + 7, 8) * 8);
+        const ceil_bytes = comptime std.math.divCeil(u16, bits, 8) catch unreachable;
+        const ByteAlignedT = std.meta.Int(.unsigned, ceil_bytes * 8);
 
-        var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
-        r.bytes(rand_bytes[0..]);
+        var rand_bytes: [ceil_bytes]u8 = undefined;
+        r.bytes(&rand_bytes);
 
         // use LE instead of native endian for better portability maybe?
         // TODO: endian portability is pointless if the underlying prng isn't endian portable.
         // TODO: document the endian portability of this library.
-        const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, &rand_bytes);
+        const byte_aligned_result = mem.readInt(ByteAlignedT, &rand_bytes, .little);
         const unsigned_result: UnsignedT = @truncate(byte_aligned_result);
         return @bitCast(unsigned_result);
     }

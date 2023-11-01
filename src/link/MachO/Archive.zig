@@ -123,7 +123,7 @@ fn parseName(allocator: Allocator, name_or_length: ar_hdr.NameOrLength, reader: 
 }
 
 fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !void {
-    const symtab_size = try reader.readIntLittle(u32);
+    const symtab_size = try reader.readInt(u32, .little);
     var symtab = try allocator.alloc(u8, symtab_size);
     defer allocator.free(symtab);
 
@@ -132,7 +132,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
         return error.MalformedArchive;
     };
 
-    const strtab_size = try reader.readIntLittle(u32);
+    const strtab_size = try reader.readInt(u32, .little);
     var strtab = try allocator.alloc(u8, strtab_size);
     defer allocator.free(strtab);
 
@@ -145,11 +145,11 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     var symtab_reader = symtab_stream.reader();
 
     while (true) {
-        const n_strx = symtab_reader.readIntLittle(u32) catch |err| switch (err) {
+        const n_strx = symtab_reader.readInt(u32, .little) catch |err| switch (err) {
             error.EndOfStream => break,
             else => |e| return e,
         };
-        const object_offset = try symtab_reader.readIntLittle(u32);
+        const object_offset = try symtab_reader.readInt(u32, .little);
 
         const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + n_strx)), 0);
         const owned_name = try allocator.dupe(u8, sym_name);

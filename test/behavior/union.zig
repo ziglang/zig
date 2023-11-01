@@ -1686,7 +1686,7 @@ test "memset packed union" {
 }
 
 fn littleToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Little) v else @byteSwap(v);
+    return if (endian == .little) v else @byteSwap(v);
 }
 
 test "reinterpret extern union" {
@@ -1723,8 +1723,8 @@ test "reinterpret extern union" {
 
                 {
                     const expected, const mask = switch (endian) {
-                        .Little => .{ 0x2a, 0xff },
-                        .Big => .{ 0x2a000000, 0xff000000 },
+                        .little => .{ 0x2a, 0xff },
+                        .big => .{ 0x2a000000, 0xff000000 },
                     };
 
                     try expectEqual(@as(u8, 0x2a), u.foo);

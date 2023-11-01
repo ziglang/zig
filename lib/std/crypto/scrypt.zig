@@ -91,7 +91,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     var y: []align(16) u32 = @alignCast(xy[32 * r ..]);
 
     for (x, 0..) |*v1, j| {
-        v1.* = mem.readIntSliceLittle(u32, b[4 * j ..]);
+        v1.* = mem.readInt(u32, b[4 * j ..][0..4], .little);
     }
 
     var tmp: [16]u32 align(16) = undefined;
@@ -116,7 +116,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     }
 
     for (x, 0..) |v1, j| {
-        mem.writeIntLittle(u32, b[4 * j ..][0..4], v1);
+        mem.writeInt(u32, b[4 * j ..][0..4], v1, .little);
     }
 }
 
@@ -361,7 +361,7 @@ const crypt_format = struct {
                 std.debug.assert(dst.len == decodedLen(src.len));
                 var i: usize = 0;
                 while (i < src.len / 4) : (i += 1) {
-                    mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
+                    mem.writeInt(u24, dst[i * 3 ..][0..3], try intDecode(u24, src[i * 4 ..][0..4]), .little);
                 }
                 const leftover = src[i * 4 ..];
                 var v: u24 = 0;
@@ -377,7 +377,7 @@ const crypt_format = struct {
                 std.debug.assert(dst.len == encodedLen(src.len));
                 var i: usize = 0;
                 while (i < src.len / 3) : (i += 1) {
-                    intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+                    intEncode(dst[i * 4 ..][0..4], mem.readInt(u24, src[i * 3 ..][0..3], .little));
                 }
                 const leftover = src[i * 3 ..];
                 var v: u24 = 0;

@@ -464,12 +464,12 @@ pub const PDBStringTableHeader = extern struct {
 };
 
 fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
-    const num_words = try stream.readIntLittle(u32);
+    const num_words = try stream.readInt(u32, .little);
     var list = ArrayList(u32).init(allocator);
     errdefer list.deinit();
     var word_i: u32 = 0;
     while (word_i != num_words) : (word_i += 1) {
-        const word = try stream.readIntLittle(u32);
+        const word = try stream.readInt(u32, .little);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
             if (word & (@as(u32, 1) << bit_i) != 0) {
@@ -599,7 +599,7 @@ pub const Pdb = struct {
 
         var sect_cont_offset: usize = 0;
         if (section_contrib_size != 0) {
-            const version = reader.readEnum(SectionContrSubstreamVersion, .Little) catch |err| switch (err) {
+            const version = reader.readEnum(SectionContrSubstreamVersion, .little) catch |err| switch (err) {
                 error.InvalidValue => return error.InvalidDebugInfo,
                 else => |e| return e,
             };
@@ -625,10 +625,10 @@ pub const Pdb = struct {
         const reader = stream.reader();
 
         // Parse the InfoStreamHeader.
-        const version = try reader.readIntLittle(u32);
-        const signature = try reader.readIntLittle(u32);
+        const version = try reader.readInt(u32, .little);
+        const signature = try reader.readInt(u32, .little);
         _ = signature;
-        const age = try reader.readIntLittle(u32);
+        const age = try reader.readInt(u32, .little);
         const guid = try reader.readBytesNoEof(16);
 
         if (version != 20000404) // VC70, only value observed by LLVM team
@@ -639,7 +639,7 @@ pub const Pdb = struct {
 
         // Find the string table.
         const string_table_index = str_tab_index: {
-            const name_bytes_len = try reader.readIntLittle(u32);
+            const name_bytes_len = try reader.readInt(u32, .little);
             const name_bytes = try self.allocator.alloc(u8, name_bytes_len);
             defer self.allocator.free(name_bytes);
             try reader.readNoEof(name_bytes);
@@ -667,8 +667,8 @@ pub const Pdb = struct {
             defer self.allocator.free(deleted);
 
             for (present) |_| {
-                const name_offset = try reader.readIntLittle(u32);
-                const name_index = try reader.readIntLittle(u32);
+                const name_offset = try reader.readInt(u32, .little);
+                const name_index = try reader.readInt(u32, .little);
                 if (name_offset > name_bytes.len)
                     return error.InvalidDebugInfo;
                 const name = mem.sliceTo(name_bytes[name_offset..], 0);
@@ -821,7 +821,7 @@ pub const Pdb = struct {
             return error.MissingDebugInfo;
         const reader = stream.reader();
 
-        const signature = try reader.readIntLittle(u32);
+        const signature = try reader.readInt(u32, .little);
         if (signature != 4)
             return error.InvalidDebugInfo;
 
@@ -899,7 +899,7 @@ const Msf = struct {
         try file.seekTo(superblock.BlockSize * superblock.BlockMapAddr);
         var dir_blocks = try allocator.alloc(u32, dir_block_count);
         for (dir_blocks) |*b| {
-            b.* = try in.readIntLittle(u32);
+            b.* = try in.readInt(u32, .little);
         }
         var directory = MsfStream.init(
             superblock.BlockSize,
@@ -908,7 +908,7 @@ const Msf = struct {
         );
 
         const begin = directory.pos;
-        const stream_count = try directory.reader().readIntLittle(u32);
+        const stream_count = try directory.reader().readInt(u32, .little);
         const stream_sizes = try allocator.alloc(u32, stream_count);
         defer allocator.free(stream_sizes);
 
@@ -917,7 +917,7 @@ const Msf = struct {
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;
         for (stream_sizes) |*s| {
-            const size = try directory.reader().readIntLittle(u32);
+            const size = try directory.reader().readInt(u32, .little);
             s.* = if (size == Nil) 0 else blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -932,7 +932,7 @@ const Msf = struct {
                 var blocks = try allocator.alloc(u32, size);
                 var j: u32 = 0;
                 while (j < size) : (j += 1) {
-                    const block_id = try directory.reader().readIntLittle(u32);
+                    const block_id = try directory.reader().readInt(u32, .little);
                     const n = (block_id % superblock.BlockSize);
                     // 0 is for SuperBlock, 1 and 2 for FPMs.
                     if (block_id == 0 or n == 1 or n == 2 or block_id * superblock.BlockSize > file_len)

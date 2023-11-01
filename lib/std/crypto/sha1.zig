@@ -111,7 +111,7 @@ pub const Sha1 = struct {
         d.round(d.buf[0..]);
 
         for (d.s, 0..) |s, j| {
-            mem.writeIntBig(u32, out[4 * j ..][0..4], s);
+            mem.writeInt(u32, out[4 * j ..][0..4], s, .big);
         }
     }
 
@@ -151,7 +151,7 @@ pub const Sha1 = struct {
             roundParam(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
-            s[r.i] = mem.readIntBig(u32, b[r.i * 4 ..][0..4]);
+            s[r.i] = mem.readInt(u32, b[r.i * 4 ..][0..4], .big);
 
             v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
             v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));

@@ -112,7 +112,7 @@ pub const Md5 = struct {
         d.round(d.buf[0..]);
 
         for (d.s, 0..) |s, j| {
-            mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
+            mem.writeInt(u32, out[4 * j ..][0..4], s, .little);
         }
     }
 
@@ -121,7 +121,7 @@ pub const Md5 = struct {
 
         var i: usize = 0;
         while (i < 16) : (i += 1) {
-            s[i] = mem.readIntLittle(u32, b[i * 4 ..][0..4]);
+            s[i] = mem.readInt(u32, b[i * 4 ..][0..4], .little);
         }
 
         var v: [4]u32 = [_]u32{

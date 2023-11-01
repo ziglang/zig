@@ -171,7 +171,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             const rr = d.s[0 .. params.digest_bits / 32];
 
             for (rr, 0..) |s, j| {
-                mem.writeIntBig(u32, out[4 * j ..][0..4], s);
+                mem.writeInt(u32, out[4 * j ..][0..4], s, .big);
             }
         }
 
@@ -195,7 +195,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
         fn round(d: *Self, b: *const [64]u8) void {
             var s: [64]u32 align(16) = undefined;
             for (@as(*align(1) const [16]u32, @ptrCast(b)), 0..) |*elem, i| {
-                s[i] = mem.readIntBig(u32, mem.asBytes(elem));
+                s[i] = mem.readInt(u32, mem.asBytes(elem), .big);
             }
 
             if (!@inComptime()) {
@@ -663,7 +663,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             const rr = d.s[0 .. params.digest_bits / 64];
 
             for (rr, 0..) |s, j| {
-                mem.writeIntBig(u64, out[8 * j ..][0..8], s);
+                mem.writeInt(u64, out[8 * j ..][0..8], s, .big);
             }
         }
 
@@ -678,7 +678,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
             var i: usize = 0;
             while (i < 16) : (i += 1) {
-                s[i] = mem.readIntBig(u64, b[i * 8 ..][0..8]);
+                s[i] = mem.readInt(u64, b[i * 8 ..][0..8], .big);
             }
             while (i < 80) : (i += 1) {
                 s[i] = s[i - 16] +% s[i - 7] +%

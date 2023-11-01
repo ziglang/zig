@@ -450,8 +450,8 @@ pub const FloatMode = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Endian = enum {
-    Big,
-    Little,
+    big,
+    little,
 };
 
 /// This data structure is used by the Zig language code generation and

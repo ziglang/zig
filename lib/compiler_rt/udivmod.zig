@@ -5,8 +5,8 @@ const Log2Int = std.math.Log2Int;
 const HalveInt = @import("common.zig").HalveInt;
 
 const lo = switch (builtin.cpu.arch.endian()) {
-    .Big => 1,
-    .Little => 0,
+    .big => 1,
+    .little => 0,
 };
 const hi = 1 - lo;
 

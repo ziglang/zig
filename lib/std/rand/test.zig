@@ -71,7 +71,7 @@ const Dilbert = struct {
         for (seq) |s| {
             var buf0: [8]u8 = undefined;
             var buf1: [8]u8 = undefined;
-            std.mem.writeIntBig(u64, &buf0, s);
+            std.mem.writeInt(u64, &buf0, s, .big);
             r.fill(&buf1);
             try std.testing.expect(std.mem.eql(u8, buf0[0..], buf1[0..]));
         }

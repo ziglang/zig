@@ -97,12 +97,12 @@ pub const Decoder = struct {
         const unpacked_size = blk: {
             var tmp: u64 = status & 0x1F;
             tmp <<= 16;
-            tmp |= try reader.readIntBig(u16);
+            tmp |= try reader.readInt(u16, .big);
             break :blk tmp + 1;
         };
 
         const packed_size = blk: {
-            const tmp: u17 = try reader.readIntBig(u16);
+            const tmp: u17 = try reader.readInt(u16, .big);
             break :blk tmp + 1;
         };
 
@@ -155,7 +155,7 @@ pub const Decoder = struct {
         accum: *LzAccumBuffer,
         reset_dict: bool,
     ) !void {
-        const unpacked_size = @as(u17, try reader.readIntBig(u16)) + 1;
+        const unpacked_size = @as(u17, try reader.readInt(u16, .big)) + 1;
 
         if (reset_dict) {
             try accum.reset(writer);

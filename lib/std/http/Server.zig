@@ -739,7 +739,7 @@ test "HTTP server handles a chunked transfer coding request" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }

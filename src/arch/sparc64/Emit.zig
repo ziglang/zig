@@ -677,7 +677,7 @@ fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
     // SPARCv9 instructions are always arranged in BE regardless of the
     // endianness mode the CPU is running in (Section 3.1 of the ISA specification).
     // This is to ease porting in case someone wants to do a LE SPARCv9 backend.
-    const endian = Endian.Big;
+    const endian = Endian.big;
 
     std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
 }

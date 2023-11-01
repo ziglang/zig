@@ -13,7 +13,7 @@ const mem = std.mem;
 const Random = std.rand.Random;
 const Self = @This();
 
-const Ascon = std.crypto.core.Ascon(.Little);
+const Ascon = std.crypto.core.Ascon(.little);
 
 state: Ascon,
 
