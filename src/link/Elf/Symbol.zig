@@ -168,9 +168,15 @@ const GetOrCreateZigGotEntryResult = struct {
 };
 
 pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
+    assert(!elf_file.isObject());
     if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
     const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
     return .{ .found_existing = false, .index = index };
+}
+
+pub fn createZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !void {
+    if (elf_file.isObject()) return;
+    _ = try symbol.getOrCreateZigGotEntry(symbol_index, elf_file);
 }
 
 pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) u64 {
