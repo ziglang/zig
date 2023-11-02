@@ -901,6 +901,7 @@ fn updateDeclCode(
         errdefer self.freeDeclMetadata(elf_file, sym_index);
 
         sym.value = atom_ptr.value;
+        sym.flags.needs_zig_got = true;
         esym.st_value = atom_ptr.value;
 
         if (!elf_file.isObject()) {
@@ -1156,6 +1157,7 @@ fn updateLazySymbol(
     errdefer self.freeDeclMetadata(elf_file, symbol_index);
 
     local_sym.value = atom_ptr.value;
+    local_sym.flags.needs_zig_got = true;
     local_esym.st_value = atom_ptr.value;
 
     if (!elf_file.isObject()) {
