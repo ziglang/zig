@@ -327,7 +327,11 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
         }
     }.needsZigGot;
 
-    const is_obj = lower.bin_file.options.effectiveOutputMode() == .Obj;
+    const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
+        .Exe => false,
+        .Obj => true,
+        .Lib => lower.bin_file.options.link_mode == .Static,
+    };
     var emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
@@ -347,7 +351,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                         },
                         .mov => {
-                            if (is_obj and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
+                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                         },
                         else => unreachable,
@@ -360,7 +364,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             break :op .{ .imm = Immediate.s(0) };
                         },
                         .mov => {
-                            if (is_obj and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
+                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) };

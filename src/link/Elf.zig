@@ -498,7 +498,7 @@ pub fn initMetadata(self: *Elf) !void {
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) void {
-            if (elf_file.isObject()) {
+            if (elf_file.isRelocatable()) {
                 const off = elf_file.findFreeSpace(size, shdr.sh_addralign);
                 shdr.sh_offset = off;
                 shdr.sh_size = size;
@@ -513,7 +513,7 @@ pub fn initMetadata(self: *Elf) !void {
 
     comptime assert(number_of_zig_segments == 5);
 
-    if (!self.isObject()) {
+    if (!self.isRelocatable()) {
         if (self.phdr_zig_load_re_index == null) {
             const filesz = self.base.options.program_code_size_hint;
             const off = self.findFreeSpace(filesz, self.page_size);
@@ -597,7 +597,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
         fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
-        if (self.isObject()) {
+        if (self.isRelocatable()) {
             try zig_object.addSectionSymbol(self.zig_text_section_index.?, self);
             self.zig_text_rela_section_index = try self.addRelaShdr(
                 ".rela.text.zig",
@@ -613,7 +613,7 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
-    if (self.zig_got_section_index == null and !self.isObject()) {
+    if (self.zig_got_section_index == null and !self.isRelocatable()) {
         self.zig_got_section_index = try self.addSection(.{
             .name = ".got.zig",
             .type = elf.SHT_PROGBITS,
@@ -644,7 +644,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
-        if (self.isObject()) {
+        if (self.isRelocatable()) {
             try zig_object.addSectionSymbol(self.zig_data_rel_ro_section_index.?, self);
             self.zig_data_rel_ro_rela_section_index = try self.addRelaShdr(
                 ".rela.data.rel.ro.zig",
@@ -670,7 +670,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
-        if (self.isObject()) {
+        if (self.isRelocatable()) {
             try zig_object.addSectionSymbol(self.zig_data_section_index.?, self);
             self.zig_data_rela_section_index = try self.addRelaShdr(
                 ".rela.data.zig",
@@ -904,10 +904,6 @@ pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link
     if (use_lld) {
         return self.linkWithLLD(comp, prog_node);
     }
-    if (self.base.options.output_mode == .Lib and self.isStatic()) {
-        // TODO writing static library files
-        return error.TODOImplementWritingLibFiles;
-    }
     try self.flushModule(comp, prog_node);
 }
 
@@ -943,7 +939,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.isObject() and self.zig_object_index == null) {
+    if (self.isRelocatable() and self.zig_object_index == null) {
+        if (self.isStaticLib()) {
+            var err = try self.addErrorWithNotes(0);
+            try err.addMsg(self, "fatal linker error: emitting static libs unimplemented", .{});
+            return;
+        }
         // TODO this will become -r route I guess. For now, just copy the object file.
         assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
@@ -1389,6 +1390,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+    if (self.isStaticLib()) return self.flushStaticLib(comp);
 
     // Dedup shared objects
     {
@@ -1424,9 +1426,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
 
-    if (self.isObject()) {
-        return self.flushObject(comp);
-    }
+    if (self.isObject()) return self.flushObject(comp);
 
     try self.convertCommonSymbols();
     self.markImportsExports();
@@ -1511,7 +1511,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
-    if (self.entry_index == null and self.base.options.effectiveOutputMode() == .Exe) {
+    if (self.entry_index == null and self.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
@@ -1519,6 +1519,12 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
+}
+
+pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void {
+    _ = comp;
+    var err = try self.addErrorWithNotes(0);
+    try err.addMsg(self, "fatal linker error: emitting static libs unimplemented", .{});
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
@@ -2822,7 +2828,7 @@ fn writeHeader(self: *Elf) !void {
 
     assert(index == 16);
 
-    const elf_type: elf.ET = switch (self.base.options.effectiveOutputMode()) {
+    const elf_type: elf.ET = switch (self.base.options.output_mode) {
         .Exe => if (self.base.options.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (self.base.options.link_mode) {
@@ -3147,11 +3153,11 @@ fn initSections(self: *Elf) !void {
     };
     const ptr_size = self.ptrWidthBytes();
 
-    for (self.objects.items) |index| {
+    if (!self.isStaticLib()) for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
-    }
+    };
 
-    const needs_eh_frame = for (self.objects.items) |index| {
+    const needs_eh_frame = if (self.isStaticLib()) false else for (self.objects.items) |index| {
         if (self.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
@@ -4954,15 +4960,23 @@ pub fn isStatic(self: Elf) bool {
 }
 
 pub fn isObject(self: Elf) bool {
-    return self.base.options.effectiveOutputMode() == .Obj;
+    return self.base.options.output_mode == .Obj;
 }
 
 pub fn isExe(self: Elf) bool {
-    return self.base.options.effectiveOutputMode() == .Exe;
+    return self.base.options.output_mode == .Exe;
+}
+
+pub fn isStaticLib(self: Elf) bool {
+    return self.base.options.output_mode == .Lib and self.isStatic();
+}
+
+pub fn isRelocatable(self: Elf) bool {
+    return self.isObject() or self.isStaticLib();
 }
 
 pub fn isDynLib(self: Elf) bool {
-    return self.base.options.effectiveOutputMode() == .Lib and self.base.options.link_mode == .Dynamic;
+    return self.base.options.output_mode == .Lib and !self.isStatic();
 }
 
 pub fn isZigSection(self: Elf, shndx: u16) bool {

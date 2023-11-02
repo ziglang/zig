@@ -287,7 +287,7 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
 }
 
 pub fn addSectionSymbol(self: *ZigObject, shndx: u16, elf_file: *Elf) !void {
-    assert(elf_file.isObject());
+    assert(elf_file.isRelocatable());
     const gpa = elf_file.base.allocator;
     const symbol_index = try elf_file.addSymbol();
     try self.local_symbols.append(gpa, symbol_index);
@@ -886,7 +886,7 @@ fn updateDeclCode(
                 sym.value = atom_ptr.value;
                 esym.st_value = atom_ptr.value;
 
-                if (!elf_file.isObject()) {
+                if (!elf_file.isRelocatable()) {
                     log.debug("  (writing new offset table entry)", .{});
                     assert(sym.flags.has_zig_got);
                     const extra = sym.extra(elf_file).?;
@@ -904,7 +904,7 @@ fn updateDeclCode(
         sym.flags.needs_zig_got = true;
         esym.st_value = atom_ptr.value;
 
-        if (!elf_file.isObject()) {
+        if (!elf_file.isRelocatable()) {
             const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
             try elf_file.zig_got.writeOne(elf_file, gop.index);
         }
@@ -1160,7 +1160,7 @@ fn updateLazySymbol(
     local_sym.flags.needs_zig_got = true;
     local_esym.st_value = atom_ptr.value;
 
-    if (!elf_file.isObject()) {
+    if (!elf_file.isRelocatable()) {
         const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, elf_file);
         try elf_file.zig_got.writeOne(elf_file, gop.index);
     }

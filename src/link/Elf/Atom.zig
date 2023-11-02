@@ -605,7 +605,8 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    return switch (elf_file.base.options.effectiveOutputMode()) {
+    assert(!elf_file.isRelocatable());
+    return switch (elf_file.base.options.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => if (elf_file.base.options.pie) 1 else 2,
