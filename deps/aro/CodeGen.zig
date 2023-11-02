@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const BuiltinFunction = @import("builtins/BuiltinFunction.zig");
+const Builtins = @import("Builtins.zig");
+const Builtin = Builtins.Builtin;
 const Compilation = @import("Compilation.zig");
 const Interner = @import("Interner.zig");
 const Ir = @import("Ir.zig");
@@ -1159,10 +1160,10 @@ fn genBoolExpr(c: *CodeGen, base: NodeIndex, true_label: Ir.Ref, false_label: Ir
     try c.addBranch(cmp, true_label, false_label);
 }
 
-fn genBuiltinCall(c: *CodeGen, builtin: BuiltinFunction, arg_nodes: []const NodeIndex, ty: Type) Error!Ir.Ref {
+fn genBuiltinCall(c: *CodeGen, builtin: Builtin, arg_nodes: []const NodeIndex, ty: Type) Error!Ir.Ref {
     _ = arg_nodes;
     _ = ty;
-    return c.comp.diag.fatalNoSrc("TODO CodeGen.genBuiltinCall {s}\n", .{BuiltinFunction.nameFromTag(builtin.tag).span()});
+    return c.comp.diag.fatalNoSrc("TODO CodeGen.genBuiltinCall {s}\n", .{Builtin.nameFromTag(builtin.tag).span()});
 }
 
 fn genCall(c: *CodeGen, fn_node: NodeIndex, arg_nodes: []const NodeIndex, ty: Type) Error!Ir.Ref {

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Properties = @This();
 
+param_str: []const u8,
 language: Language = .all_languages,
 attributes: Attributes = Attributes{},
 header: Header = .none,
@@ -136,3 +137,7 @@ pub const Target = enum {
 
 /// Targets for which a builtin is enabled
 pub const TargetSet = std.enums.EnumSet(Target);
+
+pub fn isVarArgs(properties: Properties) bool {
+    return properties.param_str[properties.param_str.len - 1] == '.';
+}

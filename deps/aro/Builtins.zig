@@ -1,18 +1,20 @@
 const std = @import("std");
 const Compilation = @import("Compilation.zig");
 const Type = @import("Type.zig");
-const BuiltinFunction = @import("builtins/BuiltinFunction.zig");
-const TypeDescription = @import("builtins/TypeDescription.zig");
+const TypeDescription = @import("Builtins/TypeDescription.zig");
 const target_util = @import("target.zig");
 const StringId = @import("StringInterner.zig").StringId;
 const LangOpts = @import("LangOpts.zig");
 const Parser = @import("Parser.zig");
 
+const Properties = @import("Builtins/Properties.zig");
+pub const Builtin = @import("Builtins/Builtin.def").with(Properties);
+
 const Builtins = @This();
 
 const Expanded = struct {
     ty: Type,
-    builtin: BuiltinFunction,
+    builtin: Builtin,
 };
 
 const NameToTypeMap = std.StringHashMapUnmanaged(Type);
@@ -243,8 +245,8 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
     return builder.finish(undefined) catch unreachable;
 }
 
-fn createBuiltin(comp: *const Compilation, builtin: BuiltinFunction, type_arena: std.mem.Allocator) !Type {
-    var it = TypeDescription.TypeIterator.init(builtin.param_str);
+fn createBuiltin(comp: *const Compilation, builtin: Builtin, type_arena: std.mem.Allocator) !Type {
+    var it = TypeDescription.TypeIterator.init(builtin.properties.param_str);
 
     const ret_ty_desc = it.next().?;
     if (ret_ty_desc.spec == .@"!") {
@@ -252,7 +254,7 @@ fn createBuiltin(comp: *const Compilation, builtin: BuiltinFunction, type_arena:
     }
     const ret_ty = try createType(ret_ty_desc, &it, comp, type_arena);
     var param_count: usize = 0;
-    var params: [BuiltinFunction.MaxParamCount]Type.Func.Param = undefined;
+    var params: [Builtin.max_param_count]Type.Func.Param = undefined;
     while (it.next()) |desc| : (param_count += 1) {
         params[param_count] = .{ .name_tok = 0, .ty = try createType(desc, &it, comp, type_arena), .name = .empty };
     }
@@ -265,14 +267,14 @@ fn createBuiltin(comp: *const Compilation, builtin: BuiltinFunction, type_arena:
         .params = duped_params,
     };
     return .{
-        .specifier = if (builtin.isVarArgs()) .var_args_func else .func,
+        .specifier = if (builtin.properties.isVarArgs()) .var_args_func else .func,
         .data = .{ .func = func },
     };
 }
 
 /// Asserts that the builtin has already been created
 pub fn lookup(b: *const Builtins, name: []const u8) Expanded {
-    const builtin = BuiltinFunction.fromName(name).?;
+    const builtin = Builtin.fromName(name).?;
     const ty = b._name_to_type_map.get(name).?;
     return .{
         .builtin = builtin,
@@ -282,7 +284,7 @@ pub fn lookup(b: *const Builtins, name: []const u8) Expanded {
 
 pub fn getOrCreate(b: *Builtins, comp: *Compilation, name: []const u8, type_arena: std.mem.Allocator) !?Expanded {
     const ty = b._name_to_type_map.get(name) orelse {
-        const builtin = BuiltinFunction.fromName(name) orelse return null;
+        const builtin = Builtin.fromName(name) orelse return null;
         if (!comp.hasBuiltinFunction(builtin)) return null;
 
         try b._name_to_type_map.ensureUnusedCapacity(comp.gpa, 1);
@@ -294,11 +296,60 @@ pub fn getOrCreate(b: *Builtins, comp: *Compilation, name: []const u8, type_aren
             .ty = ty,
         };
     };
-    const builtin = BuiltinFunction.fromName(name).?;
+    const builtin = Builtin.fromName(name).?;
     return .{
         .builtin = builtin,
         .ty = ty,
     };
+}
+
+pub const Iterator = struct {
+    index: u16 = 1,
+    name_buf: [Builtin.longest_name]u8 = undefined,
+
+    pub const Entry = struct {
+        /// Memory of this slice is overwritten on every call to `next`
+        name: []const u8,
+        builtin: Builtin,
+    };
+
+    pub fn next(self: *Iterator) ?Entry {
+        if (self.index > Builtin.data.len) return null;
+        const index = self.index;
+        const data_index = index - 1;
+        self.index += 1;
+        return .{
+            .name = Builtin.nameFromUniqueIndex(index, &self.name_buf),
+            .builtin = Builtin.data[data_index],
+        };
+    }
+};
+
+test Iterator {
+    var it = Iterator{};
+
+    var seen = std.StringHashMap(Builtin).init(std.testing.allocator);
+    defer seen.deinit();
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    while (it.next()) |entry| {
+        const index = Builtin.uniqueIndex(entry.name).?;
+        var buf: [Builtin.longest_name]u8 = undefined;
+        const name_from_index = Builtin.nameFromUniqueIndex(index, &buf);
+        try std.testing.expectEqualStrings(entry.name, name_from_index);
+
+        if (seen.contains(entry.name)) {
+            std.debug.print("iterated over {s} twice\n", .{entry.name});
+            std.debug.print("current data: {}\n", .{entry.builtin});
+            std.debug.print("previous data: {}\n", .{seen.get(entry.name).?});
+            return error.TestExpectedUniqueEntries;
+        }
+        try seen.put(try arena.dupe(u8, entry.name), entry.builtin);
+    }
+    try std.testing.expectEqual(@as(usize, Builtin.data.len), seen.count());
 }
 
 test "All builtins" {
@@ -310,7 +361,7 @@ test "All builtins" {
 
     const type_arena = arena.allocator();
 
-    var builtin_it = BuiltinFunction.BuiltinsIterator{};
+    var builtin_it = Iterator{};
     while (builtin_it.next()) |entry| {
         const name = try type_arena.dupe(u8, entry.name);
         if (try comp.builtins.getOrCreate(&comp, name, type_arena)) |func_ty| {
@@ -334,7 +385,7 @@ test "Allocation failures" {
             const type_arena = arena.allocator();
 
             const num_builtins = 40;
-            var builtin_it = BuiltinFunction.BuiltinsIterator{};
+            var builtin_it = Iterator{};
             for (0..num_builtins) |_| {
                 const entry = builtin_it.next().?;
                 _ = try comp.builtins.getOrCreate(&comp, entry.name, type_arena);

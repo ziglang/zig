@@ -9,7 +9,6 @@ const StringInterner = @import("StringInterner.zig");
 const StringId = StringInterner.StringId;
 const target_util = @import("target.zig");
 const LangOpts = @import("LangOpts.zig");
-const BuiltinFunction = @import("builtins/BuiltinFunction.zig");
 
 const Type = @This();
 
@@ -104,6 +103,35 @@ pub const Func = struct {
         name: StringId,
         name_tok: TokenIndex,
     };
+
+    fn eql(a: *const Func, b: *const Func, a_var_args: bool, b_var_args: bool, comp: *const Compilation) bool {
+        // return type cannot have qualifiers
+        if (!a.return_type.eql(b.return_type, comp, false)) return false;
+
+        if (a.params.len != b.params.len) {
+            const a_no_proto = a_var_args and a.params.len == 0 and !comp.langopts.standard.atLeast(.c2x);
+            const b_no_proto = b_var_args and b.params.len == 0 and !comp.langopts.standard.atLeast(.c2x);
+            if (a_no_proto or b_no_proto) {
+                const maybe_has_params = if (a_no_proto) b else a;
+                for (maybe_has_params.params) |param| {
+                    if (param.ty.undergoesDefaultArgPromotion(comp)) return false;
+                }
+                return true;
+            }
+        }
+        if (a_var_args != b_var_args) return false;
+        // TODO validate this
+        for (a.params, b.params) |param, b_qual| {
+            var a_unqual = param.ty;
+            a_unqual.qual.@"const" = false;
+            a_unqual.qual.@"volatile" = false;
+            var b_unqual = b_qual.ty;
+            b_unqual.qual.@"const" = false;
+            b_unqual.qual.@"volatile" = false;
+            if (!a_unqual.eql(b_unqual, comp, true)) return false;
+        }
+        return true;
+    }
 };
 
 pub const Array = struct {
@@ -444,6 +472,22 @@ pub fn isArray(ty: Type) bool {
         .typeof_type => ty.data.sub_type.isArray(),
         .typeof_expr => ty.data.expr.ty.isArray(),
         .attributed => ty.data.attributed.base.isArray(),
+        else => false,
+    };
+}
+
+/// Whether the type is promoted if used as a variadic argument or as an argument to a function with no prototype
+fn undergoesDefaultArgPromotion(ty: Type, comp: *const Compilation) bool {
+    return switch (ty.specifier) {
+        .bool => true,
+        .char, .uchar, .schar => true,
+        .short, .ushort => true,
+        .@"enum" => if (comp.langopts.emulate == .clang) ty.data.@"enum".isIncomplete() else false,
+        .float => true,
+
+        .typeof_type => ty.data.sub_type.undergoesDefaultArgPromotion(comp),
+        .typeof_expr => ty.data.expr.ty.undergoesDefaultArgPromotion(comp),
+        .attributed => ty.data.attributed.base.undergoesDefaultArgPromotion(comp),
         else => false,
     };
 }
@@ -1195,31 +1239,6 @@ pub fn annotationAlignment(comp: *const Compilation, attrs: ?[]const Attribute) 
     return max_requested;
 }
 
-/// Checks type compatibility for __builtin_types_compatible_p
-/// Returns true if the unqualified version of `a_param` and `b_param` are the same
-/// Ignores top-level qualifiers (e.g. `int` and `const int` are compatible) but `int *` and `const int *` are not
-/// Two types that are typedefed are considered compatible if their underlying types are compatible.
-/// An enum type is not considered to be compatible with another enum type even if both are compatible with the same integer type;
-/// `A[]` and `A[N]` for a type `A` and integer `N` are compatible
-pub fn compatible(a_param: Type, b_param: Type, comp: *const Compilation) bool {
-    var a_unqual = a_param.canonicalize(.standard);
-    a_unqual.qual.@"const" = false;
-    a_unqual.qual.@"volatile" = false;
-    var b_unqual = b_param.canonicalize(.standard);
-    b_unqual.qual.@"const" = false;
-    b_unqual.qual.@"volatile" = false;
-
-    if (a_unqual.eql(b_unqual, comp, true)) return true;
-    if (!a_unqual.isArray() or !b_unqual.isArray()) return false;
-
-    if (a_unqual.arrayLen() == null or b_unqual.arrayLen() == null) {
-        // incomplete arrays are compatible with arrays of the same element type
-        // GCC and clang ignore cv-qualifiers on arrays
-        return a_unqual.elemType().compatible(b_unqual.elemType(), comp);
-    }
-    return false;
-}
-
 pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifiers: bool) bool {
     const a = a_param.canonicalize(.standard);
     const b = b_param.canonicalize(.standard);
@@ -1252,29 +1271,21 @@ pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifi
         .func,
         .var_args_func,
         .old_style_func,
-        => {
-            // TODO validate this
-            if (a.data.func.params.len != b.data.func.params.len) return false;
-            // return type cannot have qualifiers
-            if (!a.returnType().eql(b.returnType(), comp, false)) return false;
-            for (a.data.func.params, b.data.func.params) |param, b_qual| {
-                var a_unqual = param.ty;
-                a_unqual.qual.@"const" = false;
-                a_unqual.qual.@"volatile" = false;
-                var b_unqual = b_qual.ty;
-                b_unqual.qual.@"const" = false;
-                b_unqual.qual.@"volatile" = false;
-                if (!a_unqual.eql(b_unqual, comp, check_qualifiers)) return false;
-            }
-        },
+        => if (!a.data.func.eql(b.data.func, a.specifier == .var_args_func, b.specifier == .var_args_func, comp)) return false,
 
         .array,
         .static_array,
         .incomplete_array,
         .vector,
         => {
-            if (!std.meta.eql(a.arrayLen(), b.arrayLen())) return false;
-            if (!a.elemType().eql(b.elemType(), comp, check_qualifiers)) return false;
+            const a_len = a.arrayLen();
+            const b_len = b.arrayLen();
+            if (a_len == null or b_len == null) {
+                // At least one array is incomplete; only check child type for equality
+            } else if (a_len.? != b_len.?) {
+                return false;
+            }
+            if (!a.elemType().eql(b.elemType(), comp, false)) return false;
         },
         .variable_len_array => if (!a.elemType().eql(b.elemType(), comp, check_qualifiers)) return false,
 
