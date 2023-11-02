@@ -1255,11 +1255,17 @@ pub fn renameTmpIntoCache(
                 };
                 continue;
             },
-            error.PathAlreadyExists, error.AccessDenied => {
+            error.PathAlreadyExists, error.AccessDenied, error.SystemResources => |e| {
                 // Package has been already downloaded and may already be in use on the system.
                 cache_dir.deleteTree(tmp_dir_sub_path) catch {
                     // Garbage files leftover in zig-cache/tmp/ is, as they say
                     // on Star Trek, "operating within normal parameters".
+                };
+
+                // It is safe to assume a dest_dir_sub_path is valid if it exists,
+                // only bubble the error in case it doesn't
+                cache_dir.access(tmp_dir_sub_path, .{}) catch {
+                    return e;
                 };
             },
             else => |e| return e,
