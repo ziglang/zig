@@ -258,6 +258,20 @@ pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
     return .{ .data = ident };
 }
 
+// Returns true if `formatIdent` would make any edits to ident.
+// This must be kept in sync with `formatIdent`.
+pub fn isMangledIdent(ident: []const u8, solo: bool) bool {
+    if (solo and isReservedIdent(ident)) return true;
+    for (ident, 0..) |c, i| {
+        switch (c) {
+            'a'...'z', 'A'...'Z', '_' => {},
+            '0'...'9' => if (i == 0) return true,
+            else => return true,
+        }
+    }
+    return false;
+}
+
 /// This data is available when outputting .c code for a `InternPool.Index`
 /// that corresponds to `func`.
 /// It is not available when generating .h file.
@@ -526,6 +540,7 @@ pub const DeclGen = struct {
     is_naked_fn: bool,
     /// This is a borrowed reference from `link.C`.
     fwd_decl: std.ArrayList(u8),
+
     error_msg: ?*Module.ErrorMsg,
     ctypes: CType.Store,
     /// Keeps track of anonymous decls that need to be rendered before this
@@ -1598,7 +1613,7 @@ pub const DeclGen = struct {
 
         switch (name) {
             .export_index => |export_index| try dg.renderDeclName(w, fn_decl_index, export_index),
-            .string => |string| try w.writeAll(string),
+            .string => |string| try w.print("{ }", .{fmtIdent(string)}),
         }
 
         try renderTypeSuffix(
@@ -1813,9 +1828,17 @@ pub const DeclGen = struct {
     fn declIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
         const mod = dg.module;
         return switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
-            .variable => |variable| mod.decl_exports.contains(variable.decl),
+            .variable => |variable| {
+                if (mod.decl_exports.get(variable.decl)) |exports| {
+                    return !isMangledIdent(dg.module.intern_pool.stringToSlice(exports.items[0].opts.name), true);
+                } else return false;
+            },
             .extern_func => true,
-            .func => |func| mod.decl_exports.contains(func.owner_decl),
+            .func => |func| {
+                if (mod.decl_exports.get(func.owner_decl)) |exports| {
+                    return !isMangledIdent(dg.module.intern_pool.stringToSlice(exports.items[0].opts.name), true);
+                } else return false;
+            },
             else => unreachable,
         };
     }
@@ -1925,9 +1948,9 @@ pub const DeclGen = struct {
         try mod.markDeclAlive(decl);
 
         if (mod.decl_exports.get(decl_index)) |exports| {
-            try writer.print("{}", .{exports.items[export_index].opts.name.fmt(&mod.intern_pool)});
+            try writer.print("{ }", .{fmtIdent(mod.intern_pool.stringToSlice(exports.items[export_index].opts.name))});
         } else if (decl.getExternDecl(mod).unwrap()) |extern_decl_index| {
-            try writer.print("{}", .{mod.declPtr(extern_decl_index).name.fmt(&mod.intern_pool)});
+            try writer.print("{ }", .{fmtIdent(mod.intern_pool.stringToSlice(mod.declPtr(extern_decl_index).name))});
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
@@ -2564,16 +2587,19 @@ fn genExports(o: *Object) !void {
     const fwd = o.dg.fwd_decl.writer();
 
     const exports = mod.decl_exports.get(decl_index) orelse return;
-    if (exports.items.len < 2) return;
+
+    const is_mangled = isMangledIdent(ip.stringToSlice(exports.items[0].opts.name), true);
+    if (exports.items.len < 2 and !is_mangled) return;
 
     switch (ip.indexToKey(tv.val.toIntern())) {
         .func => {
-            for (exports.items[1..], 1..) |@"export", i| {
+            const start_i = 1 - @intFromBool(is_mangled);
+            for (exports.items[start_i..], start_i..) |@"export", i| {
                 try fwd.writeAll("zig_export(");
                 if (exports.items[i].opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage_fn ");
                 try o.dg.renderFunctionSignature(fwd, decl_index, .forward, .{ .export_index = @as(u32, @intCast(i)) });
-                try fwd.print(", {s}, {s});\n", .{
-                    fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                try fwd.print(", { }, {s});\n", .{
+                    fmtIdent(ip.stringToSlice(exports.items[0].opts.name)),
                     fmtStringLiteral(ip.stringToSlice(@"export".opts.name), null),
                 });
             }
@@ -2583,7 +2609,8 @@ fn genExports(o: *Object) !void {
             unreachable;
         },
         .variable => |variable| {
-            for (exports.items[1..], 1..) |@"export", i| {
+            const start_i = 1 - @intFromBool(is_mangled);
+            for (exports.items[start_i..], start_i..) |@"export", i| {
                 try fwd.writeAll("zig_export(");
                 if (exports.items[i].opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage ");
                 const alias = ip.stringToSlice(@"export".opts.name);
@@ -2595,8 +2622,8 @@ fn genExports(o: *Object) !void {
                     decl.alignment,
                     .complete,
                 );
-                try fwd.print(", {s}, {s});\n", .{
-                    fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                try fwd.print(", { }, {s});\n", .{
+                    fmtIdent(ip.stringToSlice(exports.items[0].opts.name)),
                     fmtStringLiteral(alias, null),
                 });
             }
@@ -6861,9 +6888,9 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, accum, .Other);
     switch (op) {
         .float_op => |func| {
-            try writer.writeAll(" = zig_libc_name_");
+            try writer.writeAll(" = zig_float_fn_");
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-            try writer.print("({s})(", .{func.operation});
+            try writer.print("_{s}(", .{func.operation});
             try f.writeCValue(writer, accum, .FunctionArgument);
             try writer.writeAll(", ");
             try f.writeCValue(writer, operand, .Other);
@@ -7195,11 +7222,9 @@ fn unFloatOp(f: *Function, inst: Air.Inst.Index, operand: CValue, ty: Type, oper
     const v = try Vectorize.start(f, inst, writer, ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = zig_libc_name_");
+    try writer.writeAll(" = zig_float_fn_");
     try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-    try writer.writeByte('(');
-    try writer.writeAll(operation);
-    try writer.writeAll(")(");
+    try writer.print("_{s}(", .{operation});
     try f.writeCValue(writer, operand, .FunctionArgument);
     try v.elem(f, writer);
     try writer.writeAll(");\n");
@@ -7234,11 +7259,9 @@ fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVa
     const v = try Vectorize.start(f, inst, writer, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = zig_libc_name_");
+    try writer.writeAll(" = zig_float_fn_");
     try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.writeByte('(');
-    try writer.writeAll(operation);
-    try writer.writeAll(")(");
+    try writer.print("_{s}(", .{operation});
     try f.writeCValue(writer, lhs, .FunctionArgument);
     try v.elem(f, writer);
     try writer.writeAll(", ");
@@ -7268,9 +7291,9 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorize.start(f, inst, writer, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = zig_libc_name_");
+    try writer.writeAll(" = zig_float_fn_");
     try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.writeAll("(fma)(");
+    try writer.writeAll("_fma(");
     try f.writeCValue(writer, mulend1, .FunctionArgument);
     try v.elem(f, writer);
     try writer.writeAll(", ");
