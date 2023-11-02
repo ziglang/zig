@@ -18,6 +18,11 @@ pub const Fixups = struct {
     /// The key is the mut token (`var`/`const`) of the variable declaration
     /// that should have a `_ = foo;` inserted afterwards.
     unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .{},
+    /// The functions in this unordered set of indices will render with a
+    /// function body of `@trap()` instead, with all parameters discarded.
+    /// The indexes correspond to the order in which the functions appear in
+    /// the file.
+    gut_functions: std.AutoHashMapUnmanaged(u32, void) = .{},
 
     pub fn count(f: Fixups) usize {
         return f.unused_var_decls.count();
@@ -34,6 +39,9 @@ const Render = struct {
     ais: *Ais,
     tree: Ast,
     fixups: Fixups,
+    /// Keeps track of how many function declarations we have seen so far. Used
+    /// by Fixups.
+    function_index: u32,
 };
 
 pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
@@ -47,24 +55,25 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .ais = &auto_indenting_stream,
         .tree = tree,
         .fixups = fixups,
+        .function_index = 0,
     };
 
     // Render all the line comments at the beginning of the file.
     const comment_end_loc = tree.tokens.items(.start)[0];
-    _ = try renderComments(r, 0, comment_end_loc);
+    _ = try renderComments(&r, 0, comment_end_loc);
 
     if (tree.tokens.items(.tag)[0] == .container_doc_comment) {
-        try renderContainerDocComments(r, 0);
+        try renderContainerDocComments(&r, 0);
     }
 
     if (tree.mode == .zon) {
         try renderExpression(
-            r,
+            &r,
             tree.nodes.items(.data)[0].lhs,
             .newline,
         );
     } else {
-        try renderMembers(r, tree.rootDecls());
+        try renderMembers(&r, tree.rootDecls());
     }
 
     if (auto_indenting_stream.disabled_offset) |disabled_offset| {
@@ -73,7 +82,7 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
 }
 
 /// Render all members in the given slice, keeping empty lines where appropriate
-fn renderMembers(r: Render, members: []const Ast.Node.Index) Error!void {
+fn renderMembers(r: *Render, members: []const Ast.Node.Index) Error!void {
     const tree = r.tree;
     if (members.len == 0) return;
     const container: Container = for (members) |member| {
@@ -93,7 +102,7 @@ const Container = enum {
 };
 
 fn renderMember(
-    r: Render,
+    r: *Render,
     container: Container,
     decl: Ast.Node.Index,
     space: Space,
@@ -106,6 +115,8 @@ fn renderMember(
     try renderDocComments(r, tree.firstToken(decl));
     switch (tree.nodes.items(.tag)[decl]) {
         .fn_decl => {
+            const this_index = r.function_index;
+            r.function_index += 1;
             // Some examples:
             // pub extern "foo" fn ...
             // export fn ...
@@ -150,7 +161,19 @@ fn renderMember(
             }
             assert(datas[decl].rhs != 0);
             try renderExpression(r, fn_proto, .space);
-            return renderExpression(r, datas[decl].rhs, space);
+            const body_node = datas[decl].rhs;
+            if (r.fixups.gut_functions.contains(this_index)) {
+                ais.pushIndent();
+                const lbrace = tree.nodes.items(.main_token)[body_node];
+                try renderToken(r, lbrace, .newline);
+                try discardAllParams(r, fn_proto);
+                try ais.writer().writeAll("@trap();");
+                ais.popIndent();
+                try ais.insertNewline();
+                try renderToken(r, tree.lastToken(body_node), space); // rbrace
+            } else {
+                return renderExpression(r, body_node, space);
+            }
         },
         .fn_proto_simple,
         .fn_proto_multi,
@@ -227,7 +250,7 @@ fn renderMember(
 }
 
 /// Render all expressions in the slice, keeping empty lines where appropriate
-fn renderExpressions(r: Render, expressions: []const Ast.Node.Index, space: Space) Error!void {
+fn renderExpressions(r: *Render, expressions: []const Ast.Node.Index, space: Space) Error!void {
     if (expressions.len == 0) return;
     try renderExpression(r, expressions[0], space);
     for (expressions[1..]) |expression| {
@@ -236,7 +259,7 @@ fn renderExpressions(r: Render, expressions: []const Ast.Node.Index, space: Spac
     }
 }
 
-fn renderExpression(r: Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -815,7 +838,7 @@ fn renderExpression(r: Render, node: Ast.Node.Index, space: Space) Error!void {
 }
 
 fn renderArrayType(
-    r: Render,
+    r: *Render,
     array_type: Ast.full.ArrayType,
     space: Space,
 ) Error!void {
@@ -836,7 +859,7 @@ fn renderArrayType(
     return renderExpression(r, array_type.ast.elem_type, space);
 }
 
-fn renderPtrType(r: Render, ptr_type: Ast.full.PtrType, space: Space) Error!void {
+fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!void {
     const tree = r.tree;
     switch (ptr_type.size) {
         .One => {
@@ -925,7 +948,7 @@ fn renderPtrType(r: Render, ptr_type: Ast.full.PtrType, space: Space) Error!void
 }
 
 fn renderSlice(
-    r: Render,
+    r: *Render,
     slice_node: Ast.Node.Index,
     slice: Ast.full.Slice,
     space: Space,
@@ -960,7 +983,7 @@ fn renderSlice(
 }
 
 fn renderAsmOutput(
-    r: Render,
+    r: *Render,
     asm_output: Ast.Node.Index,
     space: Space,
 ) Error!void {
@@ -989,7 +1012,7 @@ fn renderAsmOutput(
 }
 
 fn renderAsmInput(
-    r: Render,
+    r: *Render,
     asm_input: Ast.Node.Index,
     space: Space,
 ) Error!void {
@@ -1010,7 +1033,25 @@ fn renderAsmInput(
 }
 
 fn renderVarDecl(
-    r: Render,
+    r: *Render,
+    var_decl: Ast.full.VarDecl,
+    /// Destructures intentionally ignore leading `comptime` tokens.
+    ignore_comptime_token: bool,
+    /// `comma_space` and `space` are used for destructure LHS decls.
+    space: Space,
+) Error!void {
+    try renderVarDeclWithoutFixups(r, var_decl, ignore_comptime_token, space);
+    if (r.fixups.unused_var_decls.contains(var_decl.ast.mut_token)) {
+        // Discard the variable like this: `_ = foo;`
+        const w = r.ais.writer();
+        try w.writeAll("_ = ");
+        try w.writeAll(tokenSliceForRender(r.tree, var_decl.ast.mut_token + 1));
+        try w.writeAll(";\n");
+    }
+}
+
+fn renderVarDeclWithoutFixups(
+    r: *Render,
     var_decl: Ast.full.VarDecl,
     /// Destructures intentionally ignore leading `comptime` tokens.
     ignore_comptime_token: bool,
@@ -1131,7 +1172,7 @@ fn renderVarDecl(
     return renderExpression(r, var_decl.ast.init_node, space); // ;
 }
 
-fn renderIf(r: Render, if_node: Ast.full.If, space: Space) Error!void {
+fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
     return renderWhile(r, .{
         .ast = .{
             .while_token = if_node.ast.if_token,
@@ -1150,7 +1191,7 @@ fn renderIf(r: Render, if_node: Ast.full.If, space: Space) Error!void {
 
 /// Note that this function is additionally used to render if expressions, with
 /// respective values set to null.
-fn renderWhile(r: Render, while_node: Ast.full.While, space: Space) Error!void {
+fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
 
@@ -1214,7 +1255,7 @@ fn renderWhile(r: Render, while_node: Ast.full.While, space: Space) Error!void {
 }
 
 fn renderThenElse(
-    r: Render,
+    r: *Render,
     last_prefix_token: Ast.TokenIndex,
     then_expr: Ast.Node.Index,
     else_token: Ast.TokenIndex,
@@ -1275,7 +1316,7 @@ fn renderThenElse(
     }
 }
 
-fn renderFor(r: Render, for_node: Ast.full.For, space: Space) Error!void {
+fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -1346,7 +1387,7 @@ fn renderFor(r: Render, for_node: Ast.full.For, space: Space) Error!void {
 }
 
 fn renderContainerField(
-    r: Render,
+    r: *Render,
     container: Container,
     field_param: Ast.full.ContainerField,
     space: Space,
@@ -1450,7 +1491,7 @@ fn renderContainerField(
 }
 
 fn renderBuiltinCall(
-    r: Render,
+    r: *Render,
     builtin_token: Ast.TokenIndex,
     params: []const Ast.Node.Index,
     space: Space,
@@ -1588,7 +1629,7 @@ fn renderBuiltinCall(
     }
 }
 
-fn renderFnProto(r: Render, fn_proto: Ast.full.FnProto, space: Space) Error!void {
+fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -1806,7 +1847,7 @@ fn renderFnProto(r: Render, fn_proto: Ast.full.FnProto, space: Space) Error!void
 }
 
 fn renderSwitchCase(
-    r: Render,
+    r: *Render,
     switch_case: Ast.full.SwitchCase,
     space: Space,
 ) Error!void {
@@ -1869,7 +1910,7 @@ fn renderSwitchCase(
 }
 
 fn renderBlock(
-    r: Render,
+    r: *Render,
     block_node: Ast.Node.Index,
     statements: []const Ast.Node.Index,
     space: Space,
@@ -1910,7 +1951,7 @@ fn renderBlock(
 }
 
 fn renderStructInit(
-    r: Render,
+    r: *Render,
     struct_node: Ast.Node.Index,
     struct_init: Ast.full.StructInit,
     space: Space,
@@ -1975,7 +2016,7 @@ fn renderStructInit(
 }
 
 fn renderArrayInit(
-    r: Render,
+    r: *Render,
     array_init: Ast.full.ArrayInit,
     space: Space,
 ) Error!void {
@@ -2095,6 +2136,7 @@ fn renderArrayInit(
             .ais = &auto_indenting_stream,
             .tree = r.tree,
             .fixups = r.fixups,
+            .function_index = r.function_index,
         };
 
         // Calculate size of columns in current section
@@ -2106,7 +2148,7 @@ fn renderArrayInit(
             sub_expr_buffer_starts[i] = start;
 
             if (i + 1 < section_exprs.len) {
-                try renderExpression(sub_render, expr, .none);
+                try renderExpression(&sub_render, expr, .none);
                 const width = sub_expr_buffer.items.len - start;
                 const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start..], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
@@ -2126,7 +2168,7 @@ fn renderArrayInit(
                     column_counter = 0;
                 }
             } else {
-                try renderExpression(sub_render, expr, .comma);
+                try renderExpression(&sub_render, expr, .comma);
                 const width = sub_expr_buffer.items.len - start - 2;
                 const this_contains_newline = mem.indexOfScalar(u8, sub_expr_buffer.items[start .. sub_expr_buffer.items.len - 1], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
@@ -2201,7 +2243,7 @@ fn renderArrayInit(
 }
 
 fn renderContainerDecl(
-    r: Render,
+    r: *Render,
     container_decl_node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
     space: Space,
@@ -2317,7 +2359,7 @@ fn renderContainerDecl(
 }
 
 fn renderAsm(
-    r: Render,
+    r: *Render,
     asm_node: Ast.full.Asm,
     space: Space,
 ) Error!void {
@@ -2476,7 +2518,7 @@ fn renderAsm(
 }
 
 fn renderCall(
-    r: Render,
+    r: *Render,
     call: Ast.full.Call,
     space: Space,
 ) Error!void {
@@ -2488,7 +2530,7 @@ fn renderCall(
 }
 
 fn renderParamList(
-    r: Render,
+    r: *Render,
     lparen: Ast.TokenIndex,
     params: []const Ast.Node.Index,
     space: Space,
@@ -2557,7 +2599,7 @@ fn renderParamList(
 
 /// Renders the given expression indented, popping the indent before rendering
 /// any following line comments
-fn renderExpressionIndented(r: Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderExpressionIndented(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_starts = tree.tokens.items(.start);
@@ -2617,7 +2659,7 @@ fn renderExpressionIndented(r: Render, node: Ast.Node.Index, space: Space) Error
 
 /// Render an expression, and the comma that follows it, if it is present in the source.
 /// If a comma is present, and `space` is `Space.comma`, render only a single comma.
-fn renderExpressionComma(r: Render, node: Ast.Node.Index, space: Space) Error!void {
+fn renderExpressionComma(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = tree.lastToken(node) + 1;
@@ -2631,7 +2673,7 @@ fn renderExpressionComma(r: Render, node: Ast.Node.Index, space: Space) Error!vo
 
 /// Render a token, and the comma that follows it, if it is present in the source.
 /// If a comma is present, and `space` is `Space.comma`, render only a single comma.
-fn renderTokenComma(r: Render, token: Ast.TokenIndex, space: Space) Error!void {
+fn renderTokenComma(r: *Render, token: Ast.TokenIndex, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = token + 1;
@@ -2645,7 +2687,7 @@ fn renderTokenComma(r: Render, token: Ast.TokenIndex, space: Space) Error!void {
 
 /// Render an identifier, and the comma that follows it, if it is present in the source.
 /// If a comma is present, and `space` is `Space.comma`, render only a single comma.
-fn renderIdentifierComma(r: Render, token: Ast.TokenIndex, space: Space, quote: QuoteBehavior) Error!void {
+fn renderIdentifierComma(r: *Render, token: Ast.TokenIndex, space: Space, quote: QuoteBehavior) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
     const maybe_comma = token + 1;
@@ -2678,7 +2720,7 @@ const Space = enum {
     skip,
 };
 
-fn renderToken(r: Render, token_index: Ast.TokenIndex, space: Space) Error!void {
+fn renderToken(r: *Render, token_index: Ast.TokenIndex, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const lexeme = tokenSliceForRender(tree, token_index);
@@ -2686,7 +2728,7 @@ fn renderToken(r: Render, token_index: Ast.TokenIndex, space: Space) Error!void 
     try renderSpace(r, token_index, lexeme.len, space);
 }
 
-fn renderSpace(r: Render, token_index: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
+fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -2734,7 +2776,7 @@ const QuoteBehavior = enum {
     eagerly_unquote_except_underscore,
 };
 
-fn renderIdentifier(r: Render, token_index: Ast.TokenIndex, space: Space, quote: QuoteBehavior) Error!void {
+fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote: QuoteBehavior) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token_index] == .identifier);
@@ -2836,7 +2878,7 @@ fn renderIdentifier(r: Render, token_index: Ast.TokenIndex, space: Space, quote:
 // Renders a @"" quoted identifier, normalizing escapes.
 // Unnecessary escapes are un-escaped, and \u escapes are normalized to \x when they fit.
 // If unquote is true, the @"" is removed and the result is a bare symbol whose validity is asserted.
-fn renderQuotedIdentifier(r: Render, token_index: Ast.TokenIndex, space: Space, comptime unquote: bool) !void {
+fn renderQuotedIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, comptime unquote: bool) !void {
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
@@ -2922,7 +2964,7 @@ fn hasMultilineString(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.Tok
 
 /// Assumes that start is the first byte past the previous token and
 /// that end is the last byte before the next token.
-fn renderComments(r: Render, start: usize, end: usize) Error!bool {
+fn renderComments(r: *Render, start: usize, end: usize) Error!bool {
     const tree = r.tree;
     const ais = r.ais;
 
@@ -2985,12 +3027,12 @@ fn renderComments(r: Render, start: usize, end: usize) Error!bool {
     return index != start;
 }
 
-fn renderExtraNewline(r: Render, node: Ast.Node.Index) Error!void {
+fn renderExtraNewline(r: *Render, node: Ast.Node.Index) Error!void {
     return renderExtraNewlineToken(r, r.tree.firstToken(node));
 }
 
 /// Check if there is an empty line immediately before the given token. If so, render it.
-fn renderExtraNewlineToken(r: Render, token_index: Ast.TokenIndex) Error!void {
+fn renderExtraNewlineToken(r: *Render, token_index: Ast.TokenIndex) Error!void {
     const tree = r.tree;
     const ais = r.ais;
     const token_starts = tree.tokens.items(.start);
@@ -3017,7 +3059,7 @@ fn renderExtraNewlineToken(r: Render, token_index: Ast.TokenIndex) Error!void {
 
 /// end_token is the token one past the last doc comment token. This function
 /// searches backwards from there.
-fn renderDocComments(r: Render, end_token: Ast.TokenIndex) Error!void {
+fn renderDocComments(r: *Render, end_token: Ast.TokenIndex) Error!void {
     const tree = r.tree;
     // Search backwards for the first doc comment.
     const token_tags = tree.tokens.items(.tag);
@@ -3049,7 +3091,7 @@ fn renderDocComments(r: Render, end_token: Ast.TokenIndex) Error!void {
 }
 
 /// start_token is first container doc comment token.
-fn renderContainerDocComments(r: Render, start_token: Ast.TokenIndex) Error!void {
+fn renderContainerDocComments(r: *Render, start_token: Ast.TokenIndex) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
     var tok = start_token;
@@ -3061,6 +3103,25 @@ fn renderContainerDocComments(r: Render, start_token: Ast.TokenIndex) Error!void
     // will have its own logic to insert a newline.
     if (token_tags[tok] != .doc_comment) {
         try renderExtraNewlineToken(r, tok);
+    }
+}
+
+fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    var buf: [1]Ast.Node.Index = undefined;
+    const fn_proto = tree.fullFnProto(&buf, fn_proto_node).?;
+    const token_tags = tree.tokens.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
+    for (fn_proto.ast.params) |param_node| {
+        const type_ident = main_tokens[param_node];
+        assert(token_tags[type_ident] == .identifier);
+        const name_ident = type_ident - 2;
+        assert(token_tags[name_ident] == .identifier);
+        const w = ais.writer();
+        try w.writeAll("_ = ");
+        try w.writeAll(tokenSliceForRender(r.tree, name_ident));
+        try w.writeAll(";\n");
     }
 }
 
