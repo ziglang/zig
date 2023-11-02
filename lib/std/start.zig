@@ -426,10 +426,14 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
         // This logic should be revisited when the following issues are addressed:
         // https://github.com/ziglang/zig/issues/157
         // https://github.com/ziglang/zig/issues/1006
+
         switch (std.options.stack_size_strategy) {
             .none => {},
             .program_header => expandStackSizeFromProgramHeader(phdrs) catch {},
-            .fixed => expandStackSize(std.options.stack_size) catch {},
+            .fixed => {
+                comptime assert(std.options.stack_size % std.mem.page_size == 0);
+                expandStackSize(std.options.stack_size) catch {};
+            },
         }
     }
 
