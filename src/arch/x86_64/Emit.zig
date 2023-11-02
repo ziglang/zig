@@ -85,14 +85,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                     @tagName(emit.lower.bin_file.tag),
                 }),
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const is_obj = emit.lower.bin_file.options.effectiveOutputMode() == .Obj;
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
                     const sym = elf_file.symbol(sym_index);
-                    if (sym.flags.needs_zig_got and emit.lower.bin_file.options.effectiveOutputMode() != .Obj) {
+                    if (sym.flags.needs_zig_got and !is_obj) {
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     }
                     if (emit.lower.bin_file.options.pic) {
-                        const r_type: u32 = if (sym.flags.needs_zig_got)
+                        const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
                             std.elf.R_X86_64_GOTPCREL
@@ -104,7 +105,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_addend = -4,
                         });
                     } else {
-                        const r_type: u32 = if (sym.flags.needs_zig_got)
+                        const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj)
                             link.File.Elf.R_X86_64_ZIG_GOT32
                         else if (sym.flags.needs_got)
                             std.elf.R_X86_64_GOT32
