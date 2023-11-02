@@ -33,7 +33,7 @@ pub fn renderAsTextToFile(
     const stream = raw_stream.writer();
 
     const main_struct_inst: Zir.Inst.Index = .main_struct_inst;
-    try stream.print("%{d} ", .{main_struct_inst});
+    try stream.print("%{d} ", .{@intFromEnum(main_struct_inst)});
     try writer.writeInstToStream(stream, main_struct_inst);
     try stream.writeAll("\n");
     const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
@@ -85,7 +85,7 @@ pub fn renderInstructionContext(
 
     try writer.writeBody(stream, block[0..block_index]);
     try stream.writeByteNTimes(' ', writer.indent - 2);
-    try stream.print("> %{d} ", .{block[block_index]});
+    try stream.print("> %{d} ", .{@intFromEnum(block[block_index])});
     try writer.writeInstToStream(stream, block[block_index]);
     try stream.writeByte('\n');
     if (block_index + 1 < block.len) {
@@ -115,7 +115,7 @@ pub fn renderSingleInstruction(
         .recurse_blocks = false,
     };
 
-    try stream.print("%{d} ", .{inst});
+    try stream.print("%{d} ", .{@intFromEnum(inst)});
     try writer.writeInstToStream(stream, inst);
 }
 
@@ -1811,7 +1811,7 @@ const Writer = struct {
             if (self.recurse_decls) {
                 const tag = self.code.instructions.items(.tag)[@intFromEnum(decl_index)];
                 try stream.print(" line({d}) hash({}): %{d} = {s}(", .{
-                    line, std.fmt.fmtSliceHexLower(&hash_bytes), decl_index, @tagName(tag),
+                    line, std.fmt.fmtSliceHexLower(&hash_bytes), @intFromEnum(decl_index), @tagName(tag),
                 });
 
                 const decl_block_inst_data = self.code.instructions.items(.data)[@intFromEnum(decl_index)].pl_node;
@@ -1823,7 +1823,7 @@ const Writer = struct {
                 try stream.writeAll("\n");
             } else {
                 try stream.print(" line({d}) hash({}): %{d} = ...\n", .{
-                    line, std.fmt.fmtSliceHexLower(&hash_bytes), decl_index,
+                    line, std.fmt.fmtSliceHexLower(&hash_bytes), @intFromEnum(decl_index),
                 });
             }
         }
@@ -2462,9 +2462,15 @@ const Writer = struct {
     fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].restore_err_ret_index;
 
-        try self.writeInstRef(stream, inst_data.block);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, inst_data.operand);
+        if (inst_data.block != .none) {
+            try self.writeInstRef(stream, inst_data.block);
+        }
+
+        if (inst_data.operand != .none) {
+            if (inst_data.block != .none) try stream.writeAll(", ");
+            try self.writeInstRef(stream, inst_data.operand);
+        }
+
         try stream.writeAll(")");
     }
 
@@ -2613,13 +2619,13 @@ const Writer = struct {
             return self.writeInstIndex(stream, i);
         } else {
             const val: InternPool.Index = @enumFromInt(@intFromEnum(ref));
-            return stream.print("@{}", .{val});
+            return stream.print("@{s}", .{@tagName(val)});
         }
     }
 
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         _ = self;
-        return stream.print("%{d}", .{inst});
+        return stream.print("%{d}", .{@intFromEnum(inst)});
     }
 
     fn writeOptionalInstRef(
@@ -2738,7 +2744,7 @@ const Writer = struct {
     fn writeBody(self: *Writer, stream: anytype, body: []const Zir.Inst.Index) !void {
         for (body) |inst| {
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("%{d} ", .{inst});
+            try stream.print("%{d} ", .{@intFromEnum(inst)});
             try self.writeInstToStream(stream, inst);
             try stream.writeByte('\n');
         }
