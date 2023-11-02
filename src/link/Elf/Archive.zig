@@ -13,11 +13,11 @@ pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 pub const SARMAG: u4 = 8;
 
 /// String in ar_fmag at the end of each header.
-const ARFMAG: *const [2:0]u8 = "`\n";
+pub const ARFMAG: *const [2:0]u8 = "`\n";
 
-const SYM64NAME: *const [7:0]u8 = "/SYM64/";
+pub const SYM64NAME: *const [7:0]u8 = "/SYM64/";
 
-const ar_hdr = extern struct {
+pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 

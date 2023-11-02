@@ -502,6 +502,22 @@ fn sortSymbols(self: *ZigObject, elf_file: *Elf) error{OutOfMemory}!void {
     // mem.sort(Entry, sorted_globals, elf_file, Entry.lessThan);
 }
 
+pub fn updateArSymtab(self: ZigObject, elf_file: *Elf) !void {
+    const gpa = elf_file.base.allocator;
+
+    try elf_file.ar_symtab.ensureUnusedCapacity(gpa, self.globals().len);
+
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file).?;
+        assert(file_ptr.index() == self.index);
+        if (global.type(elf_file) == elf.SHN_UNDEF) continue;
+
+        const off = try elf_file.ar_strtab.insert(gpa, global.name(elf_file));
+        elf_file.ar_symtab.appendAssumeCapacity(.{ off, self.index });
+    }
+}
+
 pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
     _ = self;
 

@@ -186,6 +186,12 @@ comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{}
 /// such as `resolver` and `comdat_groups_table`.
 strings: StringTable = .{},
 
+/// Static archive state.
+/// TODO it may be wise to move it somewhere else, but for the time being, it
+/// is far easier to pollute global state.
+ar_symtab: std.ArrayListUnmanaged(struct { u32, File.Index }) = .{},
+ar_strtab: StringTable = .{},
+
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
@@ -392,6 +398,9 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
+
+    self.ar_symtab.deinit(gpa);
+    self.ar_strtab.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1383,14 +1392,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtend) |v| try positionals.append(.{ .path = v });
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+    if (self.isStaticLib()) return self.flushStaticLib(comp);
+
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
-
-    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.isStaticLib()) return self.flushStaticLib(comp);
 
     // Dedup shared objects
     {
@@ -1412,7 +1421,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // If we haven't already, create a linker-generated input file comprising of
     // linker-defined synthetic symbols only such as `_DYNAMIC`, etc.
-    if (self.linker_defined_index == null and !self.isObject()) {
+    if (self.linker_defined_index == null and !self.isRelocatable()) {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
@@ -1517,14 +1526,55 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else {
         log.debug("flushing. no_entry_point_found = false", .{});
         self.error_flags.no_entry_point_found = false;
-        try self.writeHeader();
+        try self.writeElfHeader();
     }
 }
 
 pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
-    var err = try self.addErrorWithNotes(0);
-    try err.addMsg(self, "fatal linker error: emitting static libs unimplemented", .{});
+
+    // First, we flush relocatable object file generated with our backends.
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.resolveSymbols(self);
+        zig_object.claimUnresolvedObject(self);
+
+        try self.initSymtab();
+        try self.initShStrtab();
+        try self.sortShdrs();
+        zig_object.updateRelaSectionSizes(self);
+        try self.updateSymtabSize();
+        self.updateShStrtabSize();
+
+        try self.allocateNonAllocSections();
+
+        try self.writeShdrTable();
+        try zig_object.writeRelaSections(self);
+        try self.writeSymtab();
+        try self.writeShStrtab();
+        try self.writeElfHeader();
+
+        // Update ar symbol and string tables.
+        try zig_object.asFile().updateArSymtab(self);
+
+        for (self.ar_symtab.items, 0..) |entry, i| {
+            std.debug.print("{d}: {s} in {}\n", .{
+                i,
+                self.ar_strtab.getAssumeExists(entry[0]),
+                self.file(entry[1]).?.fmtPath(),
+            });
+        }
+    }
+
+    // TODO parse positionals that we want to make part of the archive
+
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
+
+    // try self.writeArHdr();
+    // TODO beyond this point I expect writing out objects parsed from the cmdline
+
+    try self.writeArMagic();
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
@@ -1543,7 +1593,7 @@ pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
 
     try self.writeShdrTable();
     try self.writeSyntheticSections();
-    try self.writeHeader();
+    try self.writeElfHeader();
 }
 
 const ParseError = error{
@@ -2797,7 +2847,7 @@ fn writePhdrTable(self: *Elf) !void {
     }
 }
 
-fn writeHeader(self: *Elf) !void {
+fn writeElfHeader(self: *Elf) !void {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
@@ -2916,6 +2966,15 @@ fn writeHeader(self: *Elf) !void {
     assert(index == e_ehsize);
 
     try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
+}
+
+fn writeArMagic(self: *Elf) !void {
+    // Magic bytes.
+    var buffer: [@as(usize, Archive.SARMAG) + 1]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buffer);
+    const writer = stream.writer();
+    try writer.print("{s}\x00", .{Archive.ARMAG});
+    try self.base.file.?.pwriteAll(&buffer, 0);
 }
 
 pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
@@ -3147,17 +3206,13 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 }
 
 fn initSections(self: *Elf) !void {
-    const small_ptr = switch (self.ptr_width) {
-        .p32 => true,
-        .p64 => false,
-    };
     const ptr_size = self.ptrWidthBytes();
 
-    if (!self.isStaticLib()) for (self.objects.items) |index| {
+    for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
-    };
+    }
 
-    const needs_eh_frame = if (self.isStaticLib()) false else for (self.objects.items) |index| {
+    const needs_eh_frame = for (self.objects.items) |index| {
         if (self.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
@@ -3340,6 +3395,15 @@ fn initSections(self: *Elf) !void {
         }
     }
 
+    try self.initSymtab();
+    try self.initShStrtab();
+}
+
+fn initSymtab(self: *Elf) !void {
+    const small_ptr = switch (self.ptr_width) {
+        .p32 => true,
+        .p64 => false,
+    };
     if (self.symtab_section_index == null) {
         self.symtab_section_index = try self.addSection(.{
             .name = ".symtab",
@@ -3358,6 +3422,9 @@ fn initSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
     }
+}
+
+fn initShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index == null) {
         self.shstrtab_section_index = try self.addSection(.{
             .name = ".shstrtab",
@@ -3933,10 +4000,11 @@ fn updateSectionSizes(self: *Elf) !void {
         self.shdrs.items[index].sh_size = self.verneed.size();
     }
 
-    if (self.symtab_section_index != null) {
-        try self.updateSymtabSize();
-    }
+    try self.updateSymtabSize();
+    self.updateShStrtabSize();
+}
 
+fn updateShStrtabSize(self: *Elf) void {
     if (self.shstrtab_section_index) |index| {
         self.shdrs.items[index].sh_size = self.shstrtab.items.len;
     }
@@ -4546,13 +4614,14 @@ fn writeSyntheticSections(self: *Elf) !void {
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_plt.items), shdr.sh_offset);
     }
 
+    try self.writeSymtab();
+    try self.writeShStrtab();
+}
+
+fn writeShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index) |index| {
         const shdr = self.shdrs.items[index];
         try self.base.file.?.pwriteAll(self.shstrtab.items, shdr.sh_offset);
-    }
-
-    if (self.symtab_section_index) |_| {
-        try self.writeSymtab();
     }
 }
 

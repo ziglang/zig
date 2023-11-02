@@ -43,7 +43,7 @@ pub fn outputShndx(symbol: Symbol) ?u16 {
 }
 
 pub fn isLocal(symbol: Symbol, elf_file: *Elf) bool {
-    if (elf_file.isObject()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
+    if (elf_file.isRelocatable()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
@@ -168,7 +168,7 @@ const GetOrCreateZigGotEntryResult = struct {
 };
 
 pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
-    assert(!elf_file.isObject());
+    assert(!elf_file.isRelocatable());
     assert(symbol.flags.needs_zig_got);
     if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
     const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
@@ -220,7 +220,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         // TODO I think this is wrong and obsolete
-        if (elf_file.isObject() and st_type == elf.STT_SECTION) break :blk symbol.outputShndx().?;
+        if (elf_file.isRelocatable() and st_type == elf.STT_SECTION) break :blk symbol.outputShndx().?;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
             break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
