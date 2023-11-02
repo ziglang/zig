@@ -10,7 +10,7 @@ strtab: []const u8 = &[0]u8{},
 /// String that begins an archive file.
 pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 /// Size of that string.
-pub const SARMAG: u4 = 8;
+pub const SARMAG = 8;
 
 /// String in ar_fmag at the end of each header.
 pub const ARFMAG: *const [2:0]u8 = "`\n";
@@ -58,7 +58,7 @@ pub const ar_hdr = extern struct {
     }
 
     fn isSymtab(self: ar_hdr) bool {
-        return mem.eql(u8, getValue(&self.ar_name), "/");
+        return mem.eql(u8, getValue(&self.ar_name), "/") or mem.eql(u8, getValue(&self.ar_name), SYM64NAME);
     }
 };
 

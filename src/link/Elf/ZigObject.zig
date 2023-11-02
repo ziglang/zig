@@ -514,7 +514,7 @@ pub fn updateArSymtab(self: ZigObject, elf_file: *Elf) !void {
         if (global.type(elf_file) == elf.SHN_UNDEF) continue;
 
         const off = try elf_file.ar_strtab.insert(gpa, global.name(elf_file));
-        elf_file.ar_symtab.appendAssumeCapacity(.{ off, self.index });
+        elf_file.ar_symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
     }
 }
 
