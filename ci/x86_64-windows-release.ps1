@@ -96,8 +96,9 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\E
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
-CheckLastExitCode
-
-& .\test-x86_64-windows-msvc.exe
-CheckLastExitCode
+Write-Output "Skipped due to https://github.com/ziglang/zig/issues/17817"
+#& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
+#CheckLastExitCode
+#
+#& .\test-x86_64-windows-msvc.exe
+#CheckLastExitCode

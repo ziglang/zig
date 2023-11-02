@@ -54,7 +54,7 @@
 //! manner to the OpenSSH example:
 //!
 //! ```zig
-//! const offset = if (native_endian == .Little) struct {
+//! const offset = if (native_endian == .little) struct {
 //!     pub const low = 0;
 //!     pub const high = @sizeOf(u32);
 //! } else struct {

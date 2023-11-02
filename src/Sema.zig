@@ -3200,6 +3200,8 @@ fn zirUnionDecl(
                 .any_aligned_fields = small.any_aligned_fields,
                 .requires_comptime = .unknown,
                 .assumed_runtime_bits = false,
+                .assumed_pointer_aligned = false,
+                .alignment = .none,
             },
             .decl = new_decl_index,
             .namespace = new_namespace_index,
@@ -20988,6 +20990,8 @@ fn zirReify(
                     .any_aligned_fields = any_aligned_fields,
                     .requires_comptime = .unknown,
                     .assumed_runtime_bits = false,
+                    .assumed_pointer_aligned = false,
+                    .alignment = .none,
                 },
                 .field_types = union_fields.items(.type),
                 .field_aligns = if (any_aligned_fields) union_fields.items(.alignment) else &.{},
@@ -26831,7 +26835,7 @@ fn structFieldPtrByIndex(
         // cause miscompilations; it only means the field pointer uses bit masking when it
         // might not be strictly necessary.
         if (parent_align != .none and ptr_ty_data.packed_offset.bit_offset % 8 == 0 and
-            target.cpu.arch.endian() == .Little)
+            target.cpu.arch.endian() == .little)
         {
             const elem_size_bytes = try sema.typeAbiSize(ptr_ty_data.child.toType());
             const elem_size_bits = ptr_ty_data.child.toType().bitSize(mod);
@@ -29680,6 +29684,7 @@ fn storePtrVal(
     try sema.checkComptimeVarStore(block, src, mut_kit.mut_decl);
 
     switch (mut_kit.pointee) {
+        .opv => {},
         .direct => |val_ptr| {
             if (mut_kit.mut_decl.runtime_index == .comptime_field_ptr) {
                 val_ptr.* = (try val_ptr.intern(operand_ty, mod)).toValue();
@@ -29737,6 +29742,7 @@ fn storePtrVal(
 const ComptimePtrMutationKit = struct {
     mut_decl: InternPool.Key.Ptr.Addr.MutDecl,
     pointee: union(enum) {
+        opv,
         /// The pointer type matches the actual comptime Value so a direct
         /// modification is possible.
         direct: *Value,
@@ -29789,6 +29795,7 @@ fn beginComptimePtrMutation(
             const eu_ty = mod.intern_pool.typeOf(eu_ptr).toType().childType(mod);
             var parent = try sema.beginComptimePtrMutation(block, src, eu_ptr.toValue(), eu_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.errorUnionPayload(mod);
                     if (val_ptr.ip_index == .none and val_ptr.tag() == .eu_payload) {
@@ -29831,6 +29838,7 @@ fn beginComptimePtrMutation(
             const opt_ty = mod.intern_pool.typeOf(opt_ptr).toType().childType(mod);
             var parent = try sema.beginComptimePtrMutation(block, src, opt_ptr.toValue(), opt_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.optionalChild(mod);
                     switch (val_ptr.ip_index) {
@@ -29884,16 +29892,30 @@ fn beginComptimePtrMutation(
             var parent = try sema.beginComptimePtrMutation(block, src, elem_ptr.base.toValue(), base_elem_ty);
 
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| switch (parent.ty.zigTypeTag(mod)) {
                     .Array, .Vector => {
+                        const elem_ty = parent.ty.childType(mod);
                         const check_len = parent.ty.arrayLenIncludingSentinel(mod);
+                        if ((try sema.typeHasOnePossibleValue(ptr_elem_ty)) != null) {
+                            if (elem_ptr.index > check_len) {
+                                // TODO have the parent include the decl so we can say "declared here"
+                                return sema.fail(block, src, "comptime store of index {d} out of bounds of array length {d}", .{
+                                    elem_ptr.index, check_len,
+                                });
+                            }
+                            return .{
+                                .mut_decl = parent.mut_decl,
+                                .pointee = .opv,
+                                .ty = elem_ty,
+                            };
+                        }
                         if (elem_ptr.index >= check_len) {
                             // TODO have the parent include the decl so we can say "declared here"
                             return sema.fail(block, src, "comptime store of index {d} out of bounds of array length {d}", .{
                                 elem_ptr.index, check_len,
                             });
                         }
-                        const elem_ty = parent.ty.childType(mod);
 
                         // We might have a pointer to multiple elements of the array (e.g. a pointer
                         // to a sub-array). In this case, we just have to reinterpret the relevant
@@ -30068,6 +30090,7 @@ fn beginComptimePtrMutation(
 
             var parent = try sema.beginComptimePtrMutation(block, src, field_ptr.base.toValue(), base_child_ty);
             switch (parent.pointee) {
+                .opv => unreachable,
                 .direct => |val_ptr| switch (val_ptr.ip_index) {
                     .empty_struct => {
                         const duped = try sema.arena.create(Value);
@@ -30713,8 +30736,8 @@ fn bitCastUnionFieldVal(
             if (field_size > old_size) {
                 const min_size = @max(old_size, 1);
                 switch (endian) {
-                    .Little => @memset(buffer[min_size - 1 ..], 0xaa),
-                    .Big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
+                    .little => @memset(buffer[min_size - 1 ..], 0xaa),
+                    .big => @memset(buffer[0 .. buffer.len - min_size + 1], 0xaa),
                 }
             }
 
@@ -30723,7 +30746,7 @@ fn bitCastUnionFieldVal(
                 error.ReinterpretDeclRef => return null,
             };
 
-            break :offset if (endian == .Big) buffer.len - field_size else 0;
+            break :offset if (endian == .big) buffer.len - field_size else 0;
         },
         .Auto => unreachable,
     };
@@ -34921,11 +34944,59 @@ fn checkMemOperand(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void 
     return sema.failWithOwnedErrorMsg(block, msg);
 }
 
+/// Resolve a unions's alignment only without triggering resolution of its layout.
+/// Asserts that the alignment is not yet resolved.
+pub fn resolveUnionAlignment(
+    sema: *Sema,
+    ty: Type,
+    union_type: InternPool.Key.UnionType,
+) CompileError!Alignment {
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const target = mod.getTarget();
+
+    assert(!union_type.haveLayout(ip));
+
+    if (union_type.flagsPtr(ip).status == .field_types_wip) {
+        // We'll guess "pointer-aligned", if the union has an
+        // underaligned pointer field then some allocations
+        // might require explicit alignment.
+        union_type.flagsPtr(ip).assumed_pointer_aligned = true;
+        const result = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8));
+        union_type.flagsPtr(ip).alignment = result;
+        return result;
+    }
+
+    try sema.resolveTypeFieldsUnion(ty, union_type);
+
+    const union_obj = ip.loadUnionType(union_type);
+    var max_align: Alignment = .@"1";
+    for (0..union_obj.field_names.len) |field_index| {
+        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
+        if (!(try sema.typeHasRuntimeBits(field_ty))) continue;
+
+        const explicit_align = union_obj.fieldAlign(ip, @intCast(field_index));
+        const field_align = if (explicit_align != .none)
+            explicit_align
+        else
+            try sema.typeAbiAlignment(field_ty);
+
+        max_align = max_align.max(field_align);
+    }
+
+    union_type.flagsPtr(ip).alignment = max_align;
+    return max_align;
+}
+
+/// This logic must be kept in sync with `Module.getUnionLayout`.
 fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    try sema.resolveTypeFields(ty);
-    const union_obj = mod.typeToUnion(ty).?;
+
+    const union_type = ip.indexToKey(ty.ip_index).union_type;
+    try sema.resolveTypeFieldsUnion(ty, union_type);
+
+    const union_obj = ip.loadUnionType(union_type);
     switch (union_obj.flagsPtr(ip).status) {
         .none, .have_field_types => {},
         .field_types_wip, .layout_wip => {
@@ -34939,31 +35010,92 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         },
         .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
+
     const prev_status = union_obj.flagsPtr(ip).status;
     errdefer if (union_obj.flagsPtr(ip).status == .layout_wip) {
         union_obj.flagsPtr(ip).status = prev_status;
     };
 
     union_obj.flagsPtr(ip).status = .layout_wip;
-    for (0..union_obj.field_types.len) |field_index| {
+
+    var max_size: u64 = 0;
+    var max_align: Alignment = .@"1";
+    for (0..union_obj.field_names.len) |field_index| {
         const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-        sema.resolveTypeLayout(field_ty) catch |err| switch (err) {
+        if (!(try sema.typeHasRuntimeBits(field_ty))) continue;
+
+        max_size = @max(max_size, sema.typeAbiSize(field_ty) catch |err| switch (err) {
             error.AnalysisFail => {
                 const msg = sema.err orelse return err;
                 try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
                 return err;
             },
             else => return err,
-        };
+        });
+
+        const explicit_align = union_obj.fieldAlign(ip, @intCast(field_index));
+        const field_align = if (explicit_align != .none)
+            explicit_align
+        else
+            try sema.typeAbiAlignment(field_ty);
+
+        max_align = max_align.max(field_align);
     }
-    union_obj.flagsPtr(ip).status = .have_layout;
-    _ = try sema.typeRequiresComptime(ty);
+
+    const flags = union_obj.flagsPtr(ip);
+    const has_runtime_tag = flags.runtime_tag.hasTag() and try sema.typeHasRuntimeBits(union_obj.enum_tag_ty.toType());
+    const size, const alignment, const padding = if (has_runtime_tag) layout: {
+        const enum_tag_type = union_obj.enum_tag_ty.toType();
+        const tag_align = try sema.typeAbiAlignment(enum_tag_type);
+        const tag_size = try sema.typeAbiSize(enum_tag_type);
+
+        // Put the tag before or after the payload depending on which one's
+        // alignment is greater.
+        var size: u64 = 0;
+        var padding: u32 = 0;
+        if (tag_align.compare(.gte, max_align)) {
+            // {Tag, Payload}
+            size += tag_size;
+            size = max_align.forward(size);
+            size += max_size;
+            const prev_size = size;
+            size = tag_align.forward(size);
+            padding = @intCast(size - prev_size);
+        } else {
+            // {Payload, Tag}
+            size += max_size;
+            size = tag_align.forward(size);
+            size += tag_size;
+            const prev_size = size;
+            size = max_align.forward(size);
+            padding = @intCast(size - prev_size);
+        }
+
+        break :layout .{ size, max_align.max(tag_align), padding };
+    } else .{ max_align.forward(max_size), max_align, 0 };
+
+    union_type.size(ip).* = @intCast(size);
+    union_type.padding(ip).* = padding;
+    flags.alignment = alignment;
+    flags.status = .have_layout;
 
     if (union_obj.flagsPtr(ip).assumed_runtime_bits and !(try sema.typeHasRuntimeBits(ty))) {
         const msg = try Module.ErrorMsg.create(
             sema.gpa,
             mod.declPtr(union_obj.decl).srcLoc(mod),
             "union layout depends on it having runtime bits",
+            .{},
+        );
+        return sema.failWithOwnedErrorMsg(null, msg);
+    }
+
+    if (union_obj.flagsPtr(ip).assumed_pointer_aligned and
+        alignment.compareStrict(.neq, Alignment.fromByteUnits(@divExact(mod.getTarget().ptrBitWidth(), 8))))
+    {
+        const msg = try Module.ErrorMsg.create(
+            sema.gpa,
+            mod.declPtr(union_obj.decl).srcLoc(mod),
+            "union layout depends on being pointer aligned",
             .{},
         );
         return sema.failWithOwnedErrorMsg(null, msg);
@@ -35034,7 +35166,6 @@ fn resolveStructFully(sema: *Sema, ty: Type) CompileError!void {
 
 fn resolveUnionFully(sema: *Sema, ty: Type) CompileError!void {
     try sema.resolveUnionLayout(ty);
-    try sema.resolveTypeFields(ty);
 
     const mod = sema.mod;
     const ip = &mod.intern_pool;

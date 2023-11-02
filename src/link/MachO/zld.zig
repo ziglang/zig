@@ -390,9 +390,7 @@ pub fn linkWithZld(
 
         try macho_file.parseDependentLibs(&dependent_libs);
 
-        var actions = std.ArrayList(MachO.ResolveAction).init(gpa);
-        defer actions.deinit();
-        try macho_file.resolveSymbols(&actions);
+        try macho_file.resolveSymbols();
         if (macho_file.unresolved.count() > 0) {
             try macho_file.reportUndefined();
             return error.FlushFailure;
@@ -798,7 +796,7 @@ fn writePointerEntries(macho_file: *MachO, sect_id: u8, table: anytype) !void {
     defer buffer.deinit();
     for (table.entries.items) |entry| {
         const sym = macho_file.getSymbol(entry);
-        buffer.writer().writeIntLittle(u64, sym.n_value) catch unreachable;
+        buffer.writer().writeInt(u64, sym.n_value, .little) catch unreachable;
     }
     log.debug("writing __DATA_CONST,__got contents at file offset 0x{x}", .{header.offset});
     try macho_file.base.file.?.pwriteAll(buffer.items, header.offset);
@@ -882,7 +880,7 @@ fn writeLaSymbolPtrs(macho_file: *MachO) !void {
     for (0..macho_file.stub_table.count()) |index| {
         const target_addr = stub_helper_header.addr + stubs.stubHelperPreambleSize(cpu_arch) +
             stubs.stubHelperSize(cpu_arch) * index;
-        buffer.writer().writeIntLittle(u64, target_addr) catch unreachable;
+        buffer.writer().writeInt(u64, target_addr, .little) catch unreachable;
     }
 
     log.debug("writing __DATA,__la_symbol_ptr contents at file offset 0x{x}", .{

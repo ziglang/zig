@@ -52,7 +52,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
     return switch (self.file(elf_file).?) {
         .object => |x| x.shdrs.items[self.input_section_index],
-        .zig_module => |x| x.inputShdr(self.atom_index, elf_file),
+        .zig_object => |x| x.inputShdr(self.atom_index, elf_file),
         else => unreachable,
     };
 }
@@ -166,15 +166,16 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
-        if (elf_file.dwarf) |_| {
+        const zig_object = elf_file.zigObjectPtr().?;
+        if (zig_object.dwarf) |_| {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
             // range of the compilation unit. When we expand the text section, this range changes,
             // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            elf_file.debug_info_header_dirty = true;
+            zig_object.debug_info_header_dirty = true;
             // This becomes dirty for the same reason. We could potentially make this more
             // fine-grained with the addition of support for more compilation units. It is planned to
             // model each package as a different compilation unit.
-            elf_file.debug_aranges_section_dirty = true;
+            zig_object.debug_aranges_section_dirty = true;
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnitsOptional().?);
@@ -270,14 +271,14 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     // TODO create relocs free list
     self.freeRelocs(elf_file);
     // TODO figure out how to free input section mappind in ZigModule
-    // const zig_module = self.file(elf_file).?.zig_module;
-    // assert(zig_module.atoms.swapRemove(self.atom_index));
+    // const zig_object = elf_file.zigObjectPtr().?
+    // assert(zig_object.atoms.swapRemove(self.atom_index));
     self.* = .{};
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
     return switch (self.file(elf_file).?) {
-        .zig_module => |x| x.relocs.items[self.relocs_section_index].items,
+        .zig_object => |x| x.relocs.items[self.relocs_section_index].items,
         .object => |x| x.getRelocs(self.relocs_section_index),
         else => unreachable,
     };
@@ -298,17 +299,17 @@ pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
     const gpa = elf_file.base.allocator;
     const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_module);
-    const zig_module = file_ptr.zig_module;
-    const rels = &zig_module.relocs.items[self.relocs_section_index];
+    assert(file_ptr == .zig_object);
+    const zig_object = file_ptr.zig_object;
+    const rels = &zig_object.relocs.items[self.relocs_section_index];
     try rels.append(gpa, reloc);
 }
 
 pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
     const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_module);
-    const zig_module = file_ptr.zig_module;
-    zig_module.relocs.items[self.relocs_section_index].clearRetainingCapacity();
+    assert(file_ptr == .zig_object);
+    const zig_object = file_ptr.zig_object;
+    zig_object.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
 pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
@@ -332,7 +333,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         const symbol_index = switch (file_ptr) {
-            .zig_module => |x| x.symbol(rel.r_sym()),
+            .zig_object => |x| x.symbol(rel.r_sym()),
             .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };
@@ -690,7 +691,7 @@ fn reportUndefined(
     undefs: anytype,
 ) !void {
     const rel_esym = switch (self.file(elf_file).?) {
-        .zig_module => |x| x.elfSym(rel.r_sym()).*,
+        .zig_object => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab[rel.r_sym()],
         else => unreachable,
     };
@@ -724,7 +725,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
         if (r_type == elf.R_X86_64_NONE) continue;
 
         const target = switch (file_ptr) {
-            .zig_module => |x| elf_file.symbol(x.symbol(rel.r_sym())),
+            .zig_object => |x| elf_file.symbol(x.symbol(rel.r_sym())),
             .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
             else => unreachable,
         };
@@ -785,43 +786,43 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
 
             elf.R_X86_64_PLT32,
             elf.R_X86_64_PC32,
-            => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P))),
+            => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
-            elf.R_X86_64_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P))),
-            elf.R_X86_64_GOTPC32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(GOT + A - P))),
-            elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A - P),
+            elf.R_X86_64_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
+            elf.R_X86_64_GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
+            elf.R_X86_64_GOTPC64 => try cwriter.writeInt(i64, GOT + A - P, .little),
 
             elf.R_X86_64_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
                     x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     continue;
                 }
-                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+                try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little);
             },
 
             elf.R_X86_64_REX_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
                     x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     continue;
                 }
-                try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A - P)));
+                try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little);
             },
 
-            elf.R_X86_64_32 => try cwriter.writeIntLittle(u32, @as(u32, @truncate(@as(u64, @intCast(S + A))))),
-            elf.R_X86_64_32S => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A))),
+            elf.R_X86_64_32 => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+            elf.R_X86_64_32S => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
-            elf.R_X86_64_TPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A - TP))),
-            elf.R_X86_64_TPOFF64 => try cwriter.writeIntLittle(i64, S + A - TP),
+            elf.R_X86_64_TPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - TP)), .little),
+            elf.R_X86_64_TPOFF64 => try cwriter.writeInt(i64, S + A - TP, .little),
 
-            elf.R_X86_64_DTPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @truncate(S + A - DTP))),
-            elf.R_X86_64_DTPOFF64 => try cwriter.writeIntLittle(i64, S + A - DTP),
+            elf.R_X86_64_DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - DTP)), .little),
+            elf.R_X86_64_DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
 
             elf.R_X86_64_TLSGD => {
                 if (target.flags.has_tlsgd) {
                     const S_ = @as(i64, @intCast(target.tlsGdAddress(elf_file)));
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else if (target.flags.has_gottp) {
                     const S_ = @as(i64, @intCast(target.gotTpAddress(elf_file)));
                     try x86_64.relaxTlsGdToIe(self, rels[i .. i + 2], @intCast(S_ - P), elf_file, &stream);
@@ -842,7 +843,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
                 if (elf_file.got.tlsld_index) |entry_index| {
                     const tlsld_entry = elf_file.got.entries.items[entry_index];
                     const S_ = @as(i64, @intCast(tlsld_entry.address(elf_file)));
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     try x86_64.relaxTlsLdToLe(
                         self,
@@ -858,10 +859,10 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
             elf.R_X86_64_GOTPC32_TLSDESC => {
                 if (target.flags.has_tlsdesc) {
                     const S_ = @as(i64, @intCast(target.tlsDescAddress(elf_file)));
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     try x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]);
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S - TP)), .little);
                 }
             },
 
@@ -873,18 +874,18 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
             elf.R_X86_64_GOTTPOFF => {
                 if (target.flags.has_gottp) {
                     const S_ = @as(i64, @intCast(target.gotTpAddress(elf_file)));
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S_ + A - P)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     x86_64.relaxGotTpOff(code[r_offset - 3 ..]) catch unreachable;
-                    try cwriter.writeIntLittle(i32, @as(i32, @intCast(S - TP)));
+                    try cwriter.writeInt(i32, @as(i32, @intCast(S - TP)), .little);
                 }
             },
 
-            elf.R_X86_64_GOT32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(G + GOT + A))),
+            elf.R_X86_64_GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
 
             // Zig custom relocations
-            Elf.R_X86_64_ZIG_GOT32 => try cwriter.writeIntLittle(u32, @as(u32, @intCast(ZIG_GOT + A))),
-            Elf.R_X86_64_ZIG_GOTPCREL => try cwriter.writeIntLittle(i32, @as(i32, @intCast(ZIG_GOT + A - P))),
+            Elf.R_X86_64_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
+            Elf.R_X86_64_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
 
             else => {},
         }
@@ -919,7 +920,7 @@ fn resolveDynAbsReloc(
         .copyrel,
         .cplt,
         .none,
-        => try writer.writeIntLittle(i32, @as(i32, @truncate(S + A))),
+        => try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
         .dyn_copyrel => {
             if (is_writeable or elf_file.base.options.z_nocopyreloc) {
@@ -931,7 +932,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeIntLittle(i32, @as(i32, @truncate(S + A)));
+                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
             }
         },
 
@@ -945,7 +946,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeIntLittle(i32, @as(i32, @truncate(S + A)));
+                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
             }
         },
 
@@ -983,7 +984,7 @@ fn resolveDynAbsReloc(
 fn applyDynamicReloc(value: i64, elf_file: *Elf, writer: anytype) !void {
     _ = elf_file;
     // if (elf_file.options.apply_dynamic_relocs) {
-    try writer.writeIntLittle(i64, value);
+    try writer.writeInt(i64, value, .little);
     // }
 }
 
@@ -1004,7 +1005,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         const target_index = switch (file_ptr) {
-            .zig_module => |x| x.symbol(rel.r_sym()),
+            .zig_object => |x| x.symbol(rel.r_sym()),
             .object => |x| x.symbols.items[rel.r_sym()],
             else => unreachable,
         };
@@ -1057,22 +1058,22 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 
         switch (r_type) {
             elf.R_X86_64_NONE => unreachable,
-            elf.R_X86_64_8 => try cwriter.writeIntLittle(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A))))),
-            elf.R_X86_64_16 => try cwriter.writeIntLittle(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A))))),
-            elf.R_X86_64_32 => try cwriter.writeIntLittle(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A))))),
-            elf.R_X86_64_32S => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A))),
-            elf.R_X86_64_64 => try cwriter.writeIntLittle(i64, S + A),
-            elf.R_X86_64_DTPOFF32 => try cwriter.writeIntLittle(i32, @as(i32, @intCast(S + A - DTP))),
-            elf.R_X86_64_DTPOFF64 => try cwriter.writeIntLittle(i64, S + A - DTP),
-            elf.R_X86_64_GOTOFF64 => try cwriter.writeIntLittle(i64, S + A - GOT),
-            elf.R_X86_64_GOTPC64 => try cwriter.writeIntLittle(i64, GOT + A),
+            elf.R_X86_64_8 => try cwriter.writeInt(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A)))), .little),
+            elf.R_X86_64_16 => try cwriter.writeInt(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A)))), .little),
+            elf.R_X86_64_32 => try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A)))), .little),
+            elf.R_X86_64_32S => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+            elf.R_X86_64_64 => try cwriter.writeInt(i64, S + A, .little),
+            elf.R_X86_64_DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - DTP)), .little),
+            elf.R_X86_64_DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
+            elf.R_X86_64_GOTOFF64 => try cwriter.writeInt(i64, S + A - GOT, .little),
+            elf.R_X86_64_GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
             elf.R_X86_64_SIZE32 => {
                 const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                try cwriter.writeIntLittle(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))));
+                try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))), .little);
             },
             elf.R_X86_64_SIZE64 => {
                 const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                try cwriter.writeIntLittle(i64, @as(i64, @intCast(size + A)));
+                try cwriter.writeInt(i64, @as(i64, @intCast(size + A)), .little);
             },
             else => try self.reportUnhandledRelocError(rel, elf_file),
         }
@@ -1253,7 +1254,7 @@ const x86_64 = struct {
                     0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, // movq %fs:0,%rax
                     0x48, 0x03, 0x05, 0, 0, 0, 0, // add foo@gottpoff(%rip), %rax
                 };
-                std.mem.writeIntLittle(i32, insts[12..][0..4], value - 12);
+                std.mem.writeInt(i32, insts[12..][0..4], value - 12, .little);
                 try stream.seekBy(-4);
                 try writer.writeAll(&insts);
             },
@@ -1291,7 +1292,7 @@ const x86_64 = struct {
                     0x64, 0x48, 0x8b, 0, // mov %fs:(%rax), %rax
                     0x48, 0x2d, 0, 0, 0, 0, // sub $tls_size, %rax
                 };
-                std.mem.writeIntLittle(i32, insts[8..][0..4], value);
+                std.mem.writeInt(i32, insts[8..][0..4], value, .little);
                 try stream.seekBy(-3);
                 try writer.writeAll(&insts);
             },
@@ -1305,7 +1306,7 @@ const x86_64 = struct {
                     0x48, 0x2d, 0, 0, 0, 0, // sub $tls_size, %rax
                     0x90, // nop
                 };
-                std.mem.writeIntLittle(i32, insts[8..][0..4], value);
+                std.mem.writeInt(i32, insts[8..][0..4], value, .little);
                 try stream.seekBy(-3);
                 try writer.writeAll(&insts);
             },
@@ -1391,7 +1392,7 @@ const x86_64 = struct {
                     0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, // movq %fs:0,%rax
                     0x48, 0x81, 0xc0, 0, 0, 0, 0, // add $tp_offset, %rax
                 };
-                std.mem.writeIntLittle(i32, insts[12..][0..4], value);
+                std.mem.writeInt(i32, insts[12..][0..4], value, .little);
                 try stream.seekBy(-4);
                 try writer.writeAll(&insts);
                 relocs_log.debug("    relaxing {} and {}", .{

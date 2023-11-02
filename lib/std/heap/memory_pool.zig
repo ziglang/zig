@@ -86,18 +86,26 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
             pool.* = undefined;
         }
 
+        pub const ResetMode = std.heap.ArenaAllocator.ResetMode;
+
         /// Resets the memory pool and destroys all allocated items.
         /// This can be used to batch-destroy all objects without invalidating the memory pool.
-        pub fn reset(pool: *Pool) void {
+        ///
+        /// The function will return whether the reset operation was successful or not.
+        /// If the reallocation  failed `false` is returned. The pool will still be fully
+        /// functional in that case, all memory is released. Future allocations just might
+        /// be slower.
+        ///
+        /// NOTE: If `mode` is `free_all`, the function will always return `true`.
+        pub fn reset(pool: *Pool, mode: ResetMode) bool {
             // TODO: Potentially store all allocated objects in a list as well, allowing to
             //       just move them into the free list instead of actually releasing the memory.
-            const allocator = pool.arena.child_allocator;
 
-            // TODO: Replace with "pool.arena.reset()" when implemented.
-            pool.arena.deinit();
-            pool.arena = std.heap.ArenaAllocator.init(allocator);
+            const reset_successful = pool.arena.reset(mode);
 
             pool.free_list = null;
+
+            return reset_successful;
         }
 
         /// Creates a new item and adds it to the memory pool.

@@ -32,7 +32,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
     var table_idx: u32 = 0;
     while (table_idx < table_list.len) : (table_idx += 1) {
-        table_list[table_idx] = try reader.readIntBig(u32);
+        table_list[table_idx] = try reader.readInt(u32, .big);
     }
 
     const now_sec = std.time.timestamp();
@@ -51,7 +51,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
         var record_idx: u32 = 0;
         while (record_idx < record_list.len) : (record_idx += 1) {
-            record_list[record_idx] = try reader.readIntBig(u32);
+            record_list[record_idx] = try reader.readInt(u32, .big);
         }
 
         for (record_list) |record_offset| {

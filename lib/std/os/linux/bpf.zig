@@ -696,8 +696,8 @@ pub const Insn = packed struct {
     fn endian_swap(endian: std.builtin.Endian, comptime size: Size, dst: Reg) Insn {
         return Insn{
             .code = switch (endian) {
-                .Big => 0xdc,
-                .Little => 0xd4,
+                .big => 0xdc,
+                .little => 0xd4,
             },
             .dst = @intFromEnum(dst),
             .src = 0,
@@ -712,11 +712,11 @@ pub const Insn = packed struct {
     }
 
     pub fn le(comptime size: Size, dst: Reg) Insn {
-        return endian_swap(.Little, size, dst);
+        return endian_swap(.little, size, dst);
     }
 
     pub fn be(comptime size: Size, dst: Reg) Insn {
-        return endian_swap(.Big, size, dst);
+        return endian_swap(.big, size, dst);
     }
 
     pub fn call(helper: Helper) Insn {

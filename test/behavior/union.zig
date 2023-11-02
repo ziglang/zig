@@ -1686,7 +1686,7 @@ test "memset packed union" {
 }
 
 fn littleToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Little) v else @byteSwap(v);
+    return if (endian == .little) v else @byteSwap(v);
 }
 
 test "reinterpret extern union" {
@@ -1723,8 +1723,8 @@ test "reinterpret extern union" {
 
                 {
                     const expected, const mask = switch (endian) {
-                        .Little => .{ 0x2a, 0xff },
-                        .Big => .{ 0x2a000000, 0xff000000 },
+                        .little => .{ 0x2a, 0xff },
+                        .big => .{ 0x2a000000, 0xff000000 },
                     };
 
                     try expectEqual(@as(u8, 0x2a), u.foo);
@@ -1867,4 +1867,17 @@ test "reinterpret packed union inside packed struct" {
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     try S.doTheTest();
+}
+
+test "union field is a pointer to an aligned version of itself" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const E = union {
+        next: *align(1) @This(),
+    };
+    var e: E = undefined;
+    e = .{ .next = &e };
+
+    try expect(&e == e.next);
 }

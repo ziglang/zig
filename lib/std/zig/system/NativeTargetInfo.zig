@@ -488,8 +488,8 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .Little,
-        elf.ELFDATA2MSB => .Big,
+        elf.ELFDATA2LSB => .little,
+        elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
@@ -635,8 +635,8 @@ pub fn abiAndDynamicLinkerFromFile(
     const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .Little,
-        elf.ELFDATA2MSB => .Big,
+        elf.ELFDATA2LSB => .little,
+        elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;

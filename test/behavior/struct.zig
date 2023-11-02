@@ -1364,7 +1364,7 @@ test "under-aligned struct field" {
     var runtime: usize = 1234;
     const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
     const array = @as(*const [12]u8, @ptrCast(ptr));
-    const result = std.mem.readIntNative(u64, array[4..12]);
+    const result = std.mem.readInt(u64, array[4..12], native_endian);
     try expect(result == 1234);
 }
 

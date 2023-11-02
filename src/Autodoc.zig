@@ -741,6 +741,7 @@ const DocData = struct {
         null: struct {},
         undefined: struct {},
         @"struct": []FieldVal,
+        fieldVal: FieldVal,
         bool: bool,
         @"anytype": struct {},
         @"&": usize, // index in `exprs`
@@ -867,7 +868,10 @@ const DocData = struct {
 
         const FieldVal = struct {
             name: []const u8,
-            val: WalkResult,
+            val: struct {
+                typeRef: ?usize, // index in `exprs`
+                expr: usize, // index in `exprs`
+            },
         };
 
         const ElemVal = struct {
@@ -921,8 +925,8 @@ const DocData = struct {
     /// Since the type information is only needed in certain contexts, the
     /// underlying normalized data (Expr) is untyped.
     const WalkResult = struct {
-        typeRef: ?Expr = null, // index in `exprs`
-        expr: Expr, // index in `exprs`
+        typeRef: ?Expr = null,
+        expr: Expr,
     };
 };
 
@@ -2874,7 +2878,20 @@ fn walkInstruction(
                     need_type,
                     call_ctx,
                 );
-                fv.* = .{ .name = field_name, .val = value };
+                const exprIdx = self.exprs.items.len;
+                try self.exprs.append(self.arena, value.expr);
+                var typeRefIdx: ?usize = null;
+                if (value.typeRef) |ref| {
+                    typeRefIdx = self.exprs.items.len;
+                    try self.exprs.append(self.arena, ref);
+                }
+                fv.* = .{
+                    .name = field_name,
+                    .val = .{
+                        .typeRef = typeRefIdx,
+                        .expr = exprIdx,
+                    },
+                };
             }
 
             return DocData.WalkResult{
@@ -2942,7 +2959,23 @@ fn walkInstruction(
                     need_type,
                     call_ctx,
                 );
-                fv.* = .{ .name = field_name, .val = value };
+
+                const exprIdx = self.exprs.items.len;
+                try self.exprs.append(self.arena, value.expr);
+                var typeRefIdx: ?usize = null;
+                if (value.typeRef) |ref| {
+                    typeRefIdx = self.exprs.items.len;
+                    try self.exprs.append(self.arena, ref);
+                }
+
+                fv.* = .{
+                    .name = field_name,
+                    .val = .{
+                        .typeRef = typeRefIdx,
+                        .expr = exprIdx,
+                    },
+                };
+
                 idx = init_extra.end;
             }
 
@@ -3082,6 +3115,75 @@ fn walkInstruction(
                     },
                     else => null,
                 } else null,
+                .expr = .{ .call = call_slot_index },
+            };
+        },
+        .field_call => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.FieldCall, pl_node.payload_index);
+
+            const obj_ptr = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.obj_ptr,
+                need_type,
+                call_ctx,
+            );
+
+            var field_call = try self.arena.alloc(DocData.Expr, 2);
+
+            if (obj_ptr.typeRef) |ref| {
+                field_call[0] = ref;
+            } else {
+                field_call[0] = obj_ptr.expr;
+            }
+            field_call[1] = .{ .declName = file.zir.nullTerminatedString(extra.data.field_name_start) };
+            try self.tryResolveRefPath(file, inst, field_call);
+
+            const args_len = extra.data.flags.args_len;
+            var args = try self.arena.alloc(DocData.Expr, args_len);
+            const body = file.zir.extra[extra.end..];
+
+            try self.repurposed_insts.put(self.arena, inst, {});
+            defer _ = self.repurposed_insts.remove(inst);
+
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                const arg_end = file.zir.extra[extra.end + i];
+                const break_index = body[arg_end - 1];
+                const ref = data[break_index].@"break".operand;
+                // TODO: consider toggling need_type to true if we ever want
+                //       to show discrepancies between the types of provided
+                //       arguments and the types declared in the function
+                //       signature for its parameters.
+                const wr = try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    ref,
+                    false,
+                    &.{
+                        .inst = inst,
+                        .prev = call_ctx,
+                    },
+                );
+                args[i] = wr.expr;
+            }
+
+            const cte_slot_index = self.comptime_exprs.items.len;
+            try self.comptime_exprs.append(self.arena, .{
+                .code = "field call",
+            });
+
+            const call_slot_index = self.calls.items.len;
+            try self.calls.append(self.arena, .{
+                .func = .{ .refPath = field_call },
+                .args = args,
+                .ret = .{ .comptimeExpr = cte_slot_index },
+            });
+
+            return DocData.WalkResult{
                 .expr = .{ .call = call_slot_index },
             };
         },
@@ -4374,6 +4476,9 @@ fn tryResolveRefPath(
                         },
                     }
                 },
+                .fieldVal => |fv| {
+                    resolved_parent = self.exprs.items[fv.val.expr];
+                },
             }
         } else {
             panicWithContext(
@@ -4675,7 +4780,7 @@ fn tryResolveRefPath(
             .@"struct" => |st| {
                 for (st) |field| {
                     if (std.mem.eql(u8, field.name, child_string)) {
-                        path[i + 1] = field.val.expr;
+                        path[i + 1] = .{ .fieldVal = field };
                         continue :outer;
                     }
                 }

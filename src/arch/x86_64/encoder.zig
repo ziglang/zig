@@ -998,7 +998,7 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn disp32(self: Self, disp: i32) !void {
-            try self.writer.writeIntLittle(i32, disp);
+            try self.writer.writeInt(i32, disp, .little);
         }
 
         /// Encode an 8 bit immediate
@@ -1012,21 +1012,21 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm16(self: Self, imm: u16) !void {
-            try self.writer.writeIntLittle(u16, imm);
+            try self.writer.writeInt(u16, imm, .little);
         }
 
         /// Encode an 32 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm32(self: Self, imm: u32) !void {
-            try self.writer.writeIntLittle(u32, imm);
+            try self.writer.writeInt(u32, imm, .little);
         }
 
         /// Encode an 64 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm64(self: Self, imm: u64) !void {
-            try self.writer.writeIntLittle(u64, imm);
+            try self.writer.writeInt(u64, imm, .little);
         }
     };
 }

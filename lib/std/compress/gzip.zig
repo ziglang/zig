@@ -58,7 +58,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             const FLG = header[3];
             // Modification time, as a Unix timestamp.
             // If zero there's no timestamp available.
-            const MTIME = mem.readIntLittle(u32, header[4..8]);
+            const MTIME = mem.readInt(u32, header[4..8], .little);
             // Extra flags
             const XFL = header[8];
             // Operating system where the compression took place
@@ -66,7 +66,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             _ = XFL;
 
             const extra = if (FLG & FEXTRA != 0) blk: {
-                const len = try hashed_reader.readIntLittle(u16);
+                const len = try hashed_reader.readInt(u16, .little);
                 const tmp_buf = try allocator.alloc(u8, len);
                 errdefer allocator.free(tmp_buf);
 
@@ -88,7 +88,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             errdefer if (comment) |p| allocator.free(p);
 
             if (FLG & FHCRC != 0) {
-                const hash = try source.readIntLittle(u16);
+                const hash = try source.readInt(u16, .little);
                 if (hash != @as(u16, @truncate(hasher.hasher.final())))
                     return error.WrongChecksum;
             }
@@ -133,12 +133,12 @@ pub fn Decompress(comptime ReaderType: type) type {
             }
 
             // We've reached the end of stream, check if the checksum matches
-            const hash = try self.in_reader.readIntLittle(u32);
+            const hash = try self.in_reader.readInt(u32, .little);
             if (hash != self.hasher.final())
                 return error.WrongChecksum;
 
             // The ISIZE field is the size of the uncompressed input modulo 2^32
-            const input_size = try self.in_reader.readIntLittle(u32);
+            const input_size = try self.in_reader.readInt(u32, .little);
             if (self.read_amt & 0xffffffff != input_size)
                 return error.CorruptedData;
 

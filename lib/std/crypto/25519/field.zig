@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const crypto = std.crypto;
-const readIntLittle = std.mem.readIntLittle;
-const writeIntLittle = std.mem.writeIntLittle;
 
 const NonCanonicalError = crypto.errors.NonCanonicalError;
 const NotSquareError = crypto.errors.NotSquareError;
@@ -73,11 +71,11 @@ pub const Fe = struct {
     /// Unpack a field element
     pub fn fromBytes(s: [32]u8) Fe {
         var fe: Fe = undefined;
-        fe.limbs[0] = readIntLittle(u64, s[0..8]) & MASK51;
-        fe.limbs[1] = (readIntLittle(u64, s[6..14]) >> 3) & MASK51;
-        fe.limbs[2] = (readIntLittle(u64, s[12..20]) >> 6) & MASK51;
-        fe.limbs[3] = (readIntLittle(u64, s[19..27]) >> 1) & MASK51;
-        fe.limbs[4] = (readIntLittle(u64, s[24..32]) >> 12) & MASK51;
+        fe.limbs[0] = std.mem.readInt(u64, s[0..8], .little) & MASK51;
+        fe.limbs[1] = (std.mem.readInt(u64, s[6..14], .little) >> 3) & MASK51;
+        fe.limbs[2] = (std.mem.readInt(u64, s[12..20], .little) >> 6) & MASK51;
+        fe.limbs[3] = (std.mem.readInt(u64, s[19..27], .little) >> 1) & MASK51;
+        fe.limbs[4] = (std.mem.readInt(u64, s[24..32], .little) >> 12) & MASK51;
 
         return fe;
     }
@@ -87,10 +85,10 @@ pub const Fe = struct {
         var reduced = fe;
         reduced.reduce();
         var s: [32]u8 = undefined;
-        writeIntLittle(u64, s[0..8], reduced.limbs[0] | (reduced.limbs[1] << 51));
-        writeIntLittle(u64, s[8..16], (reduced.limbs[1] >> 13) | (reduced.limbs[2] << 38));
-        writeIntLittle(u64, s[16..24], (reduced.limbs[2] >> 26) | (reduced.limbs[3] << 25));
-        writeIntLittle(u64, s[24..32], (reduced.limbs[3] >> 39) | (reduced.limbs[4] << 12));
+        std.mem.writeInt(u64, s[0..8], reduced.limbs[0] | (reduced.limbs[1] << 51), .little);
+        std.mem.writeInt(u64, s[8..16], (reduced.limbs[1] >> 13) | (reduced.limbs[2] << 38), .little);
+        std.mem.writeInt(u64, s[16..24], (reduced.limbs[2] >> 26) | (reduced.limbs[3] << 25), .little);
+        std.mem.writeInt(u64, s[24..32], (reduced.limbs[3] >> 39) | (reduced.limbs[4] << 12), .little);
 
         return s;
     }

@@ -1077,7 +1077,7 @@ test "pointer reinterpret const float to int" {
     const float_ptr = &float;
     const int_ptr = @as(*const i32, @ptrCast(float_ptr));
     const int_val = int_ptr.*;
-    if (native_endian == .Little)
+    if (native_endian == .little)
         try expect(int_val == 0x33333303)
     else
         try expect(int_val == 0x3fe33333);

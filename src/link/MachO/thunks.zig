@@ -349,10 +349,10 @@ pub fn writeThunkCode(macho_file: *MachO, thunk: *const Thunk, writer: anytype) 
             .atom => macho_file.getSymbol(target).n_value,
         };
         const pages = Relocation.calcNumberOfPages(source_addr, target_addr);
-        try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
+        try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
         const off = try Relocation.calcPageOffset(target_addr, .arithmetic);
-        try writer.writeIntLittle(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32());
-        try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
+        try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
+        try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
     }
 }
 

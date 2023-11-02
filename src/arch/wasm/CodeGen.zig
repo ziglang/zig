@@ -3364,7 +3364,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 const backing_int_ty = struct_type.backingIntType(ip).toType();
                 const int_val = try mod.intValue(
                     backing_int_ty,
-                    mem.readIntLittle(u64, &buf),
+                    mem.readInt(u64, &buf, .little),
                 );
                 return func.lowerConstant(int_val, backing_int_ty);
             },
@@ -3813,6 +3813,16 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         if (given_ty.isAnyFloat() or wanted_ty.isAnyFloat()) {
             const bitcast_result = try func.bitcast(wanted_ty, given_ty, operand);
             break :result try bitcast_result.toLocal(func, wanted_ty);
+        }
+        const mod = func.bin_file.base.options.module.?;
+        if (isByRef(given_ty, mod) and !isByRef(wanted_ty, mod)) {
+            const loaded_memory = try func.load(operand, wanted_ty, 0);
+            break :result try loaded_memory.toLocal(func, wanted_ty);
+        }
+        if (!isByRef(given_ty, mod) and isByRef(wanted_ty, mod)) {
+            const stack_memory = try func.allocStack(wanted_ty);
+            try func.store(stack_memory, operand, given_ty, 0);
+            break :result stack_memory;
         }
         break :result func.reuseOperand(ty_op.operand, operand);
     };

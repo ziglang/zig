@@ -25,14 +25,14 @@ fn getAniheaderFlags(reader: anytype) !u32 {
     const riff_header = try reader.readBytesNoEof(4);
     if (!std.mem.eql(u8, &riff_header, "RIFF")) return error.InvalidFormat;
 
-    _ = try reader.readIntLittle(u32); // size of RIFF chunk
+    _ = try reader.readInt(u32, .little); // size of RIFF chunk
 
     const form_type = try reader.readBytesNoEof(4);
     if (!std.mem.eql(u8, &form_type, "ACON")) return error.InvalidFormat;
 
     while (true) {
         const chunk_id = try reader.readBytesNoEof(4);
-        const chunk_len = try reader.readIntLittle(u32);
+        const chunk_len = try reader.readInt(u32, .little);
         if (!std.mem.eql(u8, &chunk_id, "anih")) {
             // TODO: Move file cursor instead of skipBytes
             try reader.skipBytes(chunk_len, .{});

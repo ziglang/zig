@@ -15,9 +15,6 @@ pub const block = @import("decode/block.zig");
 
 const readers = @import("readers.zig");
 
-const readInt = std.mem.readIntLittle;
-const readIntSlice = std.mem.readIntSliceLittle;
-
 /// Returns `true` is `magic` is a valid magic number for a skippable frame
 pub fn isSkippableMagic(magic: u32) bool {
     return frame.Skippable.magic_number_min <= magic and magic <= frame.Skippable.magic_number_max;
@@ -31,7 +28,7 @@ pub fn isSkippableMagic(magic: u32) bool {
 ///     skippable frames.
 ///   - `error.EndOfStream` if `source` contains fewer than 4 bytes
 pub fn decodeFrameType(source: anytype) error{ BadMagic, EndOfStream }!frame.Kind {
-    const magic = try source.readIntLittle(u32);
+    const magic = try source.readInt(u32, .little);
     return frameType(magic);
 }
 
@@ -65,14 +62,14 @@ pub const HeaderError = error{ BadMagic, EndOfStream, ReservedBitSet };
 ///   - `error.ReservedBitSet` if the frame is a Zstandard frame and any of the
 ///     reserved bits are set
 pub fn decodeFrameHeader(source: anytype) (@TypeOf(source).Error || HeaderError)!FrameHeader {
-    const magic = try source.readIntLittle(u32);
+    const magic = try source.readInt(u32, .little);
     const frame_type = try frameType(magic);
     switch (frame_type) {
         .zstandard => return FrameHeader{ .zstandard = try decodeZstandardHeader(source) },
         .skippable => return FrameHeader{
             .skippable = .{
                 .magic_number = magic,
-                .frame_size = try source.readIntLittle(u32),
+                .frame_size = try source.readInt(u32, .little),
             },
         },
     }
@@ -193,7 +190,7 @@ pub fn decodeFrame(
     switch (try decodeFrameType(fbs.reader())) {
         .zstandard => return decodeZstandardFrame(dest, src, verify_checksum),
         .skippable => {
-            const content_size = try fbs.reader().readIntLittle(u32);
+            const content_size = try fbs.reader().readInt(u32, .little);
             if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
             const read_count = @as(usize, content_size) + 8;
             if (read_count > src.len) return error.SkippableSizeTooLarge;
@@ -238,7 +235,7 @@ pub fn decodeFrameArrayList(
 ) (error{ BadMagic, OutOfMemory, SkippableSizeTooLarge } || FrameContext.Error || FrameError)!usize {
     var fbs = std.io.fixedBufferStream(src);
     const reader = fbs.reader();
-    const magic = try reader.readIntLittle(u32);
+    const magic = try reader.readInt(u32, .little);
     switch (try frameType(magic)) {
         .zstandard => return decodeZstandardFrameArrayList(
             allocator,
@@ -248,7 +245,7 @@ pub fn decodeFrameArrayList(
             window_size_max,
         ),
         .skippable => {
-            const content_size = try fbs.reader().readIntLittle(u32);
+            const content_size = try fbs.reader().readInt(u32, .little);
             if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
             const read_count = @as(usize, content_size) + 8;
             if (read_count > src.len) return error.SkippableSizeTooLarge;
@@ -302,7 +299,7 @@ pub fn decodeZstandardFrame(
     WindowSizeUnknown,
     DictionaryIdFlagUnsupported,
 } || FrameError)!ReadWriteCount {
-    assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
+    assert(std.mem.readInt(u32, src[0..4], .little) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
     var frame_context = context: {
@@ -354,7 +351,7 @@ pub fn decodeZStandardFrameBlocks(
     if (written_count != content_size) return error.BadContentSize;
     if (frame_context.has_checksum) {
         if (src.len < consumed_count + 4) return error.EndOfStream;
-        const checksum = readIntSlice(u32, src[consumed_count .. consumed_count + 4]);
+        const checksum = std.mem.readInt(u32, src[consumed_count..][0..4], .little);
         consumed_count += 4;
         if (frame_context.hasher_opt) |*hasher| {
             if (checksum != computeChecksum(hasher)) return error.ChecksumFailure;
@@ -445,7 +442,7 @@ pub fn decodeZstandardFrameArrayList(
     verify_checksum: bool,
     window_size_max: usize,
 ) (error{OutOfMemory} || FrameContext.Error || FrameError)!usize {
-    assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
+    assert(std.mem.readInt(u32, src[0..4], .little) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
     var frame_context = context: {
@@ -520,7 +517,7 @@ pub fn decodeZstandardFrameBlocksArrayList(
 
     if (frame_context.has_checksum) {
         if (src.len < consumed_count + 4) return error.EndOfStream;
-        const checksum = readIntSlice(u32, src[consumed_count .. consumed_count + 4]);
+        const checksum = std.mem.readInt(u32, src[consumed_count..][0..4], .little);
         consumed_count += 4;
         if (frame_context.hasher_opt) |*hasher| {
             if (checksum != computeChecksum(hasher)) return error.ChecksumFailure;
@@ -569,9 +566,9 @@ fn decodeFrameBlocksInner(
 /// Decode the header of a skippable frame. The first four bytes of `src` must
 /// be a valid magic number for a skippable frame.
 pub fn decodeSkippableHeader(src: *const [8]u8) SkippableHeader {
-    const magic = readInt(u32, src[0..4]);
+    const magic = std.mem.readInt(u32, src[0..4], .little);
     assert(isSkippableMagic(magic));
-    const frame_size = readInt(u32, src[4..8]);
+    const frame_size = std.mem.readInt(u32, src[4..8], .little);
     return .{
         .magic_number = magic,
         .frame_size = frame_size,
@@ -612,13 +609,13 @@ pub fn decodeZstandardHeader(
     if (descriptor.dictionary_id_flag > 0) {
         // if flag is 3 then field_size = 4, else field_size = flag
         const field_size = (@as(u4, 1) << descriptor.dictionary_id_flag) >> 1;
-        dictionary_id = try source.readVarInt(u32, .Little, field_size);
+        dictionary_id = try source.readVarInt(u32, .little, field_size);
     }
 
     var content_size: ?u64 = null;
     if (descriptor.single_segment_flag or descriptor.content_size_flag > 0) {
         const field_size = @as(u4, 1) << descriptor.content_size_flag;
-        content_size = try source.readVarInt(u64, .Little, field_size);
+        content_size = try source.readVarInt(u64, .little, field_size);
         if (field_size == 2) content_size.? += 256;
     }
 

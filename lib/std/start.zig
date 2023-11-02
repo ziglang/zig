@@ -603,13 +603,34 @@ pub fn callMain() u8 {
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
+    const peb = std.os.windows.peb();
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
     const hInstance = @as(MAIN_HINSTANCE, @ptrCast(std.os.windows.kernel32.GetModuleHandleW(null).?));
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 
-    // There's no (documented) way to get the nCmdShow parameter, so we're
-    // using this fairly standard default.
-    const nCmdShow = 5;
+    // There are various types used for the 'show window' variable through the Win32 APIs:
+    // - u16 in STARTUPINFOA.wShowWindow / STARTUPINFOW.wShowWindow
+    // - c_int in ShowWindow
+    // - u32 in PEB.ProcessParameters.dwShowWindow
+    // Since STARTUPINFO is the bottleneck for the allowed values, we use `u16` as the
+    // type which can coerce into i32/c_int/u32 depending on how the user defines their wWinMain
+    // (the Win32 docs show wWinMain with `int` as the type for nCmdShow).
+    const nCmdShow: u16 = nCmdShow: {
+        // This makes Zig match the nCmdShow behavior of a C program with a WinMain symbol:
+        // - With STARTF_USESHOWWINDOW set in STARTUPINFO.dwFlags of the CreateProcess call:
+        //   - Compiled with subsystem:console -> nCmdShow is always SW_SHOWDEFAULT
+        //   - Compiled with subsystem:windows -> nCmdShow is STARTUPINFO.wShowWindow from
+        //     the parent CreateProcess call
+        // - With STARTF_USESHOWWINDOW unset:
+        //   - nCmdShow is always SW_SHOWDEFAULT
+        const SW_SHOWDEFAULT = 10;
+        const STARTF_USESHOWWINDOW = 1;
+        // root having a wWinMain means that std.builtin.subsystem will always have a non-null value.
+        if (std.builtin.subsystem.? == .Windows and peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
+            break :nCmdShow @truncate(peb.ProcessParameters.dwShowWindow);
+        }
+        break :nCmdShow SW_SHOWDEFAULT;
+    };
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);

@@ -28,6 +28,7 @@ const windows1252 = @import("windows1252.zig");
 const lang = @import("lang.zig");
 const code_pages = @import("code_pages.zig");
 const errors = @import("errors.zig");
+const native_endian = builtin.cpu.arch.endian();
 
 pub const CompileOptions = struct {
     cwd: std.fs.Dir,
@@ -584,8 +585,8 @@ pub const Compiler = struct {
                         // > resource if a RESDIR structure contains information about a cursor.
                         // where LOCALHEADER is `struct { WORD xHotSpot; WORD yHotSpot; }`
                         if (icon_dir.image_type == .cursor) {
-                            try writer.writeIntLittle(u16, entry.type_specific_data.cursor.hotspot_x);
-                            try writer.writeIntLittle(u16, entry.type_specific_data.cursor.hotspot_y);
+                            try writer.writeInt(u16, entry.type_specific_data.cursor.hotspot_x, .little);
+                            try writer.writeInt(u16, entry.type_specific_data.cursor.hotspot_y, .little);
                         }
 
                         try file.seekTo(entry.data_offset_from_start_of_file);
@@ -666,7 +667,7 @@ pub const Compiler = struct {
                             },
                             .dib => {
                                 var bitmap_header: *ico.BitmapHeader = @ptrCast(@alignCast(&header_bytes));
-                                if (builtin.cpu.arch.endian() == .Big) {
+                                if (native_endian == .big) {
                                     std.mem.byteSwapAllFields(ico.BitmapHeader, bitmap_header);
                                 }
                                 const bitmap_version = ico.BitmapHeader.Version.get(bitmap_header.bcSize);
@@ -777,7 +778,7 @@ pub const Compiler = struct {
                     if (bitmap_info.getActualPaletteByteLen() > bitmap_info.getExpectedPaletteByteLen()) {
                         const num_ignored_bytes = bitmap_info.getActualPaletteByteLen() - bitmap_info.getExpectedPaletteByteLen();
                         var number_as_bytes: [8]u8 = undefined;
-                        std.mem.writeIntNative(u64, &number_as_bytes, num_ignored_bytes);
+                        std.mem.writeInt(u64, &number_as_bytes, num_ignored_bytes, native_endian);
                         const value_string_index = try self.diagnostics.putString(&number_as_bytes);
                         try self.addErrorDetails(.{
                             .err = .bmp_ignored_palette_bytes,
@@ -792,8 +793,8 @@ pub const Compiler = struct {
                         const max_missing_bytes = 4096;
                         if (num_padding_bytes > max_missing_bytes) {
                             var numbers_as_bytes: [16]u8 = undefined;
-                            std.mem.writeIntNative(u64, numbers_as_bytes[0..8], num_padding_bytes);
-                            std.mem.writeIntNative(u64, numbers_as_bytes[8..16], max_missing_bytes);
+                            std.mem.writeInt(u64, numbers_as_bytes[0..8], num_padding_bytes, native_endian);
+                            std.mem.writeInt(u64, numbers_as_bytes[8..16], max_missing_bytes, native_endian);
                             const values_string_index = try self.diagnostics.putString(&numbers_as_bytes);
                             try self.addErrorDetails(.{
                                 .err = .bmp_too_many_missing_palette_bytes,
@@ -809,7 +810,7 @@ pub const Compiler = struct {
                         }
 
                         var number_as_bytes: [8]u8 = undefined;
-                        std.mem.writeIntNative(u64, &number_as_bytes, num_padding_bytes);
+                        std.mem.writeInt(u64, &number_as_bytes, num_padding_bytes, native_endian);
                         const value_string_index = try self.diagnostics.putString(&number_as_bytes);
                         try self.addErrorDetails(.{
                             .err = .bmp_missing_palette_bytes,
@@ -820,7 +821,7 @@ pub const Compiler = struct {
                         const pixel_data_len = bitmap_info.getPixelDataLen(file_size);
                         if (pixel_data_len > 0) {
                             const miscompiled_bytes = @min(pixel_data_len, num_padding_bytes);
-                            std.mem.writeIntNative(u64, &number_as_bytes, miscompiled_bytes);
+                            std.mem.writeInt(u64, &number_as_bytes, miscompiled_bytes, native_endian);
                             const miscompiled_bytes_string_index = try self.diagnostics.putString(&number_as_bytes);
                             try self.addErrorDetails(.{
                                 .err = .rc_would_miscompile_bmp_palette_padding,
@@ -984,8 +985,8 @@ pub const Compiler = struct {
         pub fn write(self: Data, writer: anytype) !void {
             switch (self) {
                 .number => |number| switch (number.is_long) {
-                    false => try writer.writeIntLittle(WORD, number.asWord()),
-                    true => try writer.writeIntLittle(DWORD, number.value),
+                    false => try writer.writeInt(WORD, number.asWord(), .little),
+                    true => try writer.writeInt(DWORD, number.value, .little),
                 },
                 .ascii_string => |ascii_string| {
                     try writer.writeAll(ascii_string);
@@ -1315,9 +1316,9 @@ pub const Compiler = struct {
 
             try data_writer.writeByte(modifiers.value);
             try data_writer.writeByte(0); // padding
-            try data_writer.writeIntLittle(u16, key);
-            try data_writer.writeIntLittle(u16, cmd_id.asWord());
-            try data_writer.writeIntLittle(u16, 0); // padding
+            try data_writer.writeInt(u16, key, .little);
+            try data_writer.writeInt(u16, cmd_id.asWord(), .little);
+            try data_writer.writeInt(u16, 0, .little); // padding
         }
     }
 
@@ -1700,34 +1701,34 @@ pub const Compiler = struct {
                 if (node.help_id == null) break :help_id 0;
                 break :help_id evaluateNumberExpression(node.help_id.?, self.source, self.input_code_pages).value;
             };
-            try data_writer.writeIntLittle(u16, 1); // version number, always 1
-            try data_writer.writeIntLittle(u16, 0xFFFF); // signature, always 0xFFFF
-            try data_writer.writeIntLittle(u32, help_id);
-            try data_writer.writeIntLittle(u32, optional_statement_values.exstyle);
-            try data_writer.writeIntLittle(u32, optional_statement_values.style);
+            try data_writer.writeInt(u16, 1, .little); // version number, always 1
+            try data_writer.writeInt(u16, 0xFFFF, .little); // signature, always 0xFFFF
+            try data_writer.writeInt(u32, help_id, .little);
+            try data_writer.writeInt(u32, optional_statement_values.exstyle, .little);
+            try data_writer.writeInt(u32, optional_statement_values.style, .little);
         } else {
-            try data_writer.writeIntLittle(u32, optional_statement_values.style);
-            try data_writer.writeIntLittle(u32, optional_statement_values.exstyle);
+            try data_writer.writeInt(u32, optional_statement_values.style, .little);
+            try data_writer.writeInt(u32, optional_statement_values.exstyle, .little);
         }
         // This limit is enforced by the parser, so we know the number of controls
         // is within the range of a u16.
-        try data_writer.writeIntLittle(u16, @as(u16, @intCast(node.controls.len)));
-        try data_writer.writeIntLittle(u16, x.asWord());
-        try data_writer.writeIntLittle(u16, y.asWord());
-        try data_writer.writeIntLittle(u16, width.asWord());
-        try data_writer.writeIntLittle(u16, height.asWord());
+        try data_writer.writeInt(u16, @as(u16, @intCast(node.controls.len)), .little);
+        try data_writer.writeInt(u16, x.asWord(), .little);
+        try data_writer.writeInt(u16, y.asWord(), .little);
+        try data_writer.writeInt(u16, width.asWord(), .little);
+        try data_writer.writeInt(u16, height.asWord(), .little);
 
         // Menu
         if (optional_statement_values.menu) |menu| {
             try menu.write(data_writer);
         } else {
-            try data_writer.writeIntLittle(u16, 0);
+            try data_writer.writeInt(u16, 0, .little);
         }
         // Class
         if (optional_statement_values.class) |class| {
             try class.write(data_writer);
         } else {
-            try data_writer.writeIntLittle(u16, 0);
+            try data_writer.writeInt(u16, 0, .little);
         }
         // Caption
         if (optional_statement_values.caption) |caption| {
@@ -1735,7 +1736,7 @@ pub const Compiler = struct {
             defer self.allocator.free(parsed);
             try data_writer.writeAll(std.mem.sliceAsBytes(parsed[0 .. parsed.len + 1]));
         } else {
-            try data_writer.writeIntLittle(u16, 0);
+            try data_writer.writeInt(u16, 0, .little);
         }
         // Font
         if (optional_statement_values.font) |font| {
@@ -1786,18 +1787,18 @@ pub const Compiler = struct {
         switch (resource) {
             .dialog => {
                 // Note: Reverse order from DIALOGEX
-                try data_writer.writeIntLittle(u32, style);
-                try data_writer.writeIntLittle(u32, exstyle);
+                try data_writer.writeInt(u32, style, .little);
+                try data_writer.writeInt(u32, exstyle, .little);
             },
             .dialogex => {
                 const help_id: u32 = if (control.help_id) |help_id_expression|
                     evaluateNumberExpression(help_id_expression, self.source, self.input_code_pages).value
                 else
                     0;
-                try data_writer.writeIntLittle(u32, help_id);
+                try data_writer.writeInt(u32, help_id, .little);
                 // Note: Reverse order from DIALOG
-                try data_writer.writeIntLittle(u32, exstyle);
-                try data_writer.writeIntLittle(u32, style);
+                try data_writer.writeInt(u32, exstyle, .little);
+                try data_writer.writeInt(u32, style, .little);
             },
             else => unreachable,
         }
@@ -1807,15 +1808,15 @@ pub const Compiler = struct {
         const control_width = evaluateNumberExpression(control.width, self.source, self.input_code_pages);
         const control_height = evaluateNumberExpression(control.height, self.source, self.input_code_pages);
 
-        try data_writer.writeIntLittle(u16, control_x.asWord());
-        try data_writer.writeIntLittle(u16, control_y.asWord());
-        try data_writer.writeIntLittle(u16, control_width.asWord());
-        try data_writer.writeIntLittle(u16, control_height.asWord());
+        try data_writer.writeInt(u16, control_x.asWord(), .little);
+        try data_writer.writeInt(u16, control_y.asWord(), .little);
+        try data_writer.writeInt(u16, control_width.asWord(), .little);
+        try data_writer.writeInt(u16, control_height.asWord(), .little);
 
         const control_id = evaluateNumberExpression(control.id, self.source, self.input_code_pages);
         switch (resource) {
-            .dialog => try data_writer.writeIntLittle(u16, control_id.asWord()),
-            .dialogex => try data_writer.writeIntLittle(u32, control_id.value),
+            .dialog => try data_writer.writeInt(u16, control_id.asWord(), .little),
+            .dialogex => try data_writer.writeInt(u32, control_id.value, .little),
             else => unreachable,
         }
 
@@ -1948,7 +1949,7 @@ pub const Compiler = struct {
         }
         // We know the extra_data_buf size fits within a u16.
         const extra_data_size: u16 = @intCast(extra_data_buf.items.len);
-        try data_writer.writeIntLittle(u16, extra_data_size);
+        try data_writer.writeInt(u16, extra_data_size, .little);
         try data_writer.writeAll(extra_data_buf.items);
     }
 
@@ -1962,21 +1963,21 @@ pub const Compiler = struct {
 
         // I'm assuming this is some sort of version
         // TODO: Try to find something mentioning this
-        try data_writer.writeIntLittle(u16, 1);
-        try data_writer.writeIntLittle(u16, button_width.asWord());
-        try data_writer.writeIntLittle(u16, button_height.asWord());
-        try data_writer.writeIntLittle(u16, @as(u16, @intCast(node.buttons.len)));
+        try data_writer.writeInt(u16, 1, .little);
+        try data_writer.writeInt(u16, button_width.asWord(), .little);
+        try data_writer.writeInt(u16, button_height.asWord(), .little);
+        try data_writer.writeInt(u16, @as(u16, @intCast(node.buttons.len)), .little);
 
         for (node.buttons) |button_or_sep| {
             switch (button_or_sep.id) {
                 .literal => { // This is always SEPARATOR
                     std.debug.assert(button_or_sep.cast(.literal).?.token.id == .literal);
-                    try data_writer.writeIntLittle(u16, 0);
+                    try data_writer.writeInt(u16, 0, .little);
                 },
                 .simple_statement => {
                     const value_node = button_or_sep.cast(.simple_statement).?.value;
                     const value = evaluateNumberExpression(value_node, self.source, self.input_code_pages);
-                    try data_writer.writeIntLittle(u16, value.asWord());
+                    try data_writer.writeInt(u16, value.asWord(), .little);
                 },
                 else => unreachable, // This is a bug in the parser
             }
@@ -2007,21 +2008,21 @@ pub const Compiler = struct {
     pub fn writeDialogFont(self: *Compiler, resource: Resource, values: FontStatementValues, writer: anytype) !void {
         const node = values.node;
         const point_size = evaluateNumberExpression(node.point_size, self.source, self.input_code_pages);
-        try writer.writeIntLittle(u16, point_size.asWord());
+        try writer.writeInt(u16, point_size.asWord(), .little);
 
         if (resource == .dialogex) {
-            try writer.writeIntLittle(u16, values.weight);
+            try writer.writeInt(u16, values.weight, .little);
         }
 
         if (resource == .dialogex) {
-            try writer.writeIntLittle(u8, @intFromBool(values.italic));
+            try writer.writeInt(u8, @intFromBool(values.italic), .little);
         }
 
         if (node.char_set) |char_set| {
             const value = evaluateNumberExpression(char_set, self.source, self.input_code_pages);
-            try writer.writeIntLittle(u8, @as(u8, @truncate(value.value)));
+            try writer.writeInt(u8, @as(u8, @truncate(value.value)), .little);
         } else if (resource == .dialogex) {
-            try writer.writeIntLittle(u8, 1); // DEFAULT_CHARSET
+            try writer.writeInt(u8, 1, .little); // DEFAULT_CHARSET
         }
 
         const typeface = try self.parseQuotedStringAsWideString(node.typeface);
@@ -2076,9 +2077,9 @@ pub const Compiler = struct {
     pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: anytype, resource: Resource) !void {
         // menu header
         const version: u16 = if (resource == .menu) 0 else 1;
-        try data_writer.writeIntLittle(u16, version);
+        try data_writer.writeInt(u16, version, .little);
         const header_size: u16 = if (resource == .menu) 0 else 4;
-        try data_writer.writeIntLittle(u16, header_size); // cbHeaderSize
+        try data_writer.writeInt(u16, header_size, .little); // cbHeaderSize
         // Note: There can be extra bytes at the end of this header (`rgbExtra`),
         //       but they are always zero-length for us, so we don't write anything
         //       (the length of the rgbExtra field is inferred from the header_size).
@@ -2088,9 +2089,9 @@ pub const Compiler = struct {
         if (resource == .menuex) {
             if (node.help_id) |help_id_node| {
                 const help_id = evaluateNumberExpression(help_id_node, self.source, self.input_code_pages);
-                try data_writer.writeIntLittle(u32, help_id.value);
+                try data_writer.writeInt(u32, help_id.value, .little);
             } else {
-                try data_writer.writeIntLittle(u32, 0);
+                try data_writer.writeInt(u32, 0, .little);
             }
         }
 
@@ -2110,9 +2111,9 @@ pub const Compiler = struct {
                 // compiler still uses this alternate form, so that's what we use too.
                 var flags = res.MenuItemFlags{};
                 if (is_last_of_parent) flags.markLast();
-                try writer.writeIntLittle(u16, flags.value);
-                try writer.writeIntLittle(u16, 0); // id
-                try writer.writeIntLittle(u16, 0); // null-terminated UTF-16 text
+                try writer.writeInt(u16, flags.value, .little);
+                try writer.writeInt(u16, 0, .little); // id
+                try writer.writeInt(u16, 0, .little); // null-terminated UTF-16 text
             },
             .menu_item => {
                 const menu_item = @fieldParentPtr(Node.MenuItem, "base", node);
@@ -2123,10 +2124,10 @@ pub const Compiler = struct {
                     flags.apply(option);
                 }
                 if (is_last_of_parent) flags.markLast();
-                try writer.writeIntLittle(u16, flags.value);
+                try writer.writeInt(u16, flags.value, .little);
 
                 var result = evaluateNumberExpression(menu_item.result, self.source, self.input_code_pages);
-                try writer.writeIntLittle(u16, result.asWord());
+                try writer.writeInt(u16, result.asWord(), .little);
 
                 var text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
@@ -2141,7 +2142,7 @@ pub const Compiler = struct {
                     flags.apply(option);
                 }
                 if (is_last_of_parent) flags.markLast();
-                try writer.writeIntLittle(u16, flags.value);
+                try writer.writeInt(u16, flags.value, .little);
 
                 var text = try self.parseQuotedStringAsWideString(popup.text);
                 defer self.allocator.free(text);
@@ -2157,30 +2158,30 @@ pub const Compiler = struct {
 
                 if (menu_item.type) |flags| {
                     const value = evaluateNumberExpression(flags, self.source, self.input_code_pages);
-                    try writer.writeIntLittle(u32, value.value);
+                    try writer.writeInt(u32, value.value, .little);
                 } else {
-                    try writer.writeIntLittle(u32, 0);
+                    try writer.writeInt(u32, 0, .little);
                 }
 
                 if (menu_item.state) |state| {
                     const value = evaluateNumberExpression(state, self.source, self.input_code_pages);
-                    try writer.writeIntLittle(u32, value.value);
+                    try writer.writeInt(u32, value.value, .little);
                 } else {
-                    try writer.writeIntLittle(u32, 0);
+                    try writer.writeInt(u32, 0, .little);
                 }
 
                 if (menu_item.id) |id| {
                     const value = evaluateNumberExpression(id, self.source, self.input_code_pages);
-                    try writer.writeIntLittle(u32, value.value);
+                    try writer.writeInt(u32, value.value, .little);
                 } else {
-                    try writer.writeIntLittle(u32, 0);
+                    try writer.writeInt(u32, 0, .little);
                 }
 
                 var flags: u16 = 0;
                 if (is_last_of_parent) flags |= comptime @as(u16, @intCast(res.MF.END));
                 // This constant doesn't seem to have a named #define, it's different than MF_POPUP
                 if (node_type == .popup_ex) flags |= 0x01;
-                try writer.writeIntLittle(u16, flags);
+                try writer.writeInt(u16, flags, .little);
 
                 var text = try self.parseQuotedStringAsWideString(menu_item.text);
                 defer self.allocator.free(text);
@@ -2195,9 +2196,9 @@ pub const Compiler = struct {
                 if (node_type == .popup_ex) {
                     if (menu_item.help_id) |help_id_node| {
                         const help_id = evaluateNumberExpression(help_id_node, self.source, self.input_code_pages);
-                        try writer.writeIntLittle(u32, help_id.value);
+                        try writer.writeInt(u32, help_id.value, .little);
                     } else {
-                        try writer.writeIntLittle(u32, 0);
+                        try writer.writeInt(u32, 0, .little);
                     }
 
                     for (menu_item.items, 0..) |item, i| {
@@ -2218,15 +2219,15 @@ pub const Compiler = struct {
         var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u16));
         const data_writer = limited_writer.writer();
 
-        try data_writer.writeIntLittle(u16, 0); // placeholder size
-        try data_writer.writeIntLittle(u16, res.FixedFileInfo.byte_len);
-        try data_writer.writeIntLittle(u16, res.VersionNode.type_binary);
+        try data_writer.writeInt(u16, 0, .little); // placeholder size
+        try data_writer.writeInt(u16, res.FixedFileInfo.byte_len, .little);
+        try data_writer.writeInt(u16, res.VersionNode.type_binary, .little);
         const key_bytes = std.mem.sliceAsBytes(res.FixedFileInfo.key[0 .. res.FixedFileInfo.key.len + 1]);
         try data_writer.writeAll(key_bytes);
         // The number of bytes written up to this point is always the same, since the name
         // of the node is a constant (FixedFileInfo.key). The total number of bytes
         // written so far is 38, so we need 2 padding bytes to get back to DWORD alignment
-        try data_writer.writeIntLittle(u16, 0);
+        try data_writer.writeInt(u16, 0, .little);
 
         var fixed_file_info = res.FixedFileInfo{};
         for (node.fixed_info) |fixed_info| {
@@ -2321,7 +2322,7 @@ pub const Compiler = struct {
         // limited the writer to maxInt(u16)
         const data_size: u16 = @intCast(data_buffer.items.len);
         // And now that we know the full size of this node (including its children), set its size
-        std.mem.writeIntLittle(u16, data_buffer.items[0..2], data_size);
+        std.mem.writeInt(u16, data_buffer.items[0..2], data_size, .little);
 
         var header = try self.resourceHeader(node.id, node.versioninfo, .{
             .data_size = data_size,
@@ -2344,12 +2345,12 @@ pub const Compiler = struct {
         try writeDataPadding(writer, @as(u16, @intCast(buf.items.len)));
 
         const node_and_children_size_offset = buf.items.len;
-        try writer.writeIntLittle(u16, 0); // placeholder for size
+        try writer.writeInt(u16, 0, .little); // placeholder for size
         const data_size_offset = buf.items.len;
-        try writer.writeIntLittle(u16, 0); // placeholder for data size
+        try writer.writeInt(u16, 0, .little); // placeholder for data size
         const data_type_offset = buf.items.len;
         // Data type is string unless the node contains values that are numbers.
-        try writer.writeIntLittle(u16, res.VersionNode.type_string);
+        try writer.writeInt(u16, res.VersionNode.type_string, .little);
 
         switch (node.id) {
             inline .block, .block_value => |node_type| {
@@ -2411,17 +2412,17 @@ pub const Compiler = struct {
                         const is_empty = parsed_to_first_null.len == 0;
                         const is_only = block_or_value.values.len == 1;
                         if ((!is_empty or !is_only) and (is_last or value_value_node.trailing_comma)) {
-                            try writer.writeIntLittle(u16, 0);
+                            try writer.writeInt(u16, 0, .little);
                             values_size += if (has_number_value) 2 else 1;
                         }
                     }
                 }
                 var data_size_slice = buf.items[data_size_offset..];
-                std.mem.writeIntLittle(u16, data_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(values_size)));
+                std.mem.writeInt(u16, data_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(values_size)), .little);
 
                 if (has_number_value) {
                     const data_type_slice = buf.items[data_type_offset..];
-                    std.mem.writeIntLittle(u16, data_type_slice[0..@sizeOf(u16)], res.VersionNode.type_binary);
+                    std.mem.writeInt(u16, data_type_slice[0..@sizeOf(u16)], res.VersionNode.type_binary, .little);
                 }
 
                 if (node_type == .block) {
@@ -2436,7 +2437,7 @@ pub const Compiler = struct {
 
         const node_and_children_size = buf.items.len - node_and_children_size_offset;
         const node_and_children_size_slice = buf.items[node_and_children_size_offset..];
-        std.mem.writeIntLittle(u16, node_and_children_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(node_and_children_size)));
+        std.mem.writeInt(u16, node_and_children_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(node_and_children_size)), .little);
     }
 
     pub fn writeStringTable(self: *Compiler, node: *Node.StringTable) !void {
@@ -2644,17 +2645,17 @@ pub const Compiler = struct {
         }
 
         fn writeSizeInfo(self: ResourceHeader, writer: anytype, size_info: SizeInfo) !void {
-            try writer.writeIntLittle(DWORD, self.data_size); // DataSize
-            try writer.writeIntLittle(DWORD, size_info.bytes); // HeaderSize
+            try writer.writeInt(DWORD, self.data_size, .little); // DataSize
+            try writer.writeInt(DWORD, size_info.bytes, .little); // HeaderSize
             try self.type_value.write(writer); // TYPE
             try self.name_value.write(writer); // NAME
             try writer.writeByteNTimes(0, size_info.padding_after_name);
 
-            try writer.writeIntLittle(DWORD, self.data_version); // DataVersion
-            try writer.writeIntLittle(WORD, self.memory_flags.value); // MemoryFlags
-            try writer.writeIntLittle(WORD, self.language.asInt()); // LanguageId
-            try writer.writeIntLittle(DWORD, self.version); // Version
-            try writer.writeIntLittle(DWORD, self.characteristics); // Characteristics
+            try writer.writeInt(DWORD, self.data_version, .little); // DataVersion
+            try writer.writeInt(WORD, self.memory_flags.value, .little); // MemoryFlags
+            try writer.writeInt(WORD, self.language.asInt(), .little); // LanguageId
+            try writer.writeInt(DWORD, self.version, .little); // Version
+            try writer.writeInt(DWORD, self.characteristics, .little); // Characteristics
         }
 
         pub fn predefinedResourceType(self: ResourceHeader) ?res.RT {
@@ -2997,7 +2998,7 @@ pub const FontDir = struct {
         defer header.deinit(compiler.allocator);
 
         try header.writeAssertNoOverflow(writer);
-        try writer.writeIntLittle(u16, num_fonts);
+        try writer.writeInt(u16, num_fonts, .little);
         for (self.fonts.items) |font| {
             // The format of the FONTDIR is a strange beast.
             // Technically, each FONT is seemingly meant to be written as a
@@ -3049,7 +3050,7 @@ pub const FontDir = struct {
             // device name/face name in the FONTDIR is reliable.
 
             // First, the ID is written, though
-            try writer.writeIntLittle(u16, font.id);
+            try writer.writeInt(u16, font.id, .little);
             try writer.writeAll(&font.header_bytes);
             try writer.writeByteNTimes(0, 2);
         }
@@ -3186,7 +3187,7 @@ pub const StringTable = struct {
             var string_i: u8 = 0;
             while (true) : (i += 1) {
                 if (!self.set_indexes.isSet(i)) {
-                    try data_writer.writeIntLittle(u16, 0);
+                    try data_writer.writeInt(u16, 0, .little);
                     if (i == 15) break else continue;
                 }
 
@@ -3217,10 +3218,10 @@ pub const StringTable = struct {
                 // If the option is set, then a NUL terminator is added unconditionally.
                 // We already trimmed any trailing NULs, so we know it will be a new addition to the string.
                 if (compiler.null_terminate_string_table_strings) string_len_in_utf16_code_units += 1;
-                try data_writer.writeIntLittle(u16, string_len_in_utf16_code_units);
+                try data_writer.writeInt(u16, string_len_in_utf16_code_units, .little);
                 try data_writer.writeAll(std.mem.sliceAsBytes(trimmed_string));
                 if (compiler.null_terminate_string_table_strings) {
-                    try data_writer.writeIntLittle(u16, 0);
+                    try data_writer.writeInt(u16, 0, .little);
                 }
 
                 if (i == 15) break;

@@ -1231,8 +1231,8 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                 const abi_size = int_info.bits >> 3;
                 const abi_align = operand_ty.abiAlignment(mod);
                 const opposite_endian_asi = switch (self.target.cpu.arch.endian()) {
-                    Endian.Big => ASI.asi_primary_little,
-                    Endian.Little => ASI.asi_primary,
+                    Endian.big => ASI.asi_primary_little,
+                    Endian.little => ASI.asi_primary,
                 };
 
                 switch (operand) {
@@ -1347,7 +1347,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
                     const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                        const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
