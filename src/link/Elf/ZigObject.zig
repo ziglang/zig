@@ -87,7 +87,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const esym_index = try self.addLocalEsym(gpa);
     const esym = &self.local_esyms.items(.elf_sym)[esym_index];
     esym.st_name = name_off;
-    esym.st_info |= elf.STT_FILE;
+    esym.st_info = elf.STT_FILE;
     esym.st_shndx = elf.SHN_ABS;
     symbol_ptr.esym_index = esym_index;
 
@@ -284,6 +284,22 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     return symbol_index;
 }
 
+pub fn addSectionSymbol(self: *ZigObject, shndx: u16, elf_file: *Elf) !void {
+    assert(elf_file.isObject());
+    const gpa = elf_file.base.allocator;
+    const symbol_index = try elf_file.addSymbol();
+    try self.local_symbols.append(gpa, symbol_index);
+    const symbol_ptr = elf_file.symbol(symbol_index);
+    symbol_ptr.file_index = self.index;
+    symbol_ptr.output_section_index = shndx;
+
+    const esym_index = try self.addLocalEsym(gpa);
+    const esym = &self.local_esyms.items(.elf_sym)[esym_index];
+    esym.st_info = elf.STT_SECTION;
+    esym.st_shndx = shndx;
+    symbol_ptr.esym_index = esym_index;
+}
+
 /// TODO actually create fake input shdrs and return that instead.
 pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
     _ = self;
@@ -435,6 +451,16 @@ pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
 pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
+    // const getSectionSymbol = struct {
+    //     fn getSectionSymbol(zig_object: ZigObject, shndx: u16, ctx: *Elf) Symbol.Index {
+    //         for (zig_object.locals()) |local_index| {
+    //             const local = ctx.symbol(local_index);
+    //             if (local.type(ctx) == elf.STT_SECTION and local.output_section_index == shndx)
+    //                 return local.esym_index;
+    //         } else unreachable;
+    //     }
+    // }.getSectionSymbol;
+
     for (&[_]?u16{
         elf_file.zig_text_rela_section_index,
         elf_file.zig_data_rel_ro_rela_section_index,
@@ -453,8 +479,13 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
 
         while (true) {
             for (atom.relocs(elf_file)) |rel| {
-                var r_sym = rel.r_sym() & symbol_mask;
-                if (self.isGlobal(rel.r_sym())) r_sym += @intCast(self.local_esyms.slice().len + 1);
+                const target = elf_file.symbol(self.symbol(rel.r_sym()));
+                const r_offset = target.value + rel.r_offset;
+                const r_sym: u32 = if (target.flags.global)
+                    (target.esym_index & symbol_mask) + @as(u32, @intCast(self.local_esyms.slice().len))
+                else
+                    target.esym_index;
+                // getSectionSymbol(self, target.outputShndx().?, elf_file);
                 const r_type = switch (rel.r_type()) {
                     Elf.R_X86_64_ZIG_GOT32,
                     Elf.R_X86_64_ZIG_GOTPCREL,
@@ -462,9 +493,9 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
                     else => |r_type| r_type,
                 };
                 relocs.appendAssumeCapacity(.{
-                    .r_offset = rel.r_offset,
+                    .r_offset = r_offset,
                     .r_addend = rel.r_addend,
-                    .r_info = (@as(u64, @intCast(r_sym)) << 32) | r_type,
+                    .r_info = (@as(u64, @intCast(r_sym + 1)) << 32) | r_type,
                 });
             }
             if (elf_file.atom(atom.prev_index)) |prev| {
@@ -485,28 +516,27 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
     }
 }
 
-pub fn isGlobal(self: ZigObject, index: Symbol.Index) bool {
-    _ = self;
+inline fn isGlobal(index: Symbol.Index) bool {
     return index & global_symbol_bit != 0;
 }
 
-pub fn symbol(self: *ZigObject, index: Symbol.Index) Symbol.Index {
+pub fn symbol(self: ZigObject, index: Symbol.Index) Symbol.Index {
     const actual_index = index & symbol_mask;
-    if (self.isGlobal(index)) return self.global_symbols.items[actual_index];
+    if (isGlobal(index)) return self.global_symbols.items[actual_index];
     return self.local_symbols.items[actual_index];
 }
 
 pub fn elfSym(self: *ZigObject, index: Symbol.Index) *elf.Elf64_Sym {
     const actual_index = index & symbol_mask;
-    if (self.isGlobal(index)) return &self.global_esyms.items(.elf_sym)[actual_index];
+    if (isGlobal(index)) return &self.global_esyms.items(.elf_sym)[actual_index];
     return &self.local_esyms.items(.elf_sym)[actual_index];
 }
 
-pub fn locals(self: *ZigObject) []const Symbol.Index {
+pub fn locals(self: ZigObject) []const Symbol.Index {
     return self.local_symbols.items;
 }
 
-pub fn globals(self: *ZigObject) []const Symbol.Index {
+pub fn globals(self: ZigObject) []const Symbol.Index {
     return self.global_symbols.items;
 }
 

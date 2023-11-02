@@ -136,7 +136,8 @@ pub const File = union(enum) {
             if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
             const esym = local.elfSym(elf_file);
             switch (esym.st_type()) {
-                elf.STT_SECTION, elf.STT_NOTYPE => continue,
+                elf.STT_SECTION => if (!elf_file.isObject()) continue,
+                elf.STT_NOTYPE => continue,
                 else => {},
             }
             local.flags.output_symtab = true;

@@ -494,6 +494,7 @@ pub fn initMetadata(self: *Elf) !void {
     const ptr_size = self.ptrWidthBytes();
     const ptr_bit_width = self.base.options.target.ptrBitWidth();
     const is_linux = self.base.options.target.os.tag == .linux;
+    const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) void {
@@ -597,6 +598,7 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
         fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
         if (self.isObject()) {
+            try zig_object.addSectionSymbol(self.zig_text_section_index.?, self);
             self.zig_text_rela_section_index = try self.addRelaShdr(
                 ".rela.text.zig",
                 self.zig_text_section_index.?,
@@ -643,6 +645,7 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
         if (self.isObject()) {
+            try zig_object.addSectionSymbol(self.zig_data_rel_ro_section_index.?, self);
             self.zig_data_rel_ro_rela_section_index = try self.addRelaShdr(
                 ".rela.data.rel.ro.zig",
                 self.zig_data_rel_ro_section_index.?,
@@ -668,6 +671,7 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
         if (self.isObject()) {
+            try zig_object.addSectionSymbol(self.zig_data_section_index.?, self);
             self.zig_data_rela_section_index = try self.addRelaShdr(
                 ".rela.data.zig",
                 self.zig_data_section_index.?,
@@ -697,12 +701,12 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_size = phdr.p_memsz;
             try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_bss_section_index.?, phndx);
         } else {
+            try zig_object.addSectionSymbol(self.zig_bss_section_index.?, self);
             shdr.sh_size = 1024;
         }
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    const zig_object = self.zigObjectPtr().?;
     if (zig_object.dwarf) |*dw| {
         if (self.debug_str_section_index == null) {
             assert(dw.strtab.buffer.items.len == 0);
@@ -3801,23 +3805,19 @@ fn sortShdrs(self: *Elf) !void {
     if (self.zigObjectPtr()) |zig_object| {
         for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const out_shndx = atom_ptr.outputShndx() orelse continue;
-            atom_ptr.output_section_index = backlinks[out_shndx];
+            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
         }
 
         for (zig_object.locals()) |local_index| {
             const local = self.symbol(local_index);
-            const atom_ptr = local.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const out_shndx = local.outputShndx() orelse continue;
-            local.output_section_index = backlinks[out_shndx];
+            local.output_section_index = backlinks[local.output_section_index];
         }
 
         for (zig_object.globals()) |global_index| {
             const global = self.symbol(global_index);
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
+            // TODO claim unresolved for objects
             if (global.file(self).?.index() != zig_object.index) continue;
             const out_shndx = global.outputShndx() orelse continue;
             global.output_section_index = backlinks[out_shndx];

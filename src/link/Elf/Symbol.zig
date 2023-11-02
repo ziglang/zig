@@ -223,6 +223,8 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_shndx = blk: {
         if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
+        // TODO I think this is wrong and obsolete
+        if (elf_file.isObject() and st_type == elf.STT_SECTION) break :blk symbol.outputShndx().?;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
             break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
