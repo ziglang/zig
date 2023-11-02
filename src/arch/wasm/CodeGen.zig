@@ -3814,6 +3814,16 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const bitcast_result = try func.bitcast(wanted_ty, given_ty, operand);
             break :result try bitcast_result.toLocal(func, wanted_ty);
         }
+        const mod = func.bin_file.base.options.module.?;
+        if (isByRef(given_ty, mod) and !isByRef(wanted_ty, mod)) {
+            const loaded_memory = try func.load(operand, wanted_ty, 0);
+            break :result try loaded_memory.toLocal(func, wanted_ty);
+        }
+        if (!isByRef(given_ty, mod) and isByRef(wanted_ty, mod)) {
+            const stack_memory = try func.allocStack(wanted_ty);
+            try func.store(stack_memory, operand, given_ty, 0);
+            break :result stack_memory;
+        }
         break :result func.reuseOperand(ty_op.operand, operand);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
