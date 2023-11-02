@@ -5053,7 +5053,7 @@ fn deferUnwindExample() void {
     print("\n", .{});
 
     defer {
-        print("1 ", .{});
+        print("1 \n", .{});
     }
     defer {
         print("2 ", .{});
