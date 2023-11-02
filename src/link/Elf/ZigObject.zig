@@ -210,6 +210,8 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf) !void {
         self.saveDebugSectionsSizes(elf_file);
     }
 
+    try self.sortSymbols(elf_file);
+
     // The point of flushModule() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,
@@ -353,7 +355,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
     }
 }
 
-pub fn claimUnresolved(self: *ZigObject, elf_file: *Elf) void {
+pub fn claimUnresolved(self: ZigObject, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
         const esym_index = @as(Symbol.Index, @intCast(i)) | global_symbol_bit;
         const esym = self.global_esyms.items(.elf_sym)[i];
@@ -378,6 +380,26 @@ pub fn claimUnresolved(self: *ZigObject, elf_file: *Elf) void {
         global.file_index = self.index;
         global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
         global.flags.import = is_import;
+    }
+}
+
+pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
+    for (self.globals(), 0..) |index, i| {
+        const esym_index = @as(Symbol.Index, @intCast(i)) | global_symbol_bit;
+        const esym = self.global_esyms.items(.elf_sym)[i];
+
+        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+
+        const global = elf_file.symbol(index);
+        if (global.file(elf_file)) |file| {
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or
+                file.index() <= self.index) continue;
+        }
+
+        global.value = 0;
+        global.atom_index = 0;
+        global.esym_index = esym_index;
+        global.file_index = self.index;
     }
 }
 
@@ -412,6 +434,72 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
             file.markLive(elf_file);
         }
     }
+}
+
+fn sortSymbols(self: *ZigObject, elf_file: *Elf) error{OutOfMemory}!void {
+    _ = self;
+    _ = elf_file;
+    // const Entry = struct {
+    //     index: Symbol.Index,
+
+    //     const Ctx = struct {
+    //         zobj: ZigObject,
+    //         efile: *Elf,
+    //     };
+
+    //     pub fn lessThan(ctx: Ctx, lhs: @This(), rhs: @This()) bool {
+    //         const lhs_sym = ctx.efile.symbol(zobj.symbol(lhs.index));
+    //         const rhs_sym = ctx.efile.symbol(zobj.symbol(rhs.index));
+    //         if (lhs_sym.outputShndx() != null and rhs_sym.outputShndx() != null) {
+    //             if (lhs_sym.output_section_index == rhs_sym.output_section_index) {
+    //                 if (lhs_sym.value == rhs_sym.value) {
+    //                     return lhs_sym.name_offset < rhs_sym.name_offset;
+    //                 }
+    //                 return lhs_sym.value < rhs_sym.value;
+    //             }
+    //             return lhs_sym.output_section_index < rhs_sym.output_section_index;
+    //         }
+    //         if (lhs_sym.outputShndx() != null) {
+    //             if (rhs_sym.isAbs(ctx.efile)) return false;
+    //             return true;
+    //         }
+    //         return false;
+    //     }
+    // };
+
+    // const gpa = elf_file.base.allocator;
+
+    // {
+    //     const sorted = try gpa.alloc(Entry, self.local_symbols.items.len);
+    //     defer gpa.free(sorted);
+    //     for (0..self.local_symbols.items.len) |index| {
+    //         sorted[i] = .{ .index = @as(Symbol.Index, @intCast(index)) };
+    //     }
+    //     mem.sort(Entry, sorted, .{ .zobj = self, .efile = elf_file }, Entry.lessThan);
+
+    //     const backlinks = try gpa.alloc(Symbol.Index, sorted.len);
+    //     defer gpa.free(backlinks);
+    //     for (sorted, 0..) |entry, i| {
+    //         backlinks[entry.index] = @as(Symbol.Index, @intCast(i));
+    //     }
+
+    //     const local_symbols = try self.local_symbols.toOwnedSlice(gpa);
+    //     defer gpa.free(local_symbols);
+
+    //     try self.local_symbols.ensureTotalCapacityPrecise(gpa, local_symbols.len);
+    //     for (sorted) |entry| {
+    //         self.local_symbols.appendAssumeCapacity(local_symbols[entry.index]);
+    //     }
+
+    //     for (self.)
+    // }
+
+    // const sorted_globals = try gpa.alloc(Entry, self.global_symbols.items.len);
+    // defer gpa.free(sorted_globals);
+    // for (self.global_symbols.items, 0..) |index, i| {
+    //     sorted_globals[i] = .{ .index = index };
+    // }
+    // mem.sort(Entry, sorted_globals, elf_file, Entry.lessThan);
 }
 
 pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
@@ -451,16 +539,6 @@ pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
 pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
-    // const getSectionSymbol = struct {
-    //     fn getSectionSymbol(zig_object: ZigObject, shndx: u16, ctx: *Elf) Symbol.Index {
-    //         for (zig_object.locals()) |local_index| {
-    //             const local = ctx.symbol(local_index);
-    //             if (local.type(ctx) == elf.STT_SECTION and local.output_section_index == shndx)
-    //                 return local.esym_index;
-    //         } else unreachable;
-    //     }
-    // }.getSectionSymbol;
-
     for (&[_]?u16{
         elf_file.zig_text_rela_section_index,
         elf_file.zig_data_rel_ro_rela_section_index,
@@ -485,7 +563,6 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
                     (target.esym_index & symbol_mask) + @as(u32, @intCast(self.local_esyms.slice().len))
                 else
                     target.esym_index;
-                // getSectionSymbol(self, target.outputShndx().?, elf_file);
                 const r_type = switch (rel.r_type()) {
                     Elf.R_X86_64_ZIG_GOT32,
                     Elf.R_X86_64_ZIG_GOTPCREL,

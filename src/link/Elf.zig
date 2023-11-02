@@ -1523,6 +1523,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
+    self.claimUnresolvedObject();
+
     try self.initSections();
     try self.sortShdrs();
     try self.updateSectionSizes();
@@ -1921,6 +1923,12 @@ fn claimUnresolved(self: *Elf) void {
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
         object.claimUnresolved(self);
+    }
+}
+
+fn claimUnresolvedObject(self: *Elf) void {
+    if (self.zigObjectPtr()) |zig_object| {
+        zig_object.claimUnresolvedObject(self);
     }
 }
 
