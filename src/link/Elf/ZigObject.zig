@@ -558,7 +558,7 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
         while (true) {
             for (atom.relocs(elf_file)) |rel| {
                 const target = elf_file.symbol(self.symbol(rel.r_sym()));
-                const r_offset = target.value + rel.r_offset;
+                const r_offset = atom.value + rel.r_offset;
                 const r_sym: u32 = if (target.flags.global)
                     (target.esym_index & symbol_mask) + @as(u32, @intCast(self.local_esyms.slice().len))
                 else
