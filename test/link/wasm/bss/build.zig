@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });
-        lib.no_entry = true;
+        lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
         lib.strip = false;
@@ -67,7 +67,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });
-        lib.no_entry = true;
+        lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
         lib.strip = false;

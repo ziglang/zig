@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
-    lib.no_entry = true;
+    lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.addObject(c_obj);

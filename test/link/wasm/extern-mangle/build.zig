@@ -17,7 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
-    lib.no_entry = true;
+    lib.entry = .disabled;
     lib.import_symbols = true; // import `a` and `b`
     lib.rdynamic = true; // export `foo`
 

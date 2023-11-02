@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
-    exe.entry_symbol_name = "_non_main";
+    exe.entry = .{ .symbol_name = "_non_main" };
 
     const check_exe = exe.checkObject();
 

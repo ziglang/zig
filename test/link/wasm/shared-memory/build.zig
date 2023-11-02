@@ -22,7 +22,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         },
         .optimize = optimize_mode,
     });
-    lib.no_entry = true;
+    lib.entry = .disabled;
     lib.use_lld = false;
     lib.strip = false;
     lib.import_memory = true;

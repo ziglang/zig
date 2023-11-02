@@ -64,8 +64,6 @@ initial_memory: ?u64 = null,
 max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
-/// For WebAssembly only. Tells the linker to not output an entry point.
-no_entry: ?bool = null,
 c_std: std.Build.CStd,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
@@ -191,7 +189,8 @@ dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
 
-entry_symbol_name: ?[]const u8 = null,
+/// How the linker must handle the entry point of the executable.
+entry: Entry = .default,
 
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
@@ -304,6 +303,18 @@ pub const SystemLib = struct {
 const FrameworkLinkInfo = struct {
     needed: bool = false,
     weak: bool = false,
+};
+
+const Entry = union(enum) {
+    /// Let the compiler decide whether to make an entry point and what to name
+    /// it.
+    default,
+    /// The executable will have no entry point.
+    disabled,
+    /// The executable will have an entry point with the default symbol name.
+    enabled,
+    /// The executable will have an entry point with the specified symbol name.
+    symbol_name: []const u8,
 };
 
 pub const IncludeDir = union(enum) {
@@ -1420,9 +1431,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
-    if (self.entry_symbol_name) |entry| {
-        try zig_args.append("--entry");
-        try zig_args.append(entry);
+    switch (self.entry) {
+        .default => {},
+        .disabled => try zig_args.append("-fno-entry"),
+        .enabled => try zig_args.append("-fentry"),
+        .symbol_name => |entry_name| {
+            try zig_args.append(try std.fmt.allocPrint(b.allocator, "-fentry={s}", .{entry_name}));
+        },
     }
 
     {
@@ -1852,11 +1867,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.global_base) |global_base| {
         try zig_args.append(b.fmt("--global-base={d}", .{global_base}));
-    }
-    // invert the value due to naming so when `no_entry` is set to 'true'
-    // we actually emit the flag `-fno_entry`.
-    if (self.no_entry) |no_entry| {
-        try addFlag(&zig_args, "entry", !no_entry);
     }
 
     if (self.code_model != .default) {

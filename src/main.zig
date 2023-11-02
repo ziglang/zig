@@ -509,7 +509,9 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
-    \\  --entry [name]                 Set the entrypoint symbol name
+    \\  -fentry                        Enable entry point with default symbol name
+    \\  -fentry=[name]                 Override the entry point symbol name
+    \\  -fno-entry                     Do not output any entry point
     \\  --force_undefined [name]       Specify the symbol must be defined for the link to succeed
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
@@ -577,8 +579,6 @@ const usage_build_generic =
     \\  --shared-memory                (WebAssembly) use shared linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
-    \\  -fentry                        (WebAssembly) Force output an entry point
-    \\  -fno-entry                     (WebAssembly) Do not output any entry point
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -837,7 +837,7 @@ fn buildOutputType(
     var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
-    var linker_no_entry: ?bool = null;
+    var linker_force_entry: ?bool = null;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
@@ -1074,8 +1074,8 @@ fn buildOutputType(
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         optimize_mode_string = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--entry")) {
-                        entry = args_iter.nextOrFatal();
+                    } else if (mem.startsWith(u8, arg, "-fentry=")) {
+                        entry = arg["-fentry=".len..];
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(gpa, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack")) {
@@ -1507,9 +1507,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
                     } else if (mem.eql(u8, arg, "-fentry")) {
-                        linker_no_entry = false;
+                        linker_force_entry = true;
                     } else if (mem.eql(u8, arg, "-fno-entry")) {
-                        linker_no_entry = true;
+                        linker_force_entry = false;
                     } else if (mem.eql(u8, arg, "--export-memory")) {
                         linker_export_memory = true;
                     } else if (mem.eql(u8, arg, "--import-symbols")) {
@@ -2142,7 +2142,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
                 } else if (mem.eql(u8, arg, "--no-entry")) {
-                    linker_no_entry = true;
+                    linker_force_entry = false;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2605,6 +2605,23 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
+    if (linker_force_entry) |force| {
+        if (!force) {
+            entry = null;
+        } else if (entry == null and output_mode == .Exe) {
+            entry = switch (target_info.target.ofmt) {
+                .coff => "wWinMainCRTStartup",
+                .macho => "_main",
+                .elf, .plan9 => "_start",
+                .wasm => defaultWasmEntryName(wasi_exec_model),
+                else => |tag| fatal("No default entry point available for output format {s}", .{@tagName(tag)}),
+            };
+        }
+    } else if (entry == null and target_info.target.isWasm() and output_mode == .Exe) {
+        // For WebAssembly the compiler defaults to setting the entry name when no flags are set.
+        entry = defaultWasmEntryName(wasi_exec_model);
+    }
+
     if (target_info.target.ofmt == .coff) {
         // Now that we know the target supports resources,
         // we can add the res files as link objects.
@@ -2637,23 +2654,11 @@ fn buildOutputType(
                 linker_export_memory = false;
             }
         }
-        if (wasi_exec_model) |model| {
-            if (model == .reactor) {
-                if (linker_no_entry != null and !linker_no_entry.?) {
-                    fatal("WASI exucution model 'reactor' incompatible with flag '-fentry'. Reactor execution model has no entry point", .{});
+        if (wasi_exec_model != null and wasi_exec_model.? == .reactor) {
+            if (entry) |entry_name| {
+                if (!mem.eql(u8, "_initialize", entry_name)) {
+                    fatal("the entry symbol of the reactor model must be '_initialize', but found '{s}'", .{entry_name});
                 }
-                if (entry) |entry_name| {
-                    if (!mem.eql(u8, "_initialize", entry_name)) {
-                        fatal("the entry symbol of the reactor model must be '_initialize', but found '{s}'", .{entry_name});
-                    }
-                } else {
-                    entry = "_initialize";
-                }
-            }
-        }
-        if (linker_no_entry) |no_entry| {
-            if (no_entry and entry != null) {
-                fatal("combination of '--entry' and `-fno-entry` are incompatible", .{});
             }
         }
         if (linker_shared_memory) {
@@ -3503,7 +3508,6 @@ fn buildOutputType(
         .linker_import_symbols = linker_import_symbols,
         .linker_import_table = linker_import_table,
         .linker_export_table = linker_export_table,
-        .linker_no_entry = linker_no_entry orelse false,
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_shared_memory = linker_shared_memory,
@@ -7252,4 +7256,12 @@ fn createDependenciesModule(
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;
+}
+
+fn defaultWasmEntryName(exec_model: ?std.builtin.WasiExecModel) []const u8 {
+    const model = exec_model orelse .command;
+    if (model == .reactor) {
+        return "_initialize";
+    }
+    return "_start";
 }
