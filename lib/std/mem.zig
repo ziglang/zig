@@ -196,10 +196,40 @@ test "Allocator.resize" {
 /// `copyForwards` if they do.
 pub const copy = copyForwards;
 
+/// Returns true if the second argument aliases the first.
+/// This is an *exclusive* range check.
+/// If ptr is a slice, it will check for both arguments overlapping, otherwise
+/// it will check if ptr is contained within range.
+/// TODO: Remove this when builtin is implemented! (See issue: #17613)
+pub fn alias(comptime T: type, range: []const T, ptr: anytype) bool {
+    // NOTE: We can't currently determine if ranges overlap at comptime (as the
+    // currently language doesn't expose the information needed to do that).
+    const range_begin = @intFromPtr(range.ptr);
+    const range_end = @intFromPtr(range.ptr + range.len);
+
+    switch (@typeInfo(@TypeOf(ptr))) {
+        .Pointer => |p| switch (p.size) {
+            .Slice => {
+                const ptr_begin = @intFromPtr(ptr.ptr);
+                const ptr_end = @intFromPtr(ptr.ptr + ptr.len);
+                return !(range_begin >= ptr_end or ptr_begin >= range_end);
+            },
+            else => {
+                const ptr_int = @intFromPtr(ptr);
+                return (ptr_int < range_end and ptr_int >= range_begin);
+            },
+        },
+        else => @compileError("ptr must be a pointer type!"),
+    }
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    if (!@inComptime() and std.debug.runtime_safety) {
+        assert(!alias(T, source, dest.ptr) or (source.ptr == dest.ptr));
+    }
     for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
@@ -207,15 +237,21 @@ pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be >= src.ptr.
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
     assert(dest.len >= source.len);
-    var i = source.len;
-    while (i > 0) {
-        i -= 1;
-        dest[i] = source[i];
+    if (!@inComptime() and std.debug.runtime_safety) {
+        assert(!alias(T, dest, source.ptr) or (source.ptr == dest.ptr));
+    }
+
+    {
+        // TODO instead of manually doing this check for the whole array
+        // and turning off runtime safety, the compiler should detect loops like
+        // this and automatically omit safety checks for loops
+        @setRuntimeSafety(false);
+        var i = source.len;
+        while (i > 0) {
+            i -= 1;
+            dest[i] = source[i];
+        }
     }
 }
 
