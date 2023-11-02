@@ -483,7 +483,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
         const phdrs = (@as([*]elf.Phdr, @ptrFromInt(at_phdr)))[0..at_phnum];
-        expandStackSize(phdrs);
+        expandStackSizeFromProgramHeader(phdrs);
     }
 
     return @call(.always_inline, callMainWithArgs, .{ @as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp });
