@@ -1566,19 +1566,24 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         state_log.debug("{}", .{self.dumpState()});
     }
 
-    // Save object paths in strtab.
+    // Save object paths in filenames strtab.
+    var ar_strtab = std.ArrayList(u8).init(gpa);
+    defer ar_strtab.deinit();
+
     var files = std.AutoHashMap(File.Index, struct { u32, u64, u64 }).init(gpa);
     defer files.deinit();
     try files.ensureUnusedCapacity(@intCast(self.objects.items.len + 1));
 
     if (self.zigObjectPtr()) |zig_object| {
-        files.putAssumeCapacityNoClobber(zig_object.index, .{ try self.ar_strtab.insert(gpa, zig_object.path), 0, 0 });
+        const off = @as(u32, @intCast(ar_strtab.items.len));
+        try ar_strtab.writer().print("{s}/\n", .{zig_object.path});
+        files.putAssumeCapacityNoClobber(zig_object.index, .{ off, 0, 0 });
     }
 
     // Encode ar symtab in 64bit format.
     var ar_symtab = std.ArrayList(u8).init(gpa);
     defer ar_symtab.deinit();
-    try ar_symtab.ensureTotalCapacityPrecise(8 * (3 * self.ar_symtab.items.len + 1));
+    try ar_symtab.ensureUnusedCapacity(8 * (self.ar_symtab.items.len + 1));
 
     // Number of symbols
     ar_symtab.writer().writeInt(u64, @as(u64, @intCast(self.ar_symtab.items.len)), .big) catch unreachable;
@@ -1590,14 +1595,15 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
 
     // ASCII offsets into the strtab.
     for (self.ar_symtab.items) |entry| {
-        ar_symtab.writer().print("/{d}", .{entry.off}) catch unreachable;
+        const name = self.ar_strtab.getAssumeExists(entry.off);
+        try ar_symtab.writer().print("{s}\x00", .{name});
     }
 
     // Align to 8bytes if required
     {
         const end = ar_symtab.items.len;
         const aligned = mem.alignForward(usize, end, 8);
-        ar_symtab.writer().writeByteNTimes(0, aligned - end) catch unreachable;
+        try ar_symtab.writer().writeByteNTimes(0, aligned - end);
     }
 
     assert(mem.isAligned(ar_symtab.items.len, 8));
@@ -1610,7 +1616,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         // Symtab
         file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_symtab.items.len));
         // Strtab
-        file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(self.ar_strtab.buffer.items.len));
+        file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_strtab.items.len));
         // And because we are nice, we will align to 8 bytes.
         file_off = mem.alignForward(u64, file_off, 8);
 
@@ -1655,12 +1661,12 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         const hdr = setArHdr(.{
             .kind = .strtab,
             .name_off = 0,
-            .size = @intCast(mem.alignForward(usize, self.ar_strtab.buffer.items.len, 8)),
+            .size = @intCast(mem.alignForward(usize, ar_strtab.items.len, 8)),
         });
         try self.base.file.?.pwriteAll(mem.asBytes(&hdr), pos);
         pos += @sizeOf(Archive.ar_hdr);
-        try self.base.file.?.pwriteAll(self.ar_strtab.buffer.items, pos);
-        pos += self.ar_strtab.buffer.items.len;
+        try self.base.file.?.pwriteAll(ar_strtab.items, pos);
+        pos += ar_strtab.items.len;
     }
 
     // Zig object if defined
