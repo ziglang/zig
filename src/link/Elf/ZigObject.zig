@@ -9,7 +9,7 @@ index: File.Index,
 
 local_esyms: std.MultiArrayList(ElfSym) = .{},
 global_esyms: std.MultiArrayList(ElfSym) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab: StringTable = .{},
 local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
@@ -75,9 +75,9 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
     try self.atoms.append(gpa, 0); // null input section
-    try self.strtab.append(gpa, 0);
+    try self.strtab.buffer.append(gpa, 0);
 
-    const name_off = try self.insertString(gpa, std.fs.path.stem(self.path));
+    const name_off = try self.strtab.insert(gpa, std.fs.path.stem(self.path));
     const symbol_index = try elf_file.addSymbol();
     try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
@@ -864,7 +864,7 @@ fn updateDeclCode(
     sym.output_section_index = shdr_index;
     atom_ptr.output_section_index = shdr_index;
 
-    sym.name_offset = try self.insertString(gpa, decl_name);
+    sym.name_offset = try self.strtab.insert(gpa, decl_name);
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
@@ -1106,7 +1106,7 @@ fn updateLazySymbol(
             sym.ty.fmt(mod),
         });
         defer gpa.free(name);
-        break :blk try self.insertString(gpa, name);
+        break :blk try self.strtab.insert(gpa, name);
     };
 
     const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
@@ -1239,7 +1239,7 @@ fn lowerConst(
     };
 
     const local_sym = elf_file.symbol(sym_index);
-    const name_str_index = try self.insertString(gpa, name);
+    const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
     local_sym.output_section_index = output_section_index;
     const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
@@ -1334,18 +1334,12 @@ pub fn updateExports(
         };
         const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
-        const name_off = try self.insertString(gpa, exp_name);
+        const name_off = try self.strtab.insert(gpa, exp_name);
         const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {
-            const global_esym_index = try self.addGlobalEsym(gpa);
-            const lookup_gop = try self.globals_lookup.getOrPut(gpa, name_off);
-            const global_esym = self.elfSym(global_esym_index);
-            global_esym.st_name = name_off;
-            lookup_gop.value_ptr.* = global_esym_index;
+            const global_esym_index = try self.getGlobalSymbol(elf_file, exp_name, null);
             try metadata.exports.append(gpa, global_esym_index);
-            const gop = try elf_file.getOrPutGlobal(exp_name);
-            try self.global_symbols.append(gpa, gop.index);
             break :blk global_esym_index;
         };
 
@@ -1405,7 +1399,7 @@ pub fn deleteDeclExport(
 pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
     const gpa = elf_file.base.allocator;
-    const off = try self.insertString(gpa, name);
+    const off = try self.strtab.insert(gpa, name);
     const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
         const esym_index = try self.addGlobalEsym(gpa);
@@ -1419,15 +1413,7 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
 }
 
 pub fn getString(self: ZigObject, off: u32) [:0]const u8 {
-    assert(off < self.strtab.items.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
-}
-
-pub fn insertString(self: *ZigObject, allocator: Allocator, name: []const u8) error{OutOfMemory}!u32 {
-    const off = @as(u32, @intCast(self.strtab.items.len));
-    try self.strtab.ensureUnusedCapacity(allocator, name.len + 1);
-    self.strtab.writer(allocator).print("{s}\x00", .{name}) catch unreachable;
-    return off;
+    return self.strtab.getAssumeExists(off);
 }
 
 pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
@@ -1538,5 +1524,6 @@ const Liveness = @import("../../Liveness.zig");
 const Module = @import("../../Module.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const StringTable = @import("../StringTable.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();
