@@ -4038,7 +4038,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         }
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
                 _ = translate_c;
                 if (true) @panic("TODO");
