@@ -2533,6 +2533,19 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
     ) |inst, *tracking| tracking.resurrect(inst, state.scope_generation);
     for (deaths) |death| try self.processDeath(death);
 
+    const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).Array.len]RegisterLock;
+    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
+        if (opts.update_tracking) ({}) else std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+
+    var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
+        stack.get(),
+        @typeInfo(ExpectedContents).Array.len,
+    );
+    defer if (!opts.update_tracking) {
+        for (reg_locks.items) |lock| self.register_manager.unlockReg(lock);
+        reg_locks.deinit();
+    };
+
     for (0..state.registers.len) |index| {
         const current_maybe_inst = if (self.register_manager.free_registers.isSet(index))
             null
@@ -2549,11 +2562,8 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
                 try self.inst_tracking.getPtr(current_inst).?.spill(self, current_inst);
             }
             if (target_maybe_inst) |target_inst| {
-                try self.inst_tracking.getPtr(target_inst).?.materialize(
-                    self,
-                    target_inst,
-                    state.reg_tracking[index],
-                );
+                const target_tracking = self.inst_tracking.getPtr(target_inst).?;
+                try target_tracking.materialize(self, target_inst, state.reg_tracking[index]);
             }
         }
         if (opts.update_tracking) {
@@ -2571,7 +2581,8 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
                     state.reg_tracking[index],
                 );
             }
-        }
+        } else if (target_maybe_inst) |_|
+            try reg_locks.append(self.register_manager.lockRegIndexAssumeUnused(@intCast(index)));
     }
     if (opts.emit_instructions) if (self.eflags_inst) |inst|
         try self.inst_tracking.getPtr(inst).?.spill(self, inst);
@@ -6746,6 +6757,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
                 .disp = val_byte_off,
             } },
         });
+        try self.spillEflagsIfOccupied();
         try self.asmRegisterImmediate(.{ ._r, .sh }, load_reg, Immediate.u(val_bit_off));
     } else {
         const tmp_reg =
@@ -6768,6 +6780,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
                 .disp = val_byte_off + 1,
             } },
         });
+        try self.spillEflagsIfOccupied();
         try self.asmRegisterRegisterImmediate(
             .{ ._rd, .sh },
             dst_alias,
@@ -6850,6 +6863,27 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
             try self.packedLoad(dst_mcv, ptr_ty, ptr_mcv);
         } else {
             try self.load(dst_mcv, ptr_ty, ptr_mcv);
+        }
+
+        if (elem_ty.isAbiInt(mod) and elem_size * 8 > elem_ty.bitSize(mod)) {
+            const high_mcv: MCValue = switch (dst_mcv) {
+                .register => |dst_reg| .{ .register = dst_reg },
+                .register_pair => |dst_regs| .{ .register = dst_regs[1] },
+                else => dst_mcv.address().offset(@intCast((elem_size - 1) / 8 * 8)).deref(),
+            };
+            const high_reg = if (high_mcv.isRegister())
+                high_mcv.getReg().?
+            else
+                try self.copyToTmpRegister(Type.usize, high_mcv);
+            const high_lock = self.register_manager.lockReg(high_reg);
+            defer if (high_lock) |lock| self.register_manager.unlockReg(lock);
+
+            try self.truncateRegister(elem_ty, high_reg);
+            if (!high_mcv.isRegister()) try self.genCopy(
+                if (elem_size <= 8) elem_ty else Type.usize,
+                high_mcv,
+                .{ .register = high_reg },
+            );
         }
         break :result dst_mcv;
     };
@@ -6996,6 +7030,11 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     } else {
         // TODO if the value is undef, don't lower this instruction
     }
+
+    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
+    defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
+
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr_mcv = try self.resolveInst(bin_op.lhs);
     const ptr_ty = self.typeOf(bin_op.lhs);
@@ -7088,12 +7127,15 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const dst_lock = self.register_manager.lockReg(dst_reg);
                 defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-                if (field_off > 0) try self.genShiftBinOpMir(
-                    .{ ._r, .sh },
-                    Type.usize,
-                    dst_mcv,
-                    .{ .immediate = field_off },
-                );
+                if (field_off > 0) {
+                    try self.spillEflagsIfOccupied();
+                    try self.genShiftBinOpMir(
+                        .{ ._r, .sh },
+                        Type.usize,
+                        dst_mcv,
+                        .{ .immediate = field_off },
+                    );
+                }
                 if (abi.RegisterClass.gp.isSet(RegisterManager.indexOfRegIntoTracked(dst_reg).?) and
                     container_ty.abiSize(mod) * 8 > field_ty.bitSize(mod))
                     try self.truncateRegister(field_ty, dst_reg);
@@ -7128,12 +7170,15 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     defer for (dst_locks) |dst_lock| if (dst_lock) |lock|
                         self.register_manager.unlockReg(lock);
 
-                    if (field_off > 0) try self.genShiftBinOpMir(
-                        .{ ._r, .sh },
-                        Type.u128,
-                        dst_mcv,
-                        .{ .immediate = field_off },
-                    );
+                    if (field_off > 0) {
+                        try self.spillEflagsIfOccupied();
+                        try self.genShiftBinOpMir(
+                            .{ ._r, .sh },
+                            Type.u128,
+                            dst_mcv,
+                            .{ .immediate = field_off },
+                        );
+                    }
 
                     if (field_bit_size <= 64) {
                         if (self.regExtraBits(field_ty) > 0)
@@ -7161,12 +7206,15 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const dst_lock = self.register_manager.lockReg(dst_reg);
                 defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-                if (field_off % 64 > 0) try self.genShiftBinOpMir(
-                    .{ ._r, .sh },
-                    Type.usize,
-                    dst_mcv,
-                    .{ .immediate = field_off % 64 },
-                );
+                if (field_off % 64 > 0) {
+                    try self.spillEflagsIfOccupied();
+                    try self.genShiftBinOpMir(
+                        .{ ._r, .sh },
+                        Type.usize,
+                        dst_mcv,
+                        .{ .immediate = field_off % 64 },
+                    );
+                }
                 if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(field_ty, dst_reg);
 
                 break :result if (field_rc.supersetOf(abi.RegisterClass.gp))
@@ -7272,6 +7320,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             .disp = frame_addr.off + field_byte_off,
                         } },
                     });
+                    try self.spillEflagsIfOccupied();
                     try self.asmRegisterImmediate(.{ ._r, .sh }, load_reg, Immediate.u(field_bit_off));
                 } else {
                     const tmp_reg = registerAlias(
@@ -7300,6 +7349,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             .disp = frame_addr.off + field_byte_off + limb_abi_size,
                         } },
                     });
+                    try self.spillEflagsIfOccupied();
                     try self.asmRegisterRegisterImmediate(
                         .{ ._rd, .sh },
                         dst_alias,
@@ -7344,13 +7394,18 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air: Air.Inst.Ref) !MCValue {
     const mod = self.bin_file.options.module.?;
     const src_ty = self.typeOf(src_air);
-    const src_mcv = try self.resolveInst(src_air);
     if (src_ty.zigTypeTag(mod) == .Vector)
         return self.fail("TODO implement genUnOp for {}", .{src_ty.fmt(mod)});
 
+    var src_mcv = try self.resolveInst(src_air);
     switch (src_mcv) {
         .eflags => |cc| switch (tag) {
-            .not => return .{ .eflags = cc.negate() },
+            .not => {
+                if (maybe_inst) |inst| if (self.reuseOperand(inst, src_air, 0, src_mcv))
+                    return .{ .eflags = cc.negate() };
+                try self.spillEflagsIfOccupied();
+                src_mcv = try self.resolveInst(src_air);
+            },
             else => {},
         },
         else => {},
@@ -11873,8 +11928,18 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         try self.spillEflagsIfOccupied();
         for (items, relocs, 0..) |item, *reloc, i| {
             const item_mcv = try self.resolveInst(item);
-            try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition, item_mcv);
-            reloc.* = try self.asmJccReloc(if (i < relocs.len - 1) .e else .ne, undefined);
+            const cc: Condition = switch (condition) {
+                .eflags => |cc| switch (item_mcv.immediate) {
+                    0 => cc.negate(),
+                    1 => cc,
+                    else => unreachable,
+                },
+                else => cc: {
+                    try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition, item_mcv);
+                    break :cc .e;
+                },
+            };
+            reloc.* = try self.asmJccReloc(if (i < relocs.len - 1) cc else cc.negate(), undefined);
         }
 
         for (liveness.deaths[case_i]) |operand| try self.processDeath(operand);
@@ -14380,6 +14445,10 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
 
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
+    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
+    defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
+
     const dst_ptr = try self.resolveInst(bin_op.lhs);
     const dst_ptr_ty = self.typeOf(bin_op.lhs);
     const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
@@ -14496,6 +14565,10 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
 fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+
+    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
+    const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
+    defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
     const dst_ptr = try self.resolveInst(bin_op.lhs);
     const dst_ptr_ty = self.typeOf(bin_op.lhs);
