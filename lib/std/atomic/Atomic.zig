@@ -46,7 +46,7 @@ pub fn Atomic(comptime T: type) type {
                     extern "c" fn __tsan_release(addr: *anyopaque) void;
                 };
 
-                const addr = @as(*anyopaque, @ptrCast(self));
+                const addr: *anyopaque = self;
                 return switch (ordering) {
                     .Unordered, .Monotonic => @compileError(@tagName(ordering) ++ " only applies to atomic loads and stores"),
                     .Acquire => tsan.__tsan_acquire(addr),
