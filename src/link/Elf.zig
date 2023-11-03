@@ -1580,6 +1580,13 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         files.putAssumeCapacityNoClobber(zig_object.index, .{ off, 0, 0 });
     }
 
+    // Align to even byte boundary
+    {
+        const end = ar_strtab.items.len;
+        const aligned = mem.alignForward(usize, end, 2);
+        try ar_strtab.writer().writeByteNTimes(0, aligned - end);
+    }
+
     // Encode ar symtab in 64bit format.
     var ar_symtab = std.ArrayList(u8).init(gpa);
     defer ar_symtab.deinit();
@@ -1599,7 +1606,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         try ar_symtab.writer().print("{s}\x00", .{name});
     }
 
-    // Align to 8bytes if required
+    // Align to 8 bytes if required
     {
         const end = ar_symtab.items.len;
         const aligned = mem.alignForward(usize, end, 8);
@@ -1617,8 +1624,6 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_symtab.items.len));
         // Strtab
         file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_strtab.items.len));
-        // And because we are nice, we will align to 8 bytes.
-        file_off = mem.alignForward(u64, file_off, 8);
 
         const files_ptr = files.getPtr(zig_object.index).?;
         files_ptr[1] = file_off;
@@ -1661,7 +1666,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         const hdr = setArHdr(.{
             .kind = .strtab,
             .name_off = 0,
-            .size = @intCast(mem.alignForward(usize, ar_strtab.items.len, 8)),
+            .size = @intCast(ar_strtab.items.len),
         });
         try self.base.file.?.pwriteAll(mem.asBytes(&hdr), pos);
         pos += @sizeOf(Archive.ar_hdr);
@@ -1674,7 +1679,15 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         const entry = files.get(zig_object.index).?;
         const hdr = setArHdr(.{ .kind = .object, .name_off = entry[0], .size = @intCast(entry[2]) });
         try self.base.file.?.pwriteAll(mem.asBytes(&hdr), entry[1]);
+        pos += @sizeOf(Archive.ar_hdr) + entry[2];
     }
+
+    if (pos % 2 != 0) {
+        pos += 1;
+        try self.base.file.?.pwriteAll(&[1]u8{0}, pos);
+    }
+
+    assert(mem.isAligned(pos, 2));
 
     // TODO parsed positionals
 
