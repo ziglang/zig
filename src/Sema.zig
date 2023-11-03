@@ -21775,11 +21775,9 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         if (dest_tag == .ErrorUnion) {
             const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
             const err_int = try block.addBitCast(err_int_ty, err_code);
-            const zero_u16 = Air.internedToRef(try mod.intern(.{
-                .int = .{ .ty = .u16_type, .storage = .{ .u64 = 0 } },
-            }));
+            const zero_err = try mod.intRef(try mod.errorIntType(), 0);
 
-            const is_zero = try block.addBinOp(.cmp_eq, err_int, zero_u16);
+            const is_zero = try block.addBinOp(.cmp_eq, err_int, zero_err);
             if (disjoint) {
                 // Error must be zero.
                 try sema.addSafetyCheck(block, src, is_zero, .invalid_error_code);
