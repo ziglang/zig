@@ -645,6 +645,8 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/wasi_libc.zig"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
+    "${CMAKE_SOURCE_DIR}/src/stubs/aro_builtins.zig"
+    "${CMAKE_SOURCE_DIR}/src/stubs/aro_names.zig"
 )
 
 if(MSVC)
@@ -815,7 +817,9 @@ set(BUILD_ZIG2_ARGS
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro::deps/aro/lib.zig"
+  --mod "Builtins/Builtin.def::src/stubs/aro_builtins.zig"
+  --mod "Attribute/names.def::src/stubs/aro_names.zig"
+  --mod "aro:Builtins/Builtin.def,Attribute/names.def:deps/aro/lib.zig"
   --deps build_options,aro
   -target "${ZIG_HOST_TARGET_TRIPLE}"
 )
