@@ -1572,8 +1572,11 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     const total_size: u64 = blk: {
         var pos: u64 = Archive.SARMAG;
         pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
-        pos = mem.alignForward(u64, pos, 2);
-        pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
+
+        if (ar_strtab.size() > 0) {
+            pos = mem.alignForward(u64, pos, 2);
+            pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
+        }
 
         if (self.zigObjectPtr()) |zig_object| {
             pos = mem.alignForward(u64, pos, 2);
@@ -1598,19 +1601,22 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
 
     // Write symtab
     try ar_symtab.write(.p64, self, buffer.writer());
-    if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
 
     // Write strtab
-    try ar_strtab.write(buffer.writer());
-    if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
+    if (ar_strtab.size() > 0) {
+        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
+        try ar_strtab.write(buffer.writer());
+    }
 
     // Write object files
     if (self.zigObjectPtr()) |zig_object| {
+        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
         try zig_object.writeAr(self, buffer.writer());
     }
 
     assert(buffer.items.len == total_size);
 
+    try self.base.file.?.setEndPos(total_size);
     try self.base.file.?.pwriteAll(buffer.items, 0);
 }
 

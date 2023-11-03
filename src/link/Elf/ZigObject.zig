@@ -526,6 +526,7 @@ pub fn updateArStrtab(
 ) error{OutOfMemory}!void {
     const name = try std.fmt.allocPrint(allocator, "{s}.o", .{std.fs.path.stem(self.path)});
     defer allocator.free(name);
+    if (name.len <= 15) return;
     const name_off = try ar_strtab.insert(allocator, name);
     self.output_ar_state.name_off = name_off;
 }
@@ -540,13 +541,18 @@ pub fn updateArSize(self: *ZigObject, elf_file: *Elf) void {
 
 pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
     const gpa = elf_file.base.allocator;
+
     const contents = try gpa.alloc(u8, self.output_ar_state.size);
     defer gpa.free(contents);
+
     const amt = try elf_file.base.file.?.preadAll(contents, 0);
     if (amt != self.output_ar_state.size) return error.InputOutput;
+
+    const name = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(self.path)});
+    defer gpa.free(name);
+
     const hdr = Archive.setArHdr(.{
-        .kind = .object,
-        .name_off = self.output_ar_state.name_off,
+        .name = if (name.len <= 15) .{ .name = name } else .{ .name_off = self.output_ar_state.name_off },
         .size = @intCast(self.output_ar_state.size),
     });
     try writer.writeAll(mem.asBytes(&hdr));

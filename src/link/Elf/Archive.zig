@@ -61,14 +61,15 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
         const object_name = blk: {
             if (name[0] == '/') {
                 const off = try std.fmt.parseInt(u32, name[1..], 10);
-                break :blk self.getString(off);
+                const object_name = self.getString(off);
+                break :blk try gpa.dupe(u8, object_name[0 .. object_name.len - 1]); // To account for trailing '/'
             }
-            break :blk name;
+            break :blk try gpa.dupe(u8, name);
         };
 
         const object = Object{
             .archive = try gpa.dupe(u8, self.path),
-            .path = try gpa.dupe(u8, object_name[0 .. object_name.len - 1]), // To account for trailing '/'
+            .path = object_name,
             .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
             .index = undefined,
             .alive = false,
@@ -86,8 +87,12 @@ fn getString(self: Archive, off: u32) []const u8 {
 }
 
 pub fn setArHdr(opts: struct {
-    kind: enum { symtab, strtab, object },
-    name_off: u32,
+    name: union(enum) {
+        symtab: void,
+        strtab: void,
+        name: []const u8,
+        name_off: u32,
+    },
     size: u32,
 }) ar_hdr {
     var hdr: ar_hdr = .{
@@ -105,10 +110,11 @@ pub fn setArHdr(opts: struct {
     {
         var stream = std.io.fixedBufferStream(&hdr.ar_name);
         const writer = stream.writer();
-        switch (opts.kind) {
+        switch (opts.name) {
             .symtab => writer.print("{s}", .{Archive.SYM64NAME}) catch unreachable,
             .strtab => writer.print("//", .{}) catch unreachable,
-            .object => writer.print("/{d}", .{opts.name_off}) catch unreachable,
+            .name => |x| writer.print("{s}", .{x}) catch unreachable,
+            .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
         }
     }
     {
@@ -213,7 +219,7 @@ pub const ArSymtab = struct {
 
     pub fn write(ar: ArSymtab, kind: enum { p32, p64 }, elf_file: *Elf, writer: anytype) !void {
         assert(kind == .p64); // TODO p32
-        const hdr = setArHdr(.{ .kind = .symtab, .name_off = 0, .size = @intCast(ar.size(.p64)) });
+        const hdr = setArHdr(.{ .name = .symtab, .size = @intCast(ar.size(.p64)) });
         try writer.writeAll(mem.asBytes(&hdr));
 
         const gpa = elf_file.base.allocator;
@@ -314,7 +320,7 @@ pub const ArStrtab = struct {
     }
 
     pub fn write(ar: ArStrtab, writer: anytype) !void {
-        const hdr = setArHdr(.{ .kind = .strtab, .name_off = 0, .size = @intCast(ar.size()) });
+        const hdr = setArHdr(.{ .name = .strtab, .size = @intCast(ar.size()) });
         try writer.writeAll(mem.asBytes(&hdr));
         try writer.writeAll(ar.buffer.items);
     }
