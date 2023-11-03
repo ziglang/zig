@@ -463,13 +463,6 @@ pub const Decl = struct {
     /// What kind of a declaration is this.
     kind: Kind,
 
-    /// The shallow set of other decls whose typed_value could possibly change if this Decl's
-    /// typed_value is modified.
-    dependants: DepsTable = .{},
-    /// The shallow set of other decls whose typed_value changing indicates that this Decl's
-    /// typed_value may need to be regenerated.
-    dependencies: DepsTable = .{},
-
     pub const Kind = enum {
         @"usingnamespace",
         @"test",
@@ -2626,8 +2619,6 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
                 mod.destroyNamespace(i);
             }
         }
-        decl.dependants.deinit(gpa);
-        decl.dependencies.deinit(gpa);
     }
 
     ip.destroyDecl(gpa, decl_index);
@@ -3278,16 +3269,6 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             // prior to re-analysis.
             try mod.deleteDeclExports(decl_index);
 
-            // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
-            for (decl.dependencies.keys()) |dep_index| {
-                const dep = mod.declPtr(dep_index);
-                dep.removeDependant(decl_index);
-                if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-                    try mod.markDeclForDeletion(dep_index);
-                }
-            }
-            decl.dependencies.clearRetainingCapacity();
-
             break :blk true;
         },
 
@@ -3331,33 +3312,8 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     };
 
     if (subsequent_analysis) {
-        // Update all dependents which have at least this level of dependency.
-        // If our type remained the same and we're a function, only update
-        // decls which depend on our body; otherwise, update all dependents.
-        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag(mod) == .Fn) .function_body else .normal;
-
-        for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
-            if (@intFromEnum(dep_type) < @intFromEnum(update_level)) continue;
-
-            const dep = mod.declPtr(dep_index);
-            switch (dep.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => continue, // already doing analysis, ok
-                .outdated => continue, // already queued for update
-
-                .file_failure,
-                .dependency_failure,
-                .sema_failure,
-                .sema_failure_retryable,
-                .liveness_failure,
-                .codegen_failure,
-                .codegen_failure_retryable,
-                .complete,
-                => if (dep.generation != mod.generation) {
-                    try mod.markOutdatedDecl(dep_index);
-                },
-            }
-        }
+        _ = type_changed;
+        @panic("TODO re-implement incremental compilation");
     }
 }
 
@@ -3938,37 +3894,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     return type_changed;
 }
 
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) !void {
-    return mod.declareDeclDependencyType(depender_index, dependee_index, .normal);
-}
-
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependencyType(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index, dep_type: Decl.DepType) !void {
-    if (depender_index == dependee_index) return;
-
-    const depender = mod.declPtr(depender_index);
-    const dependee = mod.declPtr(dependee_index);
-
-    if (depender.dependencies.get(dependee_index)) |cur_type| {
-        if (@intFromEnum(cur_type) >= @intFromEnum(dep_type)) {
-            // We already have this dependency (or stricter) marked
-            return;
-        }
-    }
-
-    if (dependee.deletion_flag) {
-        dependee.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(dependee_index));
-    }
-
-    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
-    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
-
-    dependee.dependants.putAssumeCapacity(depender_index, dep_type);
-    depender.dependencies.putAssumeCapacity(dependee_index, dep_type);
-}
-
 pub const ImportFileResult = struct {
     file: *File,
     is_new: bool,
@@ -4508,35 +4433,10 @@ pub fn clearDecl(
     const decl = mod.declPtr(decl_index);
 
     const gpa = mod.gpa;
-    try mod.deletion_set.ensureUnusedCapacity(gpa, decl.dependencies.count());
 
     if (outdated_decls) |map| {
         _ = map.swapRemove(decl_index);
-        try map.ensureUnusedCapacity(decl.dependants.count());
     }
-
-    // Remove itself from its dependencies.
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-        if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-            // We don't recursively perform a deletion here, because during the update,
-            // another reference to it may turn up.
-            dep.deletion_flag = true;
-            mod.deletion_set.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependencies.clearRetainingCapacity();
-
-    // Anything that depends on this deleted decl needs to be re-analyzed.
-    for (decl.dependants.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependency(decl_index);
-        if (outdated_decls) |map| {
-            map.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependants.clearRetainingCapacity();
 
     if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
         kv.value.destroy(gpa);
@@ -4598,19 +4498,7 @@ fn markDeclForDeletion(mod: *Module, decl_index: Decl.Index) !void {
 /// Cancel the creation of an anon decl and delete any references to it.
 /// If other decls depend on this decl, they must be aborted first.
 pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
-    const decl = mod.declPtr(decl_index);
-
     assert(!mod.declIsRoot(decl_index));
-
-    // An aborted decl must not have dependants -- they must have
-    // been aborted first and removed from this list.
-    assert(decl.dependants.count() == 0);
-
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-    }
-
     mod.destroyDecl(decl_index);
 }
 
@@ -5694,9 +5582,6 @@ pub fn populateTestFunctions(
                 .storage = .{ .elems = test_fn_vals },
             } })).toValue(),
         });
-        for (array_decl_dependencies.items) |array_decl_dependency| {
-            try mod.declareDeclDependency(array_decl_index, array_decl_dependency);
-        }
 
         break :d array_decl_index;
     };
