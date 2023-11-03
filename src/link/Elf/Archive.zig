@@ -85,11 +85,12 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
     _ = try reader.readBytesNoEof(SARMAG);
 
     while (true) {
+        if (stream.pos >= self.data.len) break;
+
         if (stream.pos % 2 != 0) {
             stream.pos += 1;
         }
-        // TODO flag an error if stream.pos > self.data.len after alignment
-        const hdr = reader.readStruct(ar_hdr) catch break;
+        const hdr = try reader.readStruct(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
             // TODO convert into an error

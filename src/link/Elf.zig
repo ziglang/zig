@@ -1682,13 +1682,6 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         pos += @sizeOf(Archive.ar_hdr) + entry[2];
     }
 
-    if (pos % 2 != 0) {
-        pos += 1;
-        try self.base.file.?.pwriteAll(&[1]u8{0}, pos);
-    }
-
-    assert(mem.isAligned(pos, 2));
-
     // TODO parsed positionals
 
     // Magic bytes.
