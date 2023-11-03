@@ -113,6 +113,13 @@ pub extern "ntdll" fn NtQueryAttributesFile(
     FileAttributes: *FILE_BASIC_INFORMATION,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "ntdll" fn RtlQueryPerformanceCounter(PerformanceCounter: *LARGE_INTEGER) callconv(WINAPI) BOOL;
+pub extern "ntdll" fn RtlQueryPerformanceFrequency(PerformanceFrequency: *LARGE_INTEGER) callconv(WINAPI) BOOL;
+pub extern "ntdll" fn NtQueryPerformanceCounter(
+    PerformanceCounter: *LARGE_INTEGER,
+    PerformanceFrequency: ?*LARGE_INTEGER,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtCreateFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
