@@ -3107,16 +3107,14 @@ fn renderContainerDocComments(r: *Render, start_token: Ast.TokenIndex) Error!voi
 }
 
 fn discardAllParams(r: *Render, fn_proto_node: Ast.Node.Index) Error!void {
-    const tree = r.tree;
+    const tree = &r.tree;
     const ais = r.ais;
     var buf: [1]Ast.Node.Index = undefined;
     const fn_proto = tree.fullFnProto(&buf, fn_proto_node).?;
     const token_tags = tree.tokens.items(.tag);
-    const main_tokens = tree.nodes.items(.main_token);
-    for (fn_proto.ast.params) |param_node| {
-        const type_ident = main_tokens[param_node];
-        assert(token_tags[type_ident] == .identifier);
-        const name_ident = type_ident - 2;
+    var it = fn_proto.iterate(tree);
+    while (it.next()) |param| {
+        const name_ident = param.name_token.?;
         assert(token_tags[name_ident] == .identifier);
         const w = ais.writer();
         try w.writeAll("_ = ");
