@@ -109,17 +109,25 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_addend = -4,
                         });
                     } else {
-                        const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                            link.File.Elf.R_X86_64_ZIG_GOT32
-                        else if (sym.flags.needs_got)
-                            std.elf.R_X86_64_GOT32
-                        else
-                            std.elf.R_X86_64_32;
-                        try atom.addReloc(elf_file, .{
-                            .r_offset = end_offset - 4,
-                            .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
-                            .r_addend = 0,
-                        });
+                        if (lowered_inst.encoding.mnemonic == .call and sym.flags.needs_zig_got and is_obj_or_static_lib) {
+                            try atom.addReloc(elf_file, .{
+                                .r_offset = end_offset - 4,
+                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_PC32,
+                                .r_addend = -4,
+                            });
+                        } else {
+                            const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
+                                link.File.Elf.R_X86_64_ZIG_GOT32
+                            else if (sym.flags.needs_got)
+                                std.elf.R_X86_64_GOT32
+                            else
+                                std.elf.R_X86_64_32;
+                            try atom.addReloc(elf_file, .{
+                                .r_offset = end_offset - 4,
+                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                                .r_addend = 0,
+                            });
+                        }
                     }
                 } else unreachable,
                 .linker_got,

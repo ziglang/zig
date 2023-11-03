@@ -356,7 +356,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         },
                         else => unreachable,
                     } else switch (mnemonic) {
-                        .call => .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                        .call => break :op if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) .{
+                            .imm = Immediate.s(0),
+                        } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                             .base = .{ .reg = .ds },
                         }) },
                         .lea => {
