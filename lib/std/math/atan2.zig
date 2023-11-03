@@ -10,25 +10,28 @@ const expect = std.testing.expect;
 
 /// Returns the arc-tangent of y/x.
 ///
-/// Special Cases:
-///  - atan2(y, nan)     = nan
-///  - atan2(nan, x)     = nan
-///  - atan2(+0, x>=0)   = +0
-///  - atan2(-0, x>=0)   = -0
-///  - atan2(+0, x<=-0)  = +pi
-///  - atan2(-0, x<=-0)  = -pi
-///  - atan2(y>0, 0)     = +pi/2
-///  - atan2(y<0, 0)     = -pi/2
-///  - atan2(+inf, +inf) = +pi/4
-///  - atan2(-inf, +inf) = -pi/4
-///  - atan2(+inf, -inf) = 3pi/4
-///  - atan2(-inf, -inf) = -3pi/4
-///  - atan2(y, +inf)    = 0
-///  - atan2(y>0, -inf)  = +pi
-///  - atan2(y<0, -inf)  = -pi
-///  - atan2(+inf, x)    = +pi/2
-///  - atan2(-inf, x)    = -pi/2
-pub fn atan2(comptime T: type, y: T, x: T) T {
+///      Special Cases:
+/// |   y   |   x   | radians |
+/// |-------|-------|---------|
+/// |  fin  |  nan  |   nan   |
+/// |  nan  |  fin  |   nan   |
+/// |  +0   | >=+0  |   +0    |
+/// |  -0   | >=+0  |   -0    |
+/// |  +0   | <=-0  |   pi    |
+/// |  -0   | <=-0  |  -pi    |
+/// |  pos  |   0   |  +pi/2  |
+/// |  neg  |   0   |  -pi/2  |
+/// | +inf  | +inf  |  +pi/4  |
+/// | -inf  | +inf  |  -pi/4  |
+/// | +inf  | -inf  |  3pi/4  |
+/// | -inf  | -inf  | -3pi/4  |
+/// |  fin  | +inf  |    0    |
+/// |  pos  | -inf  |  +pi    |
+/// |  neg  | -inf  |  -pi    |
+/// | +inf  |  fin  |  +pi/2  |
+/// | -inf  |  fin  |  -pi/2  |
+pub fn atan2(y: anytype, x: anytype) @TypeOf(x, y) {
+    const T = @TypeOf(x, y);
     return switch (T) {
         f32 => atan2_32(y, x),
         f64 => atan2_64(y, x),
@@ -212,8 +215,12 @@ fn atan2_64(y: f64, x: f64) f64 {
 }
 
 test "math.atan2" {
-    try expect(atan2(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
-    try expect(atan2(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
+    const y32: f32 = 0.2;
+    const x32: f32 = 0.21;
+    const y64: f64 = 0.2;
+    const x64: f64 = 0.21;
+    try expect(atan2(y32, x32) == atan2_32(0.2, 0.21));
+    try expect(atan2(y64, x64) == atan2_64(0.2, 0.21));
 }
 
 test "math.atan2_32" {
