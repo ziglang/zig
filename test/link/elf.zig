@@ -23,6 +23,8 @@ pub fn build(b: *Build) void {
 
     // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = glibc_target }));
     elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = musl_target }));
@@ -1819,6 +1821,72 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinkingObj(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-obj", opts);
+
+    const obj = addObject(b, "aobj", opts);
+    addZigSourceBytes(obj,
+        \\extern var mod: usize;
+        \\export fn callMe() usize {
+        \\    return me * mod;
+        \\}
+        \\var me: usize = 42;
+    );
+
+    const exe = addExecutable(b, "testobj", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn callMe() usize;
+        \\export var mod: usize = 2;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{callMe()});
+        \\}
+    );
+    exe.addObject(obj);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("84\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-static-lib", opts);
+
+    const lib = b.addStaticLibrary(.{
+        .name = "alib",
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = opts.use_llvm,
+        .use_lld = false,
+    });
+    addZigSourceBytes(lib,
+        \\extern var mod: usize;
+        \\export fn callMe() usize {
+        \\    return me * mod;
+        \\}
+        \\var me: usize = 42;
+    );
+
+    const exe = addExecutable(b, "testlib", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn callMe() usize;
+        \\export var mod: usize = 2;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{callMe()});
+        \\}
+    );
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("84\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
