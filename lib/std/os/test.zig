@@ -1030,6 +1030,13 @@ test "rename smoke test" {
     new_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
     try os.rename(file_path, new_file_path);
 
+    // Create extra directory
+    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "extra_dir" });
+    try os.mkdir(file_path, mode);
+
+    // Try to rename extra directory to existent directory
+    try expectError(error.PathAlreadyExists, try os.rename(file_path, new_file_path));
+
     // Try opening renamed directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
     fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);

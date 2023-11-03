@@ -720,15 +720,7 @@ pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
 }
 
 pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const u8) usize {
-    if (@hasField(SYS, "renameat")) {
-        return syscall4(
-            .renameat,
-            @as(usize, @bitCast(@as(isize, oldfd))),
-            @intFromPtr(oldpath),
-            @as(usize, @bitCast(@as(isize, newfd))),
-            @intFromPtr(newpath),
-        );
-    } else {
+    if (@hasField(SYS, "renameat2")) {
         return syscall5(
             .renameat2,
             @as(usize, @bitCast(@as(isize, oldfd))),
@@ -736,6 +728,14 @@ pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const 
             @as(usize, @bitCast(@as(isize, newfd))),
             @intFromPtr(newpath),
             0,
+        );
+    } else {
+        return syscall4(
+            .renameat,
+            @as(usize, @bitCast(@as(isize, oldfd))),
+            @intFromPtr(oldpath),
+            @as(usize, @bitCast(@as(isize, newfd))),
+            @intFromPtr(newpath),
         );
     }
 }
