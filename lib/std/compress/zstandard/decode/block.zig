@@ -721,7 +721,9 @@ pub fn decodeBlockRingBuffer(
         },
         .rle => {
             if (src.len < 1) return error.MalformedRleBlock;
-            dest.writeSliceAssumeCapacity(src[0..block_size]);
+            for (0..block_size) |_| {
+                dest.writeAssumeCapacity(src[0]);
+            }
             consumed_count.* += 1;
             decode_state.written_count += block_size;
             return block_size;
