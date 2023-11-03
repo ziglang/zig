@@ -1569,19 +1569,19 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     }
 
     // Update file offsets of contributing objects.
-    const total_size: u64 = blk: {
-        var pos: u64 = Archive.SARMAG;
+    const total_size: usize = blk: {
+        var pos: usize = Archive.SARMAG;
         pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
 
         if (ar_strtab.size() > 0) {
-            pos = mem.alignForward(u64, pos, 2);
+            pos = mem.alignForward(usize, pos, 2);
             pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
         }
 
         if (self.zigObjectPtr()) |zig_object| {
-            pos = mem.alignForward(u64, pos, 2);
+            pos = mem.alignForward(usize, pos, 2);
             zig_object.output_ar_state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr) + zig_object.output_ar_state.size;
+            pos += @sizeOf(Archive.ar_hdr) + (math.cast(usize, zig_object.output_ar_state.size) orelse return error.Overflow);
         }
 
         break :blk pos;
@@ -4672,7 +4672,8 @@ fn writeSymtab(self: *Elf) !void {
     log.debug("writing {d} symbols at 0x{x}", .{ nsyms, symtab_shdr.sh_offset });
 
     try self.symtab.resize(gpa, nsyms);
-    try self.strtab.ensureUnusedCapacity(gpa, strtab_shdr.sh_size - 1);
+    const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
+    try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     const Ctx = struct {
         ilocal: usize,

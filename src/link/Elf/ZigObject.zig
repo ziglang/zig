@@ -542,7 +542,8 @@ pub fn updateArSize(self: *ZigObject, elf_file: *Elf) void {
 pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
     const gpa = elf_file.base.allocator;
 
-    const contents = try gpa.alloc(u8, self.output_ar_state.size);
+    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    const contents = try gpa.alloc(u8, size);
     defer gpa.free(contents);
 
     const amt = try elf_file.base.file.?.preadAll(contents, 0);
@@ -553,7 +554,7 @@ pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
 
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= 15) .{ .name = name } else .{ .name_off = self.output_ar_state.name_off },
-        .size = @intCast(self.output_ar_state.size),
+        .size = size,
     });
     try writer.writeAll(mem.asBytes(&hdr));
     try writer.writeAll(contents);
@@ -610,7 +611,7 @@ pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
 
         var relocs = std.ArrayList(elf.Elf64_Rela).init(gpa);
         defer relocs.deinit();
-        try relocs.ensureTotalCapacityPrecise(@divExact(shdr.sh_size, shdr.sh_entsize));
+        try relocs.ensureTotalCapacityPrecise(@intCast(@divExact(shdr.sh_size, shdr.sh_entsize)));
 
         while (true) {
             for (atom.relocs(elf_file)) |rel| {
