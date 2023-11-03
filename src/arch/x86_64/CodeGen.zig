@@ -2608,8 +2608,17 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
     }
 }
 
-pub fn spillRegisters(self: *Self, registers: []const Register) !void {
-    for (registers) |reg| try self.register_manager.getReg(reg, null);
+pub fn spillCallerPreservedRegs(self: *Self, cc: std.builtin.CallingConvention) !void {
+    switch (cc) {
+        inline .SysV, .Win64 => |known_cc| try self.spillRegisters(
+            comptime abi.getCallerPreservedRegs(known_cc),
+        ),
+        else => unreachable,
+    }
+}
+
+pub fn spillRegisters(self: *Self, comptime registers: []const Register) !void {
+    inline for (registers) |reg| try self.register_manager.getKnownReg(reg, null);
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
@@ -10639,30 +10648,30 @@ fn genCall(self: *Self, info: union(enum) {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillRegisters(abi.getCallerPreservedRegs(resolved_cc));
+    try self.spillCallerPreservedRegs(resolved_cc);
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
     switch (call_info.return_value.long) {
         .none, .unreach => {},
-        .indirect => |reg_off| try self.spillRegisters(&.{reg_off.reg}),
+        .indirect => |reg_off| try self.register_manager.getReg(reg_off.reg, null),
         else => unreachable,
     }
     for (call_info.args, arg_types, args, frame_indices) |dst_arg, arg_ty, src_arg, *frame_index|
         switch (dst_arg) {
             .none => {},
             .register => |reg| {
-                try self.spillRegisters(&.{reg});
+                try self.register_manager.getReg(reg, null);
                 try reg_locks.append(self.register_manager.lockReg(reg));
             },
             .register_pair => |regs| {
-                try self.spillRegisters(&regs);
+                for (regs) |reg| try self.register_manager.getReg(reg, null);
                 try reg_locks.appendSlice(&self.register_manager.lockRegs(2, regs));
             },
             .indirect => |reg_off| {
                 frame_index.* = try self.allocFrameIndex(FrameAlloc.initType(arg_ty, mod));
                 try self.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg);
-                try self.spillRegisters(&.{reg_off.reg});
+                try self.register_manager.getReg(reg_off.reg, null);
                 try reg_locks.append(self.register_manager.lockReg(reg_off.reg));
             },
             .load_frame => {
@@ -11990,8 +11999,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     var args = std.ArrayList(MCValue).init(self.gpa);
     try args.ensureTotalCapacity(outputs.len + inputs.len);
     defer {
-        for (args.items) |arg| if (arg.getReg()) |reg|
-            self.register_manager.unlockReg(.{ .register = reg });
+        for (args.items) |arg| if (arg.getReg()) |reg| self.register_manager.unlockReg(.{
+            .tracked_index = RegisterManager.indexOfRegIntoTracked(reg) orelse continue,
+        });
         args.deinit();
     }
     var arg_map = std.StringHashMap(u8).init(self.gpa);
@@ -14557,7 +14567,7 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillRegisters(abi.getCallerPreservedRegs(resolved_cc));
+    try self.spillCallerPreservedRegs(resolved_cc);
 
     const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
 
