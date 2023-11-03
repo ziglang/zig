@@ -186,12 +186,6 @@ comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{}
 /// such as `resolver` and `comdat_groups_table`.
 strings: StringTable = .{},
 
-/// Static archive state.
-/// TODO it may be wise to move it somewhere else, but for the time being, it
-/// is far easier to pollute global state.
-ar_symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
-ar_strtab: StringTable = .{},
-
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
@@ -398,9 +392,6 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
-
-    self.ar_symtab.deinit(gpa);
-    self.ar_strtab.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1553,175 +1544,74 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         try self.writeSymtab();
         try self.writeShStrtab();
         try self.writeElfHeader();
-
-        // Update ar symbol table.
-        try zig_object.asFile().updateArSymtab(self);
     }
 
     // TODO parse positionals that we want to make part of the archive
 
-    mem.sort(ArSymtabEntry, self.ar_symtab.items, {}, ArSymtabEntry.lessThan);
+    // TODO update ar symtab from parsed positionals
 
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
+    var ar_symtab: Archive.ArSymtab = .{};
+    defer ar_symtab.deinit(gpa);
+
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.updateArSymtab(&ar_symtab, self);
     }
+
+    ar_symtab.sort();
 
     // Save object paths in filenames strtab.
-    var ar_strtab = std.ArrayList(u8).init(gpa);
-    defer ar_strtab.deinit();
-
-    var files = std.AutoHashMap(File.Index, struct { u32, u64, u64 }).init(gpa);
-    defer files.deinit();
-    try files.ensureUnusedCapacity(@intCast(self.objects.items.len + 1));
+    var ar_strtab: Archive.ArStrtab = .{};
+    defer ar_strtab.deinit(gpa);
 
     if (self.zigObjectPtr()) |zig_object| {
-        const off = @as(u32, @intCast(ar_strtab.items.len));
-        try ar_strtab.writer().print("{s}/\n", .{zig_object.path});
-        files.putAssumeCapacityNoClobber(zig_object.index, .{ off, 0, 0 });
+        try zig_object.updateArStrtab(gpa, &ar_strtab);
+        zig_object.updateArSize(self);
     }
 
-    // Align to even byte boundary
-    {
-        const end = ar_strtab.items.len;
-        const aligned = mem.alignForward(usize, end, 2);
-        try ar_strtab.writer().writeByteNTimes(0, aligned - end);
-    }
+    // Update file offsets of contributing objects.
+    const total_size: u64 = blk: {
+        var pos: u64 = Archive.SARMAG;
+        pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
+        pos = mem.alignForward(u64, pos, 2);
+        pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
 
-    // Encode ar symtab in 64bit format.
-    var ar_symtab = std.ArrayList(u8).init(gpa);
-    defer ar_symtab.deinit();
-    try ar_symtab.ensureUnusedCapacity(8 * (self.ar_symtab.items.len + 1));
-
-    // Number of symbols
-    ar_symtab.writer().writeInt(u64, @as(u64, @intCast(self.ar_symtab.items.len)), .big) catch unreachable;
-
-    // Offsets which we will relocate later.
-    for (0..self.ar_symtab.items.len) |_| {
-        ar_symtab.writer().writeInt(u64, 0, .big) catch unreachable;
-    }
-
-    // ASCII offsets into the strtab.
-    for (self.ar_symtab.items) |entry| {
-        const name = self.ar_strtab.getAssumeExists(entry.off);
-        try ar_symtab.writer().print("{s}\x00", .{name});
-    }
-
-    // Align to 8 bytes if required
-    {
-        const end = ar_symtab.items.len;
-        const aligned = mem.alignForward(usize, end, 8);
-        try ar_symtab.writer().writeByteNTimes(0, aligned - end);
-    }
-
-    assert(mem.isAligned(ar_symtab.items.len, 8));
-
-    // Calculate required size for headers before ZigObject pos in file.
-    if (self.zigObjectPtr()) |zig_object| {
-        var file_off: u64 = 0;
-        // Magic
-        file_off += Archive.SARMAG;
-        // Symtab
-        file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_symtab.items.len));
-        // Strtab
-        file_off += @sizeOf(Archive.ar_hdr) + @as(u64, @intCast(ar_strtab.items.len));
-
-        const files_ptr = files.getPtr(zig_object.index).?;
-        files_ptr[1] = file_off;
-
-        // Move ZigObject into place.
-        {
-            var end_pos: u64 = self.shdr_table_offset.?;
-            for (self.shdrs.items) |shdr| {
-                end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
-            }
-            const contents = try gpa.alloc(u8, end_pos);
-            defer gpa.free(contents);
-            const amt = try self.base.file.?.preadAll(contents, 0);
-            if (amt != end_pos) return error.InputOutput;
-            try self.base.file.?.pwriteAll(contents, file_off + @sizeOf(Archive.ar_hdr));
-
-            files_ptr[2] = end_pos;
+        if (self.zigObjectPtr()) |zig_object| {
+            pos = mem.alignForward(u64, pos, 2);
+            zig_object.output_ar_state.file_off = pos;
+            pos += @sizeOf(Archive.ar_hdr) + zig_object.output_ar_state.size;
         }
-    }
 
-    // Fixup file offsets in the symtab.
-    for (self.ar_symtab.items, 1..) |entry, i| {
-        const file_off = files.get(entry.file_index).?[1];
-        mem.writeInt(u64, ar_symtab.items[8 * i ..][0..8], file_off, .big);
-    }
-
-    var pos: usize = Archive.SARMAG;
-
-    // Write symtab.
-    {
-        const hdr = setArHdr(.{ .kind = .symtab, .name_off = 0, .size = @intCast(ar_symtab.items.len) });
-        try self.base.file.?.pwriteAll(mem.asBytes(&hdr), pos);
-        pos += @sizeOf(Archive.ar_hdr);
-        try self.base.file.?.pwriteAll(ar_symtab.items, pos);
-        pos += ar_symtab.items.len;
-    }
-
-    // Write strtab.
-    {
-        const hdr = setArHdr(.{
-            .kind = .strtab,
-            .name_off = 0,
-            .size = @intCast(ar_strtab.items.len),
-        });
-        try self.base.file.?.pwriteAll(mem.asBytes(&hdr), pos);
-        pos += @sizeOf(Archive.ar_hdr);
-        try self.base.file.?.pwriteAll(ar_strtab.items, pos);
-        pos += ar_strtab.items.len;
-    }
-
-    // Zig object if defined
-    if (self.zigObjectPtr()) |zig_object| {
-        const entry = files.get(zig_object.index).?;
-        const hdr = setArHdr(.{ .kind = .object, .name_off = entry[0], .size = @intCast(entry[2]) });
-        try self.base.file.?.pwriteAll(mem.asBytes(&hdr), entry[1]);
-        pos += @sizeOf(Archive.ar_hdr) + entry[2];
-    }
-
-    // TODO parsed positionals
-
-    // Magic bytes.
-    {
-        try self.base.file.?.pwriteAll(Archive.ARMAG, 0);
-    }
-}
-
-fn setArHdr(opts: struct {
-    kind: enum { symtab, strtab, object },
-    name_off: u32,
-    size: u32,
-}) Archive.ar_hdr {
-    var hdr: Archive.ar_hdr = .{
-        .ar_name = undefined,
-        .ar_date = undefined,
-        .ar_uid = undefined,
-        .ar_gid = undefined,
-        .ar_mode = undefined,
-        .ar_size = undefined,
-        .ar_fmag = undefined,
+        break :blk pos;
     };
-    @memset(mem.asBytes(&hdr), 0x20);
-    @memcpy(&hdr.ar_fmag, Archive.ARFMAG);
 
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        const writer = stream.writer();
-        switch (opts.kind) {
-            .symtab => writer.print("{s}", .{Archive.SYM64NAME}) catch unreachable,
-            .strtab => writer.print("//", .{}) catch unreachable,
-            .object => writer.print("/{d}", .{opts.name_off}) catch unreachable,
-        }
-    }
-    {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{opts.size}) catch unreachable;
+    if (build_options.enable_logging) {
+        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(self)});
+        state_log.debug("ar_strtab\n{}\n", .{ar_strtab});
     }
 
-    return hdr;
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(total_size);
+
+    // Write magic
+    try buffer.writer().writeAll(Archive.ARMAG);
+
+    // Write symtab
+    try ar_symtab.write(.p64, self, buffer.writer());
+    if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
+
+    // Write strtab
+    try ar_strtab.write(buffer.writer());
+    if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
+
+    // Write object files
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.writeAr(self, buffer.writer());
+    }
+
+    assert(buffer.items.len == total_size);
+
+    try self.base.file.?.pwriteAll(buffer.items, 0);
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
@@ -5822,18 +5712,6 @@ fn fmtDumpState(
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
 
-    if (self.isStaticLib()) {
-        try writer.writeAll("ar symtab\n");
-        for (self.ar_symtab.items, 0..) |entry, i| {
-            try writer.print(" {d} : {s} in file({d})\n", .{
-                i,
-                self.ar_strtab.getAssumeExists(entry.off),
-                entry.file_index,
-            });
-        }
-        try writer.writeByte('\n');
-    }
-
     try writer.writeAll("Output shdrs\n");
     for (self.shdrs.items, 0..) |shdr, shndx| {
         try writer.print("shdr({d}) : phdr({?d}) : {}\n", .{
@@ -5965,19 +5843,6 @@ const LastAtomAndFreeList = struct {
 };
 
 const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList);
-
-const ArSymtabEntry = struct {
-    off: u32,
-    file_index: File.Index,
-
-    pub fn lessThan(ctx: void, lhs: ArSymtabEntry, rhs: ArSymtabEntry) bool {
-        _ = ctx;
-        if (lhs.off == rhs.off) {
-            return lhs.file_index < rhs.file_index;
-        }
-        return lhs.off < rhs.off;
-    }
-};
 
 pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
 pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;

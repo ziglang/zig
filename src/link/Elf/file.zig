@@ -196,9 +196,9 @@ pub const File = union(enum) {
         }
     }
 
-    pub fn updateArSymtab(file: File, elf_file: *Elf) !void {
+    pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
         return switch (file) {
-            .zig_object => |x| x.updateArSymtab(elf_file),
+            .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
             .object => @panic("TODO"),
             inline else => unreachable,
         };
@@ -219,6 +219,7 @@ const std = @import("std");
 const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = @import("eh_frame.zig").Cie;
 const Elf = @import("../Elf.zig");

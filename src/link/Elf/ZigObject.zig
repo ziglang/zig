@@ -20,6 +20,7 @@ relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 num_dynrelocs: u32 = 0,
 
 output_symtab_size: Elf.SymtabSize = .{},
+output_ar_state: Archive.ArState = .{},
 
 dwarf: ?Dwarf = null,
 
@@ -502,10 +503,10 @@ fn sortSymbols(self: *ZigObject, elf_file: *Elf) error{OutOfMemory}!void {
     // mem.sort(Entry, sorted_globals, elf_file, Entry.lessThan);
 }
 
-pub fn updateArSymtab(self: ZigObject, elf_file: *Elf) !void {
+pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) error{OutOfMemory}!void {
     const gpa = elf_file.base.allocator;
 
-    try elf_file.ar_symtab.ensureUnusedCapacity(gpa, self.globals().len);
+    try ar_symtab.symtab.ensureUnusedCapacity(gpa, self.globals().len);
 
     for (self.globals()) |global_index| {
         const global = elf_file.symbol(global_index);
@@ -513,9 +514,43 @@ pub fn updateArSymtab(self: ZigObject, elf_file: *Elf) !void {
         assert(file_ptr.index() == self.index);
         if (global.type(elf_file) == elf.SHN_UNDEF) continue;
 
-        const off = try elf_file.ar_strtab.insert(gpa, global.name(elf_file));
-        elf_file.ar_symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
+        const off = try ar_symtab.strtab.insert(gpa, global.name(elf_file));
+        ar_symtab.symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
     }
+}
+
+pub fn updateArStrtab(
+    self: *ZigObject,
+    allocator: Allocator,
+    ar_strtab: *Archive.ArStrtab,
+) error{OutOfMemory}!void {
+    const name = try std.fmt.allocPrint(allocator, "{s}.o", .{std.fs.path.stem(self.path)});
+    defer allocator.free(name);
+    const name_off = try ar_strtab.insert(allocator, name);
+    self.output_ar_state.name_off = name_off;
+}
+
+pub fn updateArSize(self: *ZigObject, elf_file: *Elf) void {
+    var end_pos: u64 = elf_file.shdr_table_offset.?;
+    for (elf_file.shdrs.items) |shdr| {
+        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
+    }
+    self.output_ar_state.size = end_pos;
+}
+
+pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
+    const gpa = elf_file.base.allocator;
+    const contents = try gpa.alloc(u8, self.output_ar_state.size);
+    defer gpa.free(contents);
+    const amt = try elf_file.base.file.?.preadAll(contents, 0);
+    if (amt != self.output_ar_state.size) return error.InputOutput;
+    const hdr = Archive.setArHdr(.{
+        .kind = .object,
+        .name_off = self.output_ar_state.name_off,
+        .size = @intCast(self.output_ar_state.size),
+    });
+    try writer.writeAll(mem.asBytes(&hdr));
+    try writer.writeAll(contents);
 }
 
 pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
@@ -1533,6 +1568,7 @@ const std = @import("std");
 
 const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
