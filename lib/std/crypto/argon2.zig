@@ -896,8 +896,6 @@ test "kdf" {
 }
 
 test "phc format hasher" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const password = "testpass";
 
@@ -913,8 +911,6 @@ test "phc format hasher" {
 }
 
 test "password hash and password verify" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const password = "testpass";
 

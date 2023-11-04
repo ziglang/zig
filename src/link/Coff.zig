@@ -388,6 +388,7 @@ fn populateMissingMetadata(self: *Coff) !void {
         self.rdata_section_index = try self.allocateSection(".rdata", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
+            .MEM_WRITE = 1,
         });
     }
 

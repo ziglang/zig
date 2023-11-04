@@ -2568,8 +2568,6 @@ test "big.int const to managed" {
 }
 
 test "big.int pow" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     {
         var a = try Managed.initSet(testing.allocator, -3);
         defer a.deinit();
@@ -2763,8 +2761,6 @@ fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
 }
 
 test "big int conversion read/write twos complement" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
@@ -2863,8 +2859,6 @@ test "big int write twos complement +/- zero" {
 }
 
 test "big int conversion write twos complement with padding" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
     defer a.deinit();
 

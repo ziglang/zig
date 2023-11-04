@@ -373,7 +373,6 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
 
 test "ECDSA - Basic operations over EcdsaP384Sha384" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
     const kp = try Scheme.KeyPair.create(null);
@@ -407,7 +406,6 @@ test "ECDSA - Basic operations over Secp256k1" {
 
 test "ECDSA - Basic operations over EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
     const kp = try Scheme.KeyPair.create(null);
@@ -424,7 +422,6 @@ test "ECDSA - Basic operations over EcdsaP384Sha256" {
 
 test "ECDSA - Verifying a existing signature with EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
     // zig fmt: off
@@ -469,7 +466,6 @@ const TestVector = struct {
 
 test "ECDSA - Test vectors from Project Wycheproof" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const vectors = [_]TestVector{
         .{ .key = "042927b10512bae3eddcfe467828128bad2903269919f7086069c8c4df6c732838c7787964eaac00e5921fb1498a60f4606766b3d9685001558d1a974e7341513e", .msg = "313233343030", .sig = "304402202ba3a8be6b94d5ec80a6d9d1190a436effe50d85a1eee859b8cc6af9bd5c2e1802204cd60b855d442f5b3c7b11eb6c4e0ae7525fe710fab9aa7c77a67f79e6fadd76", .result = .valid },
@@ -884,7 +880,6 @@ fn tvTry(vector: TestVector) !void {
 
 test "ECDSA - Sec1 encoding/decoding" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
     const kp = try Scheme.KeyPair.create(null);

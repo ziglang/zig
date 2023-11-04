@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
@@ -276,8 +275,8 @@ pub const Ed25519 = struct {
         pub fn fromSecretKey(secret_key: SecretKey) (NonCanonicalError || EncodingError || IdentityElementError)!KeyPair {
             // It is critical for EdDSA to use the correct public key.
             // In order to enforce this, a SecretKey implicitly includes a copy of the public key.
-            // In Debug mode, we can still afford checking that the public key is correct for extra safety.
-            if (builtin.mode == .Debug) {
+            // With runtime safety, we can still afford checking that the public key is correct.
+            if (std.debug.runtime_safety) {
                 const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
                 const recomputed_kp = try create(secret_key.seed());
                 debug.assert(mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes()));
@@ -493,8 +492,6 @@ test "ed25519 key pair creation" {
 }
 
 test "ed25519 signature" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
@@ -507,8 +504,6 @@ test "ed25519 signature" {
 }
 
 test "ed25519 batch verification" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var i: usize = 0;
     while (i < 100) : (i += 1) {
         const key_pair = try Ed25519.KeyPair.create(null);
@@ -538,8 +533,6 @@ test "ed25519 batch verification" {
 }
 
 test "ed25519 test vectors" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const Vec = struct {
         msg_hex: *const [64:0]u8,
         public_key_hex: *const [64:0]u8,
@@ -642,8 +635,6 @@ test "ed25519 test vectors" {
 }
 
 test "ed25519 with blind keys" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const BlindKeyPair = Ed25519.key_blinding.BlindKeyPair;
 
     // Create a standard Ed25519 key pair
@@ -667,8 +658,6 @@ test "ed25519 with blind keys" {
 }
 
 test "ed25519 signatures with streaming" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const kp = try Ed25519.KeyPair.create(null);
 
     var signer = try kp.signer(null);

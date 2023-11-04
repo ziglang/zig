@@ -28,8 +28,6 @@ pub const Aes128 = impl.Aes128;
 pub const Aes256 = impl.Aes256;
 
 test "ctr" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // NIST SP 800-38A pp 55-58
     const ctr = @import("modes.zig").ctr;
 

@@ -255,6 +255,8 @@ pub const Inst = struct {
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
         vp_dq,
+        /// VEX-Encoded Packed ___ Integer Data
+        vp_i128,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values

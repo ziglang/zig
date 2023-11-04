@@ -237,7 +237,7 @@ pub const Register = enum(u7) {
         return @intCast(@intFromEnum(reg) - base);
     }
 
-    pub fn bitSize(reg: Register) u64 {
+    pub fn bitSize(reg: Register) u10 {
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => 64,

@@ -315,8 +315,6 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -4342,8 +4340,6 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"
