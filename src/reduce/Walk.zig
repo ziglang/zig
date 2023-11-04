@@ -2,6 +2,7 @@ const std = @import("std");
 const Ast = std.zig.Ast;
 const Walk = @This();
 const assert = std.debug.assert;
+const BuiltinFn = @import("../BuiltinFn.zig");
 
 ast: *const Ast,
 transformations: *std.ArrayList(Transformation),
@@ -16,6 +17,11 @@ pub const Transformation = union(enum) {
     delete_node: Ast.Node.Index,
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
+    /// Replace an `@import` with the imported file contents wrapped in a struct.
+    inline_imported_file: struct {
+        builtin_call_node: Ast.Node.Index,
+        imported_string: []const u8,
+    },
 };
 
 pub const Error = error{OutOfMemory};
@@ -437,16 +443,16 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .builtin_call_two, .builtin_call_two_comma => {
             if (datas[node].lhs == 0) {
-                return walkBuiltinCall(w, main_tokens[node], &.{});
+                return walkBuiltinCall(w, node, &.{});
             } else if (datas[node].rhs == 0) {
-                return walkBuiltinCall(w, main_tokens[node], &.{datas[node].lhs});
+                return walkBuiltinCall(w, node, &.{datas[node].lhs});
             } else {
-                return walkBuiltinCall(w, main_tokens[node], &.{ datas[node].lhs, datas[node].rhs });
+                return walkBuiltinCall(w, node, &.{ datas[node].lhs, datas[node].rhs });
             }
         },
         .builtin_call, .builtin_call_comma => {
             const params = ast.extra_data[datas[node].lhs..datas[node].rhs];
-            return walkBuiltinCall(w, main_tokens[node], params);
+            return walkBuiltinCall(w, node, params);
         },
 
         .fn_proto_simple,
@@ -680,10 +686,31 @@ fn walkContainerDecl(
 
 fn walkBuiltinCall(
     w: *Walk,
-    builtin_token: Ast.TokenIndex,
+    call_node: Ast.Node.Index,
     params: []const Ast.Node.Index,
 ) Error!void {
-    _ = builtin_token;
+    const ast = w.ast;
+    const gpa = w.gpa;
+    const main_tokens = ast.nodes.items(.main_token);
+    const builtin_token = main_tokens[call_node];
+    const builtin_name = ast.tokenSlice(builtin_token);
+    const info = BuiltinFn.list.get(builtin_name).?;
+    switch (info.tag) {
+        .import => {
+            const operand_node = params[0];
+            const str_lit_token = main_tokens[operand_node];
+            const token_bytes = ast.tokenSlice(str_lit_token);
+            const imported_string = std.zig.string_literal.parseAlloc(gpa, token_bytes) catch
+                unreachable;
+            if (std.mem.endsWith(u8, imported_string, ".zig")) {
+                try w.transformations.append(.{ .inline_imported_file = .{
+                    .builtin_call_node = call_node,
+                    .imported_string = imported_string,
+                } });
+            }
+        },
+        else => {},
+    }
     for (params) |param_node| {
         try walkExpression(w, param_node);
     }

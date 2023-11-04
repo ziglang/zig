@@ -24,8 +24,11 @@ pub const Fixups = struct {
     gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These global declarations will be omitted.
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
-    /// These expressions will be replaced with `undefined`.
-    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    /// These expressions will be replaced with the string value.
+    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    /// All `@import` builtin calls which refer to a file path will be prefixed
+    /// with this path.
+    rebase_imported_paths: ?[]const u8 = null,
 
     pub fn count(f: Fixups) usize {
         return f.unused_var_decls.count() +
@@ -277,8 +280,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
-    if (r.fixups.replace_nodes.contains(node)) {
-        try ais.writer().writeAll("undefined");
+    if (r.fixups.replace_nodes.get(node)) |replacement| {
+        try ais.writer().writeAll(replacement);
         try renderOnlySpace(r, space);
         return;
     }
@@ -1515,6 +1518,7 @@ fn renderBuiltinCall(
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
 
     // TODO remove before release of 0.12.0
     const slice = tree.tokenSlice(builtin_token);
@@ -1607,6 +1611,26 @@ fn renderBuiltinCall(
     if (params.len == 0) {
         try renderToken(r, builtin_token + 1, .none); // (
         return renderToken(r, builtin_token + 2, space); // )
+    }
+
+    if (r.fixups.rebase_imported_paths) |prefix| {
+        if (mem.eql(u8, slice, "@import")) f: {
+            const param = params[0];
+            const str_lit_token = main_tokens[param];
+            assert(token_tags[str_lit_token] == .string_literal);
+            const token_bytes = tree.tokenSlice(str_lit_token);
+            const imported_string = std.zig.string_literal.parseAlloc(r.gpa, token_bytes) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidLiteral => break :f,
+            };
+            defer r.gpa.free(imported_string);
+            const new_string = try std.fs.path.resolvePosix(r.gpa, &.{ prefix, imported_string });
+            defer r.gpa.free(new_string);
+
+            try renderToken(r, builtin_token + 1, .none); // (
+            try ais.writer().print("\"{}\"", .{std.zig.fmtEscapes(new_string)});
+            return renderToken(r, str_lit_token + 1, space); // )
+        }
     }
 
     const last_param = params[params.len - 1];

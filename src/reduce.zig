@@ -109,8 +109,11 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var rendered = std.ArrayList(u8).init(gpa);
     defer rendered.deinit();
 
-    var tree = try parse(gpa, arena, root_source_file_path);
-    defer tree.deinit(gpa);
+    var tree = try parse(gpa, root_source_file_path);
+    defer {
+        gpa.free(tree.source);
+        tree.deinit(gpa);
+    }
 
     if (!skip_smoke_test) {
         std.debug.print("smoke testing the interestingness check...\n", .{});
@@ -159,7 +162,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             subset_size = @max(1, subset_size / 2);
 
             const this_set = transformations.items[start_index..][0..subset_size];
-            try transformationsToFixups(gpa, this_set, &fixups);
+            try transformationsToFixups(gpa, arena, root_source_file_path, this_set, &fixups);
 
             rendered.clearRetainingCapacity();
             try tree.renderToArrayList(&rendered, fixups);
@@ -171,7 +174,8 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             });
             switch (interestingness) {
                 .interesting => {
-                    const new_tree = try parse(gpa, arena, root_source_file_path);
+                    const new_tree = try parse(gpa, root_source_file_path);
+                    gpa.free(tree.source);
                     tree.deinit(gpa);
                     tree = new_tree;
 
@@ -241,6 +245,8 @@ fn runCheck(arena: std.mem.Allocator, argv: []const []const u8) !Interestingness
 
 fn transformationsToFixups(
     gpa: Allocator,
+    arena: Allocator,
+    root_source_file_path: []const u8,
     transforms: []const Walk.Transformation,
     fixups: *Ast.Fixups,
 ) !void {
@@ -254,20 +260,51 @@ fn transformationsToFixups(
             try fixups.omit_nodes.put(gpa, decl_node, {});
         },
         .replace_with_undef => |node| {
-            try fixups.replace_nodes.put(gpa, node, {});
+            try fixups.replace_nodes.put(gpa, node, "undefined");
+        },
+        .inline_imported_file => |inline_imported_file| {
+            defer gpa.free(inline_imported_file.imported_string);
+            const full_imported_path = try std.fs.path.join(gpa, &.{
+                std.fs.path.dirname(root_source_file_path) orelse ".",
+                inline_imported_file.imported_string,
+            });
+            defer gpa.free(full_imported_path);
+            var other_file_ast = try parse(gpa, full_imported_path);
+            defer {
+                gpa.free(other_file_ast.source);
+                other_file_ast.deinit(gpa);
+            }
+            var other_source = std.ArrayList(u8).init(gpa);
+            defer other_source.deinit();
+            var inlined_fixups: Ast.Fixups = .{};
+            defer inlined_fixups.deinit(gpa);
+            try other_source.appendSlice("struct {\n");
+            try other_file_ast.renderToArrayList(&other_source, .{
+                .rebase_imported_paths = std.fs.path.dirname(inline_imported_file.imported_string),
+            });
+            try other_source.appendSlice("}");
+
+            try fixups.replace_nodes.put(
+                gpa,
+                inline_imported_file.builtin_call_node,
+                try arena.dupe(u8, other_source.items),
+            );
         },
     };
 }
 
-fn parse(gpa: Allocator, arena: Allocator, root_source_file_path: []const u8) !Ast {
-    const source_code = try std.fs.cwd().readFileAllocOptions(
-        arena,
-        root_source_file_path,
+fn parse(gpa: Allocator, file_path: []const u8) !Ast {
+    const source_code = std.fs.cwd().readFileAllocOptions(
+        gpa,
+        file_path,
         std.math.maxInt(u32),
         null,
         1,
         0,
-    );
+    ) catch |err| {
+        fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });
+    };
+    errdefer gpa.free(source_code);
 
     var tree = try Ast.parse(gpa, source_code, .zig);
     errdefer tree.deinit(gpa);
