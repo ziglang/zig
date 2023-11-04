@@ -6201,7 +6201,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: usize) ?*u8;
+extern fn malloc(size: usize) ?[*]u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -6210,7 +6210,7 @@ fn doAThing() ?*Foo {
       {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+        is {#syntax#}[*]u8{#endsyntax#} <em>not</em> {#syntax#}?[*]u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
                     unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
