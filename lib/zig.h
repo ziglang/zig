@@ -174,6 +174,12 @@ typedef char bool;
 #define zig_extern extern
 #endif
 
+#if _MSC_VER
+#define zig_extern_mangled zig_extern
+#else
+#define zig_extern_mangled static
+#endif
+
 #if zig_has_attribute(alias)
 #define zig_export(sig, symbol, name) zig_extern sig __attribute__((alias(#symbol)))
 #elif _MSC_VER
@@ -190,14 +196,14 @@ typedef char bool;
 
 #if _MSC_VER
 #if _M_X64
-#define zig_import(sig, symbol, name) sig;\
+#define zig_import(sig, symbol, name) zig_extern sig;\
     __pragma(comment(linker, "/alternatename:" #symbol "=" #name ))
 #else /*_M_X64 */
-#define zig_import(sig, symbol, name) sig;\
+#define zig_import(sig, symbol, name) zig_extern sig;\
     __pragma(comment(linker, "/alternatename:_" #symbol "=_" #name ))
 #endif /*_M_X64 */
 #else
-#define zig_import(sig, symbol, name) zig_extern sig asm(#name);
+#define zig_import(sig, symbol, name) zig_extern sig __asm(#name);
 #endif
 
 #define zig_expand_import(sig, symbol, name) zig_import(sig, symbol, name)
@@ -3344,24 +3350,24 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, sub, -) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, mul, *) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, div, /) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_sqrt(zig_f##w), zig_float_fn_f##w##_sqrt, zig_libc_name_f##w(sqrt)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_sin(zig_f##w), zig_float_fn_f##w##_sin, zig_libc_name_f##w(sin)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_cos(zig_f##w), zig_float_fn_f##w##_cos, zig_libc_name_f##w(cos)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_tan(zig_f##w), zig_float_fn_f##w##_tan, zig_libc_name_f##w(tan)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_exp(zig_f##w), zig_float_fn_f##w##_exp, zig_libc_name_f##w(exp)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_exp2(zig_f##w), zig_float_fn_f##w##_exp2, zig_libc_name_f##w(exp2)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_log(zig_f##w), zig_float_fn_f##w##_log, zig_libc_name_f##w(log)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_log2(zig_f##w), zig_float_fn_f##w##_log2, zig_libc_name_f##w(log2)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_log10(zig_f##w), zig_float_fn_f##w##_log10, zig_libc_name_f##w(log10)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_fabs(zig_f##w), zig_float_fn_f##w##_fabs, zig_libc_name_f##w(fabs)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_floor(zig_f##w), zig_float_fn_f##w##_floor, zig_libc_name_f##w(floor)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_ceil(zig_f##w), zig_float_fn_f##w##_ceil, zig_libc_name_f##w(ceil)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_round(zig_f##w), zig_float_fn_f##w##_round, zig_libc_name_f##w(round)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_trunc(zig_f##w), zig_float_fn_f##w##_trunc, zig_libc_name_f##w(trunc)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_fmod(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmod, zig_libc_name_f##w(fmod)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_fmin(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmin, zig_libc_name_f##w(fmin)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_fmax(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmax, zig_libc_name_f##w(fmax)) \
-    zig_expand_import(zig_extern zig_f##w zig_float_fn_f##w##_fma(zig_f##w, zig_f##w, zig_f##w), zig_float_fn_f##w##_fma, zig_libc_name_f##w(fma)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_sqrt(zig_f##w), zig_float_fn_f##w##_sqrt, zig_libc_name_f##w(sqrt)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_sin(zig_f##w), zig_float_fn_f##w##_sin, zig_libc_name_f##w(sin)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_cos(zig_f##w), zig_float_fn_f##w##_cos, zig_libc_name_f##w(cos)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_tan(zig_f##w), zig_float_fn_f##w##_tan, zig_libc_name_f##w(tan)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_exp(zig_f##w), zig_float_fn_f##w##_exp, zig_libc_name_f##w(exp)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_exp2(zig_f##w), zig_float_fn_f##w##_exp2, zig_libc_name_f##w(exp2)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_log(zig_f##w), zig_float_fn_f##w##_log, zig_libc_name_f##w(log)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_log2(zig_f##w), zig_float_fn_f##w##_log2, zig_libc_name_f##w(log2)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_log10(zig_f##w), zig_float_fn_f##w##_log10, zig_libc_name_f##w(log10)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_fabs(zig_f##w), zig_float_fn_f##w##_fabs, zig_libc_name_f##w(fabs)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_floor(zig_f##w), zig_float_fn_f##w##_floor, zig_libc_name_f##w(floor)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_ceil(zig_f##w), zig_float_fn_f##w##_ceil, zig_libc_name_f##w(ceil)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_round(zig_f##w), zig_float_fn_f##w##_round, zig_libc_name_f##w(round)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_trunc(zig_f##w), zig_float_fn_f##w##_trunc, zig_libc_name_f##w(trunc)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_fmod(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmod, zig_libc_name_f##w(fmod)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_fmin(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmin, zig_libc_name_f##w(fmin)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_fmax(zig_f##w, zig_f##w), zig_float_fn_f##w##_fmax, zig_libc_name_f##w(fmax)) \
+    zig_expand_import(zig_f##w zig_float_fn_f##w##_fma(zig_f##w, zig_f##w, zig_f##w), zig_float_fn_f##w##_fma, zig_libc_name_f##w(fma)) \
 \
     static inline zig_f##w zig_div_trunc_f##w(zig_f##w lhs, zig_f##w rhs) { \
         return zig_float_fn_f##w##_trunc(zig_div_f##w(lhs, rhs)); \
