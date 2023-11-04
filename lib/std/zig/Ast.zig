@@ -113,7 +113,7 @@ pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer);
+    try tree.renderToArrayList(&buffer, .{});
     return buffer.toOwnedSlice();
 }
 

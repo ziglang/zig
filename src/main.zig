@@ -5774,7 +5774,7 @@ fn fmtPathFile(
     fmt.out_buffer.shrinkRetainingCapacity(0);
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer);
+    try tree.renderToArrayList(&fmt.out_buffer, .{});
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 

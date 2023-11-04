@@ -194,10 +194,6 @@ pub fn build(b: *std.Build) !void {
     };
 
     const exe = addCompilerStep(b, optimize, target);
-    if (only_reduce) {
-        exe.use_llvm = false;
-        exe.use_lld = false;
-    }
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
