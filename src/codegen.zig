@@ -376,7 +376,10 @@ pub fn generateSymbol(
                             .val = switch (aggregate.storage) {
                                 .bytes => unreachable,
                                 .elems => |elems| elems[@as(usize, @intCast(index))],
-                                .repeated_elem => |elem| elem,
+                                .repeated_elem => |elem| if (index < array_type.len)
+                                    elem
+                                else
+                                    array_type.sentinel,
                             }.toValue(),
                         }, code, debug_output, reloc_info)) {
                             .ok => {},

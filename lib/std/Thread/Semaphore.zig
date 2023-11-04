@@ -39,8 +39,6 @@ test "Thread.Semaphore" {
         return error.SkipZigTest;
     }
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const TestContext = struct {
         sem: *Semaphore,
         n: *i32,

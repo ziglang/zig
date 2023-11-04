@@ -1638,7 +1638,6 @@ fn testStaticBitSet(comptime Set: type) !void {
 
 test "IntegerBitSet" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
@@ -1651,8 +1650,6 @@ test "IntegerBitSet" {
 }
 
 test "ArrayBitSet" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
         try testStaticBitSet(ArrayBitSet(u8, size));
         try testStaticBitSet(ArrayBitSet(u16, size));

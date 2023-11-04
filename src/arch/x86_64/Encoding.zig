@@ -62,8 +62,7 @@ pub fn findByMnemonic(
             .rex, .rex_short => if (!rex_required) continue,
             else => {},
         }
-        for (input_ops, data.ops) |input_op, data_op|
-            if (!input_op.isSubset(data_op)) continue :next;
+        for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) continue :next;
 
         const enc = Encoding{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
@@ -410,6 +409,8 @@ pub const Mnemonic = enum {
     vfmadd132ps, vfmadd213ps, vfmadd231ps,
     vfmadd132sd, vfmadd213sd, vfmadd231sd,
     vfmadd132ss, vfmadd213ss, vfmadd231ss,
+    // AVX2
+    vpbroadcastb, vpbroadcastd, vpbroadcasti128, vpbroadcastq, vpbroadcastw,
     // zig fmt: on
 };
 
@@ -444,7 +445,7 @@ pub const Op = enum {
     moffs,
     sreg,
     st, mm, mm_m64,
-    xmm0, xmm, xmm_m32, xmm_m64, xmm_m128,
+    xmm0, xmm, xmm_m8, xmm_m16, xmm_m32, xmm_m64, xmm_m128,
     ymm, ymm_m256,
     // zig fmt: on
 
@@ -534,7 +535,7 @@ pub const Op = enum {
             .eax, .r32, .rm32, .r32_m16 => unreachable,
             .rax, .r64, .rm64, .r64_m16 => unreachable,
             .st, .mm, .mm_m64 => unreachable,
-            .xmm0, .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
+            .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
             .ymm, .ymm_m256 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
             .unity => 1,
@@ -556,7 +557,7 @@ pub const Op = enum {
             .eax, .r32, .rm32, .r32_m8, .r32_m16 => 32,
             .rax, .r64, .rm64, .r64_m16, .mm, .mm_m64 => 64,
             .st => 80,
-            .xmm0, .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
+            .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
             .ymm, .ymm_m256 => 256,
         };
     }
@@ -568,8 +569,8 @@ pub const Op = enum {
             .rel8, .rel16, .rel32 => unreachable,
             .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64 => unreachable,
             .st, .mm, .xmm0, .xmm, .ymm => unreachable,
-            .m8, .rm8, .r32_m8 => 8,
-            .m16, .rm16, .r32_m16, .r64_m16 => 16,
+            .m8, .rm8, .r32_m8, .xmm_m8 => 8,
+            .m16, .rm16, .r32_m16, .r64_m16, .xmm_m16 => 16,
             .m32, .rm32, .xmm_m32 => 32,
             .m64, .rm64, .mm_m64, .xmm_m64 => 64,
             .m80 => 80,
@@ -600,7 +601,7 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
             .st, .mm, .mm_m64,
-            .xmm0, .xmm, .xmm_m32, .xmm_m64, .xmm_m128,
+            .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm, .ymm_m256,
             => true,
             else => false,
@@ -629,7 +630,7 @@ pub const Op = enum {
             .m8, .m16, .m32, .m64, .m80, .m128, .m256,
             .m,
             .mm_m64,
-            .xmm_m32, .xmm_m64, .xmm_m128,
+            .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
             => true,
             else => false,
@@ -654,7 +655,7 @@ pub const Op = enum {
             .sreg => .segment,
             .st => .x87,
             .mm, .mm_m64 => .mmx,
-            .xmm0, .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .sse,
+            .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => .sse,
             .ymm, .ymm_m256 => .sse,
         };
     }
@@ -826,18 +827,13 @@ const mnemonic_to_encodings_map = init: {
     for (&data_storage, entries, 0..) |*data, entry, data_index| {
         data.* = .{
             .op_en = entry[1],
-            .ops = undefined,
+            .ops = (entry[2] ++ .{.none} ** (data.ops.len - entry[2].len)).*,
             .opc_len = entry[3].len,
-            .opc = undefined,
+            .opc = (entry[3] ++ .{undefined} ** (data.opc.len - entry[3].len)).*,
             .modrm_ext = entry[4],
             .mode = entry[5],
             .feature = entry[6],
         };
-        // TODO: use `@memcpy` for these. When I did that, I got a false positive
-        // compile error for this copy happening at compile time.
-        std.mem.copyForwards(Op, &data.ops, entry[2]);
-        std.mem.copyForwards(u8, &data.opc, entry[3]);
-
         while (mnemonic_int < @intFromEnum(entry[0])) : (mnemonic_int += 1) {
             mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..data_index];
             mnemonic_start = data_index;

@@ -355,8 +355,6 @@ pub const Base64DecoderWithIgnore = struct {
 };
 
 test "base64" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(8000);
     try testBase64();
     try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
@@ -377,8 +375,6 @@ test "base64 padding dest overflow" {
 }
 
 test "base64 url_safe_no_pad" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
     try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");

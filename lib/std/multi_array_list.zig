@@ -106,7 +106,7 @@ pub fn MultiArrayList(comptime T: type) type {
             }
 
             pub fn toMultiArrayList(self: Slice) Self {
-                if (self.ptrs.len == 0) {
+                if (self.ptrs.len == 0 or self.capacity == 0) {
                     return .{};
                 }
                 const unaligned_ptr = self.ptrs[sizes.fields[0]];

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const expectEqual = std.testing.expectEqual;
+const native_endian = builtin.cpu.arch.endian();
 
 const rotl = std.math.rotl;
 
@@ -472,7 +473,7 @@ pub const XxHash3 = struct {
     }
 
     inline fn swap(x: anytype) @TypeOf(x) {
-        return if (builtin.cpu.arch.endian() == .big) @byteSwap(x) else x;
+        return if (native_endian == .big) @byteSwap(x) else x;
     }
 
     inline fn disableAutoVectorization(x: anytype) void {

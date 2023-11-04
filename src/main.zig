@@ -6492,6 +6492,7 @@ pub fn cmdDumpZir(
         .mod = undefined,
         .root_decl = .none,
     };
+    defer file.zir.deinit(gpa);
 
     {
         const instruction_bytes = file.zir.instructions.len *

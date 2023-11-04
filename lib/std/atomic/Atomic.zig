@@ -467,8 +467,6 @@ test "Atomic.fetchSub" {
 }
 
 test "Atomic.fetchMin" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     inline for (atomicIntTypes()) |Int| {
         inline for (atomic_rmw_orderings) |ordering| {
             var x = Atomic(Int).init(5);

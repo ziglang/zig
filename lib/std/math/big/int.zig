@@ -1318,7 +1318,7 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage.
     /// The amount required is given by `calcPowLimbsBufferLen`.
-    pub fn pow(r: *Mutable, a: Const, b: u32, limbs_buffer: []Limb) !void {
+    pub fn pow(r: *Mutable, a: Const, b: u32, limbs_buffer: []Limb) void {
         assert(r.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
         // Handle all the trivial cases first
@@ -3213,7 +3213,7 @@ pub const Managed = struct {
             var m = try Managed.initCapacity(rma.allocator, needed_limbs);
             errdefer m.deinit();
             var m_mut = m.toMutable();
-            try m_mut.pow(a.toConst(), b, limbs_buffer);
+            m_mut.pow(a.toConst(), b, limbs_buffer);
             m.setMetadata(m_mut.positive, m_mut.len);
 
             rma.deinit();
@@ -3221,7 +3221,7 @@ pub const Managed = struct {
         } else {
             try rma.ensureCapacity(needed_limbs);
             var rma_mut = rma.toMutable();
-            try rma_mut.pow(a.toConst(), b, limbs_buffer);
+            rma_mut.pow(a.toConst(), b, limbs_buffer);
             rma.setMetadata(rma_mut.positive, rma_mut.len);
         }
     }

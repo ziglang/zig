@@ -1121,7 +1121,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
         const must_single_thread = target_util.isSingleThreaded(options.target);
-        const single_threaded = options.single_threaded orelse must_single_thread;
+        const single_threaded = options.single_threaded orelse must_single_thread or
+            // x86_64 codegen doesn't support TLV for most object formats
+            (!use_llvm and options.target.cpu.arch == .x86_64 and options.target.ofmt != .macho);
         if (must_single_thread and !single_threaded) {
             return error.TargetRequiresSingleThreaded;
         }

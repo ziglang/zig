@@ -9,6 +9,7 @@ const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 const Client = @This();
 const proto = @import("protocol.zig");
@@ -408,7 +409,7 @@ pub const Response = struct {
             else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
-        const status = @as(http.Status, @enumFromInt(parseInt3(first_line[9..12].*)));
+        const status: http.Status = @enumFromInt(parseInt3(first_line[9..12]));
         const reason = mem.trimLeft(u8, first_line[12..], " ");
 
         res.version = version;
@@ -481,20 +482,24 @@ pub const Response = struct {
     }
 
     inline fn int64(array: *const [8]u8) u64 {
-        return @as(u64, @bitCast(array.*));
+        return @bitCast(array.*);
     }
 
-    fn parseInt3(nnn: @Vector(3, u8)) u10 {
-        const zero: @Vector(3, u8) = .{ '0', '0', '0' };
-        const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
-        return @reduce(.Add, @as(@Vector(3, u10), nnn -% zero) *% mmm);
+    fn parseInt3(text: *const [3]u8) u10 {
+        if (use_vectors) {
+            const nnn: @Vector(3, u8) = text.*;
+            const zero: @Vector(3, u8) = .{ '0', '0', '0' };
+            const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
+            return @reduce(.Add, @as(@Vector(3, u10), nnn -% zero) *% mmm);
+        }
+        return std.fmt.parseInt(u10, text, 10) catch unreachable;
     }
 
     test parseInt3 {
         const expectEqual = testing.expectEqual;
-        try expectEqual(@as(u10, 0), parseInt3("000".*));
-        try expectEqual(@as(u10, 418), parseInt3("418".*));
-        try expectEqual(@as(u10, 999), parseInt3("999".*));
+        try expectEqual(@as(u10, 0), parseInt3("000"));
+        try expectEqual(@as(u10, 418), parseInt3("418"));
+        try expectEqual(@as(u10, 999), parseInt3("999"));
     }
 
     version: http.Version,
@@ -1588,7 +1593,8 @@ test {
 
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
 
     std.testing.refAllDecls(@This());
 }
