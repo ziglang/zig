@@ -1,11 +1,13 @@
 index: File.Index,
 symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 output_symtab_size: Elf.SymtabSize = .{},
 
 pub fn deinit(self: *LinkerDefined, allocator: Allocator) void {
     self.symtab.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
 }
 
@@ -13,16 +15,17 @@ pub fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 
     const gpa = elf_file.base.allocator;
     try self.symtab.ensureUnusedCapacity(gpa, 1);
     try self.symbols.ensureUnusedCapacity(gpa, 1);
+    const name_off = @as(u32, @intCast(self.strtab.items.len));
+    try self.strtab.writer(gpa).print("{s}\x00", .{name});
     self.symtab.appendAssumeCapacity(.{
-        .st_name = try elf_file.strtab.insert(gpa, name),
+        .st_name = name_off,
         .st_info = elf.STB_GLOBAL << 4,
         .st_other = @intFromEnum(elf.STV.HIDDEN),
         .st_shndx = elf.SHN_ABS,
         .st_value = 0,
         .st_size = 0,
     });
-    const off = try elf_file.strtab.insert(gpa, name);
-    const gop = try elf_file.getOrPutGlobal(off);
+    const gop = try elf_file.getOrPutGlobal(name);
     self.symbols.addOneAssumeCapacity().* = gop.index;
     return gop.index;
 }
@@ -37,32 +40,11 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, false) < global.symbolRank(elf_file)) {
             global.value = 0;
-            global.name_offset = global.name_offset;
             global.atom_index = 0;
             global.file_index = self.index;
             global.esym_index = sym_idx;
             global.version_index = elf_file.default_sym_version;
         }
-    }
-}
-
-pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) void {
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        global.flags.output_symtab = true;
-        self.output_symtab_size.nlocals += 1;
-    }
-}
-
-pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf, ctx: anytype) void {
-    var ilocal = ctx.ilocal;
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (!global.flags.output_symtab) continue;
-        global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
-        ilocal += 1;
     }
 }
 
@@ -72,6 +54,11 @@ pub fn globals(self: *LinkerDefined) []const Symbol.Index {
 
 pub fn asFile(self: *LinkerDefined) File {
     return .{ .linker_defined = self };
+}
+
+pub fn getString(self: LinkerDefined, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
 }
 
 pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
@@ -101,12 +88,13 @@ fn formatSymtab(
     }
 }
 
-const std = @import("std");
+const assert = std.debug.assert;
 const elf = std.elf;
+const mem = std.mem;
+const std = @import("std");
 
-const Allocator = std.mem.Allocator;
+const Allocator = mem.Allocator;
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const LinkerDefined = @This();
-// const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");

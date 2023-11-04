@@ -43,7 +43,7 @@ pub const Fde = struct {
     pub fn atom(fde: Fde, elf_file: *Elf) *Atom {
         const object = elf_file.file(fde.file_index).?.object;
         const rel = fde.relocs(elf_file)[0];
-        const sym = object.symtab[rel.r_sym()];
+        const sym = object.symtab.items[rel.r_sym()];
         const atom_index = object.atoms.items[sym.st_shndx];
         return elf_file.atom(atom_index).?;
     }

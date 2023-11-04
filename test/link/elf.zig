@@ -6,8 +6,12 @@ pub fn build(b: *Build) void {
     const elf_step = b.step("test-elf", "Run ELF tests");
     b.default_step = elf_step;
 
-    const musl_target = CrossTarget{
+    const default_target = CrossTarget{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
+        .os_tag = .linux,
+    };
+    const musl_target = CrossTarget{
+        .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .musl,
     };
@@ -18,7 +22,10 @@ pub fn build(b: *Build) void {
     };
 
     // Exercise linker with self-hosted backend (no LLVM)
-    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false }));
+    elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = glibc_target }));
     elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = musl_target }));
 
@@ -848,6 +855,110 @@ fn testGcSections(b: *Build, opts: Options) *Step {
         exe.link_gc_sections = true;
         exe.linkLibC();
         exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn2");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testGcSectionsZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "gc-sections-zig", opts);
+
+    const obj = addObject(b, "obj", .{
+        .target = opts.target,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    addCSourceBytes(obj,
+        \\int live_var1 = 1;
+        \\int live_var2 = 2;
+        \\int dead_var1 = 3;
+        \\int dead_var2 = 4;
+        \\void live_fn1() {}
+        \\void live_fn2() { live_fn1(); }
+        \\void dead_fn1() {}
+        \\void dead_fn2() { dead_fn1(); }
+    , &.{});
+    obj.link_function_sections = true;
+    obj.link_data_sections = true;
+
+    {
+        const exe = addExecutable(b, "test1", opts);
+        addZigSourceBytes(exe,
+            \\const std = @import("std");
+            \\extern var live_var1: i32;
+            \\extern var live_var2: i32;
+            \\extern fn live_fn2() void;
+            \\pub fn main() void {
+            \\    const stdout = std.io.getStdOut();
+            \\    stdout.writer().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
+            \\    live_fn2();
+            \\}
+        );
+        exe.addObject(obj);
+        exe.link_gc_sections = false;
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkContains("dead_var1");
+        check.checkInSymtab();
+        check.checkContains("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkContains("dead_fn1");
+        check.checkInSymtab();
+        check.checkContains("dead_fn2");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, "test2", opts);
+        addZigSourceBytes(exe,
+            \\const std = @import("std");
+            \\extern var live_var1: i32;
+            \\extern var live_var2: i32;
+            \\extern fn live_fn2() void;
+            \\pub fn main() void {
+            \\    const stdout = std.io.getStdOut();
+            \\    stdout.writer().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
+            \\    live_fn2();
+            \\}
+        );
+        exe.addObject(obj);
+        exe.link_gc_sections = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2\n");
@@ -1710,6 +1821,72 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinkingObj(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-obj", opts);
+
+    const obj = addObject(b, "aobj", opts);
+    addZigSourceBytes(obj,
+        \\extern var mod: usize;
+        \\export fn callMe() usize {
+        \\    return me * mod;
+        \\}
+        \\var me: usize = 42;
+    );
+
+    const exe = addExecutable(b, "testobj", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn callMe() usize;
+        \\export var mod: usize = 2;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{callMe()});
+        \\}
+    );
+    exe.addObject(obj);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("84\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-static-lib", opts);
+
+    const lib = b.addStaticLibrary(.{
+        .name = "alib",
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .use_llvm = opts.use_llvm,
+        .use_lld = false,
+    });
+    addZigSourceBytes(lib,
+        \\extern var mod: usize;
+        \\export fn callMe() usize {
+        \\    return me * mod;
+        \\}
+        \\var me: usize = 42;
+    );
+
+    const exe = addExecutable(b, "testlib", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn callMe() usize;
+        \\export var mod: usize = 2;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{callMe()});
+        \\}
+    );
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("84\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -3114,6 +3291,7 @@ const Options = struct {
     target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
+    use_lld: bool = false,
 };
 
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
@@ -3134,7 +3312,7 @@ fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
-        .use_lld = false,
+        .use_lld = opts.use_lld,
     });
 }
 
@@ -3144,7 +3322,7 @@ fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
-        .use_lld = false,
+        .use_lld = opts.use_lld,
     });
 }
 
@@ -3164,7 +3342,7 @@ fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
-        .use_lld = false,
+        .use_lld = opts.use_lld,
     });
 }
 

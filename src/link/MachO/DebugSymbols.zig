@@ -22,7 +22,7 @@ debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Reloc = struct {
@@ -567,5 +567,5 @@ const Allocator = mem.Allocator;
 const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Module = @import("../../Module.zig");
-const StringTable = @import("../strtab.zig").StringTable;
+const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;

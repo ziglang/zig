@@ -1,19 +1,27 @@
 pub fn gcAtoms(elf_file: *Elf) !void {
-    var roots = std.ArrayList(*Atom).init(elf_file.base.allocator);
+    const gpa = elf_file.base.allocator;
+    const num_files = elf_file.objects.items.len + @intFromBool(elf_file.zig_object_index != null);
+    var files = try std.ArrayList(File.Index).initCapacity(gpa, num_files);
+    defer files.deinit();
+    if (elf_file.zig_object_index) |index| files.appendAssumeCapacity(index);
+    for (elf_file.objects.items) |index| files.appendAssumeCapacity(index);
+
+    var roots = std.ArrayList(*Atom).init(gpa);
     defer roots.deinit();
-    try collectRoots(&roots, elf_file);
+    try collectRoots(&roots, files.items, elf_file);
+
     mark(roots, elf_file);
-    prune(elf_file);
+    prune(files.items, elf_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
+fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_file: *Elf) !void {
     if (elf_file.entry_index) |index| {
         const global = elf_file.symbol(index);
         try markSymbol(global, roots, elf_file);
     }
 
-    for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.globals()) |global_index| {
+    for (files) |index| {
+        for (elf_file.file(index).?.globals()) |global_index| {
             const global = elf_file.symbol(global_index);
             if (global.file(elf_file)) |file| {
                 if (file.index() == index and global.flags.@"export")
@@ -22,10 +30,10 @@ fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
         }
     }
 
-    for (elf_file.objects.items) |index| {
-        const object = elf_file.file(index).?.object;
+    for (files) |index| {
+        const file = elf_file.file(index).?;
 
-        for (object.atoms.items) |atom_index| {
+        for (file.atoms()) |atom_index| {
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
 
@@ -49,9 +57,9 @@ fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
         }
 
         // Mark every atom referenced by CIE as alive.
-        for (object.cies.items) |cie| {
+        for (file.cies()) |cie| {
             for (cie.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const sym = elf_file.symbol(file.symbol(rel.r_sym()));
                 try markSymbol(sym, roots, elf_file);
             }
         }
@@ -73,11 +81,11 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     if (@import("build_options").enable_logging) track_live_level.incr();
 
     assert(atom.flags.visited);
-    const object = atom.file(elf_file).?.object;
+    const file = atom.file(elf_file).?;
 
     for (atom.fdes(elf_file)) |fde| {
         for (fde.relocs(elf_file)[1..]) |rel| {
-            const target_sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+            const target_sym = elf_file.symbol(file.symbol(rel.r_sym()));
             const target_atom = target_sym.atom(elf_file) orelse continue;
             target_atom.flags.alive = true;
             gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
@@ -86,7 +94,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     }
 
     for (atom.relocs(elf_file)) |rel| {
-        const target_sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+        const target_sym = elf_file.symbol(file.symbol(rel.r_sym()));
         const target_atom = target_sym.atom(elf_file) orelse continue;
         target_atom.flags.alive = true;
         gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
@@ -101,9 +109,9 @@ fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
     }
 }
 
-fn prune(elf_file: *Elf) void {
-    for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.atoms.items) |atom_index| {
+fn prune(files: []const File.Index, elf_file: *Elf) void {
+    for (files) |index| {
+        for (elf_file.file(index).?.atoms()) |atom_index| {
             const atom = elf_file.atom(atom_index) orelse continue;
             if (atom.flags.alive and !atom.flags.visited) {
                 atom.flags.alive = false;
@@ -158,4 +166,5 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
+const File = @import("file.zig").File;
 const Symbol = @import("Symbol.zig");

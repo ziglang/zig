@@ -68,9 +68,12 @@ pub const File = union(enum) {
     }
 
     pub fn resetGlobals(file: File, elf_file: *Elf) void {
-        switch (file) {
-            .linker_defined => unreachable,
-            inline else => |x| x.resetGlobals(elf_file),
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const name_offset = global.name_offset;
+            global.* = .{};
+            global.name_offset = name_offset;
+            global.flags.global = true;
         }
     }
 
@@ -83,24 +86,37 @@ pub const File = union(enum) {
 
     pub fn markLive(file: File, elf_file: *Elf) void {
         switch (file) {
-            .linker_defined => unreachable,
+            .linker_defined => {},
             inline else => |x| x.markLive(elf_file),
         }
     }
 
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
-            .linker_defined => unreachable,
-            .shared_object => unreachable,
+            .linker_defined, .shared_object => &[0]Atom.Index{},
             .zig_object => |x| x.atoms.items,
             .object => |x| x.atoms.items,
         };
     }
 
+    pub fn cies(file: File) []const Cie {
+        return switch (file) {
+            .zig_object => &[0]Cie{},
+            .object => |x| x.cies.items,
+            inline else => unreachable,
+        };
+    }
+
+    pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
+        return switch (file) {
+            .zig_object => |x| x.symbol(ind),
+            inline else => |x| x.symbols.items[ind],
+        };
+    }
+
     pub fn locals(file: File) []const Symbol.Index {
         return switch (file) {
-            .linker_defined => unreachable,
-            .shared_object => unreachable,
+            .linker_defined, .shared_object => &[0]Symbol.Index{},
             inline else => |x| x.locals(),
         };
     }
@@ -108,6 +124,83 @@ pub const File = union(enum) {
     pub fn globals(file: File) []const Symbol.Index {
         return switch (file) {
             inline else => |x| x.globals(),
+        };
+    }
+
+    pub fn updateSymtabSize(file: File, elf_file: *Elf) void {
+        const output_symtab_size = switch (file) {
+            inline else => |x| &x.output_symtab_size,
+        };
+        for (file.locals()) |local_index| {
+            const local = elf_file.symbol(local_index);
+            if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
+            const esym = local.elfSym(elf_file);
+            switch (esym.st_type()) {
+                elf.STT_SECTION => if (!elf_file.isRelocatable()) continue,
+                elf.STT_NOTYPE => continue,
+                else => {},
+            }
+            local.flags.output_symtab = true;
+            output_symtab_size.nlocals += 1;
+            output_symtab_size.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
+        }
+
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const file_ptr = global.file(elf_file) orelse continue;
+            if (file_ptr.index() != file.index()) continue;
+            if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
+            global.flags.output_symtab = true;
+            if (global.isLocal(elf_file)) {
+                output_symtab_size.nlocals += 1;
+            } else {
+                output_symtab_size.nglobals += 1;
+            }
+            output_symtab_size.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+        }
+    }
+
+    pub fn writeSymtab(file: File, elf_file: *Elf, ctx: anytype) void {
+        var ilocal = ctx.ilocal;
+        for (file.locals()) |local_index| {
+            const local = elf_file.symbol(local_index);
+            if (!local.flags.output_symtab) continue;
+            const out_sym = &elf_file.symtab.items[ilocal];
+            out_sym.st_name = @intCast(elf_file.strtab.items.len);
+            elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
+            elf_file.strtab.appendAssumeCapacity(0);
+            local.setOutputSym(elf_file, out_sym);
+            ilocal += 1;
+        }
+
+        var iglobal = ctx.iglobal;
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const file_ptr = global.file(elf_file) orelse continue;
+            if (file_ptr.index() != file.index()) continue;
+            if (!global.flags.output_symtab) continue;
+            const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
+            elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
+            elf_file.strtab.appendAssumeCapacity(0);
+            if (global.isLocal(elf_file)) {
+                const out_sym = &elf_file.symtab.items[ilocal];
+                out_sym.st_name = st_name;
+                global.setOutputSym(elf_file, out_sym);
+                ilocal += 1;
+            } else {
+                const out_sym = &elf_file.symtab.items[iglobal];
+                out_sym.st_name = st_name;
+                global.setOutputSym(elf_file, out_sym);
+                iglobal += 1;
+            }
+        }
+    }
+
+    pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            .object => @panic("TODO"),
+            inline else => unreachable,
         };
     }
 
@@ -126,7 +219,9 @@ const std = @import("std");
 const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const Cie = @import("eh_frame.zig").Cie;
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");

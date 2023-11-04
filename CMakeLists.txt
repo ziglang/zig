@@ -624,7 +624,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
     "${CMAKE_SOURCE_DIR}/src/link/msdos-stub.bin"
-    "${CMAKE_SOURCE_DIR}/src/link/strtab.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/StringTable.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/Tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/parse.zig"

@@ -5,11 +5,10 @@ index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
 shdrs: std.ArrayListUnmanaged(ElfShdr) = .{},
-strings: StringTable(.object_strings) = .{},
-symtab: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
-strtab: []const u8 = &[0]u8{},
-first_global: ?Symbol.Index = null,
 
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
+first_global: ?Symbol.Index = null,
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
@@ -39,7 +38,8 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     allocator.free(self.path);
     allocator.free(self.data);
     self.shdrs.deinit(allocator);
-    self.strings.deinit(allocator);
+    self.symtab.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
     self.comdat_groups.deinit(allocator);
@@ -68,7 +68,7 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
     }
 
-    try self.strings.buffer.appendSlice(gpa, self.shdrContents(self.header.?.e_shstrndx));
+    try self.strtab.appendSlice(gpa, self.shdrContents(self.header.?.e_shstrndx));
 
     const symtab_index = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_SYMTAB => break @as(u16, @intCast(i)),
@@ -79,10 +79,22 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         const shdr = shdrs[index];
         self.first_global = shdr.sh_info;
 
-        const symtab = self.shdrContents(index);
-        const nsyms = @divExact(symtab.len, @sizeOf(elf.Elf64_Sym));
-        self.symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(symtab.ptr))[0..nsyms];
-        self.strtab = self.shdrContents(@as(u16, @intCast(shdr.sh_link)));
+        const raw_symtab = self.shdrContents(index);
+        const nsyms = @divExact(raw_symtab.len, @sizeOf(elf.Elf64_Sym));
+        const symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw_symtab.ptr))[0..nsyms];
+
+        const strtab_bias = @as(u32, @intCast(self.strtab.items.len));
+        try self.strtab.appendSlice(gpa, self.shdrContents(@as(u16, @intCast(shdr.sh_link))));
+
+        try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
+        for (symtab) |sym| {
+            const out_sym = self.symtab.addOneAssumeCapacity();
+            out_sym.* = sym;
+            out_sym.st_name = if (sym.st_name == 0 and sym.st_type() == elf.STT_SECTION)
+                shdrs[sym.st_shndx].sh_name
+            else
+                sym.st_name + strtab_bias;
+        }
     }
 
     try self.initAtoms(elf_file);
@@ -108,16 +120,16 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
 
         switch (shdr.sh_type) {
             elf.SHT_GROUP => {
-                if (shdr.sh_info >= self.symtab.len) {
+                if (shdr.sh_info >= self.symtab.items.len) {
                     // TODO convert into an error
                     log.debug("{}: invalid symbol index in sh_info", .{self.fmtPath()});
                     continue;
                 }
-                const group_info_sym = self.symtab[shdr.sh_info];
+                const group_info_sym = self.symtab.items[shdr.sh_info];
                 const group_signature = blk: {
                     if (group_info_sym.st_name == 0 and group_info_sym.st_type() == elf.STT_SECTION) {
                         const sym_shdr = shdrs[group_info_sym.st_shndx];
-                        break :blk self.strings.getAssumeExists(sym_shdr.sh_name);
+                        break :blk self.getString(sym_shdr.sh_name);
                     }
                     break :blk self.getString(group_info_sym.st_name);
                 };
@@ -133,11 +145,8 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     continue;
                 }
 
-                // Note the assumption about a global strtab used here to disambiguate common
-                // COMDAT owners.
                 const gpa = elf_file.base.allocator;
-                const group_signature_off = try elf_file.strtab.insert(gpa, group_signature);
-                const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature_off);
+                const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature);
                 const comdat_group_index = try elf_file.addComdatGroup();
                 const comdat_group = elf_file.comdatGroup(comdat_group_index);
                 comdat_group.* = .{
@@ -157,10 +166,9 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
             => {},
 
             else => {
-                const name = self.strings.getAssumeExists(shdr.sh_name);
                 const shndx = @as(u16, @intCast(i));
                 if (self.skipShdr(shndx, elf_file)) continue;
-                try self.addAtom(shdr, shndx, name, elf_file);
+                try self.addAtom(shdr, shndx, elf_file);
             },
         }
     }
@@ -177,17 +185,11 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
     };
 }
 
-fn addAtom(
-    self: *Object,
-    shdr: ElfShdr,
-    shndx: u16,
-    name: [:0]const u8,
-    elf_file: *Elf,
-) error{OutOfMemory}!void {
+fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOfMemory}!void {
     const atom_index = try elf_file.addAtom();
     const atom = elf_file.atom(atom_index).?;
     atom.atom_index = atom_index;
-    atom.name_offset = try elf_file.strtab.insert(elf_file.base.allocator, name);
+    atom.name_offset = shdr.sh_name;
     atom.file_index = self.index;
     atom.input_section_index = shndx;
     self.atoms.items[shndx] = atom_index;
@@ -205,7 +207,7 @@ fn addAtom(
 
 fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMemory}!u16 {
     const name = blk: {
-        const name = self.strings.getAssumeExists(shdr.sh_name);
+        const name = self.getString(shdr.sh_name);
         if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
@@ -248,7 +250,7 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
 
 fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
     const shdr = self.shdrs.items[index];
-    const name = self.strings.getAssumeExists(shdr.sh_name);
+    const name = self.getString(shdr.sh_name);
     const ignore = blk: {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".comment")) break :blk true;
@@ -262,33 +264,24 @@ fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
 
 fn initSymtab(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
-    const first_global = self.first_global orelse self.symtab.len;
-    const shdrs = self.shdrs.items;
+    const first_global = self.first_global orelse self.symtab.items.len;
 
-    try self.symbols.ensureTotalCapacityPrecise(gpa, self.symtab.len);
+    try self.symbols.ensureTotalCapacityPrecise(gpa, self.symtab.items.len);
 
-    for (self.symtab[0..first_global], 0..) |sym, i| {
+    for (self.symtab.items[0..first_global], 0..) |sym, i| {
         const index = try elf_file.addSymbol();
         self.symbols.appendAssumeCapacity(index);
         const sym_ptr = elf_file.symbol(index);
-        const name = blk: {
-            if (sym.st_name == 0 and sym.st_type() == elf.STT_SECTION) {
-                const shdr = shdrs[sym.st_shndx];
-                break :blk self.strings.getAssumeExists(shdr.sh_name);
-            }
-            break :blk self.getString(sym.st_name);
-        };
         sym_ptr.value = sym.st_value;
-        sym_ptr.name_offset = try elf_file.strtab.insert(gpa, name);
+        sym_ptr.name_offset = sym.st_name;
         sym_ptr.esym_index = @as(u32, @intCast(i));
         sym_ptr.atom_index = if (sym.st_shndx == elf.SHN_ABS) 0 else self.atoms.items[sym.st_shndx];
         sym_ptr.file_index = self.index;
     }
 
-    for (self.symtab[first_global..]) |sym| {
+    for (self.symtab.items[first_global..]) |sym| {
         const name = self.getString(sym.st_name);
-        const off = try elf_file.strtab.insert(gpa, name);
-        const gop = try elf_file.getOrPutGlobal(off);
+        const gop = try elf_file.getOrPutGlobal(name);
         self.symbols.addOneAssumeCapacity().* = gop.index;
     }
 }
@@ -437,7 +430,7 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
         const esym_index = @as(Symbol.Index, @intCast(first_global + i));
-        const esym = self.symtab[esym_index];
+        const esym = self.symtab.items[esym_index];
 
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
@@ -467,7 +460,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
         const esym_index = @as(u32, @intCast(first_global + i));
-        const esym = self.symtab[esym_index];
+        const esym = self.symtab.items[esym_index];
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
 
         const global = elf_file.symbol(index);
@@ -491,20 +484,11 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn resetGlobals(self: *Object, elf_file: *Elf) void {
-    for (self.globals()) |index| {
-        const global = elf_file.symbol(index);
-        const off = global.name_offset;
-        global.* = .{};
-        global.name_offset = off;
-    }
-}
-
 pub fn markLive(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
         const sym_idx = first_global + i;
-        const sym = self.symtab[sym_idx];
+        const sym = self.symtab.items[sym_idx];
         if (sym.st_bind() == elf.STB_WEAK) continue;
 
         const global = elf_file.symbol(index);
@@ -531,7 +515,7 @@ pub fn checkDuplicates(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
         const sym_idx = @as(u32, @intCast(first_global + i));
-        const this_sym = self.symtab[sym_idx];
+        const this_sym = self.symtab.items[sym_idx];
         const global = elf_file.symbol(index);
         const global_file = global.getFile(elf_file) orelse continue;
 
@@ -560,7 +544,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
         const sym_idx = @as(u32, @intCast(first_global + i));
-        const this_sym = self.symtab[sym_idx];
+        const this_sym = self.symtab.items[sym_idx];
         if (this_sym.st_shndx != elf.SHN_COMMON) continue;
 
         const global = elf_file.symbol(index);
@@ -584,8 +568,10 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const name = if (is_tls) ".tls_common" else ".common";
 
         const atom = elf_file.atom(atom_index).?;
+        const name_offset = @as(u32, @intCast(self.strtab.items.len));
+        try self.strtab.writer(gpa).print("{s}\x00", .{name});
         atom.atom_index = atom_index;
-        atom.name_offset = try elf_file.strtab.insert(gpa, name);
+        atom.name_offset = name_offset;
         atom.file_index = self.index;
         atom.size = this_sym.st_size;
         const alignment = this_sym.st_value;
@@ -597,7 +583,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const shdr = try self.shdrs.addOne(gpa);
         const sh_size = math.cast(usize, this_sym.st_size) orelse return error.Overflow;
         shdr.* = .{
-            .sh_name = try self.strings.insert(gpa, name),
+            .sh_name = name_offset,
             .sh_type = elf.SHT_NOBITS,
             .sh_flags = sh_flags,
             .sh_addr = 0,
@@ -665,56 +651,6 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
     }
 }
 
-pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
-    for (self.locals()) |local_index| {
-        const local = elf_file.symbol(local_index);
-        if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
-        const esym = local.elfSym(elf_file);
-        switch (esym.st_type()) {
-            elf.STT_SECTION, elf.STT_NOTYPE => continue,
-            else => {},
-        }
-        local.flags.output_symtab = true;
-        self.output_symtab_size.nlocals += 1;
-    }
-
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
-        global.flags.output_symtab = true;
-        if (global.isLocal()) {
-            self.output_symtab_size.nlocals += 1;
-        } else {
-            self.output_symtab_size.nglobals += 1;
-        }
-    }
-}
-
-pub fn writeSymtab(self: *Object, elf_file: *Elf, ctx: anytype) void {
-    var ilocal = ctx.ilocal;
-    for (self.locals()) |local_index| {
-        const local = elf_file.symbol(local_index);
-        if (!local.flags.output_symtab) continue;
-        local.setOutputSym(elf_file, &ctx.symtab[ilocal]);
-        ilocal += 1;
-    }
-
-    var iglobal = ctx.iglobal;
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (!global.flags.output_symtab) continue;
-        if (global.isLocal()) {
-            global.setOutputSym(elf_file, &ctx.symtab[ilocal]);
-            ilocal += 1;
-        } else {
-            global.setOutputSym(elf_file, &ctx.symtab[iglobal]);
-            iglobal += 1;
-        }
-    }
-}
-
 pub fn locals(self: Object) []const Symbol.Index {
     const end = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[0..end];
@@ -760,11 +696,6 @@ pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index)
     } else return gpa.dupe(u8, data);
 }
 
-fn getString(self: *Object, off: u32) [:0]const u8 {
-    assert(off < self.strtab.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);
-}
-
 pub fn comdatGroupMembers(self: *Object, index: u16) []align(1) const u32 {
     const raw = self.shdrContents(index);
     const nmembers = @divExact(raw.len, @sizeOf(u32));
@@ -780,6 +711,11 @@ pub fn getRelocs(self: *Object, shndx: u32) []align(1) const elf.Elf64_Rela {
     const raw = self.shdrContents(shndx);
     const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
     return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
+}
+
+pub fn getString(self: Object, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
 }
 
 pub fn format(
@@ -991,6 +927,5 @@ const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
-const StringTable = @import("../strtab.zig").StringTable;
 const Symbol = @import("Symbol.zig");
 const Alignment = Atom.Alignment;
