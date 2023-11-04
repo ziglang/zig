@@ -18,18 +18,24 @@ pub const Fixups = struct {
     /// The key is the mut token (`var`/`const`) of the variable declaration
     /// that should have a `_ = foo;` inserted afterwards.
     unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .{},
-    /// The functions in this unordered set of indices will render with a
-    /// function body of `@trap()` instead, with all parameters discarded.
-    /// The indexes correspond to the order in which the functions appear in
-    /// the file.
-    gut_functions: std.AutoHashMapUnmanaged(u32, void) = .{},
+    /// The functions in this unordered set of AST fn decl nodes will render
+    /// with a function body of `@trap()` instead, with all parameters
+    /// discarded.
+    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
 
     pub fn count(f: Fixups) usize {
-        return f.unused_var_decls.count();
+        return f.unused_var_decls.count() +
+            f.gut_functions.count();
+    }
+
+    pub fn clearRetainingCapacity(f: *Fixups) void {
+        f.unused_var_decls.clearRetainingCapacity();
+        f.gut_functions.clearRetainingCapacity();
     }
 
     pub fn deinit(f: *Fixups, gpa: Allocator) void {
         f.unused_var_decls.deinit(gpa);
+        f.gut_functions.deinit(gpa);
         f.* = undefined;
     }
 };
@@ -39,9 +45,6 @@ const Render = struct {
     ais: *Ais,
     tree: Ast,
     fixups: Fixups,
-    /// Keeps track of how many function declarations we have seen so far. Used
-    /// by Fixups.
-    function_index: u32,
 };
 
 pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!void {
@@ -55,7 +58,6 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         .ais = &auto_indenting_stream,
         .tree = tree,
         .fixups = fixups,
-        .function_index = 0,
     };
 
     // Render all the line comments at the beginning of the file.
@@ -115,8 +117,6 @@ fn renderMember(
     try renderDocComments(r, tree.firstToken(decl));
     switch (tree.nodes.items(.tag)[decl]) {
         .fn_decl => {
-            const this_index = r.function_index;
-            r.function_index += 1;
             // Some examples:
             // pub extern "foo" fn ...
             // export fn ...
@@ -162,7 +162,7 @@ fn renderMember(
             assert(datas[decl].rhs != 0);
             try renderExpression(r, fn_proto, .space);
             const body_node = datas[decl].rhs;
-            if (r.fixups.gut_functions.contains(this_index)) {
+            if (r.fixups.gut_functions.contains(decl)) {
                 ais.pushIndent();
                 const lbrace = tree.nodes.items(.main_token)[body_node];
                 try renderToken(r, lbrace, .newline);
@@ -2136,7 +2136,6 @@ fn renderArrayInit(
             .ais = &auto_indenting_stream,
             .tree = r.tree,
             .fixups = r.fixups,
-            .function_index = r.function_index,
         };
 
         // Calculate size of columns in current section
