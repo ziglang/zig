@@ -1217,6 +1217,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         Compilation.dump_argv(argv.items);
     }
 
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
     var positionals = std.ArrayList(Compilation.LinkObject).init(arena);
@@ -1283,6 +1285,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (comp.libssp_static_lib) |ssp| {
         try positionals.append(.{ .path = ssp.full_object_path });
     }
+
+    if (self.isStaticLib()) return self.flushStaticLib(comp, positionals.items);
 
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
@@ -1382,9 +1386,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // csu postlude
     if (csu.crtend) |v| try positionals.append(.{ .path = v });
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
-
-    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.isStaticLib()) return self.flushStaticLib(comp, positionals.items);
 
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
@@ -1531,6 +1532,7 @@ pub fn flushStaticLib(
         var err = try self.addErrorWithNotes(1);
         try err.addMsg(self, "fatal linker error: too many input positionals", .{});
         try err.addNote(self, "TODO implement linking objects into an static library", .{});
+        return;
     }
     const gpa = self.base.allocator;
 
@@ -1636,6 +1638,7 @@ pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
         var err = try self.addErrorWithNotes(1);
         try err.addMsg(self, "fatal linker error: too many input positionals", .{});
         try err.addNote(self, "TODO implement '-r' option", .{});
+        return;
     }
 
     self.claimUnresolvedObject();
