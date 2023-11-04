@@ -14,6 +14,8 @@ pub const Transformation = union(enum) {
     gut_function: Ast.Node.Index,
     /// Omit a global declaration.
     delete_node: Ast.Node.Index,
+    /// Replace an expression with `undefined`.
+    replace_with_undef: Ast.Node.Index,
 };
 
 pub const Error = error{OutOfMemory};
@@ -279,7 +281,8 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
                     .local_var_decl,
                     .simple_var_decl,
                     .aligned_var_decl,
-                    => try walkVarDecl(w, ast.fullVarDecl(lhs_node).?),
+                    => try walkLocalVarDecl(w, ast.fullVarDecl(lhs_node).?),
+
                     else => try walkExpression(w, lhs_node),
                 }
             }
@@ -539,7 +542,7 @@ fn walkGlobalVarDecl(w: *Walk, decl_node: Ast.Node.Index, var_decl: Ast.full.Var
     return walkExpression(w, var_decl.ast.init_node);
 }
 
-fn walkVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
+fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
     try walkIdentifierNew(w, var_decl.ast.mut_token + 1); // name
 
     if (var_decl.ast.type_node != 0) {
@@ -559,6 +562,9 @@ fn walkVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
     }
 
     assert(var_decl.ast.init_node != 0);
+    if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
+        try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+    }
 
     return walkExpression(w, var_decl.ast.init_node);
 }
@@ -588,7 +594,7 @@ fn walkBlock(
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
-            => try walkVarDecl(w, ast.fullVarDecl(stmt).?),
+            => try walkLocalVarDecl(w, ast.fullVarDecl(stmt).?),
 
             else => try walkExpression(w, stmt),
         }
@@ -868,6 +874,19 @@ fn isDiscardIdent(ast: *const Ast, node: Ast.Node.Index) bool {
             const token_index = main_tokens[node];
             const name_bytes = ast.tokenSlice(token_index);
             return std.mem.eql(u8, name_bytes, "_");
+        },
+        else => return false,
+    }
+}
+
+fn isUndefinedIdent(ast: *const Ast, node: Ast.Node.Index) bool {
+    const node_tags = ast.nodes.items(.tag);
+    const main_tokens = ast.nodes.items(.main_token);
+    switch (node_tags[node]) {
+        .identifier => {
+            const token_index = main_tokens[node];
+            const name_bytes = ast.tokenSlice(token_index);
+            return std.mem.eql(u8, name_bytes, "undefined");
         },
         else => return false,
     }

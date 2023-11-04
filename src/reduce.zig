@@ -253,6 +253,9 @@ fn transformationsToFixups(
         .delete_node => |decl_node| {
             try fixups.omit_nodes.put(gpa, decl_node, {});
         },
+        .replace_with_undef => |node| {
+            try fixups.replace_nodes.put(gpa, node, {});
+        },
     };
 }
 

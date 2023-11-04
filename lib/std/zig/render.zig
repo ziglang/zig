@@ -24,23 +24,28 @@ pub const Fixups = struct {
     gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These global declarations will be omitted.
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    /// These expressions will be replaced with `undefined`.
+    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
 
     pub fn count(f: Fixups) usize {
         return f.unused_var_decls.count() +
             f.gut_functions.count() +
-            f.omit_nodes.count();
+            f.omit_nodes.count() +
+            f.replace_nodes.count();
     }
 
     pub fn clearRetainingCapacity(f: *Fixups) void {
         f.unused_var_decls.clearRetainingCapacity();
         f.gut_functions.clearRetainingCapacity();
         f.omit_nodes.clearRetainingCapacity();
+        f.replace_nodes.clearRetainingCapacity();
     }
 
     pub fn deinit(f: *Fixups, gpa: Allocator) void {
         f.unused_var_decls.deinit(gpa);
         f.gut_functions.deinit(gpa);
         f.omit_nodes.deinit(gpa);
+        f.replace_nodes.deinit(gpa);
         f.* = undefined;
     }
 };
@@ -272,6 +277,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
+    if (r.fixups.replace_nodes.contains(node)) {
+        try ais.writer().writeAll("undefined");
+        try renderOnlySpace(r, space);
+        return;
+    }
     switch (node_tags[node]) {
         .identifier => {
             const token_index = main_tokens[node];
@@ -2771,6 +2781,19 @@ fn renderSpace(r: *Render, token_index: Ast.TokenIndex, lexeme_len: usize, space
             try ais.insertNewline();
         },
 
+        .skip => unreachable,
+    }
+}
+
+fn renderOnlySpace(r: *Render, space: Space) Error!void {
+    const ais = r.ais;
+    switch (space) {
+        .none => {},
+        .space => try ais.writer().writeByte(' '),
+        .newline => try ais.insertNewline(),
+        .comma => try ais.writer().writeAll(",\n"),
+        .comma_space => try ais.writer().writeAll(", "),
+        .semicolon => try ais.writer().writeAll(";\n"),
         .skip => unreachable,
     }
 }
