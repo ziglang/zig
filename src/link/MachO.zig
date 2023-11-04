@@ -58,7 +58,7 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 dyld_stub_binder_index: ?u32 = null,
 dyld_private_atom_index: ?Atom.Index = null,
 
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 stub_table: TableSection(SymbolWithLoc) = .{},
@@ -5643,7 +5643,7 @@ const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Platform = load_commands.Platform;
 const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("strtab.zig").StringTable;
+const StringTable = @import("StringTable.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;

@@ -319,6 +319,19 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
+    const needsZigGot = struct {
+        fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
+            const elf_file = ctx.cast(link.File.Elf).?;
+            const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+            return elf_file.symbol(sym_index).flags.needs_zig_got;
+        }
+    }.needsZigGot;
+
+    const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
+        .Exe => false,
+        .Obj => true,
+        .Lib => lower.bin_file.options.link_mode == .Static,
+    };
     var emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
@@ -334,19 +347,30 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(mem_op.sib.scale_index.scale == 0);
                     _ = lower.reloc(.{ .linker_reloc = sym });
                     break :op if (lower.bin_file.options.pic) switch (mnemonic) {
-                        .mov, .lea => .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                        .lea => {
+                            break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                        },
+                        .mov => {
+                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
+                            break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                        },
                         else => unreachable,
                     } else switch (mnemonic) {
-                        .call => .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                        .call => break :op if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) .{
+                            .imm = Immediate.s(0),
+                        } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                             .base = .{ .reg = .ds },
                         }) },
                         .lea => {
                             emit_mnemonic = .mov;
                             break :op .{ .imm = Immediate.s(0) };
                         },
-                        .mov => .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                            .base = .{ .reg = .ds },
-                        }) },
+                        .mov => {
+                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
+                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .ds },
+                            }) };
+                        },
                         else => unreachable,
                     };
                 },

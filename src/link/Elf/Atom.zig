@@ -42,7 +42,10 @@ next_index: Index = 0,
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
 pub fn name(self: Atom, elf_file: *Elf) []const u8 {
-    return elf_file.strtab.getAssumeExists(self.name_offset);
+    const file_ptr = self.file(elf_file).?;
+    return switch (file_ptr) {
+        inline else => |x| x.getString(self.name_offset),
+    };
 }
 
 pub fn file(self: Atom, elf_file: *Elf) ?File {
@@ -602,7 +605,8 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    return switch (elf_file.base.options.effectiveOutputMode()) {
+    assert(!elf_file.isRelocatable());
+    return switch (elf_file.base.options.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => if (elf_file.base.options.pie) 1 else 2,
@@ -692,7 +696,7 @@ fn reportUndefined(
 ) !void {
     const rel_esym = switch (self.file(elf_file).?) {
         .zig_object => |x| x.elfSym(rel.r_sym()).*,
-        .object => |x| x.symtab[rel.r_sym()],
+        .object => |x| x.symtab.items[rel.r_sym()],
         else => unreachable,
     };
     const esym = sym.elfSym(elf_file);

@@ -1227,7 +1227,6 @@ const LibStub = @import("../tapi.zig").LibStub;
 const Object = @import("Object.zig");
 const Platform = load_commands.Platform;
 const Section = MachO.Section;
-const StringTable = @import("../strtab.zig").StringTable;
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const TableSection = @import("../table_section.zig").TableSection;
 const Trie = @import("Trie.zig");

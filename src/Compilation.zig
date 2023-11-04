@@ -810,16 +810,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         return error.ExportTableAndImportTableConflict;
     }
 
-    // The `have_llvm` condition is here only because native backends cannot yet build compiler-rt.
-    // Once they are capable this condition could be removed. When removing this condition,
-    // also test the use case of `build-obj -fcompiler-rt` with the native backends
-    // and make sure the compiler-rt symbols are emitted.
-    const is_p9 = options.target.os.tag == .plan9;
-    const is_spv = options.target.cpu.arch.isSpirV();
-    const capable_of_building_compiler_rt = build_options.have_llvm and !is_p9 and !is_spv;
-    const capable_of_building_zig_libc = build_options.have_llvm and !is_p9 and !is_spv;
-    const capable_of_building_ssp = build_options.have_llvm and !is_p9 and !is_spv;
-
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().
@@ -1093,6 +1083,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
         if (stack_check and !target_util.supportsStackProbing(options.target))
             return error.StackCheckUnsupportedByTarget;
+
+        const capable_of_building_ssp = canBuildLibSsp(options.target, use_llvm);
 
         const stack_protector: u32 = options.want_stack_protector orelse b: {
             if (!target_util.supportsStackProtector(options.target)) break :b @as(u32, 0);
@@ -1753,6 +1745,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     errdefer comp.destroy();
 
     const target = comp.getTarget();
+
+    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.bin_file.options.use_llvm);
+    const capable_of_building_zig_libc = canBuildZigLibC(target, comp.bin_file.options.use_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -6240,9 +6235,62 @@ pub fn dump_argv(argv: []const []const u8) void {
     nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
+fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => {},
+    }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
+        else => build_options.have_llvm,
+    };
+}
+
+fn canBuildLibSsp(target: std.Target, use_llvm: bool) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => {},
+    }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        else => build_options.have_llvm,
+    };
+}
+
+/// Not to be confused with canBuildLibC, which builds musl, glibc, and similar.
+/// This one builds lib/c.zig.
+fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => {},
+    }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
+        else => build_options.have_llvm,
+    };
+}
+
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    if (comp.bin_file.options.use_llvm) return .stage2_llvm;
     const target = comp.bin_file.options.target;
+    return zigBackend(target, comp.bin_file.options.use_llvm);
+}
+
+fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBackend {
+    if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,

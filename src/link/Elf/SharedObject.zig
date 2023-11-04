@@ -4,18 +4,19 @@ index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
 shdrs: std.ArrayListUnmanaged(ElfShdr) = .{},
-symtab: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
-strtab: []const u8 = &[0]u8{},
+
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 /// Version symtab contains version strings of the symbols if present.
 versyms: std.ArrayListUnmanaged(elf.Elf64_Versym) = .{},
 verstrings: std.ArrayListUnmanaged(u32) = .{},
+symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+aliases: ?std.ArrayListUnmanaged(u32) = null,
 
+dynsym_sect_index: ?u16 = null,
 dynamic_sect_index: ?u16 = null,
 versym_sect_index: ?u16 = null,
 verdef_sect_index: ?u16 = null,
-
-symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-aliases: ?std.ArrayListUnmanaged(u32) = null,
 
 needed: bool,
 alive: bool,
@@ -36,6 +37,8 @@ pub fn isSharedObject(path: []const u8) !bool {
 pub fn deinit(self: *SharedObject, allocator: Allocator) void {
     allocator.free(self.path);
     allocator.free(self.data);
+    self.symtab.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.versyms.deinit(allocator);
     self.verstrings.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -51,7 +54,6 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
 
-    var dynsym_index: ?u16 = null;
     const shdrs = @as(
         [*]align(1) const elf.Elf64_Shdr,
         @ptrCast(self.data.ptr + shoff),
@@ -61,20 +63,12 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     for (shdrs, 0..) |shdr, i| {
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {
-            elf.SHT_DYNSYM => dynsym_index = @as(u16, @intCast(i)),
+            elf.SHT_DYNSYM => self.dynsym_sect_index = @as(u16, @intCast(i)),
             elf.SHT_DYNAMIC => self.dynamic_sect_index = @as(u16, @intCast(i)),
             elf.SHT_GNU_VERSYM => self.versym_sect_index = @as(u16, @intCast(i)),
             elf.SHT_GNU_VERDEF => self.verdef_sect_index = @as(u16, @intCast(i)),
             else => {},
         }
-    }
-
-    if (dynsym_index) |index| {
-        const shdr = self.shdrs.items[index];
-        const symtab = self.shdrContents(index);
-        const nsyms = @divExact(symtab.len, @sizeOf(elf.Elf64_Sym));
-        self.symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(symtab.ptr))[0..nsyms];
-        self.strtab = self.shdrContents(@as(u16, @intCast(shdr.sh_link)));
     }
 
     try self.parseVersions(elf_file);
@@ -83,6 +77,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
+    const symtab = self.getSymtabRaw();
 
     try self.verstrings.resize(gpa, 2);
     self.verstrings.items[elf.VER_NDX_LOCAL] = 0;
@@ -107,7 +102,7 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
         }
     }
 
-    try self.versyms.ensureTotalCapacityPrecise(gpa, self.symtab.len);
+    try self.versyms.ensureTotalCapacityPrecise(gpa, symtab.len);
 
     if (self.versym_sect_index) |shndx| {
         const versyms_raw = self.shdrContents(shndx);
@@ -120,30 +115,39 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
                 ver;
             self.versyms.appendAssumeCapacity(normalized_ver);
         }
-    } else for (0..self.symtab.len) |_| {
+    } else for (0..symtab.len) |_| {
         self.versyms.appendAssumeCapacity(elf.VER_NDX_GLOBAL);
     }
 }
 
 fn initSymtab(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
+    const symtab = self.getSymtabRaw();
+    const strtab = self.getStrtabRaw();
 
-    try self.symbols.ensureTotalCapacityPrecise(gpa, self.symtab.len);
+    try self.strtab.appendSlice(gpa, strtab);
+    try self.symtab.ensureTotalCapacityPrecise(gpa, symtab.len);
+    try self.symbols.ensureTotalCapacityPrecise(gpa, symtab.len);
 
-    for (self.symtab, 0..) |sym, i| {
+    for (symtab, 0..) |sym, i| {
         const hidden = self.versyms.items[i] & elf.VERSYM_HIDDEN != 0;
         const name = self.getString(sym.st_name);
         // We need to garble up the name so that we don't pick this symbol
         // during symbol resolution. Thank you GNU!
-        const off = if (hidden) blk: {
-            const full_name = try std.fmt.allocPrint(gpa, "{s}@{s}", .{
+        const name_off = if (hidden) blk: {
+            const mangled = try std.fmt.allocPrint(gpa, "{s}@{s}", .{
                 name,
                 self.versionString(self.versyms.items[i]),
             });
-            defer gpa.free(full_name);
-            break :blk try elf_file.strtab.insert(gpa, full_name);
-        } else try elf_file.strtab.insert(gpa, name);
-        const gop = try elf_file.getOrPutGlobal(off);
+            defer gpa.free(mangled);
+            const name_off = @as(u32, @intCast(self.strtab.items.len));
+            try self.strtab.writer(gpa).print("{s}\x00", .{mangled});
+            break :blk name_off;
+        } else sym.st_name;
+        const out_sym = self.symtab.addOneAssumeCapacity();
+        out_sym.* = sym;
+        out_sym.st_name = name_off;
+        const gop = try elf_file.getOrPutGlobal(self.getString(name_off));
         self.symbols.addOneAssumeCapacity().* = gop.index;
     }
 }
@@ -151,7 +155,7 @@ fn initSymtab(self: *SharedObject, elf_file: *Elf) !void {
 pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
         const esym_index = @as(u32, @intCast(i));
-        const this_sym = self.symtab[esym_index];
+        const this_sym = self.symtab.items[esym_index];
 
         if (this_sym.st_shndx == elf.SHN_UNDEF) continue;
 
@@ -166,18 +170,9 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn resetGlobals(self: *SharedObject, elf_file: *Elf) void {
-    for (self.globals()) |index| {
-        const global = elf_file.symbol(index);
-        const off = global.name_offset;
-        global.* = .{};
-        global.name_offset = off;
-    }
-}
-
 pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     for (self.globals(), 0..) |index, i| {
-        const sym = self.symtab[i];
+        const sym = self.symtab.items[i];
         if (sym.st_shndx != elf.SHN_UNDEF) continue;
 
         const global = elf_file.symbol(index);
@@ -193,27 +188,6 @@ pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) void {
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (global.isLocal()) continue;
-        global.flags.output_symtab = true;
-        self.output_symtab_size.nglobals += 1;
-    }
-}
-
-pub fn writeSymtab(self: *SharedObject, elf_file: *Elf, ctx: anytype) void {
-    var iglobal = ctx.iglobal;
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file)) |file| if (file.index() != self.index) continue;
-        if (!global.flags.output_symtab) continue;
-        global.setOutputSym(elf_file, &ctx.symtab[iglobal]);
-        iglobal += 1;
-    }
-}
-
 pub fn globals(self: SharedObject) []const Symbol.Index {
     return self.symbols.items;
 }
@@ -221,11 +195,6 @@ pub fn globals(self: SharedObject) []const Symbol.Index {
 pub fn shdrContents(self: SharedObject, index: u16) []const u8 {
     const shdr = self.shdrs.items[index];
     return self.data[shdr.sh_offset..][0..shdr.sh_size];
-}
-
-pub fn getString(self: SharedObject, off: u32) [:0]const u8 {
-    assert(off < self.strtab.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);
 }
 
 pub fn versionString(self: SharedObject, index: elf.Elf64_Versym) [:0]const u8 {
@@ -307,6 +276,25 @@ pub fn symbolAliases(self: *SharedObject, index: u32, elf_file: *Elf) []const u3
     } else aliases.items.len;
 
     return aliases.items[start..end];
+}
+
+pub fn getString(self: SharedObject, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
+}
+
+pub fn getSymtabRaw(self: SharedObject) []align(1) const elf.Elf64_Sym {
+    const index = self.dynsym_sect_index orelse return &[0]elf.Elf64_Sym{};
+    const raw_symtab = self.shdrContents(index);
+    const nsyms = @divExact(raw_symtab.len, @sizeOf(elf.Elf64_Sym));
+    const symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw_symtab.ptr))[0..nsyms];
+    return symtab;
+}
+
+pub fn getStrtabRaw(self: SharedObject) []const u8 {
+    const index = self.dynsym_sect_index orelse return &[0]u8{};
+    const shdr = self.shdrs.items[index];
+    return self.shdrContents(@as(u16, @intCast(shdr.sh_link)));
 }
 
 pub fn format(
