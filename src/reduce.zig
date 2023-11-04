@@ -166,8 +166,8 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
-            std.debug.print("{d} random transformations: {s}\n", .{
-                subset_size, @tagName(interestingness),
+            std.debug.print("{d} random transformations: {s}. {d} remaining\n", .{
+                subset_size, @tagName(interestingness), transformations.items.len - start_index,
             });
             switch (interestingness) {
                 .interesting => {
@@ -249,6 +249,9 @@ fn transformationsToFixups(
     for (transforms) |t| switch (t) {
         .gut_function => |fn_decl_node| {
             try fixups.gut_functions.put(gpa, fn_decl_node, {});
+        },
+        .delete_node => |decl_node| {
+            try fixups.omit_nodes.put(gpa, decl_node, {});
         },
     };
 }

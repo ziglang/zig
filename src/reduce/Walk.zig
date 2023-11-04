@@ -5,11 +5,15 @@ const assert = std.debug.assert;
 
 ast: *const Ast,
 transformations: *std.ArrayList(Transformation),
+unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
+gpa: std.mem.Allocator,
 
 pub const Transformation = union(enum) {
     /// Replace the fn decl AST Node with one whose body is only `@trap()` with
     /// discarded parameters.
     gut_function: Ast.Node.Index,
+    /// Omit a global declaration.
+    delete_node: Ast.Node.Index,
 };
 
 pub const Error = error{OutOfMemory};
@@ -21,13 +25,56 @@ pub fn findTransformations(ast: *const Ast, transformations: *std.ArrayList(Tran
     var walk: Walk = .{
         .ast = ast,
         .transformations = transformations,
+        .gpa = transformations.allocator,
+        .unreferenced_globals = .{},
     };
+    defer walk.unreferenced_globals.deinit(walk.gpa);
+
     try walkMembers(&walk, walk.ast.rootDecls());
+
+    const unreferenced_globals = walk.unreferenced_globals.values();
+    try transformations.ensureUnusedCapacity(unreferenced_globals.len);
+    for (unreferenced_globals) |node| {
+        transformations.appendAssumeCapacity(.{ .delete_node = node });
+    }
 }
 
 fn walkMembers(w: *Walk, members: []const Ast.Node.Index) Error!void {
+    // First we scan for globals so that we can delete them while walking.
+    try scanDecls(w, members);
+
     for (members) |member| {
         try walkMember(w, member);
+    }
+}
+
+fn scanDecls(w: *Walk, members: []const Ast.Node.Index) Error!void {
+    const ast = w.ast;
+    const gpa = w.gpa;
+    const node_tags = ast.nodes.items(.tag);
+    const main_tokens = ast.nodes.items(.main_token);
+    const token_tags = ast.tokens.items(.tag);
+
+    for (members) |member_node| {
+        const name_token = switch (node_tags[member_node]) {
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => main_tokens[member_node] + 1,
+
+            .fn_proto_simple,
+            .fn_proto_multi,
+            .fn_proto_one,
+            .fn_proto,
+            .fn_decl,
+            => main_tokens[member_node] + 1,
+
+            else => continue,
+        };
+        assert(token_tags[name_token] == .identifier);
+        const name_bytes = ast.tokenSlice(name_token);
+        try w.unreferenced_globals.put(gpa, name_bytes, member_node);
     }
 }
 
@@ -53,6 +100,7 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         },
 
         .@"usingnamespace" => {
+            try w.transformations.append(.{ .delete_node = decl });
             const expr = datas[decl].lhs;
             try walkExpression(w, expr);
         },
@@ -61,9 +109,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         .local_var_decl,
         .simple_var_decl,
         .aligned_var_decl,
-        => try walkVarDecl(w, ast.fullVarDecl(decl).?),
+        => try walkGlobalVarDecl(w, decl, ast.fullVarDecl(decl).?),
 
         .test_decl => {
+            try w.transformations.append(.{ .delete_node = decl });
             try walkExpression(w, datas[decl].rhs);
         },
 
@@ -72,7 +121,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         .container_field,
         => try walkContainerField(w, ast.fullContainerField(decl).?),
 
-        .@"comptime" => try walkExpression(w, decl),
+        .@"comptime" => {
+            try w.transformations.append(.{ .delete_node = decl });
+            try walkExpression(w, decl);
+        },
 
         .root => unreachable,
         else => unreachable,
@@ -86,7 +138,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
     const node_tags = ast.nodes.items(.tag);
     const datas = ast.nodes.items(.data);
     switch (node_tags[node]) {
-        .identifier => {},
+        .identifier => try walkIdentifier(w, main_tokens[node]),
 
         .number_literal,
         .char_literal,
@@ -463,8 +515,32 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
     }
 }
 
+fn walkGlobalVarDecl(w: *Walk, decl_node: Ast.Node.Index, var_decl: Ast.full.VarDecl) Error!void {
+    _ = decl_node;
+
+    if (var_decl.ast.type_node != 0) {
+        try walkExpression(w, var_decl.ast.type_node);
+    }
+
+    if (var_decl.ast.align_node != 0) {
+        try walkExpression(w, var_decl.ast.align_node);
+    }
+
+    if (var_decl.ast.addrspace_node != 0) {
+        try walkExpression(w, var_decl.ast.addrspace_node);
+    }
+
+    if (var_decl.ast.section_node != 0) {
+        try walkExpression(w, var_decl.ast.section_node);
+    }
+
+    assert(var_decl.ast.init_node != 0);
+
+    return walkExpression(w, var_decl.ast.init_node);
+}
+
 fn walkVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
-    try walkIdentifier(w, var_decl.ast.mut_token + 1); // name
+    try walkIdentifierNew(w, var_decl.ast.mut_token + 1); // name
 
     if (var_decl.ast.type_node != 0) {
         try walkExpression(w, var_decl.ast.type_node);
@@ -571,9 +647,17 @@ fn walkSlice(
     }
 }
 
-fn walkIdentifier(w: *Walk, token_index: Ast.TokenIndex) Error!void {
+fn walkIdentifier(w: *Walk, name_ident: Ast.TokenIndex) Error!void {
+    const ast = w.ast;
+    const token_tags = ast.tokens.items(.tag);
+    assert(token_tags[name_ident] == .identifier);
+    const name_bytes = ast.tokenSlice(name_ident);
+    _ = w.unreferenced_globals.swapRemove(name_bytes);
+}
+
+fn walkIdentifierNew(w: *Walk, name_ident: Ast.TokenIndex) Error!void {
     _ = w;
-    _ = token_index;
+    _ = name_ident;
 }
 
 fn walkContainerDecl(
@@ -585,9 +669,7 @@ fn walkContainerDecl(
     if (container_decl.ast.arg != 0) {
         try walkExpression(w, container_decl.ast.arg);
     }
-    for (container_decl.ast.members) |member| {
-        try walkMember(w, member);
-    }
+    try walkMembers(w, container_decl.ast.members);
 }
 
 fn walkBuiltinCall(

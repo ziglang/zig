@@ -22,20 +22,25 @@ pub const Fixups = struct {
     /// with a function body of `@trap()` instead, with all parameters
     /// discarded.
     gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    /// These global declarations will be omitted.
+    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
 
     pub fn count(f: Fixups) usize {
         return f.unused_var_decls.count() +
-            f.gut_functions.count();
+            f.gut_functions.count() +
+            f.omit_nodes.count();
     }
 
     pub fn clearRetainingCapacity(f: *Fixups) void {
         f.unused_var_decls.clearRetainingCapacity();
         f.gut_functions.clearRetainingCapacity();
+        f.omit_nodes.clearRetainingCapacity();
     }
 
     pub fn deinit(f: *Fixups, gpa: Allocator) void {
         f.unused_var_decls.deinit(gpa);
         f.gut_functions.deinit(gpa);
+        f.omit_nodes.deinit(gpa);
         f.* = undefined;
     }
 };
@@ -114,6 +119,7 @@ fn renderMember(
     const token_tags = tree.tokens.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
+    if (r.fixups.omit_nodes.contains(decl)) return;
     try renderDocComments(r, tree.firstToken(decl));
     switch (tree.nodes.items(.tag)[decl]) {
         .fn_decl => {
