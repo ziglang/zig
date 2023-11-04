@@ -1384,7 +1384,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.isStaticLib()) return self.flushStaticLib(comp);
+    if (self.isStaticLib()) return self.flushStaticLib(comp, positionals.items);
 
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
@@ -1521,8 +1521,17 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 }
 
-pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void {
+pub fn flushStaticLib(
+    self: *Elf,
+    comp: *Compilation,
+    positionals: []const Compilation.LinkObject,
+) link.File.FlushError!void {
     _ = comp;
+    if (positionals.len > 0) {
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "fatal linker error: too many input positionals", .{});
+        try err.addNote(self, "TODO implement linking objects into an static library", .{});
+    }
     const gpa = self.base.allocator;
 
     // First, we flush relocatable object file generated with our backends.
@@ -1622,6 +1631,13 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
 
 pub fn flushObject(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
+
+    if (self.objects.items.len > 0) {
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "fatal linker error: too many input positionals", .{});
+        try err.addNote(self, "TODO implement '-r' option", .{});
+    }
+
     self.claimUnresolvedObject();
 
     try self.initSections();
