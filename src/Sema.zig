@@ -25573,7 +25573,7 @@ fn explainWhyTypeIsNotExtern(
                     try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
                     try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
                 }
-                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, position);
+                try sema.explainWhyTypeIsNotExtern(msg, src_loc, pointee_ty, .other);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
