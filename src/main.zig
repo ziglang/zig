@@ -212,6 +212,14 @@ pub fn main() anyerror!void {
         }
     }
 
+    if (build_options.only_reduce) {
+        if (mem.eql(u8, args[1], "reduce")) {
+            return @import("reduce.zig").main(gpa, arena, args);
+        } else {
+            @panic("only reduce is supported in a -Donly-reduce build");
+        }
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
@@ -328,6 +336,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "env")) {
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
+    } else if (mem.eql(u8, cmd, "reduce")) {
+        return @import("reduce.zig").main(gpa, arena, args);
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -5766,7 +5776,7 @@ fn fmtPathFile(
     fmt.out_buffer.shrinkRetainingCapacity(0);
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer);
+    try tree.renderToArrayList(&fmt.out_buffer, .{});
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 

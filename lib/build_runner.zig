@@ -203,7 +203,7 @@ pub fn main() !void {
                     usageAndErr(builder, false, stderr_stream);
                 };
                 seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}", .{
+                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
                     process.exit(1);

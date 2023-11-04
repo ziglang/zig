@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
+    const only_reduce = b.option(bool, "only-reduce", "only build zig reduce") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -236,6 +237,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "only_core_functionality", only_c);
+    exe_options.addOption(bool, "only_reduce", only_reduce);
 
     if (link_libc) {
         exe.linkLibC();
@@ -391,6 +393,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "only_core_functionality", true);
+    test_cases_options.addOption(bool, "only_reduce", false);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -549,6 +552,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "only_core_functionality", true);
+    exe_options.addOption(bool, "only_reduce", false);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
