@@ -7,7 +7,9 @@ const BuiltinFn = @import("../BuiltinFn.zig");
 ast: *const Ast,
 transformations: *std.ArrayList(Transformation),
 unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
+in_scope_names: std.StringArrayHashMapUnmanaged(u32),
 gpa: std.mem.Allocator,
+arena: std.mem.Allocator,
 
 pub const Transformation = union(enum) {
     /// Replace the fn decl AST Node with one whose body is only `@trap()` with
@@ -18,25 +20,39 @@ pub const Transformation = union(enum) {
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
     /// Replace an `@import` with the imported file contents wrapped in a struct.
-    inline_imported_file: struct {
+    inline_imported_file: InlineImportedFile,
+
+    pub const InlineImportedFile = struct {
         builtin_call_node: Ast.Node.Index,
         imported_string: []const u8,
-    },
+        /// Identifier names that must be renamed in the inlined code or else
+        /// will cause ambiguous reference errors.
+        in_scope_names: std.StringArrayHashMapUnmanaged(void),
+    };
 };
 
 pub const Error = error{OutOfMemory};
 
 /// The result will be priority shuffled.
-pub fn findTransformations(ast: *const Ast, transformations: *std.ArrayList(Transformation)) !void {
+pub fn findTransformations(
+    arena: std.mem.Allocator,
+    ast: *const Ast,
+    transformations: *std.ArrayList(Transformation),
+) !void {
     transformations.clearRetainingCapacity();
 
     var walk: Walk = .{
         .ast = ast,
         .transformations = transformations,
         .gpa = transformations.allocator,
+        .arena = arena,
         .unreferenced_globals = .{},
+        .in_scope_names = .{},
     };
-    defer walk.unreferenced_globals.deinit(walk.gpa);
+    defer {
+        walk.unreferenced_globals.deinit(walk.gpa);
+        walk.in_scope_names.deinit(walk.gpa);
+    }
 
     try walkMembers(&walk, walk.ast.rootDecls());
 
@@ -49,14 +65,18 @@ pub fn findTransformations(ast: *const Ast, transformations: *std.ArrayList(Tran
 
 fn walkMembers(w: *Walk, members: []const Ast.Node.Index) Error!void {
     // First we scan for globals so that we can delete them while walking.
-    try scanDecls(w, members);
+    try scanDecls(w, members, .add);
 
     for (members) |member| {
         try walkMember(w, member);
     }
+
+    try scanDecls(w, members, .remove);
 }
 
-fn scanDecls(w: *Walk, members: []const Ast.Node.Index) Error!void {
+const ScanDeclsAction = enum { add, remove };
+
+fn scanDecls(w: *Walk, members: []const Ast.Node.Index, action: ScanDeclsAction) Error!void {
     const ast = w.ast;
     const gpa = w.gpa;
     const node_tags = ast.nodes.items(.tag);
@@ -80,9 +100,27 @@ fn scanDecls(w: *Walk, members: []const Ast.Node.Index) Error!void {
 
             else => continue,
         };
+
         assert(token_tags[name_token] == .identifier);
         const name_bytes = ast.tokenSlice(name_token);
-        try w.unreferenced_globals.put(gpa, name_bytes, member_node);
+
+        switch (action) {
+            .add => {
+                try w.unreferenced_globals.put(gpa, name_bytes, member_node);
+
+                const gop = try w.in_scope_names.getOrPut(gpa, name_bytes);
+                if (!gop.found_existing) gop.value_ptr.* = 0;
+                gop.value_ptr.* += 1;
+            },
+            .remove => {
+                const entry = w.in_scope_names.getEntry(name_bytes).?;
+                if (entry.value_ptr.* <= 1) {
+                    assert(w.in_scope_names.swapRemove(name_bytes));
+                } else {
+                    entry.value_ptr.* -= 1;
+                }
+            },
+        }
     }
 }
 
@@ -567,12 +605,12 @@ fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
         try walkExpression(w, var_decl.ast.section_node);
     }
 
-    assert(var_decl.ast.init_node != 0);
-    if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
-        try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+    if (var_decl.ast.init_node != 0) {
+        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+        }
+        try walkExpression(w, var_decl.ast.init_node);
     }
-
-    return walkExpression(w, var_decl.ast.init_node);
 }
 
 fn walkContainerField(w: *Walk, field: Ast.full.ContainerField) Error!void {
@@ -582,7 +620,9 @@ fn walkContainerField(w: *Walk, field: Ast.full.ContainerField) Error!void {
     if (field.ast.align_expr != 0) {
         try walkExpression(w, field.ast.align_expr); // alignment
     }
-    try walkExpression(w, field.ast.value_expr); // value
+    if (field.ast.value_expr != 0) {
+        try walkExpression(w, field.ast.value_expr); // value
+    }
 }
 
 fn walkBlock(
@@ -690,7 +730,6 @@ fn walkBuiltinCall(
     params: []const Ast.Node.Index,
 ) Error!void {
     const ast = w.ast;
-    const gpa = w.gpa;
     const main_tokens = ast.nodes.items(.main_token);
     const builtin_token = main_tokens[call_node];
     const builtin_name = ast.tokenSlice(builtin_token);
@@ -700,12 +739,17 @@ fn walkBuiltinCall(
             const operand_node = params[0];
             const str_lit_token = main_tokens[operand_node];
             const token_bytes = ast.tokenSlice(str_lit_token);
-            const imported_string = std.zig.string_literal.parseAlloc(gpa, token_bytes) catch
-                unreachable;
-            if (std.mem.endsWith(u8, imported_string, ".zig")) {
+            if (std.mem.endsWith(u8, token_bytes, ".zig\"")) {
+                const imported_string = std.zig.string_literal.parseAlloc(w.arena, token_bytes) catch
+                    unreachable;
                 try w.transformations.append(.{ .inline_imported_file = .{
                     .builtin_call_node = call_node,
                     .imported_string = imported_string,
+                    .in_scope_names = try std.StringArrayHashMapUnmanaged(void).init(
+                        w.arena,
+                        w.in_scope_names.keys(),
+                        &.{},
+                    ),
                 } });
             }
         },

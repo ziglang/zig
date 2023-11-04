@@ -148,7 +148,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var transformations = std.ArrayList(Walk.Transformation).init(gpa);
     defer transformations.deinit();
-    try Walk.findTransformations(&tree, &transformations);
+    try Walk.findTransformations(arena, &tree, &transformations);
     sortTransformations(transformations.items, rng.random());
 
     fresh: while (transformations.items.len > 0) {
@@ -162,11 +162,18 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             subset_size = @max(1, subset_size / 2);
 
             const this_set = transformations.items[start_index..][0..subset_size];
+            std.debug.print("trying {d} random transformations: ", .{subset_size});
+            for (this_set[0..@min(this_set.len, 20)]) |t| {
+                std.debug.print("{s} ", .{@tagName(t)});
+            }
+            std.debug.print("\n", .{});
             try transformationsToFixups(gpa, arena, root_source_file_path, this_set, &fixups);
 
             rendered.clearRetainingCapacity();
             try tree.renderToArrayList(&rendered, fixups);
             try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
+
+            //std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
             std.debug.print("{d} random transformations: {s}. {d} remaining\n", .{
@@ -179,7 +186,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     tree.deinit(gpa);
                     tree = new_tree;
 
-                    try Walk.findTransformations(&tree, &transformations);
+                    try Walk.findTransformations(arena, &tree, &transformations);
                     // Resetting based on the seed again means we will get the same
                     // results if restarting the reduction process from this new point.
                     rng = std.rand.DefaultPrng.init(seed);
@@ -263,7 +270,6 @@ fn transformationsToFixups(
             try fixups.replace_nodes.put(gpa, node, "undefined");
         },
         .inline_imported_file => |inline_imported_file| {
-            defer gpa.free(inline_imported_file.imported_string);
             const full_imported_path = try std.fs.path.join(gpa, &.{
                 std.fs.path.dirname(root_source_file_path) orelse ".",
                 inline_imported_file.imported_string,
@@ -274,14 +280,34 @@ fn transformationsToFixups(
                 gpa.free(other_file_ast.source);
                 other_file_ast.deinit(gpa);
             }
-            var other_source = std.ArrayList(u8).init(gpa);
-            defer other_source.deinit();
+
             var inlined_fixups: Ast.Fixups = .{};
             defer inlined_fixups.deinit(gpa);
+            if (std.fs.path.dirname(inline_imported_file.imported_string)) |dirname| {
+                inlined_fixups.rebase_imported_paths = dirname;
+            }
+            for (inline_imported_file.in_scope_names.keys()) |name| {
+                // This name needs to be mangled in order to not cause an
+                // ambiguous reference error.
+                var i: u32 = 2;
+                const mangled = while (true) : (i += 1) {
+                    const mangled = try std.fmt.allocPrint(gpa, "{s}{d}", .{ name, i });
+                    if (!inline_imported_file.in_scope_names.contains(mangled))
+                        break mangled;
+                    gpa.free(mangled);
+                };
+                try inlined_fixups.rename_identifiers.put(gpa, name, mangled);
+            }
+            defer {
+                for (inlined_fixups.rename_identifiers.values()) |v| {
+                    gpa.free(v);
+                }
+            }
+
+            var other_source = std.ArrayList(u8).init(gpa);
+            defer other_source.deinit();
             try other_source.appendSlice("struct {\n");
-            try other_file_ast.renderToArrayList(&other_source, .{
-                .rebase_imported_paths = std.fs.path.dirname(inline_imported_file.imported_string),
-            });
+            try other_file_ast.renderToArrayList(&other_source, inlined_fixups);
             try other_source.appendSlice("}");
 
             try fixups.replace_nodes.put(

@@ -26,6 +26,9 @@ pub const Fixups = struct {
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These expressions will be replaced with the string value.
     replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    /// Change all identifier names matching the key to be value instead.
+    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+
     /// All `@import` builtin calls which refer to a file path will be prefixed
     /// with this path.
     rebase_imported_paths: ?[]const u8 = null,
@@ -34,7 +37,9 @@ pub const Fixups = struct {
         return f.unused_var_decls.count() +
             f.gut_functions.count() +
             f.omit_nodes.count() +
-            f.replace_nodes.count();
+            f.replace_nodes.count() +
+            f.rename_identifiers.count() +
+            @intFromBool(f.rebase_imported_paths != null);
     }
 
     pub fn clearRetainingCapacity(f: *Fixups) void {
@@ -42,6 +47,9 @@ pub const Fixups = struct {
         f.gut_functions.clearRetainingCapacity();
         f.omit_nodes.clearRetainingCapacity();
         f.replace_nodes.clearRetainingCapacity();
+        f.rename_identifiers.clearRetainingCapacity();
+
+        f.rebase_imported_paths = null;
     }
 
     pub fn deinit(f: *Fixups, gpa: Allocator) void {
@@ -49,6 +57,7 @@ pub const Fixups = struct {
         f.gut_functions.deinit(gpa);
         f.omit_nodes.deinit(gpa);
         f.replace_nodes.deinit(gpa);
+        f.rename_identifiers.deinit(gpa);
         f.* = undefined;
     }
 };
@@ -2833,6 +2842,13 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token_index] == .identifier);
     const lexeme = tokenSliceForRender(tree, token_index);
+
+    if (r.fixups.rename_identifiers.get(lexeme)) |mangled| {
+        try r.ais.writer().writeAll(mangled);
+        try renderSpace(r, token_index, lexeme.len, space);
+        return;
+    }
+
     if (lexeme[0] != '@') {
         return renderToken(r, token_index, space);
     }
