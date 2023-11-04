@@ -14,3 +14,4 @@ pub const skip_non_native = false;
 pub const only_c = false;
 pub const force_gpa = false;
 pub const only_core_functionality = true;
+pub const only_reduce = false;
