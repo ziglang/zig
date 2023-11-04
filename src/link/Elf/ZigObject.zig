@@ -554,7 +554,7 @@ pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
 
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= 15) .{ .name = name } else .{ .name_off = self.output_ar_state.name_off },
-        .size = size,
+        .size = @intCast(size),
     });
     try writer.writeAll(mem.asBytes(&hdr));
     try writer.writeAll(contents);
