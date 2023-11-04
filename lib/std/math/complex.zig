@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;
+const cmath = @This();
 
 pub const abs = @import("complex/abs.zig").abs;
 pub const acosh = @import("complex/acosh.zig").acosh;
@@ -19,6 +20,7 @@ pub const pow = @import("complex/pow.zig").pow;
 pub const proj = @import("complex/proj.zig").proj;
 pub const sinh = @import("complex/sinh.zig").sinh;
 pub const sin = @import("complex/sin.zig").sin;
+pub const sgn = @import("complex/sgn.zig").sgn;
 pub const sqrt = @import("complex/sqrt.zig").sqrt;
 pub const tanh = @import("complex/tanh.zig").tanh;
 pub const tan = @import("complex/tan.zig").tan;
@@ -29,10 +31,10 @@ pub fn Complex(comptime T: type) type {
         const Self = @This();
 
         /// Real part.
-        re: T,
+        re: T = 0,
 
         /// Imaginary part.
-        im: T,
+        im: T = 0,
 
         /// Create a new Complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
@@ -78,8 +80,8 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the complex conjugate of a number.
-        pub fn conjugate(self: Self) Self {
+        /// Returns the conjugate of a complex number.
+        pub fn conj(self: Self) Self {
             return Self{
                 .re = self.re,
                 .im = -self.im,
@@ -95,15 +97,15 @@ pub fn Complex(comptime T: type) type {
         }
 
         /// Returns the product of complex number and i=sqrt(-1)
-        pub fn mulbyi(self: Self) Self {
+        pub fn lead(self: Self) Self {
             return Self{
                 .re = -self.im,
                 .im = self.re,
             };
         }
 
-        /// Returns the reciprocal of a complex number.
-        pub fn reciprocal(self: Self) Self {
+        /// Returns the inverse of a complex number.
+        pub fn inv(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
             return Self{
                 .re = self.re / m,
@@ -111,9 +113,56 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the magnitude of a complex number.
-        pub fn magnitude(self: Self) T {
-            return @sqrt(self.re * self.re + self.im * self.im);
+        /// Returns the modulus of a complex number.
+        pub fn abs(self: Self) T {
+            return cmath.abs(self);
+        }
+
+        /// Returns the argument of a complex number.
+        pub fn arg(self: Self) T {
+            return cmath.arg(self);
+        }
+
+        /// Returns the polarity of a complex number.
+        pub fn sgn(self: Self) Self {
+            return cmath.sgn(self);
+        }
+
+        /// Returns the quotient of complex number and i=sqrt(-1)
+        pub fn lag(self: Self) Self {
+            return Self{
+                .re = self.im,
+                .im = -self.re,
+            };
+        }
+
+        /// Returns the complex number shifted by a specified angle.
+        pub fn shift(self: Self, radian: T) Self {
+            return Self{
+                .re = @cos(radian) * self.re - @sin(radian) * self.im,
+                .im = @sin(radian) * self.re + @cos(radian) * self.im,
+            };
+        }
+
+        /// Returns the complex number scaled by a specified factor.
+        pub fn scale(self: Self, factor: T) Self {
+            return Self{
+                .re = self.re * factor,
+                .im = self.im * factor,
+            };
+        }
+
+        // default formatting
+        pub fn format(
+            complex: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            if (complex.im < 0 or 1 / complex.im < 0) return writer.print("{d} - {d}im", .{ complex.re, @abs(complex.im) });
+            return writer.print("{d} + {d}im", .{ complex.re, complex.im });
         }
     };
 }
@@ -153,9 +202,9 @@ test "complex.div" {
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
 }
 
-test "complex.conjugate" {
+test "complex.conj" {
     const a = Complex(f32).init(5, 3);
-    const c = a.conjugate();
+    const c = a.conj();
 
     try testing.expect(c.re == 5 and c.im == -3);
 }
@@ -167,26 +216,33 @@ test "complex.neg" {
     try testing.expect(c.re == -5 and c.im == -3);
 }
 
-test "complex.mulbyi" {
+test "complex.lead" {
     const a = Complex(f32).init(5, 3);
-    const c = a.mulbyi();
+    const c = a.lead();
 
     try testing.expect(c.re == -3 and c.im == 5);
 }
 
-test "complex.reciprocal" {
+test "complex.inv" {
     const a = Complex(f32).init(5, 3);
-    const c = a.reciprocal();
+    const c = a.inv();
 
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 5) / 34, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
 }
 
-test "complex.magnitude" {
+test "complex.abs" {
     const a = Complex(f32).init(5, 3);
-    const c = a.magnitude();
+    const c = a.abs();
 
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+}
+
+test "complex.lag" {
+    const a = Complex(f32).init(5, 3);
+    const c = a.lag();
+
+    try testing.expect(c.re == 3 and c.im == -5);
 }
 
 test {
