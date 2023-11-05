@@ -165,7 +165,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         .container_field_init,
         .container_field_align,
         .container_field,
-        => try walkContainerField(w, ast.fullContainerField(decl).?),
+        => {
+            try w.transformations.append(.{ .delete_node = decl });
+            try walkContainerField(w, ast.fullContainerField(decl).?);
+        },
 
         .@"comptime" => {
             try w.transformations.append(.{ .delete_node = decl });
