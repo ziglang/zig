@@ -649,7 +649,11 @@ fn walkBlock(
             => try walkLocalVarDecl(w, ast.fullVarDecl(stmt).?),
 
             else => {
-                try w.transformations.append(.{ .delete_node = stmt });
+                // Don't try to remove `_ = foo;` discards; those are handled separately.
+                switch (categorizeStmt(ast, stmt)) {
+                    .discard_identifier => {},
+                    else => try w.transformations.append(.{ .delete_node = stmt }),
+                }
                 try walkExpression(w, stmt);
             },
         }

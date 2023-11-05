@@ -229,8 +229,8 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             //std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
-            std.debug.print("{d} random transformations: {s}. {d} remaining\n", .{
-                subset_size, @tagName(interestingness), transformations.items.len - start_index,
+            std.debug.print("{d} random transformations: {s}. {d}/{d}\n", .{
+                subset_size, @tagName(interestingness), start_index, transformations.items.len,
             });
             switch (interestingness) {
                 .interesting => {
