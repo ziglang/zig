@@ -10885,12 +10885,12 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
+    try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
     const jmp_reloc = try self.asmJmpReloc(undefined);
     try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
-    return self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
@@ -10905,12 +10905,12 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
+    try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
     const jmp_reloc = try self.asmJmpReloc(undefined);
     try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
-    return self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
