@@ -204,6 +204,31 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
+        return switch (file) {
+            .zig_object => |x| x.updateArStrtab(allocator, ar_strtab),
+            .object => @panic("TODO"),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn updateArSize(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSize(elf_file),
+            .object => @panic("TODO"),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
+        return switch (file) {
+            .zig_object => |x| x.writeAr(elf_file, writer),
+            // .object => |x| x.writeAr(elf_file, writer),
+            .object => @panic("TODO"),
+            inline else => unreachable,
+        };
+    }
+
     pub const Index = u32;
 
     pub const Entry = union(enum) {

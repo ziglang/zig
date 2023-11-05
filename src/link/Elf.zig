@@ -939,12 +939,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.isRelocatable() and self.zig_object_index == null) {
-        if (self.isStaticLib()) {
-            var err = try self.addErrorWithNotes(0);
-            try err.addMsg(self, "fatal linker error: emitting static libs unimplemented", .{});
-            return;
-        }
+    if (self.isObject() and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
         assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
@@ -1555,15 +1550,18 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
         try self.writeElfHeader();
     }
 
-    // TODO parse positionals that we want to make part of the archive
+    var files = std.ArrayList(File.Index).init(gpa);
+    defer files.deinit();
+    try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
+    if (self.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
+    for (self.objects.items) |index| files.appendAssumeCapacity(index);
 
-    // TODO update ar symtab from parsed positionals
-
+    // Update ar symtab from parsed objects
     var ar_symtab: Archive.ArSymtab = .{};
     defer ar_symtab.deinit(gpa);
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.updateArSymtab(&ar_symtab, self);
+    for (files.items) |index| {
+        try self.file(index).?.updateArSymtab(&ar_symtab, self);
     }
 
     ar_symtab.sort();
@@ -1572,9 +1570,10 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     var ar_strtab: Archive.ArStrtab = .{};
     defer ar_strtab.deinit(gpa);
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.updateArStrtab(gpa, &ar_strtab);
-        zig_object.updateArSize(self);
+    for (files.items) |index| {
+        const file_ptr = self.file(index).?;
+        try file_ptr.updateArStrtab(gpa, &ar_strtab);
+        file_ptr.updateArSize(self);
     }
 
     // Update file offsets of contributing objects.
@@ -1587,10 +1586,16 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
             pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
         }
 
-        if (self.zigObjectPtr()) |zig_object| {
+        for (files.items) |index| {
+            const file_ptr = self.file(index).?;
+            const state = switch (file_ptr) {
+                .zig_object => |x| &x.output_ar_state,
+                .object => |x| &x.output_ar_state,
+                else => unreachable,
+            };
             pos = mem.alignForward(usize, pos, 2);
-            zig_object.output_ar_state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr) + (math.cast(usize, zig_object.output_ar_state.size) orelse return error.Overflow);
+            state.file_off = pos;
+            pos += @sizeOf(Archive.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
         }
 
         break :blk pos;
@@ -1618,9 +1623,9 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     }
 
     // Write object files
-    if (self.zigObjectPtr()) |zig_object| {
+    for (files.items) |index| {
         if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try zig_object.writeAr(self, buffer.writer());
+        try self.file(index).?.writeAr(self, buffer.writer());
     }
 
     assert(buffer.items.len == total_size);

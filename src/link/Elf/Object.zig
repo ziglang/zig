@@ -20,6 +20,7 @@ alive: bool = true,
 num_dynrelocs: u32 = 0,
 
 output_symtab_size: Elf.SymtabSize = .{},
+output_ar_state: Archive.ArState = .{},
 
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -924,6 +925,7 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
