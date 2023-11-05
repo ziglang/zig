@@ -903,14 +903,11 @@ pub fn main() void {
       <p>
       Dereferencing string literals converts them to {#link|Arrays#}, allowing you to initialize a buffer with the contents of a string literal.
       </p>
-      {#code_begin|exe|mutable_string_buffer#}
-const print = @import("std").debug.print;
-
-pub fn main() void {
-    var buffer: [256]u8 = .{0}**256;
+      {#code_begin|syntax|mutable_string_buffer#}
+test {
+    var buffer = [_]u8{0}**256;
     const home_dir = "C:/Users/root";
     buffer[0..home_dir.len].* = home_dir.*;
-    print("{s}", .{buffer});
 }
       {#code_end#}
       <p>
