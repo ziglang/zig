@@ -1858,13 +1858,7 @@ fn testLinkingObj(b: *Build, opts: Options) *Step {
 fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-static-lib", opts);
 
-    const lib = b.addStaticLibrary(.{
-        .name = "alib",
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = false,
-    });
+    const lib = addStaticLibrary(b, "alib", opts);
     addZigSourceBytes(lib,
         \\extern var mod: usize;
         \\export fn callMe() usize {
@@ -3332,7 +3326,7 @@ fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
-        .use_lld = true,
+        .use_lld = opts.use_lld,
     });
 }
 
