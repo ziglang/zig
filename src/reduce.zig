@@ -166,7 +166,10 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         var start_index: usize = 0;
 
         while (start_index < transformations.items.len) {
-            subset_size = @max(1, subset_size / 2);
+            const prev_subset_size = subset_size;
+            subset_size = @max(1, subset_size * 3 / 4);
+            if (prev_subset_size > 1 and subset_size == 1)
+                start_index = 0;
 
             const this_set = transformations.items[start_index..][0..subset_size];
             std.debug.print("trying {d} random transformations: ", .{subset_size});
@@ -237,9 +240,6 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     tree = new_tree;
 
                     try Walk.findTransformations(arena, &tree, &transformations);
-                    // Resetting based on the seed again means we will get the same
-                    // results if restarting the reduction process from this new point.
-                    rng = std.rand.DefaultPrng.init(seed);
                     sortTransformations(transformations.items, rng.random());
 
                     continue :fresh;
@@ -249,6 +249,11 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     // If we tested only one transformation, move on to the next one.
                     if (subset_size == 1) {
                         start_index += 1;
+                    } else {
+                        start_index += subset_size;
+                        if (start_index + subset_size > transformations.items.len) {
+                            start_index = 0;
+                        }
                     }
                 },
             }
