@@ -658,7 +658,7 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "main", opts);
         exe.addObject(a_o);
         exe.addObject(b_o);
-        exe.entry_symbol_name = "foo";
+        exe.entry = .{ .symbol_name = "foo" };
 
         const check = exe.checkObject();
         check.checkStart();
@@ -674,7 +674,7 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, "other", opts);
         exe.addObject(a_o);
         exe.addObject(b_o);
-        exe.entry_symbol_name = "bar";
+        exe.entry = .{ .symbol_name = "bar" };
 
         const check = exe.checkObject();
         check.checkStart();

@@ -82,11 +82,15 @@ comptime {
                     .reactor => "_initialize",
                     .command => "_start",
                 };
-                if (!@hasDecl(root, wasm_start_sym)) {
+                if (!@hasDecl(root, wasm_start_sym) and @hasDecl(root, "main")) {
+                    // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
+                    // case it's not required to provide an entrypoint such as main.
                     @export(wasi_start, .{ .name = wasm_start_sym });
                 }
             } else if (native_arch.isWasm() and native_os == .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+                // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
+                // case it's not required to provide an entrypoint such as main.
+                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(wasm_freestanding_start, .{ .name = start_sym_name });
             } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }

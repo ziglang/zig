@@ -2817,15 +2817,11 @@ fn setupExports(wasm: *Wasm) !void {
 }
 
 fn setupStart(wasm: *Wasm) !void {
-    const entry_name = wasm.base.options.entry orelse "_start";
+    // do not export entry point if user set none or no default was set.
+    const entry_name = wasm.base.options.entry orelse return;
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) return; // Not required for reactors
-        } else {
-            return; // No entry point needed for non-executable wasm files
-        }
-        log.err("Entry symbol '{s}' missing", .{entry_name});
+        log.err("Entry symbol '{s}' missing, use '-fno-entry' to suppress", .{entry_name});
         return error.MissingSymbol;
     };
 
@@ -4535,6 +4531,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (wasm.base.options.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
+        } else {
+            try argv.append("--no-entry");
         }
 
         // Increase the default stack size to a more reasonable value of 1MB instead of
@@ -4544,22 +4542,15 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
         try argv.append(arg);
 
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) {
-                // Reactor execution model does not have _start so lld doesn't look for it.
-                try argv.append("--no-entry");
-                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
-                // the flag in which case, we ensure `--export-dynamic` is called.
-                if (!wasm.base.options.rdynamic) {
-                    try argv.append("--export-dynamic");
-                }
-            }
-        } else if (wasm.base.options.entry == null) {
-            try argv.append("--no-entry"); // So lld doesn't look for _start.
-        }
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
+        }
+
+        if (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+            try argv.append("--shared");
+        }
+        if (wasm.base.options.pie) {
+            try argv.append("--pie");
         }
 
         // XXX - TODO: add when wasm-ld supports --build-id.
