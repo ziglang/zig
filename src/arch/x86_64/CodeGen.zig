@@ -585,7 +585,7 @@ const InstTracking = struct {
         tracking_log.debug("%{d} => {} (spilled)", .{ inst, self.* });
     }
 
-    fn verifyMaterialize(self: *InstTracking, target: InstTracking) void {
+    fn verifyMaterialize(self: InstTracking, target: InstTracking) void {
         switch (self.long) {
             .none,
             .unreach,
@@ -634,7 +634,7 @@ const InstTracking = struct {
     }
 
     fn materializeUnsafe(
-        self: *InstTracking,
+        self: InstTracking,
         function: *Self,
         inst: Air.Inst.Index,
         target: InstTracking,
@@ -688,7 +688,7 @@ const InstTracking = struct {
     }
 
     fn liveOut(self: *InstTracking, function: *Self, inst: Air.Inst.Index) void {
-        for (self.short.getRegs()) |reg| {
+        for (self.getRegs()) |reg| {
             if (function.register_manager.isRegFree(reg)) {
                 tracking_log.debug("%{d} => {} (live-out)", .{ inst, self.* });
                 continue;
@@ -701,7 +701,7 @@ const InstTracking = struct {
             // Disable death.
             var found_reg = false;
             var remaining_reg: Register = .none;
-            for (tracking.short.getRegs()) |tracked_reg| if (tracked_reg.id() == reg.id()) {
+            for (tracking.getRegs()) |tracked_reg| if (tracked_reg.id() == reg.id()) {
                 assert(!found_reg);
                 found_reg = true;
             } else {
@@ -11991,7 +11991,6 @@ fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
 fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const br = self.air.instructions.items(.data)[inst].br;
-    const src_mcv = try self.resolveInst(br.operand);
 
     const block_ty = self.typeOfIndex(br.block_inst);
     const block_unused =
@@ -12002,15 +12001,17 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const block_result = result: {
         if (block_unused) break :result .none;
 
+        if (!first_br) try self.getValue(block_tracking.short, null);
+        const src_mcv = try self.resolveInst(br.operand);
+
         if (self.reuseOperandAdvanced(inst, br.operand, 0, src_mcv, br.block_inst)) {
             if (first_br) break :result src_mcv;
 
-            for (block_tracking.getRegs()) |block_reg|
-                try self.register_manager.getReg(block_reg, br.block_inst);
+            try self.getValue(block_tracking.short, br.block_inst);
             // .long = .none to avoid merging operand and block result stack frames.
-            var current_tracking = InstTracking{ .long = .none, .short = src_mcv };
+            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
             try current_tracking.materializeUnsafe(self, br.block_inst, block_tracking.*);
-            for (src_mcv.getRegs()) |src_reg| self.register_manager.freeReg(src_reg);
+            for (current_tracking.getRegs()) |src_reg| self.register_manager.freeReg(src_reg);
             break :result block_tracking.short;
         }
 
@@ -12018,7 +12019,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
             try self.getValue(block_tracking.short, br.block_inst);
             break :dst block_tracking.short;
         };
-        try self.genCopy(block_ty, dst_mcv, src_mcv);
+        try self.genCopy(block_ty, dst_mcv, try self.resolveInst(br.operand));
         break :result dst_mcv;
     };
 
