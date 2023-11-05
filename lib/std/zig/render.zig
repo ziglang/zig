@@ -2043,7 +2043,12 @@ fn finishRenderBlock(
             .simple_var_decl,
             .aligned_var_decl,
             => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
-            else => try renderExpression(r, stmt, .semicolon),
+
+            else => {
+                if (!r.fixups.omit_nodes.contains(stmt)) {
+                    try renderExpression(r, stmt, .semicolon);
+                }
+            },
         }
     }
     ais.popIndent();

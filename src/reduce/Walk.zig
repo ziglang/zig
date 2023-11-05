@@ -134,8 +134,8 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
             const body_node = datas[decl].rhs;
             if (!isFnBodyGutted(ast, body_node)) {
                 try w.transformations.append(.{ .gut_function = decl });
+                try walkExpression(w, body_node);
             }
-            try walkExpression(w, body_node);
         },
         .fn_proto_simple,
         .fn_proto_multi,
@@ -648,7 +648,10 @@ fn walkBlock(
             .aligned_var_decl,
             => try walkLocalVarDecl(w, ast.fullVarDecl(stmt).?),
 
-            else => try walkExpression(w, stmt),
+            else => {
+                try w.transformations.append(.{ .delete_node = stmt });
+                try walkExpression(w, stmt);
+            },
         }
     }
 }
