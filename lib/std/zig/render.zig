@@ -133,6 +133,7 @@ fn renderMember(
 ) Error!void {
     const tree = r.tree;
     const ais = r.ais;
+    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
@@ -194,6 +195,45 @@ fn renderMember(
                 ais.popIndent();
                 try ais.insertNewline();
                 try renderToken(r, tree.lastToken(body_node), space); // rbrace
+            } else if (r.fixups.unused_var_decls.count() != 0) {
+                ais.pushIndentNextLine();
+                const lbrace = tree.nodes.items(.main_token)[body_node];
+                try renderToken(r, lbrace, .newline);
+
+                var fn_proto_buf: [1]Ast.Node.Index = undefined;
+                const full_fn_proto = tree.fullFnProto(&fn_proto_buf, fn_proto).?;
+                var it = full_fn_proto.iterate(&tree);
+                while (it.next()) |param| {
+                    const name_ident = param.name_token.?;
+                    assert(token_tags[name_ident] == .identifier);
+                    if (r.fixups.unused_var_decls.contains(name_ident)) {
+                        const w = ais.writer();
+                        try w.writeAll("_ = ");
+                        try w.writeAll(tokenSliceForRender(r.tree, name_ident));
+                        try w.writeAll(";\n");
+                    }
+                }
+                var statements_buf: [2]Ast.Node.Index = undefined;
+                const statements = switch (node_tags[body_node]) {
+                    .block_two,
+                    .block_two_semicolon,
+                    => b: {
+                        statements_buf = .{ datas[body_node].lhs, datas[body_node].rhs };
+                        if (datas[body_node].lhs == 0) {
+                            break :b statements_buf[0..0];
+                        } else if (datas[body_node].rhs == 0) {
+                            break :b statements_buf[0..1];
+                        } else {
+                            break :b statements_buf[0..2];
+                        }
+                    },
+                    .block,
+                    .block_semicolon,
+                    => tree.extra_data[datas[body_node].lhs..datas[body_node].rhs],
+
+                    else => unreachable,
+                };
+                return finishRenderBlock(r, body_node, statements, space);
             } else {
                 return renderExpression(r, body_node, space);
             }
@@ -1069,7 +1109,7 @@ fn renderVarDecl(
     space: Space,
 ) Error!void {
     try renderVarDeclWithoutFixups(r, var_decl, ignore_comptime_token, space);
-    if (r.fixups.unused_var_decls.contains(var_decl.ast.mut_token)) {
+    if (r.fixups.unused_var_decls.contains(var_decl.ast.mut_token + 1)) {
         // Discard the variable like this: `_ = foo;`
         const w = r.ais.writer();
         try w.writeAll("_ = ");
@@ -1967,7 +2007,6 @@ fn renderBlock(
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
-    const node_tags = tree.nodes.items(.tag);
     const lbrace = tree.nodes.items(.main_token)[block_node];
 
     if (token_tags[lbrace - 1] == .colon and
@@ -1976,22 +2015,35 @@ fn renderBlock(
         try renderIdentifier(r, lbrace - 2, .none, .eagerly_unquote); // identifier
         try renderToken(r, lbrace - 1, .space); // :
     }
-
     ais.pushIndentNextLine();
     if (statements.len == 0) {
         try renderToken(r, lbrace, .none);
-    } else {
-        try renderToken(r, lbrace, .newline);
-        for (statements, 0..) |stmt, i| {
-            if (i != 0) try renderExtraNewline(r, stmt);
-            switch (node_tags[stmt]) {
-                .global_var_decl,
-                .local_var_decl,
-                .simple_var_decl,
-                .aligned_var_decl,
-                => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
-                else => try renderExpression(r, stmt, .semicolon),
-            }
+        ais.popIndent();
+        try renderToken(r, tree.lastToken(block_node), space); // rbrace
+        return;
+    }
+    try renderToken(r, lbrace, .newline);
+    return finishRenderBlock(r, block_node, statements, space);
+}
+
+fn finishRenderBlock(
+    r: *Render,
+    block_node: Ast.Node.Index,
+    statements: []const Ast.Node.Index,
+    space: Space,
+) Error!void {
+    const tree = r.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const ais = r.ais;
+    for (statements, 0..) |stmt, i| {
+        if (i != 0) try renderExtraNewline(r, stmt);
+        switch (node_tags[stmt]) {
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
+            else => try renderExpression(r, stmt, .semicolon),
         }
     }
     ais.popIndent();
