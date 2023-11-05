@@ -11,11 +11,45 @@ pub fn Writer(
         context: Context,
 
         const Self = @This();
-        pub const Error = WriteError;
 
-        pub fn write(self: Self, bytes: []const u8) Error!usize {
+        pub fn write(self: Self, bytes: []const u8) Self.Error!usize {
             return writeFn(self.context, bytes);
         }
+
+        pub inline fn any(self: *const Self) AnyWriter {
+            return .{
+                .context = @ptrCast(self),
+                .writeFn = typeErasedWriteFn,
+            };
+        }
+
+        fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+            const self: *const Self = @ptrCast(@alignCast(context));
+            return self.write(bytes);
+        }
+
+        pub usingnamespace WriterInterface(Self, WriteError);
+    };
+}
+
+pub const AnyWriter = struct {
+    context: *const anyopaque,
+    writeFn: *const fn (context: *const anyopaque, bytes: []const u8) AnyWriter.Error!usize,
+
+    pub fn write(self: AnyWriter, bytes: []const u8) AnyWriter.Error!usize {
+        return self.writeFn(self.context, bytes);
+    }
+
+    pub inline fn any(self: AnyWriter) AnyWriter {
+        return self;
+    }
+
+    pub usingnamespace WriterInterface(AnyWriter, anyerror);
+};
+
+pub fn WriterInterface(comptime Self: type, comptime ErrSet: type) type {
+    return struct {
+        pub const Error = ErrSet;
 
         pub fn writeAll(self: Self, bytes: []const u8) Error!void {
             var index: usize = 0;

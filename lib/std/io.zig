@@ -340,6 +340,9 @@ pub const Reader = GenericReader;
 pub const AnyReader = @import("io/Reader.zig");
 
 pub const Writer = @import("io/writer.zig").Writer;
+pub const AnyWriter = @import("io/writer.zig").AnyWriter;
+pub const WriterInterface = @import("io/writer.zig").WriterInterface;
+
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
 pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;

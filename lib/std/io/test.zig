@@ -190,3 +190,12 @@ test "GenericReader methods can return error.EndOfStream" {
         fbs.reader().isBytes("foo"),
     );
 }
+
+test "AnyWriter write to buffer" {
+    var buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer buffer.deinit();
+    const writer = buffer.writer().any();
+
+    try writer.print("{s}", .{"greetings"});
+    try std.testing.expectEqualStrings("greetings", buffer.items);
+}
