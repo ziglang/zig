@@ -321,6 +321,12 @@ fn transformationsToFixups(
         .delete_node => |decl_node| {
             try fixups.omit_nodes.put(gpa, decl_node, {});
         },
+        .delete_var_decl => |delete_var_decl| {
+            try fixups.omit_nodes.put(gpa, delete_var_decl.var_decl_node, {});
+            for (delete_var_decl.references.items) |ident_node| {
+                try fixups.replace_nodes.put(gpa, ident_node, "undefined");
+            }
+        },
         .replace_with_undef => |node| {
             try fixups.replace_nodes.put(gpa, node, "undefined");
         },

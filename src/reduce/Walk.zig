@@ -8,6 +8,7 @@ ast: *const Ast,
 transformations: *std.ArrayList(Transformation),
 unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
 in_scope_names: std.StringArrayHashMapUnmanaged(u32),
+replace_names: std.StringArrayHashMapUnmanaged(u32),
 gpa: std.mem.Allocator,
 arena: std.mem.Allocator,
 
@@ -17,6 +18,13 @@ pub const Transformation = union(enum) {
     gut_function: Ast.Node.Index,
     /// Omit a global declaration.
     delete_node: Ast.Node.Index,
+    /// Delete a local variable declaration and replace all of its references
+    /// with `undefined`.
+    delete_var_decl: struct {
+        var_decl_node: Ast.Node.Index,
+        /// Identifier nodes that reference the variable.
+        references: std.ArrayListUnmanaged(Ast.Node.Index),
+    },
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
     /// Replace an `@import` with the imported file contents wrapped in a struct.
@@ -48,10 +56,12 @@ pub fn findTransformations(
         .arena = arena,
         .unreferenced_globals = .{},
         .in_scope_names = .{},
+        .replace_names = .{},
     };
     defer {
         walk.unreferenced_globals.deinit(walk.gpa);
         walk.in_scope_names.deinit(walk.gpa);
+        walk.replace_names.deinit(walk.gpa);
     }
 
     try walkMembers(&walk, walk.ast.rootDecls());
@@ -133,6 +143,7 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
             try walkExpression(w, fn_proto);
             const body_node = datas[decl].rhs;
             if (!isFnBodyGutted(ast, body_node)) {
+                w.replace_names.clearRetainingCapacity();
                 try w.transformations.append(.{ .gut_function = decl });
                 try walkExpression(w, body_node);
             }
@@ -187,7 +198,15 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
     const node_tags = ast.nodes.items(.tag);
     const datas = ast.nodes.items(.data);
     switch (node_tags[node]) {
-        .identifier => try walkIdentifier(w, main_tokens[node]),
+        .identifier => {
+            const name_ident = main_tokens[node];
+            assert(token_tags[name_ident] == .identifier);
+            const name_bytes = ast.tokenSlice(name_ident);
+            _ = w.unreferenced_globals.swapRemove(name_bytes);
+            if (w.replace_names.get(name_bytes)) |index| {
+                try w.transformations.items[index].delete_var_decl.references.append(w.arena, node);
+            }
+        },
 
         .number_literal,
         .char_literal,
@@ -646,13 +665,31 @@ fn walkBlock(
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
-            => try walkLocalVarDecl(w, ast.fullVarDecl(stmt).?),
+            => {
+                const var_decl = ast.fullVarDecl(stmt).?;
+                if (var_decl.ast.init_node != 0 and
+                    isUndefinedIdent(w.ast, var_decl.ast.init_node))
+                {
+                    try w.transformations.append(.{ .delete_var_decl = .{
+                        .var_decl_node = stmt,
+                        .references = .{},
+                    } });
+                    const name_tok = var_decl.ast.mut_token + 1;
+                    const name_bytes = ast.tokenSlice(name_tok);
+                    try w.replace_names.put(w.gpa, name_bytes, @intCast(w.transformations.items.len - 1));
+                } else {
+                    try walkLocalVarDecl(w, var_decl);
+                }
+            },
 
             else => {
-                // Don't try to remove `_ = foo;` discards; those are handled separately.
                 switch (categorizeStmt(ast, stmt)) {
+                    // Don't try to remove `_ = foo;` discards; those are handled separately.
                     .discard_identifier => {},
-                    else => try w.transformations.append(.{ .delete_node = stmt }),
+                    // definitely try to remove `_ = undefined;` though.
+                    .discard_undefined, .trap_call, .other => {
+                        try w.transformations.append(.{ .delete_node = stmt });
+                    },
                 }
                 try walkExpression(w, stmt);
             },
@@ -905,6 +942,7 @@ fn isFnBodyGutted(ast: *const Ast, body_node: Ast.Node.Index) bool {
 }
 
 const StmtCategory = enum {
+    discard_undefined,
     discard_identifier,
     trap_call,
     other,
@@ -930,8 +968,14 @@ fn categorizeStmt(ast: *const Ast, stmt: Ast.Node.Index) StmtCategory {
         },
         .assign => {
             const infix = datas[stmt];
-            if (isDiscardIdent(ast, infix.lhs) and node_tags[infix.rhs] == .identifier)
-                return .discard_identifier;
+            if (isDiscardIdent(ast, infix.lhs) and node_tags[infix.rhs] == .identifier) {
+                const name_bytes = ast.tokenSlice(main_tokens[infix.rhs]);
+                if (std.mem.eql(u8, name_bytes, "undefined")) {
+                    return .discard_undefined;
+                } else {
+                    return .discard_identifier;
+                }
+            }
             return .other;
         },
         else => return .other,
@@ -951,26 +995,21 @@ fn categorizeBuiltinCall(
 }
 
 fn isDiscardIdent(ast: *const Ast, node: Ast.Node.Index) bool {
-    const node_tags = ast.nodes.items(.tag);
-    const main_tokens = ast.nodes.items(.main_token);
-    switch (node_tags[node]) {
-        .identifier => {
-            const token_index = main_tokens[node];
-            const name_bytes = ast.tokenSlice(token_index);
-            return std.mem.eql(u8, name_bytes, "_");
-        },
-        else => return false,
-    }
+    return isMatchingIdent(ast, node, "_");
 }
 
 fn isUndefinedIdent(ast: *const Ast, node: Ast.Node.Index) bool {
+    return isMatchingIdent(ast, node, "undefined");
+}
+
+fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bool {
     const node_tags = ast.nodes.items(.tag);
     const main_tokens = ast.nodes.items(.main_token);
     switch (node_tags[node]) {
         .identifier => {
             const token_index = main_tokens[node];
             const name_bytes = ast.tokenSlice(token_index);
-            return std.mem.eql(u8, name_bytes, "undefined");
+            return std.mem.eql(u8, name_bytes, string);
         },
         else => return false,
     }
