@@ -199,23 +199,30 @@ pub const File = union(enum) {
     pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
-            .object => @panic("TODO"),
+            .object => |x| x.updateArSymtab(ar_symtab, elf_file),
             inline else => unreachable,
         };
     }
 
     pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
-        return switch (file) {
-            .zig_object => |x| x.updateArStrtab(allocator, ar_strtab),
-            .object => @panic("TODO"),
+        const path = switch (file) {
+            .zig_object => |x| x.path,
+            .object => |x| x.path,
             inline else => unreachable,
         };
+        const state = switch (file) {
+            .zig_object => |x| &x.output_ar_state,
+            .object => |x| &x.output_ar_state,
+            inline else => unreachable,
+        };
+        if (path.len <= Archive.max_member_name_len) return;
+        state.name_off = try ar_strtab.insert(allocator, path);
     }
 
     pub fn updateArSize(file: File, elf_file: *Elf) void {
         return switch (file) {
             .zig_object => |x| x.updateArSize(elf_file),
-            .object => @panic("TODO"),
+            .object => |x| x.updateArSize(),
             inline else => unreachable,
         };
     }
@@ -223,8 +230,7 @@ pub const File = union(enum) {
     pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
         return switch (file) {
             .zig_object => |x| x.writeAr(elf_file, writer),
-            // .object => |x| x.writeAr(elf_file, writer),
-            .object => @panic("TODO"),
+            .object => |x| x.writeAr(writer),
             inline else => unreachable,
         };
     }

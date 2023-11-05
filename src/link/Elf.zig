@@ -288,7 +288,9 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
         self.files.set(index, .{ .zig_object = .{
             .index = index,
-            .path = options.module.?.main_mod.root_src_path,
+            .path = try std.fmt.allocPrint(self.base.allocator, "{s}.o", .{std.fs.path.stem(
+                options.module.?.main_mod.root_src_path,
+            )}),
         } });
         self.zig_object_index = index;
         try self.zigObjectPtr().?.init(self);
@@ -1553,6 +1555,9 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
+    // Note to self: we currently must have ZigObject written out first as we write the object
+    // file into the same file descriptor and then re-read its contents.
+    // TODO implement writing ZigObject to a buffer instead of file.
     if (self.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
 

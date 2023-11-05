@@ -142,6 +142,7 @@ const SYMDEFNAME = genSpecialMemberName("__.SYMDEF");
 const SYMDEFSORTEDNAME = genSpecialMemberName("__.SYMDEF SORTED");
 
 const strtab_delimiter = '\n';
+pub const max_member_name_len = 15;
 
 pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
@@ -247,6 +248,9 @@ pub const ArSymtab = struct {
 
         if (elf_file.zigObjectPtr()) |zig_object| {
             offsets.putAssumeCapacityNoClobber(zig_object.index, zig_object.output_ar_state.file_off);
+        }
+        for (elf_file.objects.items) |index| {
+            offsets.putAssumeCapacityNoClobber(index, elf_file.file(index).?.object.output_ar_state.file_off);
         }
 
         // Number of symbols
