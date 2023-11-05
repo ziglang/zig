@@ -2037,6 +2037,7 @@ fn finishRenderBlock(
     const ais = r.ais;
     for (statements, 0..) |stmt, i| {
         if (i != 0) try renderExtraNewline(r, stmt);
+        if (r.fixups.omit_nodes.contains(stmt)) continue;
         switch (node_tags[stmt]) {
             .global_var_decl,
             .local_var_decl,
@@ -2044,11 +2045,7 @@ fn finishRenderBlock(
             .aligned_var_decl,
             => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
 
-            else => {
-                if (!r.fixups.omit_nodes.contains(stmt)) {
-                    try renderExpression(r, stmt, .semicolon);
-                }
-            },
+            else => try renderExpression(r, stmt, .semicolon),
         }
     }
     ais.popIndent();
