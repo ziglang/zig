@@ -1581,7 +1581,7 @@ pub fn flushStaticLib(
 
     // Update file offsets of contributing objects.
     const total_size: usize = blk: {
-        var pos: usize = Archive.SARMAG;
+        var pos: usize = Archive.ARMAG.len;
         pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
 
         if (ar_strtab.size() > 0) {
