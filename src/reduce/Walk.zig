@@ -581,9 +581,12 @@ fn walkGlobalVarDecl(w: *Walk, decl_node: Ast.Node.Index, var_decl: Ast.full.Var
         try walkExpression(w, var_decl.ast.section_node);
     }
 
-    assert(var_decl.ast.init_node != 0);
-
-    return walkExpression(w, var_decl.ast.init_node);
+    if (var_decl.ast.init_node != 0) {
+        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+        }
+        try walkExpression(w, var_decl.ast.init_node);
+    }
 }
 
 fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {

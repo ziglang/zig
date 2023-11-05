@@ -5,6 +5,8 @@ const assert = std.debug.assert;
 const fatal = @import("./main.zig").fatal;
 const Ast = std.zig.Ast;
 const Walk = @import("reduce/Walk.zig");
+const AstGen = @import("AstGen.zig");
+const Zir = @import("Zir.zig");
 
 const usage =
     \\zig reduce [options] ./checker root_source_file.zig [-- [argv]]
@@ -39,8 +41,6 @@ const Interestingness = enum { interesting, unknown, boring };
 // - add support for parsing the module flags
 // - more fancy transformations
 //   - @import inlining of modules
-//   - @import inlining of files
-//   - deleting unused functions and other globals
 //   - removing statements or blocks of code
 //   - replacing operands of `and` and `or` with `true` and `false`
 //   - replacing if conditions with `true` and `false`
@@ -109,6 +109,9 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var rendered = std.ArrayList(u8).init(gpa);
     defer rendered.deinit();
 
+    var astgen_input = std.ArrayList(u8).init(gpa);
+    defer astgen_input.deinit();
+
     var tree = try parse(gpa, root_source_file_path);
     defer {
         gpa.free(tree.source);
@@ -129,6 +132,10 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
+
+    var more_fixups: Ast.Fixups = .{};
+    defer more_fixups.deinit(gpa);
+
     var rng = std.rand.DefaultPrng.init(seed);
 
     // 1. Walk the AST of the source file looking for independent
@@ -171,8 +178,51 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
             rendered.clearRetainingCapacity();
             try tree.renderToArrayList(&rendered, fixups);
-            try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
 
+            // The transformations we applied may have resulted in unused locals,
+            // in which case we would like to add the respective discards.
+            {
+                try astgen_input.resize(rendered.items.len);
+                @memcpy(astgen_input.items, rendered.items);
+                try astgen_input.append(0);
+                const source_with_null = astgen_input.items[0 .. astgen_input.items.len - 1 :0];
+                var astgen_tree = try Ast.parse(gpa, source_with_null, .zig);
+                defer astgen_tree.deinit(gpa);
+                if (astgen_tree.errors.len != 0) {
+                    @panic("syntax errors occurred");
+                }
+                var zir = try AstGen.generate(gpa, astgen_tree);
+                defer zir.deinit(gpa);
+
+                if (zir.hasCompileErrors()) {
+                    more_fixups.clearRetainingCapacity();
+                    const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+                    assert(payload_index != 0);
+                    const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                    var extra_index = header.end;
+                    for (0..header.data.items_len) |_| {
+                        const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+                        extra_index = item.end;
+                        const msg = zir.nullTerminatedString(item.data.msg);
+                        if (mem.eql(u8, msg, "unused local constant") or
+                            mem.eql(u8, msg, "unused local variable") or
+                            mem.eql(u8, msg, "unused function parameter") or
+                            mem.eql(u8, msg, "unused capture"))
+                        {
+                            const ident_token = item.data.token;
+                            try more_fixups.unused_var_decls.put(gpa, ident_token, {});
+                        } else {
+                            std.debug.print("found other ZIR error: '{s}'\n", .{msg});
+                        }
+                    }
+                    if (more_fixups.count() != 0) {
+                        rendered.clearRetainingCapacity();
+                        try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                    }
+                }
+            }
+
+            try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
             //std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
