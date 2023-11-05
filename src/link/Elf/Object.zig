@@ -96,7 +96,9 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
                 sym.st_name + strtab_bias;
         }
     }
+}
 
+pub fn init(self: *Object, elf_file: *Elf) !void {
     try self.initAtoms(elf_file);
     try self.initSymtab(elf_file);
 

@@ -1286,8 +1286,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try positionals.append(.{ .path = ssp.full_object_path });
     }
 
-    if (self.isStaticLib()) return self.flushStaticLib(comp, positionals.items);
-
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
@@ -1391,6 +1389,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
+    if (self.isStaticLib()) return self.flushStaticLib(comp);
+
+    // Init all objects
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.init(self);
+    }
+    for (self.shared_objects.items) |index| {
+        try self.file(index).?.shared_object.init(self);
     }
 
     // Dedup shared objects
@@ -1522,18 +1530,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 }
 
-pub fn flushStaticLib(
-    self: *Elf,
-    comp: *Compilation,
-    positionals: []const Compilation.LinkObject,
-) link.File.FlushError!void {
+pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
-    if (positionals.len > 0) {
-        var err = try self.addErrorWithNotes(1);
-        try err.addMsg(self, "fatal linker error: too many input positionals", .{});
-        try err.addNote(self, "TODO implement linking objects into an static library", .{});
-        return;
-    }
     const gpa = self.base.allocator;
 
     // First, we flush relocatable object file generated with our backends.
