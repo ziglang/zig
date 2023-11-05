@@ -1538,6 +1538,13 @@ pub const BufferGroup = struct {
         return sqe;
     }
 
+    // Prepare multishot recv operation which will select buffer from this group.
+    pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: os.fd_t, flags: u32) !*linux.io_uring_sqe {
+        var sqe = try self.recv(user_data, fd, flags);
+        sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
+        return sqe;
+    }
+
     // Get buffer by id.
     pub fn get(self: *BufferGroup, buffer_id: u16) []u8 {
         const head = self.buffer_size * buffer_id;
@@ -1676,6 +1683,26 @@ pub inline fn io_uring_buf_ring_add(
 pub inline fn io_uring_buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
     const tail: u16 = br.tail +% count;
     @atomicStore(u16, &br.tail, tail, .Release);
+}
+
+pub fn io_uring_prep_recv_multishot(
+    sqe: *linux.io_uring_sqe,
+    fd: os.fd_t,
+    buffer: []u8,
+    flags: u32,
+) void {
+    io_uring_prep_recv(sqe, fd, buffer, flags);
+    sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
+}
+
+pub fn io_uring_prep_recvmsg_multishot(
+    sqe: *linux.io_uring_sqe,
+    fd: os.fd_t,
+    msg: *os.msghdr,
+    flags: u32,
+) void {
+    io_uring_prep_recvmsg(sqe, fd, msg, flags);
+    sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
 }
 
 test "structs/offsets/entries" {
@@ -3917,12 +3944,12 @@ test "ring mapped buffers recv" {
     };
     defer ring.deinit();
 
+    // init buffer group
     const group_id: u16 = 1; // buffers group id
     const buffers_count: u16 = 2; // number of buffers in buffer group
     const buffer_size: usize = 4; // size of each buffer in group
     const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
     defer testing.allocator.free(buffers);
-
     var buf_grp = BufferGroup.init(
         &ring,
         group_id,
@@ -3993,6 +4020,136 @@ test "ring mapped buffers recv" {
     }
 }
 
+test "ring mapped buffers multishot recv" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    // init buffer group
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 2; // number of buffers in buffer group
+    const buffer_size: usize = 4; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+
+    // for random user_data in sqe/cqe
+    var Rnd = std.rand.DefaultPrng.init(0);
+    var rnd = Rnd.random();
+
+    var round: usize = 4; // repeat send/recv cycle round times
+    while (round > 0) : (round -= 1) {
+        // client sends data
+        const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+        {
+            const user_data = rnd.int(u64);
+            _ = try ring.send(user_data, fds.client, data[0..], 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe_send = try ring.copy_cqe();
+            if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+            try testing.expectEqual(linux.io_uring_cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+        }
+
+        // start multishot recv
+        var recv_user_data = rnd.int(u64);
+        _ = try buf_grp.recv_multishot(recv_user_data, fds.server, 0);
+        try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+        // server reads data into provided buffers
+        // there are 2 buffers of size 4, so each read gets only chunk of data
+        // we read four chunks of 4, 4, 4, 3 bytes each
+        var chunk: []const u8 = data[0..buffer_size]; // first chunk
+        const cqe1 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe1.flags & linux.IORING_CQE_F_MORE > 0);
+
+        chunk = data[buffer_size .. buffer_size * 2]; // second chunk
+        const cqe2 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe2.flags & linux.IORING_CQE_F_MORE > 0);
+
+        // both buffers provided to the kernel are used so we get error
+        // 'no more buffers', until we put buffers to the kernel
+        {
+            const cqe = try ring.copy_cqe();
+            try testing.expectEqual(recv_user_data, cqe.user_data);
+            try testing.expect(cqe.res < 0); // fail
+            try testing.expectEqual(os.E.NOBUFS, cqe.err());
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == 0); // IORING_CQE_F_BUFFER flags is set on success only
+            // has more is not set
+            // indicates that multishot is finished
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_MORE == 0);
+            try testing.expectError(error.NoBufferSelected, cqe.buffer_id());
+        }
+
+        // put buffers back to the kernel
+        buf_grp.put(try cqe1.buffer_id());
+        buf_grp.put(try cqe2.buffer_id());
+
+        // restart multishot
+        recv_user_data = rnd.int(u64);
+        _ = try buf_grp.recv_multishot(recv_user_data, fds.server, 0);
+        try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+        chunk = data[buffer_size * 2 .. buffer_size * 3]; // third chunk
+        const cqe3 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe3.flags & linux.IORING_CQE_F_MORE > 0);
+        buf_grp.put(try cqe3.buffer_id());
+
+        chunk = data[buffer_size * 3 ..]; // last chunk
+        const cqe4 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe4.flags & linux.IORING_CQE_F_MORE > 0);
+        buf_grp.put(try cqe4.buffer_id());
+
+        // cancel pending multishot recv operation
+        {
+            var cancel_user_data = rnd.int(u64);
+            _ = try ring.cancel(cancel_user_data, recv_user_data, 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+            // expect completion of cancel operation and completion of recv operation
+            var cqe_cancel = try ring.copy_cqe();
+            var cqe_recv = try ring.copy_cqe();
+
+            // don't depend on order of completions
+            if (cqe_cancel.user_data == recv_user_data and cqe_recv.user_data == cancel_user_data) {
+                const a = cqe_cancel;
+                const b = cqe_recv;
+                cqe_cancel = b;
+                cqe_recv = a;
+            }
+
+            // cancel operation is success
+            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
+            try testing.expect(cqe_cancel.res == 0);
+
+            // recv operation is failed with err CANCELED
+            try testing.expectEqual(recv_user_data, cqe_recv.user_data);
+            try testing.expect(cqe_recv.res < 0);
+            try testing.expectEqual(os.E.CANCELED, cqe_recv.err());
+            try testing.expect(cqe_recv.flags & linux.IORING_CQE_F_MORE == 0);
+        }
+    }
+}
+
 // Prepare and submit recv using buffer group.
 // Test that buffer from group, pointed by cqe, matches expected.
 fn expect_buf_grp_recv(
@@ -4008,6 +4165,16 @@ fn expect_buf_grp_recv(
     try testing.expect(sqe.buf_index == buf_grp.group_id);
     try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
 
+    const cqe = try expect_buf_grp_cqe(ring, buf_grp, user_data, expected);
+    return try cqe.buffer_id();
+}
+
+fn expect_buf_grp_cqe(
+    ring: *IO_Uring,
+    buf_grp: *BufferGroup,
+    user_data: u64,
+    expected: []const u8,
+) !linux.io_uring_cqe {
     // get cqe
     const cqe = try ring.copy_cqe();
     try testing.expectEqual(user_data, cqe.user_data);
@@ -4022,5 +4189,5 @@ fn expect_buf_grp_recv(
     const buf = buf_grp.get(buffer_id)[0..len];
     try testing.expectEqualSlices(u8, expected, buf);
 
-    return buffer_id;
+    return cqe;
 }
