@@ -24,14 +24,22 @@ pub const Fixups = struct {
     gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These global declarations will be omitted.
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
-    /// These expressions will be replaced with `undefined`.
-    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    /// These expressions will be replaced with the string value.
+    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    /// Change all identifier names matching the key to be value instead.
+    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+
+    /// All `@import` builtin calls which refer to a file path will be prefixed
+    /// with this path.
+    rebase_imported_paths: ?[]const u8 = null,
 
     pub fn count(f: Fixups) usize {
         return f.unused_var_decls.count() +
             f.gut_functions.count() +
             f.omit_nodes.count() +
-            f.replace_nodes.count();
+            f.replace_nodes.count() +
+            f.rename_identifiers.count() +
+            @intFromBool(f.rebase_imported_paths != null);
     }
 
     pub fn clearRetainingCapacity(f: *Fixups) void {
@@ -39,6 +47,9 @@ pub const Fixups = struct {
         f.gut_functions.clearRetainingCapacity();
         f.omit_nodes.clearRetainingCapacity();
         f.replace_nodes.clearRetainingCapacity();
+        f.rename_identifiers.clearRetainingCapacity();
+
+        f.rebase_imported_paths = null;
     }
 
     pub fn deinit(f: *Fixups, gpa: Allocator) void {
@@ -46,6 +57,7 @@ pub const Fixups = struct {
         f.gut_functions.deinit(gpa);
         f.omit_nodes.deinit(gpa);
         f.replace_nodes.deinit(gpa);
+        f.rename_identifiers.deinit(gpa);
         f.* = undefined;
     }
 };
@@ -121,6 +133,7 @@ fn renderMember(
 ) Error!void {
     const tree = r.tree;
     const ais = r.ais;
+    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
@@ -182,6 +195,45 @@ fn renderMember(
                 ais.popIndent();
                 try ais.insertNewline();
                 try renderToken(r, tree.lastToken(body_node), space); // rbrace
+            } else if (r.fixups.unused_var_decls.count() != 0) {
+                ais.pushIndentNextLine();
+                const lbrace = tree.nodes.items(.main_token)[body_node];
+                try renderToken(r, lbrace, .newline);
+
+                var fn_proto_buf: [1]Ast.Node.Index = undefined;
+                const full_fn_proto = tree.fullFnProto(&fn_proto_buf, fn_proto).?;
+                var it = full_fn_proto.iterate(&tree);
+                while (it.next()) |param| {
+                    const name_ident = param.name_token.?;
+                    assert(token_tags[name_ident] == .identifier);
+                    if (r.fixups.unused_var_decls.contains(name_ident)) {
+                        const w = ais.writer();
+                        try w.writeAll("_ = ");
+                        try w.writeAll(tokenSliceForRender(r.tree, name_ident));
+                        try w.writeAll(";\n");
+                    }
+                }
+                var statements_buf: [2]Ast.Node.Index = undefined;
+                const statements = switch (node_tags[body_node]) {
+                    .block_two,
+                    .block_two_semicolon,
+                    => b: {
+                        statements_buf = .{ datas[body_node].lhs, datas[body_node].rhs };
+                        if (datas[body_node].lhs == 0) {
+                            break :b statements_buf[0..0];
+                        } else if (datas[body_node].rhs == 0) {
+                            break :b statements_buf[0..1];
+                        } else {
+                            break :b statements_buf[0..2];
+                        }
+                    },
+                    .block,
+                    .block_semicolon,
+                    => tree.extra_data[datas[body_node].lhs..datas[body_node].rhs],
+
+                    else => unreachable,
+                };
+                return finishRenderBlock(r, body_node, statements, space);
             } else {
                 return renderExpression(r, body_node, space);
             }
@@ -277,8 +329,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
-    if (r.fixups.replace_nodes.contains(node)) {
-        try ais.writer().writeAll("undefined");
+    if (r.fixups.replace_nodes.get(node)) |replacement| {
+        try ais.writer().writeAll(replacement);
         try renderOnlySpace(r, space);
         return;
     }
@@ -1057,7 +1109,7 @@ fn renderVarDecl(
     space: Space,
 ) Error!void {
     try renderVarDeclWithoutFixups(r, var_decl, ignore_comptime_token, space);
-    if (r.fixups.unused_var_decls.contains(var_decl.ast.mut_token)) {
+    if (r.fixups.unused_var_decls.contains(var_decl.ast.mut_token + 1)) {
         // Discard the variable like this: `_ = foo;`
         const w = r.ais.writer();
         try w.writeAll("_ = ");
@@ -1515,6 +1567,7 @@ fn renderBuiltinCall(
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
 
     // TODO remove before release of 0.12.0
     const slice = tree.tokenSlice(builtin_token);
@@ -1607,6 +1660,26 @@ fn renderBuiltinCall(
     if (params.len == 0) {
         try renderToken(r, builtin_token + 1, .none); // (
         return renderToken(r, builtin_token + 2, space); // )
+    }
+
+    if (r.fixups.rebase_imported_paths) |prefix| {
+        if (mem.eql(u8, slice, "@import")) f: {
+            const param = params[0];
+            const str_lit_token = main_tokens[param];
+            assert(token_tags[str_lit_token] == .string_literal);
+            const token_bytes = tree.tokenSlice(str_lit_token);
+            const imported_string = std.zig.string_literal.parseAlloc(r.gpa, token_bytes) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidLiteral => break :f,
+            };
+            defer r.gpa.free(imported_string);
+            const new_string = try std.fs.path.resolvePosix(r.gpa, &.{ prefix, imported_string });
+            defer r.gpa.free(new_string);
+
+            try renderToken(r, builtin_token + 1, .none); // (
+            try ais.writer().print("\"{}\"", .{std.zig.fmtEscapes(new_string)});
+            return renderToken(r, str_lit_token + 1, space); // )
+        }
     }
 
     const last_param = params[params.len - 1];
@@ -1934,7 +2007,6 @@ fn renderBlock(
     const tree = r.tree;
     const ais = r.ais;
     const token_tags = tree.tokens.items(.tag);
-    const node_tags = tree.nodes.items(.tag);
     const lbrace = tree.nodes.items(.main_token)[block_node];
 
     if (token_tags[lbrace - 1] == .colon and
@@ -1943,22 +2015,37 @@ fn renderBlock(
         try renderIdentifier(r, lbrace - 2, .none, .eagerly_unquote); // identifier
         try renderToken(r, lbrace - 1, .space); // :
     }
-
     ais.pushIndentNextLine();
     if (statements.len == 0) {
         try renderToken(r, lbrace, .none);
-    } else {
-        try renderToken(r, lbrace, .newline);
-        for (statements, 0..) |stmt, i| {
-            if (i != 0) try renderExtraNewline(r, stmt);
-            switch (node_tags[stmt]) {
-                .global_var_decl,
-                .local_var_decl,
-                .simple_var_decl,
-                .aligned_var_decl,
-                => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
-                else => try renderExpression(r, stmt, .semicolon),
-            }
+        ais.popIndent();
+        try renderToken(r, tree.lastToken(block_node), space); // rbrace
+        return;
+    }
+    try renderToken(r, lbrace, .newline);
+    return finishRenderBlock(r, block_node, statements, space);
+}
+
+fn finishRenderBlock(
+    r: *Render,
+    block_node: Ast.Node.Index,
+    statements: []const Ast.Node.Index,
+    space: Space,
+) Error!void {
+    const tree = r.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const ais = r.ais;
+    for (statements, 0..) |stmt, i| {
+        if (i != 0) try renderExtraNewline(r, stmt);
+        if (r.fixups.omit_nodes.contains(stmt)) continue;
+        switch (node_tags[stmt]) {
+            .global_var_decl,
+            .local_var_decl,
+            .simple_var_decl,
+            .aligned_var_decl,
+            => try renderVarDecl(r, tree.fullVarDecl(stmt).?, false, .semicolon),
+
+            else => try renderExpression(r, stmt, .semicolon),
         }
     }
     ais.popIndent();
@@ -2809,6 +2896,13 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token_index] == .identifier);
     const lexeme = tokenSliceForRender(tree, token_index);
+
+    if (r.fixups.rename_identifiers.get(lexeme)) |mangled| {
+        try r.ais.writer().writeAll(mangled);
+        try renderSpace(r, token_index, lexeme.len, space);
+        return;
+    }
+
     if (lexeme[0] != '@') {
         return renderToken(r, token_index, space);
     }

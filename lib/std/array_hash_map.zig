@@ -574,6 +574,19 @@ pub fn ArrayHashMapUnmanaged(
             };
         }
 
+        pub fn init(allocator: Allocator, key_list: []const K, value_list: []const V) !Self {
+            var self: Self = .{};
+            try self.entries.resize(allocator, key_list.len);
+            errdefer self.entries.deinit(allocator);
+            @memcpy(self.keys(), key_list);
+            if (@sizeOf(V) != 0) {
+                assert(key_list.len == value_list.len);
+                @memcpy(self.values(), value_list);
+            }
+            try self.reIndex(allocator);
+            return self;
+        }
+
         /// Frees the backing allocation and leaves the map in an undefined state.
         /// Note that this does not free keys or values.  You must take care of that
         /// before calling this function, if it is needed.

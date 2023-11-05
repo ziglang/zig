@@ -5,6 +5,8 @@ const assert = std.debug.assert;
 const fatal = @import("./main.zig").fatal;
 const Ast = std.zig.Ast;
 const Walk = @import("reduce/Walk.zig");
+const AstGen = @import("AstGen.zig");
+const Zir = @import("Zir.zig");
 
 const usage =
     \\zig reduce [options] ./checker root_source_file.zig [-- [argv]]
@@ -39,8 +41,6 @@ const Interestingness = enum { interesting, unknown, boring };
 // - add support for parsing the module flags
 // - more fancy transformations
 //   - @import inlining of modules
-//   - @import inlining of files
-//   - deleting unused functions and other globals
 //   - removing statements or blocks of code
 //   - replacing operands of `and` and `or` with `true` and `false`
 //   - replacing if conditions with `true` and `false`
@@ -109,8 +109,14 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var rendered = std.ArrayList(u8).init(gpa);
     defer rendered.deinit();
 
-    var tree = try parse(gpa, arena, root_source_file_path);
-    defer tree.deinit(gpa);
+    var astgen_input = std.ArrayList(u8).init(gpa);
+    defer astgen_input.deinit();
+
+    var tree = try parse(gpa, root_source_file_path);
+    defer {
+        gpa.free(tree.source);
+        tree.deinit(gpa);
+    }
 
     if (!skip_smoke_test) {
         std.debug.print("smoke testing the interestingness check...\n", .{});
@@ -126,6 +132,10 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
+
+    var more_fixups: Ast.Fixups = .{};
+    defer more_fixups.deinit(gpa);
+
     var rng = std.rand.DefaultPrng.init(seed);
 
     // 1. Walk the AST of the source file looking for independent
@@ -145,7 +155,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var transformations = std.ArrayList(Walk.Transformation).init(gpa);
     defer transformations.deinit();
-    try Walk.findTransformations(&tree, &transformations);
+    try Walk.findTransformations(arena, &tree, &transformations);
     sortTransformations(transformations.items, rng.random());
 
     fresh: while (transformations.items.len > 0) {
@@ -156,29 +166,80 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         var start_index: usize = 0;
 
         while (start_index < transformations.items.len) {
-            subset_size = @max(1, subset_size / 2);
+            const prev_subset_size = subset_size;
+            subset_size = @max(1, subset_size * 3 / 4);
+            if (prev_subset_size > 1 and subset_size == 1)
+                start_index = 0;
 
             const this_set = transformations.items[start_index..][0..subset_size];
-            try transformationsToFixups(gpa, this_set, &fixups);
+            std.debug.print("trying {d} random transformations: ", .{subset_size});
+            for (this_set[0..@min(this_set.len, 20)]) |t| {
+                std.debug.print("{s} ", .{@tagName(t)});
+            }
+            std.debug.print("\n", .{});
+            try transformationsToFixups(gpa, arena, root_source_file_path, this_set, &fixups);
 
             rendered.clearRetainingCapacity();
             try tree.renderToArrayList(&rendered, fixups);
+
+            // The transformations we applied may have resulted in unused locals,
+            // in which case we would like to add the respective discards.
+            {
+                try astgen_input.resize(rendered.items.len);
+                @memcpy(astgen_input.items, rendered.items);
+                try astgen_input.append(0);
+                const source_with_null = astgen_input.items[0 .. astgen_input.items.len - 1 :0];
+                var astgen_tree = try Ast.parse(gpa, source_with_null, .zig);
+                defer astgen_tree.deinit(gpa);
+                if (astgen_tree.errors.len != 0) {
+                    @panic("syntax errors occurred");
+                }
+                var zir = try AstGen.generate(gpa, astgen_tree);
+                defer zir.deinit(gpa);
+
+                if (zir.hasCompileErrors()) {
+                    more_fixups.clearRetainingCapacity();
+                    const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+                    assert(payload_index != 0);
+                    const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                    var extra_index = header.end;
+                    for (0..header.data.items_len) |_| {
+                        const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+                        extra_index = item.end;
+                        const msg = zir.nullTerminatedString(item.data.msg);
+                        if (mem.eql(u8, msg, "unused local constant") or
+                            mem.eql(u8, msg, "unused local variable") or
+                            mem.eql(u8, msg, "unused function parameter") or
+                            mem.eql(u8, msg, "unused capture"))
+                        {
+                            const ident_token = item.data.token;
+                            try more_fixups.unused_var_decls.put(gpa, ident_token, {});
+                        } else {
+                            std.debug.print("found other ZIR error: '{s}'\n", .{msg});
+                        }
+                    }
+                    if (more_fixups.count() != 0) {
+                        rendered.clearRetainingCapacity();
+                        try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                    }
+                }
+            }
+
             try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
+            //std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
-            std.debug.print("{d} random transformations: {s}. {d} remaining\n", .{
-                subset_size, @tagName(interestingness), transformations.items.len - start_index,
+            std.debug.print("{d} random transformations: {s}. {d}/{d}\n", .{
+                subset_size, @tagName(interestingness), start_index, transformations.items.len,
             });
             switch (interestingness) {
                 .interesting => {
-                    const new_tree = try parse(gpa, arena, root_source_file_path);
+                    const new_tree = try parse(gpa, root_source_file_path);
+                    gpa.free(tree.source);
                     tree.deinit(gpa);
                     tree = new_tree;
 
-                    try Walk.findTransformations(&tree, &transformations);
-                    // Resetting based on the seed again means we will get the same
-                    // results if restarting the reduction process from this new point.
-                    rng = std.rand.DefaultPrng.init(seed);
+                    try Walk.findTransformations(arena, &tree, &transformations);
                     sortTransformations(transformations.items, rng.random());
 
                     continue :fresh;
@@ -188,6 +249,11 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     // If we tested only one transformation, move on to the next one.
                     if (subset_size == 1) {
                         start_index += 1;
+                    } else {
+                        start_index += subset_size;
+                        if (start_index + subset_size > transformations.items.len) {
+                            start_index = 0;
+                        }
                     }
                 },
             }
@@ -241,6 +307,8 @@ fn runCheck(arena: std.mem.Allocator, argv: []const []const u8) !Interestingness
 
 fn transformationsToFixups(
     gpa: Allocator,
+    arena: Allocator,
+    root_source_file_path: []const u8,
     transforms: []const Walk.Transformation,
     fixups: *Ast.Fixups,
 ) !void {
@@ -253,21 +321,77 @@ fn transformationsToFixups(
         .delete_node => |decl_node| {
             try fixups.omit_nodes.put(gpa, decl_node, {});
         },
+        .delete_var_decl => |delete_var_decl| {
+            try fixups.omit_nodes.put(gpa, delete_var_decl.var_decl_node, {});
+            for (delete_var_decl.references.items) |ident_node| {
+                try fixups.replace_nodes.put(gpa, ident_node, "undefined");
+            }
+        },
         .replace_with_undef => |node| {
-            try fixups.replace_nodes.put(gpa, node, {});
+            try fixups.replace_nodes.put(gpa, node, "undefined");
+        },
+        .inline_imported_file => |inline_imported_file| {
+            const full_imported_path = try std.fs.path.join(gpa, &.{
+                std.fs.path.dirname(root_source_file_path) orelse ".",
+                inline_imported_file.imported_string,
+            });
+            defer gpa.free(full_imported_path);
+            var other_file_ast = try parse(gpa, full_imported_path);
+            defer {
+                gpa.free(other_file_ast.source);
+                other_file_ast.deinit(gpa);
+            }
+
+            var inlined_fixups: Ast.Fixups = .{};
+            defer inlined_fixups.deinit(gpa);
+            if (std.fs.path.dirname(inline_imported_file.imported_string)) |dirname| {
+                inlined_fixups.rebase_imported_paths = dirname;
+            }
+            for (inline_imported_file.in_scope_names.keys()) |name| {
+                // This name needs to be mangled in order to not cause an
+                // ambiguous reference error.
+                var i: u32 = 2;
+                const mangled = while (true) : (i += 1) {
+                    const mangled = try std.fmt.allocPrint(gpa, "{s}{d}", .{ name, i });
+                    if (!inline_imported_file.in_scope_names.contains(mangled))
+                        break mangled;
+                    gpa.free(mangled);
+                };
+                try inlined_fixups.rename_identifiers.put(gpa, name, mangled);
+            }
+            defer {
+                for (inlined_fixups.rename_identifiers.values()) |v| {
+                    gpa.free(v);
+                }
+            }
+
+            var other_source = std.ArrayList(u8).init(gpa);
+            defer other_source.deinit();
+            try other_source.appendSlice("struct {\n");
+            try other_file_ast.renderToArrayList(&other_source, inlined_fixups);
+            try other_source.appendSlice("}");
+
+            try fixups.replace_nodes.put(
+                gpa,
+                inline_imported_file.builtin_call_node,
+                try arena.dupe(u8, other_source.items),
+            );
         },
     };
 }
 
-fn parse(gpa: Allocator, arena: Allocator, root_source_file_path: []const u8) !Ast {
-    const source_code = try std.fs.cwd().readFileAllocOptions(
-        arena,
-        root_source_file_path,
+fn parse(gpa: Allocator, file_path: []const u8) !Ast {
+    const source_code = std.fs.cwd().readFileAllocOptions(
+        gpa,
+        file_path,
         std.math.maxInt(u32),
         null,
         1,
         0,
-    );
+    ) catch |err| {
+        fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });
+    };
+    errdefer gpa.free(source_code);
 
     var tree = try Ast.parse(gpa, source_code, .zig);
     errdefer tree.deinit(gpa);

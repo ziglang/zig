@@ -2,11 +2,15 @@ const std = @import("std");
 const Ast = std.zig.Ast;
 const Walk = @This();
 const assert = std.debug.assert;
+const BuiltinFn = @import("../BuiltinFn.zig");
 
 ast: *const Ast,
 transformations: *std.ArrayList(Transformation),
 unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
+in_scope_names: std.StringArrayHashMapUnmanaged(u32),
+replace_names: std.StringArrayHashMapUnmanaged(u32),
 gpa: std.mem.Allocator,
+arena: std.mem.Allocator,
 
 pub const Transformation = union(enum) {
     /// Replace the fn decl AST Node with one whose body is only `@trap()` with
@@ -14,23 +18,51 @@ pub const Transformation = union(enum) {
     gut_function: Ast.Node.Index,
     /// Omit a global declaration.
     delete_node: Ast.Node.Index,
+    /// Delete a local variable declaration and replace all of its references
+    /// with `undefined`.
+    delete_var_decl: struct {
+        var_decl_node: Ast.Node.Index,
+        /// Identifier nodes that reference the variable.
+        references: std.ArrayListUnmanaged(Ast.Node.Index),
+    },
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
+    /// Replace an `@import` with the imported file contents wrapped in a struct.
+    inline_imported_file: InlineImportedFile,
+
+    pub const InlineImportedFile = struct {
+        builtin_call_node: Ast.Node.Index,
+        imported_string: []const u8,
+        /// Identifier names that must be renamed in the inlined code or else
+        /// will cause ambiguous reference errors.
+        in_scope_names: std.StringArrayHashMapUnmanaged(void),
+    };
 };
 
 pub const Error = error{OutOfMemory};
 
 /// The result will be priority shuffled.
-pub fn findTransformations(ast: *const Ast, transformations: *std.ArrayList(Transformation)) !void {
+pub fn findTransformations(
+    arena: std.mem.Allocator,
+    ast: *const Ast,
+    transformations: *std.ArrayList(Transformation),
+) !void {
     transformations.clearRetainingCapacity();
 
     var walk: Walk = .{
         .ast = ast,
         .transformations = transformations,
         .gpa = transformations.allocator,
+        .arena = arena,
         .unreferenced_globals = .{},
+        .in_scope_names = .{},
+        .replace_names = .{},
     };
-    defer walk.unreferenced_globals.deinit(walk.gpa);
+    defer {
+        walk.unreferenced_globals.deinit(walk.gpa);
+        walk.in_scope_names.deinit(walk.gpa);
+        walk.replace_names.deinit(walk.gpa);
+    }
 
     try walkMembers(&walk, walk.ast.rootDecls());
 
@@ -43,14 +75,18 @@ pub fn findTransformations(ast: *const Ast, transformations: *std.ArrayList(Tran
 
 fn walkMembers(w: *Walk, members: []const Ast.Node.Index) Error!void {
     // First we scan for globals so that we can delete them while walking.
-    try scanDecls(w, members);
+    try scanDecls(w, members, .add);
 
     for (members) |member| {
         try walkMember(w, member);
     }
+
+    try scanDecls(w, members, .remove);
 }
 
-fn scanDecls(w: *Walk, members: []const Ast.Node.Index) Error!void {
+const ScanDeclsAction = enum { add, remove };
+
+fn scanDecls(w: *Walk, members: []const Ast.Node.Index, action: ScanDeclsAction) Error!void {
     const ast = w.ast;
     const gpa = w.gpa;
     const node_tags = ast.nodes.items(.tag);
@@ -74,9 +110,27 @@ fn scanDecls(w: *Walk, members: []const Ast.Node.Index) Error!void {
 
             else => continue,
         };
+
         assert(token_tags[name_token] == .identifier);
         const name_bytes = ast.tokenSlice(name_token);
-        try w.unreferenced_globals.put(gpa, name_bytes, member_node);
+
+        switch (action) {
+            .add => {
+                try w.unreferenced_globals.put(gpa, name_bytes, member_node);
+
+                const gop = try w.in_scope_names.getOrPut(gpa, name_bytes);
+                if (!gop.found_existing) gop.value_ptr.* = 0;
+                gop.value_ptr.* += 1;
+            },
+            .remove => {
+                const entry = w.in_scope_names.getEntry(name_bytes).?;
+                if (entry.value_ptr.* <= 1) {
+                    assert(w.in_scope_names.swapRemove(name_bytes));
+                } else {
+                    entry.value_ptr.* -= 1;
+                }
+            },
+        }
     }
 }
 
@@ -89,9 +143,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
             try walkExpression(w, fn_proto);
             const body_node = datas[decl].rhs;
             if (!isFnBodyGutted(ast, body_node)) {
+                w.replace_names.clearRetainingCapacity();
                 try w.transformations.append(.{ .gut_function = decl });
+                try walkExpression(w, body_node);
             }
-            try walkExpression(w, body_node);
         },
         .fn_proto_simple,
         .fn_proto_multi,
@@ -121,7 +176,10 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
         .container_field_init,
         .container_field_align,
         .container_field,
-        => try walkContainerField(w, ast.fullContainerField(decl).?),
+        => {
+            try w.transformations.append(.{ .delete_node = decl });
+            try walkContainerField(w, ast.fullContainerField(decl).?);
+        },
 
         .@"comptime" => {
             try w.transformations.append(.{ .delete_node = decl });
@@ -140,7 +198,15 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
     const node_tags = ast.nodes.items(.tag);
     const datas = ast.nodes.items(.data);
     switch (node_tags[node]) {
-        .identifier => try walkIdentifier(w, main_tokens[node]),
+        .identifier => {
+            const name_ident = main_tokens[node];
+            assert(token_tags[name_ident] == .identifier);
+            const name_bytes = ast.tokenSlice(name_ident);
+            _ = w.unreferenced_globals.swapRemove(name_bytes);
+            if (w.replace_names.get(name_bytes)) |index| {
+                try w.transformations.items[index].delete_var_decl.references.append(w.arena, node);
+            }
+        },
 
         .number_literal,
         .char_literal,
@@ -437,16 +503,16 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .builtin_call_two, .builtin_call_two_comma => {
             if (datas[node].lhs == 0) {
-                return walkBuiltinCall(w, main_tokens[node], &.{});
+                return walkBuiltinCall(w, node, &.{});
             } else if (datas[node].rhs == 0) {
-                return walkBuiltinCall(w, main_tokens[node], &.{datas[node].lhs});
+                return walkBuiltinCall(w, node, &.{datas[node].lhs});
             } else {
-                return walkBuiltinCall(w, main_tokens[node], &.{ datas[node].lhs, datas[node].rhs });
+                return walkBuiltinCall(w, node, &.{ datas[node].lhs, datas[node].rhs });
             }
         },
         .builtin_call, .builtin_call_comma => {
             const params = ast.extra_data[datas[node].lhs..datas[node].rhs];
-            return walkBuiltinCall(w, main_tokens[node], params);
+            return walkBuiltinCall(w, node, params);
         },
 
         .fn_proto_simple,
@@ -537,9 +603,12 @@ fn walkGlobalVarDecl(w: *Walk, decl_node: Ast.Node.Index, var_decl: Ast.full.Var
         try walkExpression(w, var_decl.ast.section_node);
     }
 
-    assert(var_decl.ast.init_node != 0);
-
-    return walkExpression(w, var_decl.ast.init_node);
+    if (var_decl.ast.init_node != 0) {
+        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+        }
+        try walkExpression(w, var_decl.ast.init_node);
+    }
 }
 
 fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
@@ -561,12 +630,12 @@ fn walkLocalVarDecl(w: *Walk, var_decl: Ast.full.VarDecl) Error!void {
         try walkExpression(w, var_decl.ast.section_node);
     }
 
-    assert(var_decl.ast.init_node != 0);
-    if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
-        try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+    if (var_decl.ast.init_node != 0) {
+        if (!isUndefinedIdent(w.ast, var_decl.ast.init_node)) {
+            try w.transformations.append(.{ .replace_with_undef = var_decl.ast.init_node });
+        }
+        try walkExpression(w, var_decl.ast.init_node);
     }
-
-    return walkExpression(w, var_decl.ast.init_node);
 }
 
 fn walkContainerField(w: *Walk, field: Ast.full.ContainerField) Error!void {
@@ -576,7 +645,9 @@ fn walkContainerField(w: *Walk, field: Ast.full.ContainerField) Error!void {
     if (field.ast.align_expr != 0) {
         try walkExpression(w, field.ast.align_expr); // alignment
     }
-    try walkExpression(w, field.ast.value_expr); // value
+    if (field.ast.value_expr != 0) {
+        try walkExpression(w, field.ast.value_expr); // value
+    }
 }
 
 fn walkBlock(
@@ -594,9 +665,34 @@ fn walkBlock(
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
-            => try walkLocalVarDecl(w, ast.fullVarDecl(stmt).?),
+            => {
+                const var_decl = ast.fullVarDecl(stmt).?;
+                if (var_decl.ast.init_node != 0 and
+                    isUndefinedIdent(w.ast, var_decl.ast.init_node))
+                {
+                    try w.transformations.append(.{ .delete_var_decl = .{
+                        .var_decl_node = stmt,
+                        .references = .{},
+                    } });
+                    const name_tok = var_decl.ast.mut_token + 1;
+                    const name_bytes = ast.tokenSlice(name_tok);
+                    try w.replace_names.put(w.gpa, name_bytes, @intCast(w.transformations.items.len - 1));
+                } else {
+                    try walkLocalVarDecl(w, var_decl);
+                }
+            },
 
-            else => try walkExpression(w, stmt),
+            else => {
+                switch (categorizeStmt(ast, stmt)) {
+                    // Don't try to remove `_ = foo;` discards; those are handled separately.
+                    .discard_identifier => {},
+                    // definitely try to remove `_ = undefined;` though.
+                    .discard_undefined, .trap_call, .other => {
+                        try w.transformations.append(.{ .delete_node = stmt });
+                    },
+                }
+                try walkExpression(w, stmt);
+            },
         }
     }
 }
@@ -680,10 +776,35 @@ fn walkContainerDecl(
 
 fn walkBuiltinCall(
     w: *Walk,
-    builtin_token: Ast.TokenIndex,
+    call_node: Ast.Node.Index,
     params: []const Ast.Node.Index,
 ) Error!void {
-    _ = builtin_token;
+    const ast = w.ast;
+    const main_tokens = ast.nodes.items(.main_token);
+    const builtin_token = main_tokens[call_node];
+    const builtin_name = ast.tokenSlice(builtin_token);
+    const info = BuiltinFn.list.get(builtin_name).?;
+    switch (info.tag) {
+        .import => {
+            const operand_node = params[0];
+            const str_lit_token = main_tokens[operand_node];
+            const token_bytes = ast.tokenSlice(str_lit_token);
+            if (std.mem.endsWith(u8, token_bytes, ".zig\"")) {
+                const imported_string = std.zig.string_literal.parseAlloc(w.arena, token_bytes) catch
+                    unreachable;
+                try w.transformations.append(.{ .inline_imported_file = .{
+                    .builtin_call_node = call_node,
+                    .imported_string = imported_string,
+                    .in_scope_names = try std.StringArrayHashMapUnmanaged(void).init(
+                        w.arena,
+                        w.in_scope_names.keys(),
+                        &.{},
+                    ),
+                } });
+            }
+        },
+        else => {},
+    }
     for (params) |param_node| {
         try walkExpression(w, param_node);
     }
@@ -821,6 +942,7 @@ fn isFnBodyGutted(ast: *const Ast, body_node: Ast.Node.Index) bool {
 }
 
 const StmtCategory = enum {
+    discard_undefined,
     discard_identifier,
     trap_call,
     other,
@@ -846,8 +968,14 @@ fn categorizeStmt(ast: *const Ast, stmt: Ast.Node.Index) StmtCategory {
         },
         .assign => {
             const infix = datas[stmt];
-            if (isDiscardIdent(ast, infix.lhs) and node_tags[infix.rhs] == .identifier)
-                return .discard_identifier;
+            if (isDiscardIdent(ast, infix.lhs) and node_tags[infix.rhs] == .identifier) {
+                const name_bytes = ast.tokenSlice(main_tokens[infix.rhs]);
+                if (std.mem.eql(u8, name_bytes, "undefined")) {
+                    return .discard_undefined;
+                } else {
+                    return .discard_identifier;
+                }
+            }
             return .other;
         },
         else => return .other,
@@ -867,26 +995,21 @@ fn categorizeBuiltinCall(
 }
 
 fn isDiscardIdent(ast: *const Ast, node: Ast.Node.Index) bool {
-    const node_tags = ast.nodes.items(.tag);
-    const main_tokens = ast.nodes.items(.main_token);
-    switch (node_tags[node]) {
-        .identifier => {
-            const token_index = main_tokens[node];
-            const name_bytes = ast.tokenSlice(token_index);
-            return std.mem.eql(u8, name_bytes, "_");
-        },
-        else => return false,
-    }
+    return isMatchingIdent(ast, node, "_");
 }
 
 fn isUndefinedIdent(ast: *const Ast, node: Ast.Node.Index) bool {
+    return isMatchingIdent(ast, node, "undefined");
+}
+
+fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bool {
     const node_tags = ast.nodes.items(.tag);
     const main_tokens = ast.nodes.items(.main_token);
     switch (node_tags[node]) {
         .identifier => {
             const token_index = main_tokens[node];
             const name_bytes = ast.tokenSlice(token_index);
-            return std.mem.eql(u8, name_bytes, "undefined");
+            return std.mem.eql(u8, name_bytes, string);
         },
         else => return false,
     }
