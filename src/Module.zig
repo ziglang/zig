@@ -4120,7 +4120,7 @@ pub fn embedFile(
         }
         return error.ImportOutsideModulePath;
     };
-    errdefer gpa.free(sub_file_path);
+    defer gpa.free(sub_file_path);
 
     return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
 }

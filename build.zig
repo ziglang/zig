@@ -224,6 +224,10 @@ pub fn build(b: *std.Build) !void {
         check_case_exe.want_lto = false;
     }
 
+    const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_llvm;
+
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 

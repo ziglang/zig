@@ -23488,6 +23488,7 @@ fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
                 if (b_val.isUndef(mod)) return mod.undefRef(vec_ty);
 
                 const elems = try sema.gpa.alloc(InternPool.Index, vec_len);
+                defer sema.gpa.free(elems);
                 for (elems, 0..) |*elem, i| {
                     const pred_elem_val = try pred_val.elemValue(mod, i);
                     const should_choose_a = pred_elem_val.toBool();
