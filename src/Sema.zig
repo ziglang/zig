@@ -17627,7 +17627,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const name = if (struct_type.fieldName(ip, i).unwrap()) |name_nts|
                         try sema.arena.dupe(u8, ip.stringToSlice(name_nts))
                     else
-                        try std.fmt.allocPrintZ(gpa, "{d}", .{i});
+                        try std.fmt.allocPrintZ(sema.arena, "{d}", .{i});
                     const field_ty = struct_type.field_types.get(ip)[i].toType();
                     const field_init = struct_type.fieldInit(ip, i);
                     const field_is_comptime = struct_type.fieldIsComptime(ip, i);
