@@ -203,7 +203,11 @@ typedef char bool;
     __pragma(comment(linker, "/alternatename:_" #symbol "=_" #name ))
 #endif /*_M_X64 */
 #else
+#if __APPLE__
+#define zig_import(sig, symbol, name) zig_extern sig __asm("_" #name);
+#else /* __APPLE__ */
 #define zig_import(sig, symbol, name) zig_extern sig __asm(#name);
+#endif /* __APPLE__ */
 #endif
 
 #define zig_expand_import(sig, symbol, name) zig_import(sig, symbol, name)
