@@ -1582,12 +1582,12 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
 
     // Update file offsets of contributing objects.
     const total_size: usize = blk: {
-        var pos: usize = Archive.ARMAG.len;
-        pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
+        var pos: usize = elf.ARMAG.len;
+        pos += @sizeOf(elf.ar_hdr) + ar_symtab.size(.p64);
 
         if (ar_strtab.size() > 0) {
             pos = mem.alignForward(usize, pos, 2);
-            pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
+            pos += @sizeOf(elf.ar_hdr) + ar_strtab.size();
         }
 
         for (files.items) |index| {
@@ -1599,7 +1599,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
             };
             pos = mem.alignForward(usize, pos, 2);
             state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
+            pos += @sizeOf(elf.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
         }
 
         break :blk pos;
@@ -1615,7 +1615,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void 
     try buffer.ensureTotalCapacityPrecise(total_size);
 
     // Write magic
-    try buffer.writer().writeAll(Archive.ARMAG);
+    try buffer.writer().writeAll(elf.ARMAG);
 
     // Write symtab
     try ar_symtab.write(.p64, self, buffer.writer());
