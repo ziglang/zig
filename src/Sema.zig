@@ -7253,7 +7253,15 @@ fn analyzeCall(
             }),
             .func => func_val.toIntern(),
             .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| mod.declPtr(decl).val.toIntern(),
+                .decl => |decl| blk: {
+                    const func_val_ptr = mod.declPtr(decl).val.toIntern();
+                    const intern_index = mod.intern_pool.indexToKey(func_val_ptr);
+                    if (intern_index == .extern_func or (intern_index == .variable and intern_index.variable.is_extern))
+                        return sema.fail(block, call_src, "{s} call of extern function pointer", .{
+                            @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
+                        });
+                    break :blk func_val_ptr;
+                },
                 else => {
                     assert(callee_ty.isPtrAtRuntime(mod));
                     return sema.fail(block, call_src, "{s} call of function pointer", .{
