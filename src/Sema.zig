@@ -16267,8 +16267,16 @@ fn zirCmpEq(
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
-    _ = try sema.resolveDefinedValue(block, lhs_src, lhs);
-    _ = try sema.resolveDefinedValue(block, rhs_src, rhs);
+    if (sema.resolveValue(lhs)) |lhs_maybe_undef| {
+        if (lhs_maybe_undef.isUndef(mod)) {
+            return Air.Inst.Ref.undef;
+         }
+    }
+    if (sema.resolveValue(rhs)) |rhs_maybe_undef| {
+        if (rhs_maybe_undef.isUndef(mod)) {
+            return Air.Inst.Ref.undef;
+        }
+    }
 
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
@@ -16385,6 +16393,17 @@ fn zirCmp(
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
+
+    if (sema.resolveValue(lhs)) |lhs_maybe_undef| {
+        if (lhs_maybe_undef.isUndef(mod)) {
+            return Air.Inst.Ref.undef;
+         }
+    }
+    if (sema.resolveValue(rhs)) |rhs_maybe_undef| {
+        if (rhs_maybe_undef.isUndef(mod)) {
+            return Air.Inst.Ref.undef;
+        }
+    }
 
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, false);
 }

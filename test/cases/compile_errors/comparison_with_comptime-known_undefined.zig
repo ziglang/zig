@@ -7,4 +7,4 @@ pub fn entry() void {
 // backend=stage2
 // target=native
 //
-// :3:16: error: use of undefined value here causes undefined behavior
+// :3:13: error: use of undefined value here causes undefined behavior
