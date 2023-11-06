@@ -161,7 +161,7 @@ pub const File = union(enum) {
     }
 
     pub fn writeSymtab(file: File, elf_file: *Elf, ctx: anytype) void {
-        var ilocal = ctx.ilocal;
+        var ilocal: usize = ctx.ilocal;
         for (file.locals()) |local_index| {
             const local = elf_file.symbol(local_index);
             if (!local.flags.output_symtab) continue;
@@ -173,7 +173,7 @@ pub const File = union(enum) {
             ilocal += 1;
         }
 
-        var iglobal = ctx.iglobal;
+        var iglobal: usize = ctx.iglobal;
         for (file.globals()) |global_index| {
             const global = elf_file.symbol(global_index);
             const file_ptr = global.file(elf_file) orelse continue;
