@@ -10078,13 +10078,21 @@ fn intCast(
             if (actual_info.signedness == .signed) {
                 // Reinterpret the sign-bit as part of the value. This will make
                 // negative differences (`operand` > `dest_max`) appear too big.
-                const unsigned_operand_ty = try mod.intType(.unsigned, actual_bits);
+                const unsigned_scalar_operand_ty = try mod.intType(.unsigned, actual_bits);
+                const unsigned_operand_ty = if (is_vector) try mod.vectorType(.{
+                    .len = dest_ty.vectorLen(mod),
+                    .child = unsigned_scalar_operand_ty.toIntern(),
+                }) else unsigned_scalar_operand_ty;
                 const diff_unsigned = try block.addBitCast(unsigned_operand_ty, diff);
 
                 // If the destination type is signed, then we need to double its
                 // range to account for negative values.
                 const dest_range_val = if (wanted_info.signedness == .signed) range_val: {
-                    const one = try mod.intValue(unsigned_operand_ty, 1);
+                    const one_scalar = try mod.intValue(unsigned_scalar_operand_ty, 1);
+                    const one = if (is_vector) (try mod.intern(.{ .aggregate = .{
+                        .ty = unsigned_operand_ty.toIntern(),
+                        .storage = .{ .repeated_elem = one_scalar.toIntern() },
+                    } })).toValue() else one_scalar;
                     const range_minus_one = try dest_max_val.shl(one, unsigned_operand_ty, sema.arena, mod);
                     break :range_val try sema.intAdd(range_minus_one, one, unsigned_operand_ty, undefined);
                 } else try mod.getCoerced(dest_max_val, unsigned_operand_ty);
