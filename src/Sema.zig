@@ -16259,6 +16259,9 @@ fn zirCmpEq(
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
+    _ = try sema.resolveDefinedValue(block, lhs_src, lhs);
+    _ = try sema.resolveDefinedValue(block, rhs_src, rhs);
+
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
     const lhs_ty_tag = lhs_ty.zigTypeTag(mod);
@@ -16374,6 +16377,7 @@ fn zirCmp(
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
+
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, false);
 }
 
@@ -16391,6 +16395,10 @@ fn analyzeCmp(
     const mod = sema.mod;
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
+
+    _ = try sema.resolveDefinedValue(block, lhs_src, lhs);
+    _ = try sema.resolveDefinedValue(block, rhs_src, rhs);
+
     if (lhs_ty.zigTypeTag(mod) != .Optional and rhs_ty.zigTypeTag(mod) != .Optional) {
         try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
     }
