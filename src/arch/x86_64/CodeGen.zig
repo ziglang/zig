@@ -15323,10 +15323,11 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const src_ty = self.typeOf(extra.init);
         const src_mcv = try self.resolveInst(extra.init);
         if (layout.tag_size == 0) {
-            if (self.reuseOperand(inst, extra.init, 0, src_mcv)) break :result src_mcv;
+            if (layout.abi_size <= src_ty.abiSize(mod) and
+                self.reuseOperand(inst, extra.init, 0, src_mcv)) break :result src_mcv;
 
             const dst_mcv = try self.allocRegOrMem(inst, true);
-            try self.genCopy(union_ty, dst_mcv, src_mcv);
+            try self.genCopy(src_ty, dst_mcv, src_mcv);
             break :result dst_mcv;
         }
 
