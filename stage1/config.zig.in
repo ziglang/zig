@@ -9,7 +9,6 @@ pub const enable_logging: bool = false;
 pub const enable_link_snapshots: bool = false;
 pub const enable_tracy = false;
 pub const value_tracing = false;
-pub const have_stage1 = false;
 pub const skip_non_native = false;
 pub const only_c = false;
 pub const force_gpa = false;
