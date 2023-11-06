@@ -3149,3 +3149,29 @@ test "big.int.Const.order 0 == -0" {
     };
     try std.testing.expectEqual(std.math.Order.eq, a.order(b));
 }
+
+test "big.int.Managed sqrt(0) = 0" {
+    const allocator = testing.allocator;
+    var a = try Managed.initSet(allocator, 1);
+    defer a.deinit();
+
+    var res = try Managed.initSet(allocator, 1);
+    defer res.deinit();
+
+    try a.setString(10, "0");
+
+    try res.sqrt(&a);
+}
+
+test "big.int.Managed sqrt(-1) = error" {
+    const allocator = testing.allocator;
+    var a = try Managed.initSet(allocator, 1);
+    defer a.deinit();
+
+    var res = try Managed.initSet(allocator, 1);
+    defer res.deinit();
+
+    try a.setString(10, "-1");
+
+    try testing.expectError(error.SqrtOfNegativeNumber, res.sqrt(&a));
+}

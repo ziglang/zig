@@ -3228,8 +3228,19 @@ pub const Managed = struct {
 
     /// r = ⌊√a⌋
     pub fn sqrt(rma: *Managed, a: *const Managed) !void {
-        const needed_limbs = calcSqrtLimbsBufferLen(a.bitCountAbs());
+        const bit_count = a.bitCountAbs();
 
+        if (bit_count == 0) {
+            try rma.set(0);
+            rma.setMetadata(a.isPositive(), rma.len());
+            return;
+        }
+
+        if (!a.isPositive()) {
+            return error.SqrtOfNegativeNumber;
+        }
+
+        const needed_limbs = calcSqrtLimbsBufferLen(bit_count);
         const limbs_buffer = try rma.allocator.alloc(Limb, needed_limbs);
         defer rma.allocator.free(limbs_buffer);
 
