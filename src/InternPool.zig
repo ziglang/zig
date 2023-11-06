@@ -1887,7 +1887,7 @@ pub fn loadUnionType(ip: *InternPool, key: Key.UnionType) UnionType {
         .namespace = type_union.data.namespace,
         .enum_tag_ty = enum_ty,
         .int_tag_ty = enum_info.tag_ty,
-        .size = type_union.data.padding,
+        .size = type_union.data.size,
         .padding = type_union.data.padding,
         .field_names = enum_info.names,
         .names_map = enum_info.names_map,
