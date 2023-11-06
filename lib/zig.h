@@ -194,9 +194,11 @@ typedef char bool;
 #endif /*_M_X64 */
 #else /* _MSC_VER */
 #if __APPLE__
-#define zig_export(sig, symbol, name) __asm("_" name " = _" #symbol)
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __asm("_" name " = _" #symbol)
 #else /* __APPLE__ */
-#define zig_export(sig, symbol, name) __asm(name " = " #symbol)
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __asm(name " = " #symbol)
 #endif /* __APPLE__ */
 #endif /* _MSC_VER */
 
