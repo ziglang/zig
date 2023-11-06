@@ -1858,28 +1858,30 @@ fn testLinkingObj(b: *Build, opts: Options) *Step {
 fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-static-lib", opts);
 
+    const obj = addObject(b, "bobj", opts);
+    addZigSourceBytes(obj, "export var bar: i32 = -42;");
+
     const lib = addStaticLibrary(b, "alib", opts);
     addZigSourceBytes(lib,
-        \\extern var mod: usize;
-        \\export fn callMe() usize {
-        \\    return me * mod;
+        \\export fn foo() i32 {
+        \\    return 42;
         \\}
-        \\var me: usize = 42;
     );
+    lib.addObject(obj);
 
     const exe = addExecutable(b, "testlib", opts);
     addZigSourceBytes(exe,
         \\const std = @import("std");
-        \\extern fn callMe() usize;
-        \\export var mod: usize = 2;
+        \\extern fn foo() i32;
+        \\extern var bar: i32;
         \\pub fn main() void {
-        \\    std.debug.print("{d}\n", .{callMe()});
+        \\    std.debug.print("{d}\n", .{foo() + bar});
         \\}
     );
     exe.linkLibrary(lib);
 
     const run = addRunArtifact(exe);
-    run.expectStdErrEqual("84\n");
+    run.expectStdErrEqual("0\n");
     test_step.dependOn(&run.step);
 
     return test_step;
