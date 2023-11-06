@@ -16422,10 +16422,6 @@ fn analyzeCmp(
     const mod = sema.mod;
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
-
-    _ = try sema.resolveDefinedValue(block, lhs_src, lhs);
-    _ = try sema.resolveDefinedValue(block, rhs_src, rhs);
-
     if (lhs_ty.zigTypeTag(mod) != .Optional and rhs_ty.zigTypeTag(mod) != .Optional) {
         try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
     }
