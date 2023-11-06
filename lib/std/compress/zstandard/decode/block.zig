@@ -713,10 +713,14 @@ pub fn decodeBlockRingBuffer(
     switch (block_header.block_type) {
         .raw => {
             if (src.len < block_size) return error.MalformedBlockSize;
-            const data = src[0..block_size];
-            dest.writeSliceAssumeCapacity(data);
-            consumed_count.* += block_size;
-            decode_state.written_count += block_size;
+            // dest may have length zero if block_size == 0, causing division by zero in
+            // writeSliceAssumeCapacity()
+            if (block_size > 0) {
+                const data = src[0..block_size];
+                dest.writeSliceAssumeCapacity(data);
+                consumed_count.* += block_size;
+                decode_state.written_count += block_size;
+            }
             return block_size;
         },
         .rle => {
@@ -934,7 +938,7 @@ pub fn decodeLiteralsSectionSlice(
     switch (header.block_type) {
         .raw => {
             if (src.len < bytes_read + header.regenerated_size) return error.MalformedLiteralsSection;
-            const stream = src[bytes_read .. bytes_read + header.regenerated_size];
+            const stream = src[bytes_read..][0..header.regenerated_size];
             consumed_count.* += header.regenerated_size + bytes_read;
             return LiteralsSection{
                 .header = header,
@@ -944,7 +948,7 @@ pub fn decodeLiteralsSectionSlice(
         },
         .rle => {
             if (src.len < bytes_read + 1) return error.MalformedLiteralsSection;
-            const stream = src[bytes_read .. bytes_read + 1];
+            const stream = src[bytes_read..][0..1];
             consumed_count.* += 1 + bytes_read;
             return LiteralsSection{
                 .header = header,
