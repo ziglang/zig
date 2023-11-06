@@ -1112,13 +1112,22 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
-        const must_single_thread = target_util.isSingleThreaded(options.target);
-        const single_threaded = options.single_threaded orelse must_single_thread or
-            // x86_64 codegen doesn't support TLV for most object formats
-            (!use_llvm and options.target.cpu.arch == .x86_64 and options.target.ofmt != .macho);
-        if (must_single_thread and !single_threaded) {
-            return error.TargetRequiresSingleThreaded;
-        }
+        const single_threaded = st: {
+            if (target_util.isSingleThreaded(options.target)) {
+                if (options.single_threaded == false)
+                    return error.TargetRequiresSingleThreaded;
+                break :st true;
+            }
+            if (options.main_mod != null) {
+                const zig_backend = zigBackend(options.target, use_llvm);
+                if (!target_util.supportsThreads(options.target, zig_backend)) {
+                    if (options.single_threaded == false)
+                        return error.BackendRequiresSingleThreaded;
+                    break :st true;
+                }
+            }
+            break :st options.single_threaded orelse false;
+        };
 
         const llvm_cpu_features: ?[*:0]const u8 = if (use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);

@@ -641,6 +641,13 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
     }
 }
 
+pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
+    return switch (backend) {
+        .stage2_x86_64 => target.ofmt == .macho,
+        else => true,
+    };
+}
+
 pub fn libcFloatPrefix(float_bits: u16) []const u8 {
     return switch (float_bits) {
         16, 80 => "__",
