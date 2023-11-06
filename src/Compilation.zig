@@ -1072,8 +1072,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         .Exe => true,
     };
 
-    const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
-
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
@@ -1381,7 +1379,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 return error.StackProtectorUnavailableWithoutLibC;
         }
 
-        const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
+        const include_compiler_rt = options.want_compiler_rt orelse
+            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         const single_threaded = st: {
             if (target_util.isSingleThreaded(options.target)) {
@@ -2196,7 +2195,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 comp.job_queued_compiler_rt_obj = true;
             }
         }
-        if (needs_c_symbols) {
+        if (needsCSymbols(
+            options.skip_linker_dependencies,
+            options.output_mode,
+            options.link_mode,
+            options.target,
+            comp.bin_file.options.use_llvm,
+        )) {
             // Related: https://github.com/ziglang/zig/issues/7265.
             if (comp.bin_file.options.stack_protector != 0 and
                 (!comp.bin_file.options.link_libc or
@@ -6578,6 +6583,29 @@ fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBackend {
         .spirv64 => .stage2_spirv64,
         else => .other,
     };
+}
+
+fn needsCSymbols(
+    skip_linker_dependencies: bool,
+    output_mode: std.builtin.OutputMode,
+    link_mode: ?std.builtin.LinkMode,
+    target: std.Target,
+    use_llvm: bool,
+) bool {
+    if (skip_linker_dependencies)
+        return false;
+
+    switch (output_mode) {
+        .Obj => return false,
+        .Lib => if (link_mode != .Dynamic) return false,
+        .Exe => {},
+    }
+
+    // LLVM might generate calls to libc symbols.
+    if (zigBackend(target, use_llvm) == .stage2_llvm)
+        return true;
+
+    return false;
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![:0]u8 {
