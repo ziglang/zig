@@ -64,6 +64,20 @@ For more options, tips, and troubleshooting, please see the
 [Building Zig From Source](https://github.com/ziglang/zig/wiki/Building-Zig-From-Source)
 page on the wiki.
 
+## Building from Source without LLVM
+
+If you don't need your Zig compiler to have LLVM extensions enabled, you can
+follow these instructions instead.
+
+In this case, the only system dependency is a C compiler.
+
+```
+cc -o bootstrap bootstrap.c
+./bootstrap build
+```
+
+You can pass any options to this that you would pass to `zig build`.
+
 ## Contributing
 
 Zig is Free and Open Source Software. We welcome bug reports and patches from
