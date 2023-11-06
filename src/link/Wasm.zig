@@ -1242,6 +1242,14 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
             if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
                 const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
                 try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+                _ = wasm.resolved_symbols.swapRemove(kv.value);
+                const symbol = loc.getSymbol(wasm);
+                symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+                symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+                try wasm.wasm_globals.append(wasm.base.allocator, .{
+                    .global_type = .{ .valtype = .i32, .mutable = true },
+                    .init = .{ .i32_const = undefined },
+                });
             }
         }
     }
