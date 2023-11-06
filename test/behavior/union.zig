@@ -1881,3 +1881,24 @@ test "union field is a pointer to an aligned version of itself" {
 
     try expect(&e == e.next);
 }
+
+test "pass register-sized field as non-register-sized union" {
+    const S = struct {
+        fn taggedUnion(u: union(enum) { x: usize, y: [2]usize }) !void {
+            try expectEqual(@as(usize, 42), u.x);
+        }
+
+        fn untaggedUnion(u: union { x: usize, y: [2]usize }) !void {
+            try expectEqual(@as(usize, 42), u.x);
+        }
+
+        fn externUnion(u: extern union { x: usize, y: [2]usize }) !void {
+            try expectEqual(@as(usize, 42), u.x);
+        }
+    };
+
+    var x: usize = 42;
+    try S.taggedUnion(.{ .x = x });
+    try S.untaggedUnion(.{ .x = x });
+    try S.externUnion(.{ .x = x });
+}
