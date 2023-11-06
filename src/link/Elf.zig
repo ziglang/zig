@@ -943,7 +943,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.isObject() and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
-        assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0) {
                 break :blk self.base.options.objects[0].path;
