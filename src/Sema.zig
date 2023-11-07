@@ -5205,7 +5205,7 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const operand_ty = sema.typeOf(operand);
 
     const can_destructure = switch (operand_ty.zigTypeTag(mod)) {
-        .Array => true,
+        .Array, .Vector => true,
         .Struct => operand_ty.isTuple(mod),
         else => false,
     };
