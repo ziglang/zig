@@ -69,7 +69,7 @@ pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
 pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
     const a_limb_count = (a_bit_count - 1) / limb_bits + 1;
     const shift = (a_bit_count + 1) / 2;
-    const u_s_rem_limb_count = 1 + ((shift - 1) / limb_bits + 1);
+    const u_s_rem_limb_count = 1 + ((shift / limb_bits) + 1);
     return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
 }
 
@@ -1380,7 +1380,7 @@ pub const Mutable = struct {
         var u = b: {
             const start = buf_index;
             const shift = (a.bitCountAbs() + 1) / 2;
-            buf_index += 1 + ((shift - 1) / limb_bits + 1);
+            buf_index += 1 + ((shift / limb_bits) + 1);
             var m = Mutable.init(limbs_buffer[start..buf_index], 1);
             m.shiftLeft(m.toConst(), shift); // u must be >= ⌊√a⌋, and should be as small as possible for efficiency
             break :b m;
