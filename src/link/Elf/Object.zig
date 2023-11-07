@@ -664,13 +664,24 @@ pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
         if (!atom.flags.alive) continue;
         const shndx = atom.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
-        _ = try self.initOutputSection(elf_file, shdr);
+        const out_shndx = try self.initOutputSection(elf_file, shdr);
+        const out_shdr = &elf_file.shdrs.items[out_shndx];
+        out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
+        out_shdr.sh_entsize = @sizeOf(elf.Elf64_Rela);
     }
 }
 
 pub fn updateRelaSectionsSizes(self: Object, elf_file: *Elf) void {
-    _ = self;
-    _ = elf_file;
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shndx = atom.relocsShndx() orelse continue;
+        const shdr = self.shdrs.items[shndx];
+        const out_shndx = self.initOutputSection(elf_file, shdr) catch unreachable;
+        const out_shdr = &elf_file.shdrs.items[out_shndx];
+        const relocs = atom.relocs(elf_file);
+        out_shdr.sh_size += out_shdr.sh_entsize * relocs.len;
+    }
 }
 
 pub fn writeRelaSections(self: Object, elf_file: *Elf) !void {
