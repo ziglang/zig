@@ -3904,15 +3904,11 @@ fn sortShdrs(self: *Elf) !void {
         shdr.sh_info = self.plt_section_index.?;
     }
 
-    for (&[_]?u16{
-        self.zig_text_rela_section_index,
-        self.zig_data_rel_ro_rela_section_index,
-        self.zig_data_rela_section_index,
-    }) |maybe_index| {
-        const index = maybe_index orelse continue;
-        const shdr = &self.shdrs.items[index];
-        shdr.sh_link = self.symtab_section_index.?;
-        shdr.sh_info = backlinks[shdr.sh_info];
+    for (self.shdrs.items) |*shdr| {
+        if (shdr.sh_type == elf.SHT_RELA and shdr.sh_flags & elf.SHF_INFO_LINK != 0) {
+            shdr.sh_link = self.symtab_section_index.?;
+            shdr.sh_info = backlinks[shdr.sh_info];
+        }
     }
 
     {

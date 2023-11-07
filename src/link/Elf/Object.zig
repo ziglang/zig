@@ -668,6 +668,7 @@ pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
         const out_shdr = &elf_file.shdrs.items[out_shndx];
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
         out_shdr.sh_entsize = @sizeOf(elf.Elf64_Rela);
+        out_shdr.sh_info = self.initOutputSection(elf_file, atom.inputShdr(elf_file)) catch unreachable;
     }
 }
 
