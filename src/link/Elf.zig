@@ -4331,7 +4331,17 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
 
 /// Allocates alloc sections when merging relocatable objects files together.
 fn allocateAllocSectionsObject(self: *Elf) !void {
-    _ = self;
+    for (self.shdrs.items) |*shdr| {
+        if (shdr.sh_type == elf.SHT_NULL) continue;
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+        const needed_size = shdr.sh_size;
+        if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+            shdr.sh_size = 0;
+            const new_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
+            shdr.sh_offset = new_offset;
+            shdr.sh_size = needed_size;
+        }
+    }
 }
 
 /// Allocates non-alloc sections (debug info, symtabs, etc.).
