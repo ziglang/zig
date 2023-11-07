@@ -552,7 +552,7 @@ fn writeValue(ir: Ir, val_ref: Interner.Ref, color: bool, w: anytype) !void {
     switch (v.tag) {
         .unavailable => try w.writeAll(" unavailable"),
         .int => try w.print("{d}", .{v.data.int}),
-        .bytes => try w.print("\"{s}\"", .{v.data.bytes.slice(ir.strings)}),
+        .bytes => try w.print("\"{s}\"", .{v.data.bytes.slice(ir.strings, .@"1")}),
         // std.fmt does @as instead of @floatCast
         .float => try w.print("{d}", .{@as(f64, @floatCast(v.data.float))}),
         else => try w.print("({s})", .{@tagName(v.tag)}),

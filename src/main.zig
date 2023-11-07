@@ -4335,7 +4335,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
                 var aro_comp = translate_c.Compilation.init(comp.gpa);
                 defer aro_comp.deinit();

@@ -197,7 +197,7 @@ pub fn defineSymbol(
             },
             .decl => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                 }
@@ -243,7 +243,7 @@ pub fn declareSymbol(
             },
             .decl => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                 }
@@ -251,7 +251,7 @@ pub fn declareSymbol(
             },
             .def, .constexpr => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                     break;

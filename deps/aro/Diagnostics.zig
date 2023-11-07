@@ -4,8 +4,9 @@ const Allocator = mem.Allocator;
 const Source = @import("Source.zig");
 const Compilation = @import("Compilation.zig");
 const Attribute = @import("Attribute.zig");
-const BuiltinFunction = @import("builtins/BuiltinFunction.zig");
-const Header = @import("builtins/Properties.zig").Header;
+const Builtins = @import("Builtins.zig");
+const Builtin = Builtins.Builtin;
+const Header = @import("Builtins/Properties.zig").Header;
 const Tree = @import("Tree.zig");
 const util = @import("util.zig");
 const is_windows = @import("builtin").os.tag == .windows;
@@ -51,7 +52,7 @@ pub const Message = struct {
             specifier: enum { @"struct", @"union", @"enum" },
         },
         builtin_with_header: struct {
-            builtin: BuiltinFunction.Tag,
+            builtin: Builtin.Tag,
             header: Header,
         },
         invalid_escape: struct {
@@ -69,10 +70,9 @@ pub const Message = struct {
 
 pub const Tag = std.meta.DeclEnum(messages);
 
-// u4 to avoid any possible packed struct issues
-pub const Kind = enum(u4) { @"fatal error", @"error", note, warning, off, default };
+pub const Kind = enum { @"fatal error", @"error", note, warning, off, default };
 
-pub const Options = packed struct {
+pub const Options = struct {
     // do not directly use these, instead add `const NAME = true;`
     all: Kind = .default,
     extra: Kind = .default,
@@ -178,6 +178,7 @@ pub const Options = packed struct {
     @"invalid-source-encoding": Kind = .default,
     @"four-char-constants": Kind = .default,
     @"unknown-escape-sequence": Kind = .default,
+    @"invalid-pp-token": Kind = .default,
 };
 
 const messages = struct {
@@ -2509,6 +2510,42 @@ const messages = struct {
         const opt = "unknown-escape-sequence";
         const extra = .invalid_escape;
     };
+    pub const attribute_requires_string = struct {
+        const msg = "attribute '{s}' requires an ordinary string";
+        const kind = .@"error";
+        const extra = .str;
+    };
+    pub const unterminated_string_literal_warning = struct {
+        const msg = "missing terminating '\"' character";
+        const kind = .warning;
+        const opt = "invalid-pp-token";
+    };
+    pub const unterminated_string_literal_error = struct {
+        const msg = "missing terminating '\"' character";
+        const kind = .@"error";
+    };
+    pub const empty_char_literal_warning = struct {
+        const msg = "empty character constant";
+        const kind = .warning;
+        const opt = "invalid-pp-token";
+    };
+    pub const empty_char_literal_error = struct {
+        const msg = "empty character constant";
+        const kind = .@"error";
+    };
+    pub const unterminated_char_literal_warning = struct {
+        const msg = "missing terminating ' character";
+        const kind = .warning;
+        const opt = "invalid-pp-token";
+    };
+    pub const unterminated_char_literal_error = struct {
+        const msg = "missing terminating ' character";
+        const kind = .@"error";
+    };
+    pub const unterminated_comment = struct {
+        const msg = "unterminated comment";
+        const kind = .@"error";
+    };
 };
 
 list: std.ArrayListUnmanaged(Message) = .{},
@@ -2750,7 +2787,7 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                     }),
                     .builtin_with_header => m.print(info.msg, .{
                         @tagName(msg.extra.builtin_with_header.header),
-                        BuiltinFunction.nameFromTag(msg.extra.builtin_with_header.builtin).span(),
+                        Builtin.nameFromTag(msg.extra.builtin_with_header.builtin).span(),
                     }),
                     .invalid_escape => {
                         if (std.ascii.isPrint(msg.extra.invalid_escape.char)) {
