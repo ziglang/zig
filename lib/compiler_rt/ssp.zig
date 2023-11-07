@@ -16,7 +16,6 @@ const std = @import("std");
 const common = @import("./common.zig");
 const builtin = @import("builtin");
 
-extern fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8;
 extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
@@ -66,8 +65,16 @@ fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [
 }
 
 fn __strncpy_chk(dest: [*:0]u8, src: [*:0]const u8, n: usize, dest_n: usize) callconv(.C) [*:0]u8 {
+    @setRuntimeSafety(false);
     if (dest_n < n) __chk_fail();
-    return strncpy(dest, src, n);
+    var i: usize = 0;
+    while (i < n and src[i] != 0) : (i += 1) {
+        dest[i] = src[i];
+    }
+    while (i < n) : (i += 1) {
+        dest[i] = 0;
+    }
+    return dest;
 }
 
 fn __strcat_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [*:0]u8 {
