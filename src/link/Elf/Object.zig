@@ -654,6 +654,21 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
     }
 }
 
+pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
+    _ = self;
+    _ = elf_file;
+}
+
+pub fn updateRelaSectionsSizes(self: Object, elf_file: *Elf) void {
+    _ = self;
+    _ = elf_file;
+}
+
+pub fn writeRelaSections(self: Object, elf_file: *Elf) !void {
+    _ = self;
+    _ = elf_file;
+}
+
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
     const start = self.first_global orelse self.symtab.items.len;

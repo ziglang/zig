@@ -549,7 +549,7 @@ pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
     try writer.writeAll(contents);
 }
 
-pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
+pub fn updateRelaSectionsSizes(self: ZigObject, elf_file: *Elf) void {
     _ = self;
 
     for (&[_]?u16{
