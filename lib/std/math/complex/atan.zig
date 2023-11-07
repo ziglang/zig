@@ -11,8 +11,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-tangent of z.
-pub fn atan(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => atan32(z),
         f64 => atan64(z),
