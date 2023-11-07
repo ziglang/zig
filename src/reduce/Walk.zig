@@ -559,7 +559,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .while_simple,
         .while_cont,
         .@"while",
-        => return walkWhile(w, ast.fullWhile(node).?),
+        => return walkWhile(w, node, ast.fullWhile(node).?),
 
         .for_simple,
         .@"for",
@@ -863,7 +863,37 @@ fn walkSwitchCase(w: *Walk, switch_case: Ast.full.SwitchCase) Error!void {
     try walkExpression(w, switch_case.ast.target_expr);
 }
 
-fn walkWhile(w: *Walk, while_node: Ast.full.While) Error!void {
+fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) Error!void {
+    assert(while_node.ast.cond_expr != 0);
+    assert(while_node.ast.then_expr != 0);
+
+    // Perform these transformations in this priority order:
+    // 1. If the `else` expression is missing or an empty block, replace the condition with `if (true)` if it is not already.
+    // 2. If the `then` block is empty, replace the condition with `if (false)` if it is not already.
+    // 3. If the condition is `if (true)`, replace the `if` expression with the contents of the `then` expression.
+    // 4. If the condition is `if (false)`, replace the `if` expression with the contents of the `else` expression.
+    if (!isTrueIdent(w.ast, while_node.ast.cond_expr) and
+        (while_node.ast.else_expr == 0 or isEmptyBlock(w.ast, while_node.ast.else_expr)))
+    {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_true = while_node.ast.cond_expr });
+    } else if (!isFalseIdent(w.ast, while_node.ast.cond_expr) and isEmptyBlock(w.ast, while_node.ast.then_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_false = while_node.ast.cond_expr });
+    } else if (isTrueIdent(w.ast, while_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = while_node.ast.then_expr,
+        } });
+    } else if (isFalseIdent(w.ast, while_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = while_node.ast.else_expr,
+        } });
+    }
+
     try walkExpression(w, while_node.ast.cond_expr); // condition
 
     if (while_node.ast.cont_expr != 0) {
