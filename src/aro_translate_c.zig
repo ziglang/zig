@@ -326,15 +326,9 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
         .is_inline = is_always_inline,
         .is_extern = !has_body,
         .is_export = switch (c.tree.nodes.items(.tag)[@intFromEnum(fn_decl)]) {
-            .fn_proto,
-            .fn_def => has_body and !is_always_inline,
+            .fn_proto, .fn_def => has_body and !is_always_inline,
 
-            .inline_fn_proto,
-            .inline_fn_def,
-            .inline_static_fn_proto,
-            .inline_static_fn_def,
-            .static_fn_proto,
-            .static_fn_def => false,
+            .inline_fn_proto, .inline_fn_def, .inline_static_fn_proto, .inline_static_fn_def, .static_fn_proto, .static_fn_def => false,
 
             else => unreachable,
         },
@@ -354,7 +348,6 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
 
     // actual function definition with body
     const body_stmt = node_data.decl.node;
-    _ = body_stmt;
     var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     block_scope.return_type = fn_ty.data.func.return_type;
     defer block_scope.deinit();
@@ -390,19 +383,18 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
         param_id += 1;
     }
 
-    // const casted_body = @as(*const clang.CompoundStmt, @ptrCast(body_stmt));
-    // transCompoundStmtInline(c, casted_body, &block_scope) catch |err| switch (err) {
-    //     error.OutOfMemory => |e| return e,
-    //     error.UnsupportedTranslation,
-    //     error.UnsupportedType,
-    //     => {
-    //         proto_payload.data.is_extern = true;
-    //         proto_payload.data.is_export = false;
-    //         proto_payload.data.is_inline = false;
-    //         try warn(c, &c.global_scope.base, fn_decl_loc, "unable to translate function, demoted to extern", .{});
-    //         return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
-    //     },
-    // };
+    transCompoundStmtInline(c, body_stmt, &block_scope) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.UnsupportedTranslation,
+        error.UnsupportedType,
+        => {
+            proto_payload.data.is_extern = true;
+            proto_payload.data.is_export = false;
+            proto_payload.data.is_inline = false;
+            try warn(c, &c.global_scope.base, fn_decl_loc, "unable to translate function, demoted to extern", .{});
+            return addTopLevelDecl(c, fn_name, proto_node);
+        },
+    };
 
     proto_payload.data.body = try block_scope.complete(c);
     return addTopLevelDecl(c, fn_name, proto_node);
@@ -629,8 +621,37 @@ fn transFnType(
     return ZigNode.initPayload(&payload.base);
 }
 
-fn transStmt(c: *Context, node: NodeIndex) TransError!void {
-    _ = try c.transExpr(node, .unused);
+fn transStmt(c: *Context, node: NodeIndex) TransError!ZigNode {
+    return transExpr(c, node, .unused);
+}
+
+fn transCompoundStmtInline(c: *Context, compound: NodeIndex, block: *Scope.Block) TransError!void {
+    const data = c.tree.nodes.items(.data)[@intFromEnum(compound)];
+    var buf: [2]NodeIndex = undefined;
+    // TODO move these helpers to Aro
+    const stmts = switch (c.tree.nodes.items(.tag)[@intFromEnum(compound)]) {
+        .compound_stmt_two => blk: {
+            if (data.bin.lhs != .none) buf[0] = data.bin.lhs;
+            if (data.bin.rhs != .none) buf[1] = data.bin.rhs;
+            break :blk buf[0 .. @as(u32, @intFromBool(data.bin.lhs != .none)) + @intFromBool(data.bin.rhs != .none)];
+        },
+        .compound_stmt => c.tree.data[data.range.start..data.range.end],
+        else => unreachable,
+    };
+    for (stmts) |stmt| {
+        const result = try transStmt(c, stmt);
+        switch (result.tag()) {
+            .declaration, .empty_block => {},
+            else => try block.statements.append(result),
+        }
+    }
+}
+
+fn transCompoundStmt(c: *Context, scope: *Scope, compound: NodeIndex) TransError!ZigNode {
+    var block_scope = try Scope.Block.init(c, scope, false);
+    defer block_scope.deinit();
+    try transCompoundStmtInline(c, compound, &block_scope);
+    return try block_scope.complete(c);
 }
 
 fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!ZigNode {
