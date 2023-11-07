@@ -16,7 +16,6 @@ lib_dirs: []const []const u8,
 hash_style: HashStyle,
 compress_debug_sections: CompressDebugSections,
 symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
-each_lib_rpath: bool,
 sort_section: ?SortSection,
 soname: ?[]const u8,
 bind_global_refs_locally: bool,
@@ -320,7 +319,6 @@ pub fn createEmpty(
         .hash_style = options.hash_style,
         .compress_debug_sections = options.compress_debug_sections,
         .symbol_wrap_set = options.symbol_wrap_set,
-        .each_lib_rpath = options.each_lib_rpath,
         .sort_section = options.sort_section,
         .soname = options.soname,
         .bind_global_refs_locally = options.bind_global_refs_locally,
@@ -1108,25 +1106,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         _ = try rpath_table.put(rpath, {});
     }
 
-    if (self.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(gpa);
-        defer test_path.deinit();
-        for (self.lib_dirs) |lib_dir_path| {
-            for (comp.system_libs.keys()) |link_lib| {
-                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                    continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-        for (comp.objects) |obj| {
-            if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                if (obj.loption) continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-    }
-
     // TSAN
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
@@ -1691,22 +1670,6 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
-        }
-
-        if (self.each_lib_rpath) {
-            for (self.lib_dirs) |lib_dir_path| {
-                try argv.append("-rpath");
-                try argv.append(lib_dir_path);
-            }
-            for (comp.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
         }
 
         try argv.appendSlice(&.{
@@ -2439,7 +2402,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         man.hash.add(comp.config.rdynamic);
         man.hash.addListOfBytes(self.lib_dirs);
         man.hash.addListOfBytes(self.base.rpath_list);
-        man.hash.add(self.each_lib_rpath);
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
             man.hash.add(self.base.build_id);
@@ -2737,31 +2699,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
 
         for (self.symbol_wrap_set.keys()) |symbol_name| {
             try argv.appendSlice(&.{ "-wrap", symbol_name });
-        }
-
-        if (self.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(arena);
-            for (self.lib_dirs) |lib_dir_path| {
-                for (comp.system_libs.keys()) |link_lib| {
-                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                        continue;
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
-            for (comp.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
         }
 
         for (self.lib_dirs) |lib_dir| {
