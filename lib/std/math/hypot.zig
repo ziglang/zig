@@ -12,12 +12,12 @@ const maxInt = std.math.maxInt;
 /// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
 ///      Special Cases:
-/// |   x   |   y   |   r   |
+/// |   x   |   y   | hypot |
 /// |-------|-------|-------|
-/// | +inf  |  fin  | +inf  |
-/// |  fin  | +-inf | +inf  |
-/// |  nan  |  fin  |  nan  |
-/// |  fin  |  nan  |  nan  |
+/// | +inf  |  num  | +inf  |
+/// |  num  | +-inf | +inf  |
+/// |  nan  |  any  |  nan  |
+/// |  any  |  nan  |  nan  |
 pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
     const T = @TypeOf(x, y);
     return switch (T) {
