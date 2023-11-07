@@ -29418,10 +29418,10 @@ fn coerceVarArgParam(
             "integer and float literals passed to variadic function must be casted to a fixed-size number type",
             .{},
         ),
-        .Fn => blk: {
+        .Fn => fn_ptr: {
             const fn_val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
             const fn_decl = fn_val.pointerDecl(mod).?;
-            break :blk try sema.analyzeDeclRef(fn_decl);
+            break :fn_ptr try sema.analyzeDeclRef(fn_decl);
         },
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .Float => float: {
@@ -29435,7 +29435,32 @@ fn coerceVarArgParam(
                 else => unreachable,
             }
         },
-        else => inst,
+        else => if (uncasted_ty.isAbiInt(mod)) int: {
+            const target = sema.mod.getTarget();
+            const uncasted_info = uncasted_ty.intInfo(mod);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .int,
+                .unsigned => .uint,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_int,
+                .unsigned => Type.c_uint,
+            }, inst, inst_src);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .long,
+                .unsigned => .ulong,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_long,
+                .unsigned => Type.c_ulong,
+            }, inst, inst_src);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .longlong,
+                .unsigned => .ulonglong,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_longlong,
+                .unsigned => Type.c_ulonglong,
+            }, inst, inst_src);
+            break :int inst;
+        } else inst,
     };
 
     const coerced_ty = sema.typeOf(coerced);
