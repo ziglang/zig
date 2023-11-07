@@ -1567,7 +1567,6 @@ fn walkInstruction(
         .bit_and,
         .xor,
         .array_cat,
-        .array_mul,
         => {
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);

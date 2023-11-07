@@ -13998,13 +13998,48 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const lhs = try sema.resolveInst(extra.lhs);
-    const lhs_ty = sema.typeOf(lhs);
+    const extra = sema.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+    const uncoerced_lhs = try sema.resolveInst(extra.lhs);
+    const uncoerced_lhs_ty = sema.typeOf(uncoerced_lhs);
     const src: LazySrcLoc = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const operator_src: LazySrcLoc = .{ .node_offset_main_token = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    const lhs, const lhs_ty = coerced_lhs: {
+        // If we have a result type, we might be able to do this more efficiently
+        // by coercing the LHS first. Specifically, if we want an array or vector
+        // and have a tuple, coerce the tuple immediately.
+        no_coerce: {
+            if (extra.res_ty == .none) break :no_coerce;
+            const res_ty_inst = try sema.resolveInst(extra.res_ty);
+            const res_ty = try sema.analyzeAsType(block, src, res_ty_inst);
+            if (res_ty.isGenericPoison()) break :no_coerce;
+            if (!uncoerced_lhs_ty.isTuple(mod)) break :no_coerce;
+            const lhs_len = uncoerced_lhs_ty.structFieldCount(mod);
+            const lhs_dest_ty = switch (res_ty.zigTypeTag(mod)) {
+                else => break :no_coerce,
+                .Array => try mod.arrayType(.{
+                    .child = res_ty.childType(mod).toIntern(),
+                    .len = lhs_len,
+                    .sentinel = if (res_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                }),
+                .Vector => try mod.vectorType(.{
+                    .child = res_ty.childType(mod).toIntern(),
+                    .len = lhs_len,
+                }),
+            };
+            // Attempt to coerce to this type, but don't emit an error if it fails. Instead,
+            // just exit out of this path and let the usual error happen later, so that error
+            // messages are consistent.
+            const coerced = sema.coerceExtra(block, lhs_dest_ty, uncoerced_lhs, lhs_src, .{ .report_err = false }) catch |err| switch (err) {
+                error.NotCoercible => break :no_coerce,
+                else => |e| return e,
+            };
+            break :coerced_lhs .{ coerced, lhs_dest_ty };
+        }
+        break :coerced_lhs .{ uncoerced_lhs, uncoerced_lhs_ty };
+    };
 
     if (lhs_ty.isTuple(mod)) {
         // In `**` rhs must be comptime-known, but lhs can be runtime-known
@@ -14086,6 +14121,14 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.requireRuntimeBlock(block, src, lhs_src);
 
+    // Grab all the LHS values ahead of time, rather than repeatedly emitting instructions
+    // to get the same elem values.
+    const lhs_vals = try sema.arena.alloc(Air.Inst.Ref, lhs_len);
+    for (lhs_vals, 0..) |*lhs_val, idx| {
+        const idx_ref = try mod.intRef(Type.usize, idx);
+        lhs_val.* = try sema.elemVal(block, lhs_src, lhs, idx_ref, src, false);
+    }
+
     if (ptr_addrspace) |ptr_as| {
         const alloc_ty = try sema.ptrType(.{
             .child = result_ty.toIntern(),
@@ -14099,14 +14142,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
         var elem_i: usize = 0;
         while (elem_i < result_len) {
-            var lhs_i: usize = 0;
-            while (lhs_i < lhs_len) : (lhs_i += 1) {
+            for (lhs_vals) |lhs_val| {
                 const elem_index = try mod.intRef(Type.usize, elem_i);
-                elem_i += 1;
-                const lhs_index = try mod.intRef(Type.usize, lhs_i);
                 const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
-                const init = try sema.elemVal(block, lhs_src, lhs, lhs_index, src, true);
-                try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
+                try sema.storePtr2(block, src, elem_ptr, src, lhs_val, lhs_src, .store);
+                elem_i += 1;
             }
         }
         if (lhs_info.sentinel) |sent_val| {
@@ -14120,17 +14160,9 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, result_len);
-    var elem_i: usize = 0;
-    while (elem_i < result_len) {
-        var lhs_i: usize = 0;
-        while (lhs_i < lhs_len) : (lhs_i += 1) {
-            const lhs_index = try mod.intRef(Type.usize, lhs_i);
-            const init = try sema.elemVal(block, lhs_src, lhs, lhs_index, src, true);
-            element_refs[elem_i] = init;
-            elem_i += 1;
-        }
+    for (0..try sema.usizeCast(block, rhs_src, factor)) |i| {
+        @memcpy(element_refs[i * lhs_len ..][0..lhs_len], lhs_vals);
     }
-
     return block.addAggregateInit(result_ty, element_refs);
 }
 
