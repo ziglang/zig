@@ -250,7 +250,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
         /// Array multiplication `a ** b`
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `pl_node` union field. Payload is `ArrayMul`.
         array_mul,
         /// `[N]T` syntax. No source location provided.
         /// Uses the `pl_node` union field. Payload is `Bin`. lhs is length, rhs is element type.
@@ -3372,6 +3372,15 @@ pub const Inst = struct {
         destructure_node: i32,
         /// The expected field count.
         expect_len: u32,
+    };
+
+    pub const ArrayMul = struct {
+        /// The result type of the array multiplication operation, or `.none` if none was available.
+        res_ty: Ref,
+        /// The LHS of the array multiplication.
+        lhs: Ref,
+        /// The RHS of the array multiplication.
+        rhs: Ref,
     };
 };
 
