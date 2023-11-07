@@ -348,6 +348,41 @@ test "@ptrCast slice to pointer" {
     try comptime S.doTheTest();
 }
 
+test "slice multi-pointer without end" {
+    const S = struct {
+        fn doTheTest() !void {
+            try testPointer();
+            try testPointerZ();
+        }
+
+        fn testPointer() !void {
+            var array = [5]u8{ 1, 2, 3, 4, 5 };
+            var pointer: [*]u8 = &array;
+            var slice = pointer[1..];
+            try comptime expect(@TypeOf(slice) == [*]u8);
+            try expect(slice[0] == 2);
+            try expect(slice[1] == 3);
+        }
+
+        fn testPointerZ() !void {
+            var array = [5:0]u8{ 1, 2, 3, 4, 5 };
+            var pointer: [*:0]u8 = &array;
+
+            try comptime expect(@TypeOf(pointer[1..3]) == *[2]u8);
+            try comptime expect(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
+            try comptime expect(@TypeOf(pointer[1..5 :0]) == *[4:0]u8);
+
+            var slice = pointer[1..];
+            try comptime expect(@TypeOf(slice) == [*:0]u8);
+            try expect(slice[0] == 2);
+            try expect(slice[1] == 3);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
 test "slice syntax resulting in pointer-to-array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

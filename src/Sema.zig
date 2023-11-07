@@ -32157,7 +32157,7 @@ fn analyzeSlice(
                 break :e try sema.coerce(block, Type.usize, uncasted_end, end_src);
             } else break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
-        return sema.fail(block, src, "slice of pointer must include end value", .{});
+        return sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
     };
 
     const sentinel = s: {
