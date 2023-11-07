@@ -138,3 +138,14 @@ test "destructure of tuple with comptime fields results in some comptime-known v
     try expect(b == 42);
     try expect(d == 42);
 }
+
+test "destructure vector" {
+    const vec: @Vector(2, i32) = .{ 1, 2 };
+    const x, const y = vec;
+
+    comptime assert(@TypeOf(x) == i32);
+    comptime assert(@TypeOf(y) == i32);
+
+    try expect(x == 1);
+    try expect(y == 2);
+}
