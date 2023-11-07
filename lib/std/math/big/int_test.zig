@@ -3161,6 +3161,7 @@ test "big.int.Managed sqrt(0) = 0" {
     try a.setString(10, "0");
 
     try res.sqrt(&a);
+    try testing.expectEqual(@as(i32, 0), try res.to(i32));
 }
 
 test "big.int.Managed sqrt(-1) = error" {
@@ -3174,4 +3175,22 @@ test "big.int.Managed sqrt(-1) = error" {
     try a.setString(10, "-1");
 
     try testing.expectError(error.SqrtOfNegativeNumber, res.sqrt(&a));
+}
+
+test "big.int.Managed sqrt(n) succeed with res.bitCountAbs() >= usize bits" {
+    const allocator = testing.allocator;
+    var a = try Managed.initSet(allocator, 1);
+    defer a.deinit();
+
+    var res = try Managed.initSet(allocator, 1);
+    defer res.deinit();
+
+    // a.bitCountAbs() = 127 so the first attempt has 64 bits >= usize bits
+    try a.setString(10, "136036462105870278006290938611834481486");
+    try res.sqrt(&a);
+
+    var expected = try Managed.initSet(allocator, 1);
+    defer expected.deinit();
+    try expected.setString(10, "11663466984815033033");
+    try std.testing.expectEqual(std.math.Order.eq, expected.order(res));
 }
