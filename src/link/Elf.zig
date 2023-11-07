@@ -3452,6 +3452,7 @@ fn initSectionsObject(self: *Elf) !void {
             .addralign = ptr_size,
             .offset = std.math.maxInt(u64),
         });
+        _ = try self.addRelaShdr(".rela.eh_frame", self.eh_frame_section_index.?);
     }
 
     try self.initSymtab();
