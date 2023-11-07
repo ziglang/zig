@@ -211,6 +211,7 @@ fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOf
 fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.getString(shdr.sh_name);
+        if (elf_file.isRelocatable()) break :blk name;
         if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
@@ -237,7 +238,10 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
         else => shdr.sh_type,
     };
     const flags = blk: {
-        const flags = shdr.sh_flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
+        var flags = shdr.sh_flags;
+        if (!elf_file.isRelocatable()) {
+            flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
+        }
         break :blk switch (@"type") {
             elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
             else => flags,
@@ -655,8 +659,13 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
 }
 
 pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
-    _ = self;
-    _ = elf_file;
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const shndx = atom.relocsShndx() orelse continue;
+        const shdr = self.shdrs.items[shndx];
+        _ = try self.initOutputSection(elf_file, shdr);
+    }
 }
 
 pub fn updateRelaSectionsSizes(self: Object, elf_file: *Elf) void {

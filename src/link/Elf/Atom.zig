@@ -60,6 +60,11 @@ pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
     };
 }
 
+pub fn relocsShndx(self: Atom) ?u32 {
+    if (self.relocs_section_index == 0) return null;
+    return self.relocs_section_index;
+}
+
 pub fn outputShndx(self: Atom) ?u16 {
     if (self.output_section_index == 0) return null;
     return self.output_section_index;
@@ -280,9 +285,10 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
+    const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
     return switch (self.file(elf_file).?) {
-        .zig_object => |x| x.relocs.items[self.relocs_section_index].items,
-        .object => |x| x.getRelocs(self.relocs_section_index),
+        .zig_object => |x| x.relocs.items[shndx].items,
+        .object => |x| x.getRelocs(shndx),
         else => unreachable,
     };
 }

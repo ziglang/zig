@@ -287,22 +287,6 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     return symbol_index;
 }
 
-pub fn addSectionSymbol(self: *ZigObject, shndx: u16, elf_file: *Elf) !void {
-    assert(elf_file.isRelocatable());
-    const gpa = elf_file.base.allocator;
-    const symbol_index = try elf_file.addSymbol();
-    try self.local_symbols.append(gpa, symbol_index);
-    const symbol_ptr = elf_file.symbol(symbol_index);
-    symbol_ptr.file_index = self.index;
-    symbol_ptr.output_section_index = shndx;
-
-    const esym_index = try self.addLocalEsym(gpa);
-    const esym = &self.local_esyms.items(.elf_sym)[esym_index];
-    esym.st_info = elf.STT_SECTION;
-    esym.st_shndx = shndx;
-    symbol_ptr.esym_index = esym_index;
-}
-
 /// TODO actually create fake input shdrs and return that instead.
 pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
     _ = self;

@@ -597,7 +597,6 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
         fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
         if (self.isRelocatable()) {
-            try zig_object.addSectionSymbol(self.zig_text_section_index.?, self);
             self.zig_text_rela_section_index = try self.addRelaShdr(
                 ".rela.text.zig",
                 self.zig_text_section_index.?,
@@ -609,6 +608,7 @@ pub fn initMetadata(self: *Elf) !void {
                 self.phdr_zig_load_re_index.?,
             );
         }
+        try self.output_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{});
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
@@ -644,7 +644,6 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
         if (self.isRelocatable()) {
-            try zig_object.addSectionSymbol(self.zig_data_rel_ro_section_index.?, self);
             self.zig_data_rel_ro_rela_section_index = try self.addRelaShdr(
                 ".rela.data.rel.ro.zig",
                 self.zig_data_rel_ro_section_index.?,
@@ -656,6 +655,7 @@ pub fn initMetadata(self: *Elf) !void {
                 self.phdr_zig_load_ro_index.?,
             );
         }
+        try self.output_sections.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, .{});
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, .{});
     }
 
@@ -670,7 +670,6 @@ pub fn initMetadata(self: *Elf) !void {
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
         if (self.isRelocatable()) {
-            try zig_object.addSectionSymbol(self.zig_data_section_index.?, self);
             self.zig_data_rela_section_index = try self.addRelaShdr(
                 ".rela.data.zig",
                 self.zig_data_section_index.?,
@@ -682,6 +681,7 @@ pub fn initMetadata(self: *Elf) !void {
                 self.phdr_zig_load_rw_index.?,
             );
         }
+        try self.output_sections.putNoClobber(gpa, self.zig_data_section_index.?, .{});
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_data_section_index.?, .{});
     }
 
@@ -700,9 +700,9 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_size = phdr.p_memsz;
             try self.phdr_to_shdr_table.putNoClobber(gpa, self.zig_bss_section_index.?, phndx);
         } else {
-            try zig_object.addSectionSymbol(self.zig_bss_section_index.?, self);
             shdr.sh_size = 1024;
         }
+        try self.output_sections.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
@@ -724,6 +724,7 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_offset = off;
             shdr.sh_size = size;
             zig_object.debug_strtab_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_str_section_index.?, .{});
         }
 
         if (self.debug_info_section_index == null) {
@@ -739,6 +740,7 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_offset = off;
             shdr.sh_size = size;
             zig_object.debug_info_header_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_info_section_index.?, .{});
         }
 
         if (self.debug_abbrev_section_index == null) {
@@ -754,6 +756,7 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_offset = off;
             shdr.sh_size = size;
             zig_object.debug_abbrev_section_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_abbrev_section_index.?, .{});
         }
 
         if (self.debug_aranges_section_index == null) {
@@ -769,6 +772,7 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_offset = off;
             shdr.sh_size = size;
             zig_object.debug_aranges_section_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_aranges_section_index.?, .{});
         }
 
         if (self.debug_line_section_index == null) {
@@ -784,6 +788,7 @@ pub fn initMetadata(self: *Elf) !void {
             shdr.sh_offset = off;
             shdr.sh_size = size;
             zig_object.debug_line_header_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_line_section_index.?, .{});
         }
     }
 }
@@ -1510,14 +1515,14 @@ pub fn flushStaticLib(self: *Elf) link.File.FlushError!void {
         try self.initShStrtab();
         try self.sortShdrs();
         zig_object.updateRelaSectionsSizes(self);
-        self.updateSymtabSizeObject(zig_object);
+        self.updateSymtabSizeZigObject(zig_object);
         self.updateShStrtabSize();
 
         try self.allocateNonAllocSections();
 
         try self.writeShdrTable();
         try zig_object.writeRelaSections(self);
-        try self.writeSymtabObject(zig_object);
+        try self.writeSymtabZigObject(zig_object);
         try self.writeShStrtab();
         try self.writeElfHeader();
     }
@@ -3579,7 +3584,8 @@ fn sortInitFini(self: *Elf) !void {
 
         if (!is_init_fini and !is_ctor_dtor) continue;
 
-        const atom_list = self.output_sections.getPtr(@intCast(shndx)) orelse continue;
+        const atom_list = self.output_sections.getPtr(@intCast(shndx)).?;
+        if (atom_list.items.len == 0) continue;
 
         var entries = std.ArrayList(Entry).init(gpa);
         try entries.ensureTotalCapacityPrecise(atom_list.items.len);
@@ -3910,6 +3916,20 @@ fn sortShdrs(self: *Elf) !void {
     }
 
     {
+        var output_sections = try self.output_sections.clone(gpa);
+        defer output_sections.deinit(gpa);
+
+        self.output_sections.clearRetainingCapacity();
+
+        var it = output_sections.iterator();
+        while (it.next()) |entry| {
+            const shndx = entry.key_ptr.*;
+            const meta = entry.value_ptr.*;
+            self.output_sections.putAssumeCapacityNoClobber(backlinks[shndx], meta);
+        }
+    }
+
+    {
         var last_atom_and_free_list_table = try self.last_atom_and_free_list_table.clone(gpa);
         defer last_atom_and_free_list_table.deinit(gpa);
 
@@ -3962,7 +3982,6 @@ fn sortShdrs(self: *Elf) !void {
 
 fn updateSectionSizes(self: *Elf) !void {
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
-        if (atom_list.items.len == 0) continue;
         const shdr = &self.shdrs.items[shndx];
         for (atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
@@ -4056,7 +4075,6 @@ fn updateSectionSizes(self: *Elf) !void {
 
 fn updateSectionSizesObject(self: *Elf) !void {
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
-        if (atom_list.items.len == 0) continue;
         const shdr = &self.shdrs.items[shndx];
         for (atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
@@ -4317,7 +4335,6 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
 /// Allocates alloc sections when merging relocatable objects files together.
 fn allocateAllocSectionsObject(self: *Elf) !void {
     _ = self;
-    @panic("TODO");
 }
 
 /// Allocates non-alloc sections (debug info, symtabs, etc.).
@@ -4444,6 +4461,7 @@ fn writeAtoms(self: *Elf) !void {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
 
         const atom_list = self.output_sections.get(@intCast(shndx)) orelse continue;
+        if (atom_list.items.len == 0) continue;
 
         log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
 
@@ -4519,6 +4537,7 @@ fn writeAtomsObject(self: *Elf) !void {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
 
         const atom_list = self.output_sections.get(@intCast(shndx)) orelse continue;
+        if (atom_list.items.len == 0) continue;
 
         log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
 
@@ -4617,6 +4636,11 @@ fn updateSymtabSize(self: *Elf) void {
         sizes.add(file_ptr.linker_defined.output_symtab_size);
     }
 
+    // Section symbols
+    for (self.output_sections.keys()) |_| {
+        sizes.nlocals += 1;
+    }
+
     const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
     symtab_shdr.sh_info = sizes.nlocals + 1;
     symtab_shdr.sh_link = self.strtab_section_index.?;
@@ -4632,9 +4656,16 @@ fn updateSymtabSize(self: *Elf) void {
     strtab.sh_size = sizes.strsize + 1;
 }
 
-fn updateSymtabSizeObject(self: *Elf, zig_object: *ZigObject) void {
+fn updateSymtabSizeZigObject(self: *Elf, zig_object: *ZigObject) void {
+    var sizes = SymtabSize{};
+
     zig_object.asFile().updateSymtabSize(self);
-    const sizes = zig_object.output_symtab_size;
+    sizes.add(zig_object.output_symtab_size);
+
+    // Section symbols
+    for (self.output_sections.keys()) |_| {
+        sizes.nlocals += 1;
+    }
 
     const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
     symtab_shdr.sh_info = sizes.nlocals + 1;
@@ -4798,7 +4829,7 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrame(self, buffer.writer());
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        // try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
     try self.writeSymtab();
@@ -4811,6 +4842,16 @@ fn writeShStrtab(self: *Elf) !void {
         try self.base.file.?.pwriteAll(self.shstrtab.items, shdr.sh_offset);
     }
 }
+
+const WriteSymtabCtx = struct {
+    ilocal: usize,
+    iglobal: usize,
+
+    fn incr(this: *@This(), ss: SymtabSize) void {
+        this.ilocal += ss.nlocals;
+        this.iglobal += ss.nglobals;
+    }
+};
 
 fn writeSymtab(self: *Elf) !void {
     const gpa = self.base.allocator;
@@ -4828,19 +4869,12 @@ fn writeSymtab(self: *Elf) !void {
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
-    const Ctx = struct {
-        ilocal: usize,
-        iglobal: usize,
-
-        fn incr(this: *@This(), ss: SymtabSize) void {
-            this.ilocal += ss.nlocals;
-            this.iglobal += ss.nglobals;
-        }
-    };
-    var ctx: Ctx = .{
+    var ctx: WriteSymtabCtx = .{
         .ilocal = 1,
         .iglobal = symtab_shdr.sh_info,
     };
+
+    ctx.incr(self.writeSectionSymbols(ctx));
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self, ctx);
@@ -4915,7 +4949,7 @@ fn writeSymtab(self: *Elf) !void {
     try self.base.file.?.pwriteAll(self.strtab.items, strtab_shdr.sh_offset);
 }
 
-fn writeSymtabObject(self: *Elf, zig_object: *ZigObject) !void {
+fn writeSymtabZigObject(self: *Elf, zig_object: *ZigObject) !void {
     const gpa = self.base.allocator;
     const symtab_shdr = self.shdrs.items[self.symtab_section_index.?];
     const strtab_shdr = self.shdrs.items[self.strtab_section_index.?];
@@ -4931,7 +4965,15 @@ fn writeSymtabObject(self: *Elf, zig_object: *ZigObject) !void {
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
-    zig_object.asFile().writeSymtab(self, .{ .ilocal = 1, .iglobal = symtab_shdr.sh_info });
+    var ctx: WriteSymtabCtx = .{
+        .ilocal = 1,
+        .iglobal = symtab_shdr.sh_info,
+    };
+
+    ctx.incr(self.writeSectionSymbols(ctx));
+
+    zig_object.asFile().writeSymtab(self, ctx);
+    ctx.incr(zig_object.output_symtab_size);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
@@ -4961,6 +5003,24 @@ fn writeSymtabObject(self: *Elf, zig_object: *ZigObject) !void {
     }
 
     try self.base.file.?.pwriteAll(self.strtab.items, strtab_shdr.sh_offset);
+}
+
+fn writeSectionSymbols(self: *Elf, ctx: WriteSymtabCtx) SymtabSize {
+    var ilocal = ctx.ilocal;
+    for (self.output_sections.keys()) |shndx| {
+        const shdr = self.shdrs.items[shndx];
+        const out_sym = &self.symtab.items[ilocal];
+        out_sym.* = .{
+            .st_name = 0,
+            .st_value = shdr.sh_addr,
+            .st_info = elf.STT_SECTION,
+            .st_shndx = @intCast(shndx),
+            .st_size = 0,
+            .st_other = 0,
+        };
+        ilocal += 1;
+    }
+    return .{ .nlocals = @intCast(ilocal - ctx.ilocal) };
 }
 
 /// Always 4 or 8 depending on whether this is 32-bit ELF or 64-bit ELF.
