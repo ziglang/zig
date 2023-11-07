@@ -288,7 +288,9 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
         self.files.set(index, .{ .zig_object = .{
             .index = index,
-            .path = options.module.?.main_mod.root_src_path,
+            .path = try std.fmt.allocPrint(self.base.allocator, "{s}.o", .{std.fs.path.stem(
+                options.module.?.main_mod.root_src_path,
+            )}),
         } });
         self.zig_object_index = index;
         try self.zigObjectPtr().?.init(self);
@@ -940,14 +942,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    if (self.isRelocatable() and self.zig_object_index == null) {
-        if (self.isStaticLib()) {
-            var err = try self.addErrorWithNotes(0);
-            try err.addMsg(self, "fatal linker error: emitting static libs unimplemented", .{});
-            return;
-        }
+    if (self.isObject() and self.zig_object_index == null) {
         // TODO this will become -r route I guess. For now, just copy the object file.
-        assert(self.base.file == null); // TODO uncomment once we implement -r
         const the_object_path = blk: {
             if (self.base.options.objects.len != 0) {
                 break :blk self.base.options.objects[0].path;
@@ -1287,8 +1283,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try positionals.append(.{ .path = ssp.full_object_path });
     }
 
-    if (self.isStaticLib()) return self.flushStaticLib(comp, positionals.items);
-
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
@@ -1392,6 +1386,16 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
+    if (self.isStaticLib()) return self.flushStaticLib(comp);
+
+    // Init all objects
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.init(self);
+    }
+    for (self.shared_objects.items) |index| {
+        try self.file(index).?.shared_object.init(self);
     }
 
     // Dedup shared objects
@@ -1523,18 +1527,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 }
 
-pub fn flushStaticLib(
-    self: *Elf,
-    comp: *Compilation,
-    positionals: []const Compilation.LinkObject,
-) link.File.FlushError!void {
+pub fn flushStaticLib(self: *Elf, comp: *Compilation) link.File.FlushError!void {
     _ = comp;
-    if (positionals.len > 0) {
-        var err = try self.addErrorWithNotes(1);
-        try err.addMsg(self, "fatal linker error: too many input positionals", .{});
-        try err.addNote(self, "TODO implement linking objects into an static library", .{});
-        return;
-    }
     const gpa = self.base.allocator;
 
     // First, we flush relocatable object file generated with our backends.
@@ -1546,27 +1540,33 @@ pub fn flushStaticLib(
         try self.initShStrtab();
         try self.sortShdrs();
         zig_object.updateRelaSectionSizes(self);
-        try self.updateSymtabSize();
+        self.updateSymtabSizeObject(zig_object);
         self.updateShStrtabSize();
 
         try self.allocateNonAllocSections();
 
         try self.writeShdrTable();
         try zig_object.writeRelaSections(self);
-        try self.writeSymtab();
+        try self.writeSymtabObject(zig_object);
         try self.writeShStrtab();
         try self.writeElfHeader();
     }
 
-    // TODO parse positionals that we want to make part of the archive
+    var files = std.ArrayList(File.Index).init(gpa);
+    defer files.deinit();
+    try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
+    // Note to self: we currently must have ZigObject written out first as we write the object
+    // file into the same file descriptor and then re-read its contents.
+    // TODO implement writing ZigObject to a buffer instead of file.
+    if (self.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
+    for (self.objects.items) |index| files.appendAssumeCapacity(index);
 
-    // TODO update ar symtab from parsed positionals
-
+    // Update ar symtab from parsed objects
     var ar_symtab: Archive.ArSymtab = .{};
     defer ar_symtab.deinit(gpa);
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.updateArSymtab(&ar_symtab, self);
+    for (files.items) |index| {
+        try self.file(index).?.updateArSymtab(&ar_symtab, self);
     }
 
     ar_symtab.sort();
@@ -1575,25 +1575,32 @@ pub fn flushStaticLib(
     var ar_strtab: Archive.ArStrtab = .{};
     defer ar_strtab.deinit(gpa);
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.updateArStrtab(gpa, &ar_strtab);
-        zig_object.updateArSize(self);
+    for (files.items) |index| {
+        const file_ptr = self.file(index).?;
+        try file_ptr.updateArStrtab(gpa, &ar_strtab);
+        file_ptr.updateArSize(self);
     }
 
     // Update file offsets of contributing objects.
     const total_size: usize = blk: {
-        var pos: usize = Archive.SARMAG;
-        pos += @sizeOf(Archive.ar_hdr) + ar_symtab.size(.p64);
+        var pos: usize = elf.ARMAG.len;
+        pos += @sizeOf(elf.ar_hdr) + ar_symtab.size(.p64);
 
         if (ar_strtab.size() > 0) {
             pos = mem.alignForward(usize, pos, 2);
-            pos += @sizeOf(Archive.ar_hdr) + ar_strtab.size();
+            pos += @sizeOf(elf.ar_hdr) + ar_strtab.size();
         }
 
-        if (self.zigObjectPtr()) |zig_object| {
+        for (files.items) |index| {
+            const file_ptr = self.file(index).?;
+            const state = switch (file_ptr) {
+                .zig_object => |x| &x.output_ar_state,
+                .object => |x| &x.output_ar_state,
+                else => unreachable,
+            };
             pos = mem.alignForward(usize, pos, 2);
-            zig_object.output_ar_state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr) + (math.cast(usize, zig_object.output_ar_state.size) orelse return error.Overflow);
+            state.file_off = pos;
+            pos += @sizeOf(elf.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
         }
 
         break :blk pos;
@@ -1609,7 +1616,7 @@ pub fn flushStaticLib(
     try buffer.ensureTotalCapacityPrecise(total_size);
 
     // Write magic
-    try buffer.writer().writeAll(Archive.ARMAG);
+    try buffer.writer().writeAll(elf.ARMAG);
 
     // Write symtab
     try ar_symtab.write(.p64, self, buffer.writer());
@@ -1621,9 +1628,9 @@ pub fn flushStaticLib(
     }
 
     // Write object files
-    if (self.zigObjectPtr()) |zig_object| {
+    for (files.items) |index| {
         if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try zig_object.writeAr(self, buffer.writer());
+        try self.file(index).?.writeAr(self, buffer.writer());
     }
 
     assert(buffer.items.len == total_size);
@@ -4054,7 +4061,7 @@ fn updateSectionSizes(self: *Elf) !void {
         self.shdrs.items[index].sh_size = self.verneed.size();
     }
 
-    try self.updateSymtabSize();
+    self.updateSymtabSize();
     self.updateShStrtabSize();
 }
 
@@ -4477,7 +4484,7 @@ fn writeAtoms(self: *Elf) !void {
     try self.reportUndefined(&undefs);
 }
 
-fn updateSymtabSize(self: *Elf) !void {
+fn updateSymtabSize(self: *Elf) void {
     var sizes = SymtabSize{};
 
     if (self.zigObjectPtr()) |zig_object| {
@@ -4522,6 +4529,25 @@ fn updateSymtabSize(self: *Elf) !void {
         file_ptr.updateSymtabSize(self);
         sizes.add(file_ptr.linker_defined.output_symtab_size);
     }
+
+    const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
+    symtab_shdr.sh_info = sizes.nlocals + 1;
+    symtab_shdr.sh_link = self.strtab_section_index.?;
+
+    const sym_size: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Sym),
+        .p64 => @sizeOf(elf.Elf64_Sym),
+    };
+    const needed_size = (sizes.nlocals + sizes.nglobals + 1) * sym_size;
+    symtab_shdr.sh_size = needed_size;
+
+    const strtab = &self.shdrs.items[self.strtab_section_index.?];
+    strtab.sh_size = sizes.strsize + 1;
+}
+
+fn updateSymtabSizeObject(self: *Elf, zig_object: *ZigObject) void {
+    zig_object.asFile().updateSymtabSize(self);
+    const sizes = zig_object.output_symtab_size;
 
     const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
     symtab_shdr.sh_info = sizes.nlocals + 1;
@@ -4751,6 +4777,54 @@ fn writeSymtab(self: *Elf) !void {
         file_ptr.writeSymtab(self, ctx);
         ctx.incr(file_ptr.linker_defined.output_symtab_size);
     }
+
+    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    switch (self.ptr_width) {
+        .p32 => {
+            const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
+            defer gpa.free(buf);
+
+            for (buf, self.symtab.items) |*out, sym| {
+                out.* = .{
+                    .st_name = sym.st_name,
+                    .st_info = sym.st_info,
+                    .st_other = sym.st_other,
+                    .st_shndx = sym.st_shndx,
+                    .st_value = @as(u32, @intCast(sym.st_value)),
+                    .st_size = @as(u32, @intCast(sym.st_size)),
+                };
+                if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), symtab_shdr.sh_offset);
+        },
+        .p64 => {
+            if (foreign_endian) {
+                for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
+            }
+            try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), symtab_shdr.sh_offset);
+        },
+    }
+
+    try self.base.file.?.pwriteAll(self.strtab.items, strtab_shdr.sh_offset);
+}
+
+fn writeSymtabObject(self: *Elf, zig_object: *ZigObject) !void {
+    const gpa = self.base.allocator;
+    const symtab_shdr = self.shdrs.items[self.symtab_section_index.?];
+    const strtab_shdr = self.shdrs.items[self.strtab_section_index.?];
+    const sym_size: u64 = switch (self.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Sym),
+        .p64 => @sizeOf(elf.Elf64_Sym),
+    };
+    const nsyms = math.cast(usize, @divExact(symtab_shdr.sh_size, sym_size)) orelse return error.Overflow;
+
+    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, symtab_shdr.sh_offset });
+
+    try self.symtab.resize(gpa, nsyms);
+    const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
+    try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
+
+    zig_object.asFile().writeSymtab(self, .{ .ilocal = 1, .iglobal = symtab_shdr.sh_info });
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
