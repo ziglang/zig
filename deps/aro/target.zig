@@ -2,7 +2,7 @@ const std = @import("std");
 const LangOpts = @import("LangOpts.zig");
 const Type = @import("Type.zig");
 const llvm = @import("zig").codegen.llvm;
-const TargetSet = @import("builtins/Properties.zig").TargetSet;
+const TargetSet = @import("Builtins/Properties.zig").TargetSet;
 
 /// intmax_t for this target
 pub fn intMaxType(target: std.Target) Type {
@@ -349,8 +349,7 @@ pub fn isCygwinMinGW(target: std.Target) bool {
 }
 
 pub fn builtinEnabled(target: std.Target, enabled_for: TargetSet) bool {
-    var copy = enabled_for;
-    var it = copy.iterator();
+    var it = enabled_for.iterator();
     while (it.next()) |val| {
         switch (val) {
             .basic => return true,

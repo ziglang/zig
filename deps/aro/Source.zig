@@ -74,7 +74,10 @@ pub fn lineCol(source: Source, loc: Location) LineCol {
             i += 1;
             continue;
         };
-        const cp = std.unicode.utf8Decode(source.buf[i..][0..len]) catch unreachable;
+        const cp = std.unicode.utf8Decode(source.buf[i..][0..len]) catch {
+            i += 1;
+            continue;
+        };
         width += codepointWidth(cp);
         i += len;
     }

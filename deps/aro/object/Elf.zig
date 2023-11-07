@@ -20,7 +20,7 @@ const Symbol = struct {
     info: u8,
 };
 
-const Relocation = packed struct {
+const Relocation = struct {
     symbol: *Symbol,
     addend: i64,
     offset: u48,
