@@ -127,9 +127,9 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn updateSymtabSize(file: File, elf_file: *Elf) void {
-        const output_symtab_size = switch (file) {
-            inline else => |x| &x.output_symtab_size,
+    pub fn updateSymtabSize(file: File, elf_file: *Elf) !void {
+        const output_symtab_ctx = switch (file) {
+            inline else => |x| &x.output_symtab_ctx,
         };
         for (file.locals()) |local_index| {
             const local = elf_file.symbol(local_index);
@@ -140,8 +140,9 @@ pub const File = union(enum) {
                 else => {},
             }
             local.flags.output_symtab = true;
-            output_symtab_size.nlocals += 1;
-            output_symtab_size.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
+            try local.setOutputSymtabIndex(output_symtab_ctx.nlocals, elf_file);
+            output_symtab_ctx.nlocals += 1;
+            output_symtab_ctx.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
         }
 
         for (file.globals()) |global_index| {
@@ -151,28 +152,28 @@ pub const File = union(enum) {
             if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
             global.flags.output_symtab = true;
             if (global.isLocal(elf_file)) {
-                output_symtab_size.nlocals += 1;
+                try global.setOutputSymtabIndex(output_symtab_ctx.nlocals, elf_file);
+                output_symtab_ctx.nlocals += 1;
             } else {
-                output_symtab_size.nglobals += 1;
+                try global.setOutputSymtabIndex(output_symtab_ctx.nglobals, elf_file);
+                output_symtab_ctx.nglobals += 1;
             }
-            output_symtab_size.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+            output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
         }
     }
 
-    pub fn writeSymtab(file: File, elf_file: *Elf, ctx: anytype) void {
-        var ilocal: usize = ctx.ilocal;
+    pub fn writeSymtab(file: File, elf_file: *Elf) void {
         for (file.locals()) |local_index| {
             const local = elf_file.symbol(local_index);
             if (!local.flags.output_symtab) continue;
-            const out_sym = &elf_file.symtab.items[ilocal];
+            const idx = local.outputSymtabIndex(elf_file);
+            const out_sym = &elf_file.symtab.items[idx];
             out_sym.st_name = @intCast(elf_file.strtab.items.len);
             elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
             elf_file.strtab.appendAssumeCapacity(0);
             local.setOutputSym(elf_file, out_sym);
-            ilocal += 1;
         }
 
-        var iglobal: usize = ctx.iglobal;
         for (file.globals()) |global_index| {
             const global = elf_file.symbol(global_index);
             const file_ptr = global.file(elf_file) orelse continue;
@@ -181,17 +182,10 @@ pub const File = union(enum) {
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
             elf_file.strtab.appendAssumeCapacity(0);
-            if (global.isLocal(elf_file)) {
-                const out_sym = &elf_file.symtab.items[ilocal];
-                out_sym.st_name = st_name;
-                global.setOutputSym(elf_file, out_sym);
-                ilocal += 1;
-            } else {
-                const out_sym = &elf_file.symtab.items[iglobal];
-                out_sym.st_name = st_name;
-                global.setOutputSym(elf_file, out_sym);
-                iglobal += 1;
-            }
+            const idx = global.outputSymtabIndex(elf_file);
+            const out_sym = &elf_file.symtab.items[idx];
+            out_sym.st_name = st_name;
+            global.setOutputSym(elf_file, out_sym);
         }
     }
 

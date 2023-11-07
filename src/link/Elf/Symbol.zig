@@ -107,6 +107,24 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
     return symbol.value;
 }
 
+pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) u32 {
+    assert(symbol.flags.output_symtab);
+    const file_ptr = symbol.file(elf_file).?;
+    const symtab_ctx = switch (file_ptr) {
+        inline else => |x| x.output_symtab_ctx,
+    };
+    const idx = symbol.extra(elf_file).?.symtab;
+    return if (symbol.isLocal(elf_file)) idx + symtab_ctx.ilocal else idx + symtab_ctx.iglobal;
+}
+
+pub fn setOutputSymtabIndex(symbol: *Symbol, index: u32, elf_file: *Elf) !void {
+    if (symbol.extra(elf_file)) |extras| {
+        var new_extras = extras;
+        new_extras.symtab = index;
+        symbol.setExtra(new_extras, elf_file);
+    } else try symbol.addExtra(.{ .symtab = index }, elf_file);
+}
+
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
     if (!symbol.flags.has_got) return 0;
     const extras = symbol.extra(elf_file).?;
@@ -388,6 +406,7 @@ pub const Extra = struct {
     plt: u32 = 0,
     plt_got: u32 = 0,
     dynamic: u32 = 0,
+    symtab: u32 = 0,
     copy_rel: u32 = 0,
     tlsgd: u32 = 0,
     gottp: u32 = 0,

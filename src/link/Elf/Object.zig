@@ -19,7 +19,7 @@ cies: std.ArrayListUnmanaged(Cie) = .{},
 alive: bool = true,
 num_dynrelocs: u32 = 0,
 
-output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 pub fn isObject(path: []const u8) !bool {
@@ -672,22 +672,19 @@ pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn updateRelaSectionsSizes(self: Object, elf_file: *Elf) void {
+pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
         const shndx = atom.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = self.initOutputSection(elf_file, shdr) catch unreachable;
-        const out_shdr = &elf_file.shdrs.items[out_shndx];
-        const relocs = atom.relocs(elf_file);
-        out_shdr.sh_size += out_shdr.sh_entsize * relocs.len;
-    }
-}
 
-pub fn writeRelaSections(self: Object, elf_file: *Elf) !void {
-    _ = self;
-    _ = elf_file;
+        const gpa = elf_file.base.allocator;
+        const gop = try elf_file.output_rela_sections.getOrPut(gpa, out_shndx);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        try gop.value_ptr.append(gpa, atom_index);
+    }
 }
 
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {

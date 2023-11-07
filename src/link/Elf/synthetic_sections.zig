@@ -222,7 +222,7 @@ pub const DynamicSection = struct {
 
 pub const ZigGotSection = struct {
     entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
-    output_symtab_size: Elf.SymtabSize = .{},
+    output_symtab_ctx: Elf.SymtabCtx = .{},
     flags: Flags = .{},
 
     const Flags = packed struct {
@@ -359,15 +359,15 @@ pub const ZigGotSection = struct {
     }
 
     pub fn updateSymtabSize(zig_got: *ZigGotSection, elf_file: *Elf) void {
-        zig_got.output_symtab_size.nlocals = @as(u32, @intCast(zig_got.entries.items.len));
+        zig_got.output_symtab_ctx.nlocals = @as(u32, @intCast(zig_got.entries.items.len));
         for (zig_got.entries.items) |entry| {
             const name = elf_file.symbol(entry).name(elf_file);
-            zig_got.output_symtab_size.strsize += @as(u32, @intCast(name.len + "$ziggot".len)) + 1;
+            zig_got.output_symtab_ctx.strsize += @as(u32, @intCast(name.len + "$ziggot".len)) + 1;
         }
     }
 
-    pub fn writeSymtab(zig_got: ZigGotSection, elf_file: *Elf, ctx: anytype) void {
-        for (zig_got.entries.items, ctx.ilocal.., 0..) |entry, ilocal, index| {
+    pub fn writeSymtab(zig_got: ZigGotSection, elf_file: *Elf) void {
+        for (zig_got.entries.items, zig_got.output_symtab_ctx.ilocal.., 0..) |entry, ilocal, index| {
             const symbol = elf_file.symbol(entry);
             const symbol_name = symbol.name(elf_file);
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
@@ -420,7 +420,7 @@ pub const ZigGotSection = struct {
 
 pub const GotSection = struct {
     entries: std.ArrayListUnmanaged(Entry) = .{},
-    output_symtab_size: Elf.SymtabSize = .{},
+    output_symtab_ctx: Elf.SymtabCtx = .{},
     tlsld_index: ?u32 = null,
     flags: Flags = .{},
 
@@ -760,18 +760,18 @@ pub const GotSection = struct {
     }
 
     pub fn updateSymtabSize(got: *GotSection, elf_file: *Elf) void {
-        got.output_symtab_size.nlocals = @as(u32, @intCast(got.entries.items.len));
+        got.output_symtab_ctx.nlocals = @as(u32, @intCast(got.entries.items.len));
         for (got.entries.items) |entry| {
             const symbol_name = switch (entry.tag) {
                 .tlsld => "",
                 inline else => elf_file.symbol(entry.symbol_index).name(elf_file),
             };
-            got.output_symtab_size.strsize += @as(u32, @intCast(symbol_name.len + @tagName(entry.tag).len)) + 1 + 1;
+            got.output_symtab_ctx.strsize += @as(u32, @intCast(symbol_name.len + @tagName(entry.tag).len)) + 1 + 1;
         }
     }
 
-    pub fn writeSymtab(got: GotSection, elf_file: *Elf, ctx: anytype) void {
-        for (got.entries.items, ctx.ilocal..) |entry, ilocal| {
+    pub fn writeSymtab(got: GotSection, elf_file: *Elf) void {
+        for (got.entries.items, got.output_symtab_ctx.ilocal..) |entry, ilocal| {
             const symbol = switch (entry.tag) {
                 .tlsld => null,
                 inline else => elf_file.symbol(entry.symbol_index),
@@ -831,7 +831,7 @@ pub const GotSection = struct {
 
 pub const PltSection = struct {
     symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-    output_symtab_size: Elf.SymtabSize = .{},
+    output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub const preamble_size = 32;
 
@@ -909,15 +909,15 @@ pub const PltSection = struct {
     }
 
     pub fn updateSymtabSize(plt: *PltSection, elf_file: *Elf) void {
-        plt.output_symtab_size.nlocals = @as(u32, @intCast(plt.symbols.items.len));
+        plt.output_symtab_ctx.nlocals = @as(u32, @intCast(plt.symbols.items.len));
         for (plt.symbols.items) |sym_index| {
             const name = elf_file.symbol(sym_index).name(elf_file);
-            plt.output_symtab_size.strsize += @as(u32, @intCast(name.len + "$plt".len)) + 1;
+            plt.output_symtab_ctx.strsize += @as(u32, @intCast(name.len + "$plt".len)) + 1;
         }
     }
 
-    pub fn writeSymtab(plt: PltSection, elf_file: *Elf, ctx: anytype) void {
-        var ilocal = ctx.ilocal;
+    pub fn writeSymtab(plt: PltSection, elf_file: *Elf) void {
+        var ilocal = plt.output_symtab_ctx.ilocal;
         for (plt.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
@@ -968,7 +968,7 @@ pub const GotPltSection = struct {
 
 pub const PltGotSection = struct {
     symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-    output_symtab_size: Elf.SymtabSize = .{},
+    output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(plt_got: *PltGotSection, allocator: Allocator) void {
         plt_got.symbols.deinit(allocator);
@@ -1008,15 +1008,15 @@ pub const PltGotSection = struct {
     }
 
     pub fn updateSymtabSize(plt_got: *PltGotSection, elf_file: *Elf) void {
-        plt_got.output_symtab_size.nlocals = @as(u32, @intCast(plt_got.symbols.items.len));
+        plt_got.output_symtab_ctx.nlocals = @as(u32, @intCast(plt_got.symbols.items.len));
         for (plt_got.symbols.items) |sym_index| {
             const name = elf_file.symbol(sym_index).name(elf_file);
-            plt_got.output_symtab_size.strsize += @as(u32, @intCast(name.len + "$pltgot".len)) + 1;
+            plt_got.output_symtab_ctx.strsize += @as(u32, @intCast(name.len + "$pltgot".len)) + 1;
         }
     }
 
-    pub fn writeSymtab(plt_got: PltGotSection, elf_file: *Elf, ctx: anytype) void {
-        var ilocal = ctx.ilocal;
+    pub fn writeSymtab(plt_got: PltGotSection, elf_file: *Elf) void {
+        var ilocal = plt_got.output_symtab_ctx.ilocal;
         for (plt_got.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));

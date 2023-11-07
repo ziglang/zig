@@ -293,6 +293,32 @@ pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
     };
 }
 
+pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
+    const file_ptr = self.file(elf_file).?;
+    for (self.relocs(elf_file)) |rel| {
+        const target_index = switch (file_ptr) {
+            .zig_object => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
+            else => unreachable,
+        };
+        const target = elf_file.symbol(target_index);
+        const r_sym = target.outputSymtabIndex(elf_file);
+        const r_offset = self.value + rel.r_offset;
+        const r_addend = rel.r_addend;
+        const r_type = switch (rel.r_type()) {
+            Elf.R_X86_64_ZIG_GOT32,
+            Elf.R_X86_64_ZIG_GOTPCREL,
+            => unreachable, // Sanity check if we accidentally emitted those.
+            else => |r_type| r_type,
+        };
+        out_relocs.appendAssumeCapacity(.{
+            .r_offset = r_offset,
+            .r_addend = r_addend,
+            .r_info = (@as(u64, @intCast(r_sym)) << 32) | r_type,
+        });
+    }
+}
+
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
     if (self.fde_start == self.fde_end) return &[0]Fde{};
     const object = self.file(elf_file).?.object;
