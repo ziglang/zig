@@ -1869,6 +1869,126 @@ test "reinterpret packed union inside packed struct" {
     try S.doTheTest();
 }
 
+test "inner struct initializer uses union layout" {
+    const namespace = struct {
+        const U = union {
+            a: struct {
+                x: u32 = @alignOf(U) + 1,
+            },
+            b: struct {
+                y: u16 = @sizeOf(U) + 2,
+            },
+        };
+    };
+
+    {
+        const u: namespace.U = .{ .a = .{} };
+        try expectEqual(4, @alignOf(namespace.U));
+        try expectEqual(@as(usize, 5), u.a.x);
+    }
+
+    {
+        const u: namespace.U = .{ .b = .{} };
+        try expectEqual(@as(usize, @sizeOf(namespace.U) + 2), u.b.y);
+    }
+}
+
+test "inner struct initializer uses packed union layout" {
+    const namespace = struct {
+        const U = packed union {
+            a: packed struct {
+                x: u32 = @alignOf(U) + 1,
+            },
+            b: packed struct {
+                y: u16 = @sizeOf(U) + 2,
+            },
+        };
+    };
+
+    {
+        const u: namespace.U = .{ .a = .{} };
+        try expectEqual(4, @alignOf(namespace.U));
+        try expectEqual(@as(usize, 5), u.a.x);
+    }
+
+    {
+        const u: namespace.U = .{ .b = .{} };
+        try expectEqual(@as(usize, @sizeOf(namespace.U) + 2), u.b.y);
+    }
+}
+
+test "extern union initialized via reintepreted struct field initializer" {
+    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
+
+    const U = extern union {
+        a: u32,
+        b: u8,
+    };
+
+    const S = extern struct {
+        u: U = std.mem.bytesAsValue(U, &bytes).*,
+    };
+
+    const s: S = .{};
+    try expect(s.u.a == littleToNativeEndian(u32, 0xddccbbaa));
+    try expect(s.u.b == 0xaa);
+}
+
+test "packed union initialized via reintepreted struct field initializer" {
+    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
+
+    const U = packed union {
+        a: u32,
+        b: u8,
+    };
+
+    const S = packed struct {
+        u: U = std.mem.bytesAsValue(U, &bytes).*,
+    };
+
+    var s: S = .{};
+    try expect(s.u.a == littleToNativeEndian(u32, 0xddccbbaa));
+    try expect(s.u.b == if (endian == .little) 0xaa else 0xdd);
+}
+
+test "store of comptime reinterpreted memory to extern union" {
+    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
+
+    const U = extern union {
+        a: u32,
+        b: u8,
+    };
+
+    const reinterpreted = comptime b: {
+        var u: U = undefined;
+        u = std.mem.bytesAsValue(U, &bytes).*;
+        break :b u;
+    };
+
+    var u: U = reinterpreted;
+    try expect(u.a == littleToNativeEndian(u32, 0xddccbbaa));
+    try expect(u.b == 0xaa);
+}
+
+test "store of comptime reinterpreted memory to packed union" {
+    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
+
+    const U = packed union {
+        a: u32,
+        b: u8,
+    };
+
+    const reinterpreted = comptime b: {
+        var u: U = undefined;
+        u = std.mem.bytesAsValue(U, &bytes).*;
+        break :b u;
+    };
+
+    var u: U = reinterpreted;
+    try expect(u.a == littleToNativeEndian(u32, 0xddccbbaa));
+    try expect(u.b == if (endian == .little) 0xaa else 0xdd);
+}
+
 test "union field is a pointer to an aligned version of itself" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
@@ -1901,4 +2021,24 @@ test "pass register-sized field as non-register-sized union" {
     try S.taggedUnion(.{ .x = x });
     try S.untaggedUnion(.{ .x = x });
     try S.externUnion(.{ .x = x });
+}
+
+test "circular dependency through pointer field of a union" {
+    const S = struct {
+        const UnionInner = extern struct {
+            outer: UnionOuter = std.mem.zeroes(UnionOuter),
+        };
+
+        const UnionMiddle = extern union {
+            outer: ?*UnionOuter,
+            inner: ?*UnionInner,
+        };
+
+        const UnionOuter = extern struct {
+            u: UnionMiddle = std.mem.zeroes(UnionMiddle),
+        };
+    };
+    var outer: S.UnionOuter = .{};
+    try expect(outer.u.outer == null);
+    try expect(outer.u.inner == null);
 }

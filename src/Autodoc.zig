@@ -3808,6 +3808,11 @@ fn walkInstruction(
                         call_ctx,
                     );
 
+                    // Inside field init bodies, the struct decl instruction is used to refer to the
+                    // field type during the second pass of analysis.
+                    try self.repurposed_insts.put(self.arena, inst, {});
+                    defer _ = self.repurposed_insts.remove(inst);
+
                     var field_type_refs: std.ArrayListUnmanaged(DocData.Expr) = .{};
                     var field_default_refs: std.ArrayListUnmanaged(?DocData.Expr) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
