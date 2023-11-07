@@ -1040,12 +1040,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    // stack-protector.
-    // Related: https://github.com/ziglang/zig/issues/7265
-    if (comp.libssp_static_lib) |ssp| {
-        try positionals.append(.{ .path = ssp.full_object_path });
-    }
-
     for (positionals.items) |obj| {
         var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
@@ -1687,12 +1681,6 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
-        }
-
-        // stack-protector.
-        // Related: https://github.com/ziglang/zig/issues/7265
-        if (comp.libssp_static_lib) |ssp| {
-            try argv.append(ssp.full_object_path);
         }
 
         // Shared libraries.
@@ -2727,12 +2715,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
-        }
-
-        // stack-protector.
-        // Related: https://github.com/ziglang/zig/issues/7265
-        if (comp.libssp_static_lib) |ssp| {
-            try argv.append(ssp.full_object_path);
         }
 
         // Shared libraries.
