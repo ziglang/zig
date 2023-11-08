@@ -29436,6 +29436,7 @@ fn coerceVarArgParam(
             }
         },
         else => if (uncasted_ty.isAbiInt(mod)) int: {
+            if (!try sema.validateExternType(uncasted_ty, .param_ty)) break :int inst;
             const target = sema.mod.getTarget();
             const uncasted_info = uncasted_ty.intInfo(mod);
             if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
