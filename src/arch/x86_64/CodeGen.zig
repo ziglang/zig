@@ -4877,11 +4877,14 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
             switch (opt_mcv) {
                 else => unreachable,
 
-                .register => |opt_reg| try self.asmRegisterImmediate(
-                    .{ ._s, .bt },
-                    opt_reg,
-                    Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
-                ),
+                .register => |opt_reg| {
+                    try self.truncateRegister(pl_ty, opt_reg);
+                    try self.asmRegisterImmediate(
+                        .{ ._s, .bt },
+                        opt_reg,
+                        Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
+                    );
+                },
 
                 .load_frame => |frame_addr| try self.asmMemoryImmediate(
                     .{ ._, .mov },
