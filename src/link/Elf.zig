@@ -2041,14 +2041,16 @@ fn claimUnresolved(self: *Elf) void {
         zig_object.claimUnresolved(self);
     }
     for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        object.claimUnresolved(self);
+        self.file(index).?.object.claimUnresolved(self);
     }
 }
 
 fn claimUnresolvedObject(self: *Elf) void {
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.claimUnresolvedObject(self);
+    }
+    for (self.objects.items) |index| {
+        self.file(index).?.object.claimUnresolvedObject(self);
     }
 }
 
@@ -5081,6 +5083,10 @@ fn writeSectionSymbols(self: *Elf) void {
         };
         ilocal += 1;
     }
+}
+
+pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
+    return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
 
 /// Always 4 or 8 depending on whether this is 32-bit ELF or 64-bit ELF.

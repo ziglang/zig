@@ -491,6 +491,25 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     }
 }
 
+pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
+    const first_global = self.first_global orelse return;
+    for (self.globals(), 0..) |index, i| {
+        const esym_index = @as(u32, @intCast(first_global + i));
+        const esym = self.symtab.items[esym_index];
+        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+
+        const global = elf_file.symbol(index);
+        if (global.file(elf_file)) |file| {
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or file.index() <= self.index) continue;
+        }
+
+        global.value = 0;
+        global.atom_index = 0;
+        global.esym_index = esym_index;
+        global.file_index = self.index;
+    }
+}
+
 pub fn markLive(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {

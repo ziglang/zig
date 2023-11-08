@@ -377,8 +377,7 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
 
         const global = elf_file.symbol(index);
         if (global.file(elf_file)) |file| {
-            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or
-                file.index() <= self.index) continue;
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or file.index() <= self.index) continue;
         }
 
         global.value = 0;
