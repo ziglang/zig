@@ -292,7 +292,7 @@ test "stringify vector" {
 }
 
 test "stringify tuple" {
-    try testStringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, .{});
+    try testStringify("[\"foo\",42]", (struct { []const u8, usize }){ "foo", 42 }, .{});
 }
 
 fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {

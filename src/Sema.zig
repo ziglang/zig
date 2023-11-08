@@ -23337,7 +23337,7 @@ fn analyzeShuffle(
     if (maybe_a_len == null) a = try mod.undefRef(a_ty) else a = try sema.coerce(block, a_ty, a, a_src);
     if (maybe_b_len == null) b = try mod.undefRef(b_ty) else b = try sema.coerce(block, b_ty, b, b_src);
 
-    const operand_info = [2]std.meta.Tuple(&.{ u64, LazySrcLoc, Type }){
+    const operand_info = [2](struct { u64, LazySrcLoc, Type }){
         .{ a_len, a_src, a_ty },
         .{ b_len, b_src, b_ty },
     };

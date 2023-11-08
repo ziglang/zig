@@ -990,17 +990,6 @@ pub fn ArgsTuple(comptime Function: type) type {
     return CreateUniqueTuple(argument_field_list.len, argument_field_list);
 }
 
-/// For a given anonymous list of types, returns a new tuple type
-/// with those types as fields.
-///
-/// Examples:
-/// - `Tuple(&[_]type {})` ⇒ `tuple { }`
-/// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
-/// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
-pub fn Tuple(comptime types: []const type) type {
-    return CreateUniqueTuple(types.len, types[0..types.len].*);
-}
-
 fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
     var tuple_fields: [types.len]std.builtin.Type.StructField = undefined;
     inline for (types, 0..) |T, i| {
@@ -1058,33 +1047,13 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
-test "Tuple" {
-    TupleTester.assertTuple(.{}, Tuple(&[_]type{}));
-    TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
-    TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
-    TupleTester.assertTuple(.{ u32, f16, []const u8, void }, Tuple(&[_]type{ u32, f16, []const u8, void }));
-}
-
-test "Tuple deduplication" {
-    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
-    const T2 = std.meta.Tuple(&.{ u32, f32, i8 });
-    const T3 = std.meta.Tuple(&.{ u32, f32, i7 });
-
-    if (T1 != T2) {
-        @compileError("std.meta.Tuple doesn't deduplicate tuple types.");
-    }
-    if (T1 == T3) {
-        @compileError("std.meta.Tuple fails to generate different types.");
-    }
-}
-
 test "ArgsTuple forwarding" {
-    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
+    const T1 = struct { u32, f32, i8 };
     const T2 = std.meta.ArgsTuple(fn (u32, f32, i8) void);
     const T3 = std.meta.ArgsTuple(fn (u32, f32, i8) callconv(.C) noreturn);
 
     if (T1 != T2) {
-        @compileError("std.meta.ArgsTuple produces different types than std.meta.Tuple");
+        @compileError("std.meta.ArgsTuple produces different types than tuple");
     }
     if (T1 != T3) {
         @compileError("std.meta.ArgsTuple produces different types for the same argument lists.");
