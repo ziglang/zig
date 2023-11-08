@@ -26652,8 +26652,9 @@ fn finishFieldCallBind(
 
     const container_ty = ptr_ty.childType(mod);
     if (container_ty.zigTypeTag(mod) == .Struct) {
-        try sema.resolveStructFieldInits(container_ty);
-        if (try container_ty.structFieldValueComptime(mod, field_index)) |default_val| {
+        if (container_ty.structFieldIsComptime(field_index, mod)) {
+            try sema.resolveStructFieldInits(container_ty);
+            const default_val = (try container_ty.structFieldValueComptime(mod, field_index)).?;
             return .{ .direct = Air.internedToRef(default_val.toIntern()) };
         }
     }
