@@ -2329,7 +2329,8 @@ test "timeout_remove" {
     // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
     var cqes: [2]os.linux.io_uring_cqe = undefined;
-    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+    cqes[0] = try ring.copy_cqe();
+    cqes[1] = try ring.copy_cqe();
 
     for (cqes) |cqe| {
         // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
