@@ -165,8 +165,7 @@ pub const File = union(enum) {
     pub fn writeSymtab(file: File, elf_file: *Elf) void {
         for (file.locals()) |local_index| {
             const local = elf_file.symbol(local_index);
-            if (!local.flags.output_symtab) continue;
-            const idx = local.outputSymtabIndex(elf_file);
+            const idx = local.outputSymtabIndex(elf_file) orelse continue;
             const out_sym = &elf_file.symtab.items[idx];
             out_sym.st_name = @intCast(elf_file.strtab.items.len);
             elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
@@ -178,11 +177,10 @@ pub const File = union(enum) {
             const global = elf_file.symbol(global_index);
             const file_ptr = global.file(elf_file) orelse continue;
             if (file_ptr.index() != file.index()) continue;
-            if (!global.flags.output_symtab) continue;
+            const idx = global.outputSymtabIndex(elf_file) orelse continue;
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
             elf_file.strtab.appendAssumeCapacity(0);
-            const idx = global.outputSymtabIndex(elf_file);
             const out_sym = &elf_file.symtab.items[idx];
             out_sym.st_name = st_name;
             global.setOutputSym(elf_file, out_sym);

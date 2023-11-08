@@ -319,7 +319,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
                 r_sym = elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?);
             },
             else => {
-                r_sym = target.outputSymtabIndex(elf_file);
+                r_sym = target.outputSymtabIndex(elf_file) orelse 0;
             },
         }
 

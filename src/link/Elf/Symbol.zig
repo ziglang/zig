@@ -107,8 +107,8 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
     return symbol.value;
 }
 
-pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) u32 {
-    assert(symbol.flags.output_symtab);
+pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (!symbol.flags.output_symtab) return null;
     const file_ptr = symbol.file(elf_file).?;
     const symtab_ctx = switch (file_ptr) {
         inline else => |x| x.output_symtab_ctx,

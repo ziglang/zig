@@ -538,6 +538,8 @@ pub fn addAtomsToRelaSections(self: ZigObject, elf_file: *Elf) !void {
         if (!atom.flags.alive) continue;
         _ = atom.relocsShndx() orelse continue;
         const out_shndx = atom.outputShndx().?;
+        const out_shdr = elf_file.shdrs.items[out_shndx];
+        if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
 
         const gpa = elf_file.base.allocator;
         const sec = elf_file.output_rela_sections.getPtr(out_shndx).?;
