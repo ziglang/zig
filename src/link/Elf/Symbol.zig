@@ -237,8 +237,8 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_shndx = blk: {
         if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
-            break :blk elf.SHN_ABS;
+        if (elf_file.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
     };
     const st_value = blk: {
@@ -247,7 +247,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.value;
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.value - elf_file.tlsAddress();
