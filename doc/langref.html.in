@@ -6926,6 +6926,27 @@ pub usingnamespace @cImport({
       {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
       over what declarations a given file exposes.
       </p>
+      <p>
+      Another use case is splitting up the declaration of a data structure separately from its implementation:
+      </p>
+      {#syntax_block|zig|separate_impl.zig#}
+const Wine = struct {
+    name: [:0]const u8,
+    year: isize,
+    price: usize,
+    origin: Country,
+    pub usingnamespace _impl_Wine;
+};
+const _impl_Wine = opaque {
+    const Self = Wine;
+    pub fn importTax(self: Self, destCountry: Country) {
+        // ...
+    }
+};
+      {#end_syntax_block#}
+      <p>
+      This may be useful when for reusing the same behaviors across different variants of a data structure.
+      </p>
       {#header_close#}
 
 
