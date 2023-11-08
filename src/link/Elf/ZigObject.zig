@@ -541,9 +541,8 @@ pub fn addAtomsToRelaSections(self: ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom.outputShndx().?;
 
         const gpa = elf_file.base.allocator;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, out_shndx);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, atom_index);
+        const sec = elf_file.output_rela_sections.getPtr(out_shndx).?;
+        try sec.atom_list.append(gpa, atom_index);
     }
 }
 

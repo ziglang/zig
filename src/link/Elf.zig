@@ -18,13 +18,13 @@ shared_objects: std.ArrayListUnmanaged(File.Index) = .{},
 /// Same order as in the file.
 shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
 /// Given index to a section, pulls index of containing phdr if any.
-phdr_to_shdr_table: std.AutoHashMapUnmanaged(u16, u16) = .{},
+phdr_to_shdr_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
 /// File offset into the shdr table.
 shdr_table_offset: ?u64 = null,
 /// Table of lists of atoms per output section.
 /// This table is not used to track incrementally generated atoms.
-output_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.Index)) = .{},
-output_rela_sections: std.AutoArrayHashMapUnmanaged(u16, std.ArrayListUnmanaged(Atom.Index)) = .{},
+output_sections: std.AutoArrayHashMapUnmanaged(u32, std.ArrayListUnmanaged(Atom.Index)) = .{},
+output_rela_sections: std.AutoArrayHashMapUnmanaged(u32, RelaSection) = .{},
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -355,8 +355,8 @@ pub fn deinit(self: *Elf) void {
         list.deinit(gpa);
     }
     self.output_sections.deinit(gpa);
-    for (self.output_rela_sections.values()) |*list| {
-        list.deinit(gpa);
+    for (self.output_rela_sections.values()) |*sec| {
+        sec.atom_list.deinit(gpa);
     }
     self.output_rela_sections.deinit(gpa);
     self.shstrtab.deinit(gpa);
@@ -600,7 +600,9 @@ pub fn initMetadata(self: *Elf) !void {
         fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
         if (self.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(".rela.text.zig", self.zig_text_section_index.?);
-            try self.output_rela_sections.putNoClobber(gpa, rela_shndx, .{});
+            try self.output_rela_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{
+                .shndx = rela_shndx,
+            });
         } else {
             try self.phdr_to_shdr_table.putNoClobber(
                 gpa,
@@ -648,7 +650,9 @@ pub fn initMetadata(self: *Elf) !void {
                 ".rela.data.rel.ro.zig",
                 self.zig_data_rel_ro_section_index.?,
             );
-            try self.output_rela_sections.putNoClobber(gpa, rela_shndx, .{});
+            try self.output_rela_sections.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, .{
+                .shndx = rela_shndx,
+            });
         } else {
             try self.phdr_to_shdr_table.putNoClobber(
                 gpa,
@@ -675,7 +679,9 @@ pub fn initMetadata(self: *Elf) !void {
                 ".rela.data.zig",
                 self.zig_data_section_index.?,
             );
-            try self.output_rela_sections.putNoClobber(gpa, rela_shndx, .{});
+            try self.output_rela_sections.putNoClobber(gpa, self.zig_data_section_index.?, .{
+                .shndx = rela_shndx,
+            });
         } else {
             try self.phdr_to_shdr_table.putNoClobber(
                 gpa,
@@ -793,6 +799,14 @@ pub fn initMetadata(self: *Elf) !void {
             try self.output_sections.putNoClobber(gpa, self.debug_line_section_index.?, .{});
         }
     }
+
+    // We need to find current max assumed file offset, and actually write to file to make it a reality.
+    var end_pos: u64 = 0;
+    for (self.shdrs.items) |shdr| {
+        if (shdr.sh_offset == std.math.maxInt(u64)) continue;
+        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
+    }
+    try self.base.file.?.pwriteAll(&[1]u8{0}, end_pos);
 }
 
 pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
@@ -1521,8 +1535,12 @@ pub fn flushStaticLib(self: *Elf) link.File.FlushError!void {
 
         try self.allocateNonAllocSections();
 
-        try self.writeShdrTable();
+        if (build_options.enable_logging) {
+            state_log.debug("{}", .{self.dumpState()});
+        }
+
         try self.writeSyntheticSectionsObject();
+        try self.writeShdrTable();
         try self.writeElfHeader();
     }
 
@@ -1618,6 +1636,9 @@ pub fn flushObject(self: *Elf) link.File.FlushError!void {
 
     try self.initSectionsObject();
     try self.sortShdrs();
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.addAtomsToRelaSections(self);
+    }
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
         try object.addAtomsToOutputSections(self);
@@ -3925,6 +3946,21 @@ fn sortShdrs(self: *Elf) !void {
     }
 
     {
+        var output_rela_sections = try self.output_rela_sections.clone(gpa);
+        defer output_rela_sections.deinit(gpa);
+
+        self.output_rela_sections.clearRetainingCapacity();
+
+        var it = output_rela_sections.iterator();
+        while (it.next()) |entry| {
+            const shndx = entry.key_ptr.*;
+            var meta = entry.value_ptr.*;
+            meta.shndx = backlinks[meta.shndx];
+            self.output_rela_sections.putAssumeCapacityNoClobber(backlinks[shndx], meta);
+        }
+    }
+
+    {
         var last_atom_and_free_list_table = try self.last_atom_and_free_list_table.clone(gpa);
         defer last_atom_and_free_list_table.deinit(gpa);
 
@@ -4082,14 +4118,16 @@ fn updateSectionSizesObject(self: *Elf) !void {
         }
     }
 
-    for (self.output_rela_sections.keys(), self.output_rela_sections.values()) |shndx, atom_list| {
-        const shdr = &self.shdrs.items[shndx];
-        for (atom_list.items) |atom_index| {
+    for (self.output_rela_sections.values()) |sec| {
+        const shdr = &self.shdrs.items[sec.shndx];
+        for (sec.atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const relocs = atom_ptr.relocs(self);
             shdr.sh_size += shdr.sh_entsize * relocs.len;
         }
+
+        if (shdr.sh_size == 0) shdr.sh_offset = 0;
     }
 
     if (self.eh_frame_section_index) |index| {
@@ -4849,16 +4887,16 @@ fn writeSyntheticSections(self: *Elf) !void {
 fn writeSyntheticSectionsObject(self: *Elf) !void {
     const gpa = self.base.allocator;
 
-    for (self.output_rela_sections.keys(), self.output_rela_sections.values()) |shndx, atom_list| {
-        if (atom_list.items.len == 0) continue;
+    for (self.output_rela_sections.values()) |sec| {
+        if (sec.atom_list.items.len == 0) continue;
 
-        const shdr = self.shdrs.items[shndx];
+        const shdr = self.shdrs.items[sec.shndx];
 
         const num_relocs = @divExact(shdr.sh_size, shdr.sh_entsize);
         var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
-        for (atom_list.items) |atom_index| {
+        for (sec.atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             try atom_ptr.writeRelocs(self, &relocs);
@@ -6127,8 +6165,13 @@ const LastAtomAndFreeList = struct {
     /// by 1 byte. It will then have -1 overcapacity.
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
+const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u32, LastAtomAndFreeList);
 
-const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u16, LastAtomAndFreeList);
+const RelaSection = struct {
+    shndx: u32,
+    atom_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+};
+const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
 pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
 pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;

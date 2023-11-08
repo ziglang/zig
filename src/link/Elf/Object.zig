@@ -681,9 +681,9 @@ pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
         const out_shndx = self.initOutputSection(elf_file, shdr) catch unreachable;
 
         const gpa = elf_file.base.allocator;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, out_shndx);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, atom_index);
+        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom.outputShndx().?);
+        if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = out_shndx };
+        try gop.value_ptr.atom_list.append(gpa, atom_index);
     }
 }
 
@@ -718,11 +718,13 @@ pub fn writeAr(self: Object, writer: anytype) !void {
 }
 
 pub fn locals(self: Object) []const Symbol.Index {
+    if (self.symbols.items.len == 0) return &[0]Symbol.Index{};
     const end = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[0..end];
 }
 
 pub fn globals(self: Object) []const Symbol.Index {
+    if (self.symbols.items.len == 0) return &[0]Symbol.Index{};
     const start = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[start..];
 }
