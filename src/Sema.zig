@@ -4400,7 +4400,7 @@ fn zirValidateArrayInitTy(
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
-    const ty_src: LazySrcLoc = .{ .node_offset_init_ty = inst_data.src_node };
+    const ty_src: LazySrcLoc = if (is_result_ty) src else .{ .node_offset_init_ty = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
     const ty = sema.resolveType(block, ty_src, extra.ty) catch |err| switch (err) {
         // It's okay for the type to be unknown: this will result in an anonymous array init.
