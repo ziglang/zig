@@ -1842,3 +1842,18 @@ test "circular dependency through pointer field of a struct" {
     try expect(outer.middle.outer == null);
     try expect(outer.middle.inner == null);
 }
+
+test "field calls do not force struct field init resolution" {
+    const S = struct {
+        x: u32 = blk: {
+            _ = @TypeOf(make().dummyFn()); // runtime field call - S not fully resolved - dummyFn call should not force field init resolution
+            break :blk 123;
+        },
+        dummyFn: *const fn () void = undefined,
+        fn make() @This() {
+            return .{};
+        }
+    };
+    var s: S = .{};
+    try expect(s.x == 123);
+}
