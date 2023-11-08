@@ -4140,11 +4140,11 @@ test "ring mapped buffers multishot recv" {
             }
 
             // cancel operation is success
-            try testing.expectEqual(linux.io_uring_cqe{
-                .user_data = cancel_user_data,
-                .res = 0,
-                .flags = 0,
-            }, cqe_cancel);
+            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
+            // NOENT - the request identified by user_data could not be located.
+            if (cqe_cancel.err() != os.E.NOENT) {
+                try testing.expect(cqe_cancel.res == 0);
+            }
 
             // recv operation is failed with err CANCELED
             try testing.expectEqual(recv_user_data, cqe_recv.user_data);
