@@ -311,11 +311,17 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
             else => |r_type| r_type,
         };
         const r_offset = self.value + rel.r_offset;
-        const r_addend = rel.r_addend;
-        const r_sym = switch (target.type(elf_file)) {
-            elf.STT_SECTION => elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?),
-            else => target.outputSymtabIndex(elf_file),
-        };
+        var r_addend = rel.r_addend;
+        var r_sym: u32 = 0;
+        switch (target.type(elf_file)) {
+            elf.STT_SECTION => {
+                r_addend += @intCast(target.value);
+                r_sym = elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?);
+            },
+            else => {
+                r_sym = target.outputSymtabIndex(elf_file);
+            },
+        }
 
         relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
             fmtRelocType(r_type),
