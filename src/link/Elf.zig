@@ -959,6 +959,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
+    // --verbose-link
+    if (self.base.options.verbose_link) try self.dumpArgv(comp);
+
     var csu = try CsuObjects.init(arena, self.base.options, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -966,247 +969,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         break :blk null;
     };
 
-    // --verbose-link
-    if (self.base.options.verbose_link) {
-        var argv = std.ArrayList([]const u8).init(arena);
-
-        try argv.append("zig");
-        try argv.append("ld");
-
-        try argv.append("-o");
-        try argv.append(full_out_path);
-
-        if (self.base.options.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
-        }
-
-        if (self.base.options.dynamic_linker) |path| {
-            try argv.append("-dynamic-linker");
-            try argv.append(path);
-        }
-
-        if (self.base.options.soname) |name| {
-            try argv.append("-soname");
-            try argv.append(name);
-        }
-
-        for (self.base.options.rpath_list) |rpath| {
-            try argv.append("-rpath");
-            try argv.append(rpath);
-        }
-
-        if (self.base.options.each_lib_rpath) {
-            for (self.base.options.lib_dirs) |lib_dir_path| {
-                try argv.append("-rpath");
-                try argv.append(lib_dir_path);
-            }
-            for (self.base.options.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
-        }
-
-        if (self.base.options.stack_size_override) |ss| {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{ss}));
-        }
-
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-        }
-
-        if (gc_sections) {
-            try argv.append("--gc-sections");
-        }
-
-        if (self.base.options.print_gc_sections) {
-            try argv.append("--print-gc-sections");
-        }
-
-        if (self.base.options.eh_frame_hdr) {
-            try argv.append("--eh-frame-hdr");
-        }
-
-        if (self.base.options.rdynamic) {
-            try argv.append("--export-dynamic");
-        }
-
-        if (self.base.options.strip) {
-            try argv.append("-s");
-        }
-
-        if (self.base.options.z_notext) {
-            try argv.append("-z");
-            try argv.append("notext");
-        }
-
-        if (self.base.options.z_nocopyreloc) {
-            try argv.append("-z");
-            try argv.append("nocopyreloc");
-        }
-
-        if (self.base.options.z_now) {
-            try argv.append("-z");
-            try argv.append("now");
-        }
-
-        if (self.isStatic()) {
-            try argv.append("-static");
-        } else if (self.isDynLib()) {
-            try argv.append("-shared");
-        }
-
-        if (self.base.options.pie and self.isExe()) {
-            try argv.append("-pie");
-        }
-
-        // csu prelude
-        if (csu.crt0) |v| try argv.append(v);
-        if (csu.crti) |v| try argv.append(v);
-        if (csu.crtbegin) |v| try argv.append(v);
-
-        for (self.base.options.lib_dirs) |lib_dir| {
-            try argv.append("-L");
-            try argv.append(lib_dir);
-        }
-
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
-                try argv.append("-L");
-                try argv.append(libc_installation.crt_dir.?);
-            }
-        }
-
-        var whole_archive = false;
-        for (self.base.options.objects) |obj| {
-            if (obj.must_link and !whole_archive) {
-                try argv.append("-whole-archive");
-                whole_archive = true;
-            } else if (!obj.must_link and whole_archive) {
-                try argv.append("-no-whole-archive");
-                whole_archive = false;
-            }
-
-            if (obj.loption) {
-                assert(obj.path[0] == ':');
-                try argv.append("-l");
-            }
-            try argv.append(obj.path);
-        }
-        if (whole_archive) {
-            try argv.append("-no-whole-archive");
-            whole_archive = false;
-        }
-
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(key.status.success.object_path);
-        }
-
-        if (module_obj_path) |p| {
-            try argv.append(p);
-        }
-
-        // TSAN
-        if (self.base.options.tsan) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
-        }
-
-        // libc
-        if (!self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc)
-        {
-            if (comp.libc_static_lib) |lib| {
-                try argv.append(lib.full_object_path);
-            }
-        }
-
-        // stack-protector.
-        // Related: https://github.com/ziglang/zig/issues/7265
-        if (comp.libssp_static_lib) |ssp| {
-            try argv.append(ssp.full_object_path);
-        }
-
-        // Shared libraries.
-        // Worst-case, we need an --as-needed argument for every lib, as well
-        // as one before and one after.
-        try argv.ensureUnusedCapacity(self.base.options.system_libs.keys().len * 2 + 2);
-        argv.appendAssumeCapacity("--as-needed");
-        var as_needed = true;
-
-        for (self.base.options.system_libs.values()) |lib_info| {
-            const lib_as_needed = !lib_info.needed;
-            switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
-                0b00, 0b11 => {},
-                0b01 => {
-                    argv.appendAssumeCapacity("--no-as-needed");
-                    as_needed = false;
-                },
-                0b10 => {
-                    argv.appendAssumeCapacity("--as-needed");
-                    as_needed = true;
-                },
-            }
-            argv.appendAssumeCapacity(lib_info.path.?);
-        }
-
-        if (!as_needed) {
-            argv.appendAssumeCapacity("--as-needed");
-            as_needed = true;
-        }
-
-        // libc++ dep
-        if (self.base.options.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
-        }
-
-        // libunwind dep
-        if (self.base.options.link_libunwind) {
-            try argv.append(comp.libunwind_static_lib.?.full_object_path);
-        }
-
-        // libc dep
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
-                const needs_grouping = self.base.options.link_mode == .Static;
-                if (needs_grouping) try argv.append("--start-group");
-                try argv.appendSlice(target_util.libcFullLinkFlags(target));
-                if (needs_grouping) try argv.append("--end-group");
-            } else if (target.isGnuLibC()) {
-                for (glibc.libs) |lib| {
-                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
-                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
-                    });
-                    try argv.append(lib_path);
-                }
-                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
-            } else if (target.isMusl()) {
-                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
-                }));
-            }
-        }
-
-        // compiler-rt
-        if (compiler_rt_path) |p| {
-            try argv.append(p);
-        }
-
-        // crt postlude
-        if (csu.crtend) |v| try argv.append(v);
-        if (csu.crtn) |v| try argv.append(v);
-
-        Compilation.dump_argv(argv.items);
-    }
-
     if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+    if (self.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
+    if (self.isObject()) return self.flushObject(comp, module_obj_path);
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
@@ -1232,6 +997,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // rpaths
     var rpath_table = std.StringArrayHashMap(void).init(self.base.allocator);
     defer rpath_table.deinit();
+
     for (self.base.options.rpath_list) |rpath| {
         _ = try rpath_table.put(rpath, {});
     }
@@ -1380,8 +1146,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             try self.handleAndReportParseError(obj.path, err, &parse_ctx);
     }
 
-    if (self.isStaticLib()) return self.flushStaticLib();
-
     // Init all objects
     for (self.objects.items) |index| {
         try self.file(index).?.object.init(self);
@@ -1410,7 +1174,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // If we haven't already, create a linker-generated input file comprising of
     // linker-defined synthetic symbols only such as `_DYNAMIC`, etc.
-    if (self.linker_defined_index == null and !self.isRelocatable()) {
+    if (self.linker_defined_index == null) {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
@@ -1423,8 +1187,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
-
-    if (self.isObject()) return self.flushObject();
 
     try self.convertCommonSymbols();
     self.markImportsExports();
@@ -1519,8 +1281,29 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 }
 
-pub fn flushStaticLib(self: *Elf) link.File.FlushError!void {
+pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
     const gpa = self.base.allocator;
+
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+
+    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+
+    // This is a set of object files emitted by clang in a single `build-exe` invocation.
+    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
+    // in this set.
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    for (positionals.items) |obj| {
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
 
     // First, we flush relocatable object file generated with our backends.
     if (self.zigObjectPtr()) |zig_object| {
@@ -1631,7 +1414,41 @@ pub fn flushStaticLib(self: *Elf) link.File.FlushError!void {
     try self.base.file.?.pwriteAll(buffer.items, 0);
 }
 
-pub fn flushObject(self: *Elf) link.File.FlushError!void {
+pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+    const gpa = self.base.allocator;
+
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
+    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+
+    // This is a set of object files emitted by clang in a single `build-exe` invocation.
+    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
+    // in this set.
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    for (positionals.items) |obj| {
+        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
+        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
+            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+    }
+
+    // Init all objects
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.init(self);
+    }
+
+    // Now, we are ready to resolve the symbols across all input files.
+    // We will first resolve the files in the ZigObject, next in the parsed
+    // input Object files.
+    // Any qualifing unresolved symbol will be upgraded to an absolute, weak
+    // symbol for potential resolution at load-time.
+    self.resolveSymbols();
+    self.markEhFrameAtomsDead();
     self.claimUnresolvedObject();
 
     try self.initSectionsObject();
@@ -1658,6 +1475,296 @@ pub fn flushObject(self: *Elf) link.File.FlushError!void {
     try self.writeSyntheticSectionsObject();
     try self.writeShdrTable();
     try self.writeElfHeader();
+}
+
+/// --verbose-link output
+fn dumpArgv(self: *Elf, comp: *Compilation) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const target = self.base.options.target;
+    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, path });
+        } else {
+            break :blk path;
+        }
+    } else null;
+    const gc_sections = self.base.options.gc_sections orelse false;
+
+    var csu = try CsuObjects.init(arena, self.base.options, comp);
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
+
+    var argv = std.ArrayList([]const u8).init(arena);
+
+    try argv.append("zig");
+
+    if (self.isStaticLib()) {
+        try argv.append("ar");
+    } else {
+        try argv.append("ld");
+    }
+
+    if (self.isObject()) {
+        try argv.append("-r");
+    }
+
+    try argv.append("-o");
+    try argv.append(full_out_path);
+
+    if (self.isRelocatable()) {
+        for (self.base.options.objects) |obj| {
+            try argv.append(obj.path);
+        }
+
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+    } else {
+        if (!self.isStatic()) {
+            if (self.base.options.dynamic_linker) |path| {
+                try argv.append("-dynamic-linker");
+                try argv.append(path);
+            }
+        }
+
+        if (self.isDynLib()) {
+            if (self.base.options.soname) |name| {
+                try argv.append("-soname");
+                try argv.append(name);
+            }
+        }
+
+        if (self.base.options.entry) |entry| {
+            try argv.append("--entry");
+            try argv.append(entry);
+        }
+
+        for (self.base.options.rpath_list) |rpath| {
+            try argv.append("-rpath");
+            try argv.append(rpath);
+        }
+
+        if (self.base.options.each_lib_rpath) {
+            for (self.base.options.lib_dirs) |lib_dir_path| {
+                try argv.append("-rpath");
+                try argv.append(lib_dir_path);
+            }
+            for (self.base.options.objects) |obj| {
+                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
+                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
+                    if (obj.loption) continue;
+
+                    try argv.append("-rpath");
+                    try argv.append(lib_dir_path);
+                }
+            }
+        }
+
+        if (self.base.options.stack_size_override) |ss| {
+            try argv.append("-z");
+            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{ss}));
+        }
+
+        if (self.base.options.image_base_override) |image_base| {
+            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
+        }
+
+        if (gc_sections) {
+            try argv.append("--gc-sections");
+        }
+
+        if (self.base.options.print_gc_sections) {
+            try argv.append("--print-gc-sections");
+        }
+
+        if (self.base.options.eh_frame_hdr) {
+            try argv.append("--eh-frame-hdr");
+        }
+
+        if (self.base.options.rdynamic) {
+            try argv.append("--export-dynamic");
+        }
+
+        if (self.base.options.z_notext) {
+            try argv.append("-z");
+            try argv.append("notext");
+        }
+
+        if (self.base.options.z_nocopyreloc) {
+            try argv.append("-z");
+            try argv.append("nocopyreloc");
+        }
+
+        if (self.base.options.z_now) {
+            try argv.append("-z");
+            try argv.append("now");
+        }
+
+        if (self.isStatic()) {
+            try argv.append("-static");
+        } else if (self.isDynLib()) {
+            try argv.append("-shared");
+        }
+
+        if (self.base.options.pie and self.isExe()) {
+            try argv.append("-pie");
+        }
+
+        if (self.base.options.strip) {
+            try argv.append("-s");
+        }
+
+        // csu prelude
+        if (csu.crt0) |v| try argv.append(v);
+        if (csu.crti) |v| try argv.append(v);
+        if (csu.crtbegin) |v| try argv.append(v);
+
+        for (self.base.options.lib_dirs) |lib_dir| {
+            try argv.append("-L");
+            try argv.append(lib_dir);
+        }
+
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation) |libc_installation| {
+                try argv.append("-L");
+                try argv.append(libc_installation.crt_dir.?);
+            }
+        }
+
+        var whole_archive = false;
+        for (self.base.options.objects) |obj| {
+            if (obj.must_link and !whole_archive) {
+                try argv.append("-whole-archive");
+                whole_archive = true;
+            } else if (!obj.must_link and whole_archive) {
+                try argv.append("-no-whole-archive");
+                whole_archive = false;
+            }
+
+            if (obj.loption) {
+                assert(obj.path[0] == ':');
+                try argv.append("-l");
+            }
+            try argv.append(obj.path);
+        }
+        if (whole_archive) {
+            try argv.append("-no-whole-archive");
+            whole_archive = false;
+        }
+
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+
+        // TSAN
+        if (self.base.options.tsan) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
+        }
+
+        // libc
+        if (!self.base.options.skip_linker_dependencies and
+            !self.base.options.link_libc)
+        {
+            if (comp.libc_static_lib) |lib| {
+                try argv.append(lib.full_object_path);
+            }
+        }
+
+        // stack-protector.
+        // Related: https://github.com/ziglang/zig/issues/7265
+        if (comp.libssp_static_lib) |ssp| {
+            try argv.append(ssp.full_object_path);
+        }
+
+        // Shared libraries.
+        // Worst-case, we need an --as-needed argument for every lib, as well
+        // as one before and one after.
+        try argv.ensureUnusedCapacity(self.base.options.system_libs.keys().len * 2 + 2);
+        argv.appendAssumeCapacity("--as-needed");
+        var as_needed = true;
+
+        for (self.base.options.system_libs.values()) |lib_info| {
+            const lib_as_needed = !lib_info.needed;
+            switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
+                0b00, 0b11 => {},
+                0b01 => {
+                    argv.appendAssumeCapacity("--no-as-needed");
+                    as_needed = false;
+                },
+                0b10 => {
+                    argv.appendAssumeCapacity("--as-needed");
+                    as_needed = true;
+                },
+            }
+            argv.appendAssumeCapacity(lib_info.path.?);
+        }
+
+        if (!as_needed) {
+            argv.appendAssumeCapacity("--as-needed");
+            as_needed = true;
+        }
+
+        // libc++ dep
+        if (self.base.options.link_libcpp) {
+            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+        }
+
+        // libunwind dep
+        if (self.base.options.link_libunwind) {
+            try argv.append(comp.libunwind_static_lib.?.full_object_path);
+        }
+
+        // libc dep
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation != null) {
+                const needs_grouping = self.base.options.link_mode == .Static;
+                if (needs_grouping) try argv.append("--start-group");
+                try argv.appendSlice(target_util.libcFullLinkFlags(target));
+                if (needs_grouping) try argv.append("--end-group");
+            } else if (target.isGnuLibC()) {
+                for (glibc.libs) |lib| {
+                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                    });
+                    try argv.append(lib_path);
+                }
+                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
+            } else if (target.isMusl()) {
+                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                    .Static => "libc.a",
+                    .Dynamic => "libc.so",
+                }));
+            }
+        }
+
+        // compiler-rt
+        if (compiler_rt_path) |p| {
+            try argv.append(p);
+        }
+
+        // crt postlude
+        if (csu.crtend) |v| try argv.append(v);
+        if (csu.crtn) |v| try argv.append(v);
+    }
+
+    Compilation.dump_argv(argv.items);
 }
 
 const ParseError = error{
@@ -3651,8 +3758,10 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
         try self.dynamic.addNeeded(shared_object, self);
     }
 
-    if (self.base.options.soname) |soname| {
-        try self.dynamic.setSoname(soname, self);
+    if (self.isDynLib()) {
+        if (self.base.options.soname) |soname| {
+            try self.dynamic.setSoname(soname, self);
+        }
     }
 
     try self.dynamic.setRpath(rpaths, self);
