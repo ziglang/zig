@@ -4127,7 +4127,9 @@ test "ring mapped buffers multishot recv" {
 
             // expect completion of cancel operation and completion of recv operation
             var cqe_cancel = try ring.copy_cqe();
+            if (cqe_cancel.err() == .INVAL) return error.SkipZigTest;
             var cqe_recv = try ring.copy_cqe();
+            if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
 
             // don't depend on order of completions
             if (cqe_cancel.user_data == recv_user_data and cqe_recv.user_data == cancel_user_data) {
@@ -4138,8 +4140,11 @@ test "ring mapped buffers multishot recv" {
             }
 
             // cancel operation is success
-            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
-            try testing.expect(cqe_cancel.res == 0);
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = cancel_user_data,
+                .res = 0,
+                .flags = 0,
+            }, cqe_cancel);
 
             // recv operation is failed with err CANCELED
             try testing.expectEqual(recv_user_data, cqe_recv.user_data);
