@@ -8,6 +8,7 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+const GenerateDef = @import("deps/aro/build/GenerateDef.zig");
 
 const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
@@ -589,9 +590,13 @@ fn addCompilerStep(
         .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
-    exe.addAnonymousModule("aro", .{
+    const aro_module = b.createModule(.{
         .source_file = .{ .path = "deps/aro/lib.zig" },
     });
+    GenerateDef.add(b, "deps/aro/Builtins/Builtin.def", "Builtins/Builtin.def", exe, aro_module);
+    GenerateDef.add(b, "deps/aro/Attribute/names.def", "Attribute/names.def", exe, aro_module);
+
+    exe.addModule("aro", aro_module);
     return exe;
 }
 

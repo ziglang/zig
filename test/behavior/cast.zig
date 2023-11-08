@@ -2428,3 +2428,21 @@ test "result information is preserved through many nested structures" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "@intCast vector of signed integer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var x: @Vector(4, i32) = .{ 1, 2, 3, 4 };
+    const y: @Vector(4, i8) = @intCast(x);
+
+    try expect(y[0] == 1);
+    try expect(y[1] == 2);
+    try expect(y[2] == 3);
+    try expect(y[3] == 4);
+}

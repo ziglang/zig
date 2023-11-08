@@ -18,8 +18,40 @@ pub const ByteRange = struct {
         return .{ .start = self.start, .end = self.end - amount };
     }
 
-    pub fn slice(self: ByteRange, all_bytes: []const u8) []const u8 {
-        return all_bytes[self.start..self.end];
+    pub fn slice(self: ByteRange, all_bytes: []const u8, comptime size: Compilation.CharUnitSize) []const size.Type() {
+        switch (size) {
+            inline else => |sz| {
+                const aligned: []align(@alignOf(sz.Type())) const u8 = @alignCast(all_bytes[self.start..self.end]);
+                return std.mem.bytesAsSlice(sz.Type(), aligned);
+            },
+        }
+    }
+
+    pub fn dumpString(range: ByteRange, ty: Type, comp: *const Compilation, strings: []const u8, w: anytype) !void {
+        const size: Compilation.CharUnitSize = @enumFromInt(ty.elemType().sizeof(comp).?);
+        const without_null = range.trim(@intFromEnum(size));
+        switch (size) {
+            inline .@"1", .@"2" => |sz| {
+                const data_slice = without_null.slice(strings, sz);
+                const formatter = if (sz == .@"1") std.zig.fmtEscapes(data_slice) else std.unicode.fmtUtf16le(data_slice);
+                try w.print("\"{}\"", .{formatter});
+            },
+            .@"4" => {
+                try w.writeByte('"');
+                const data_slice = without_null.slice(strings, .@"4");
+                var buf: [4]u8 = undefined;
+                for (data_slice) |item| {
+                    if (item <= std.math.maxInt(u21) and std.unicode.utf8ValidCodepoint(@intCast(item))) {
+                        const codepoint: u21 = @intCast(item);
+                        const written = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
+                        try w.print("{s}", .{buf[0..written]});
+                    } else {
+                        try w.print("\\x{x}", .{item});
+                    }
+                }
+                try w.writeByte('"');
+            },
+        }
     }
 };
 
@@ -593,7 +625,7 @@ pub fn dump(v: Value, ty: Type, comp: *Compilation, strings: []const u8, w: anyt
         } else {
             try w.print("{d}", .{v.signExtend(ty, comp)});
         },
-        .bytes => try w.print("\"{s}\"", .{v.data.bytes.slice(strings)}),
+        .bytes => try v.data.bytes.dumpString(ty, comp, strings, w),
         // std.fmt does @as instead of @floatCast
         .float => try w.print("{d}", .{@as(f64, @floatCast(v.data.float))}),
         else => try w.print("({s})", .{@tagName(v.tag)}),

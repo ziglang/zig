@@ -2304,10 +2304,16 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         defer comp.gpa.free(o_sub_path);
 
         // Work around windows `AccessDenied` if any files within this directory are open
-        // by doing the makeExecutable/makeWritable dance.
+        // by closing and reopening the file handles.
         const need_writable_dance = builtin.os.tag == .windows and comp.bin_file.file != null;
         if (need_writable_dance) {
-            try comp.bin_file.makeExecutable();
+            // We cannot just call `makeExecutable` as it makes a false assumption that we have a
+            // file handle open only when linking an executable file. This used to be true when
+            // our linkers were incapable of emitting relocatables and static archive. Now that
+            // they are capable, we need to unconditionally close the file handle and re-open it
+            // in the follow up call to `makeWritable`.
+            comp.bin_file.file.?.close();
+            comp.bin_file.file = null;
         }
 
         try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
@@ -4043,7 +4049,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         }
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
                 _ = translate_c;
                 if (true) @panic("TODO");

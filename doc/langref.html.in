@@ -2649,7 +2649,7 @@ test "Conversion between vectors, arrays, and slices" {
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
-              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
@@ -2724,6 +2724,10 @@ test "pointer arithmetic with many-item pointer" {
     try expect(ptr[0] == 1);
     ptr += 1;
     try expect(ptr[0] == 2);
+
+    // slicing a many-item pointer without an end is equivalent to
+    // pointer arithmetic: `ptr[start..] == ptr + start`
+    try expect(ptr[1..] == ptr + 1);
 }
 
 test "pointer arithmetic with slices" {
@@ -6201,7 +6205,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: usize) ?*u8;
+extern fn malloc(size: usize) ?[*]u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -6210,7 +6214,7 @@ fn doAThing() ?*Foo {
       {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+        is {#syntax#}[*]u8{#endsyntax#} <em>not</em> {#syntax#}?[*]u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
                     unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>

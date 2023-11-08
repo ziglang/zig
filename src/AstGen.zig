@@ -4951,7 +4951,10 @@ fn structDeclInner(
 
         if (have_value) {
             any_default_inits = true;
-            const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = field_type } };
+
+            // The decl_inst is used as here so that we can easily reconstruct a mapping
+            // between it and the field type when the fields inits are analzyed.
+            const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = decl_inst.toRef() } };
 
             const default_inst = try expr(&block_scope, &namespace.base, ri, member.ast.value_expr);
             if (!block_scope.endsWithNoReturn()) {

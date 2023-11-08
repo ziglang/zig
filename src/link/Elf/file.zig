@@ -161,7 +161,7 @@ pub const File = union(enum) {
     }
 
     pub fn writeSymtab(file: File, elf_file: *Elf, ctx: anytype) void {
-        var ilocal = ctx.ilocal;
+        var ilocal: usize = ctx.ilocal;
         for (file.locals()) |local_index| {
             const local = elf_file.symbol(local_index);
             if (!local.flags.output_symtab) continue;
@@ -173,7 +173,7 @@ pub const File = union(enum) {
             ilocal += 1;
         }
 
-        var iglobal = ctx.iglobal;
+        var iglobal: usize = ctx.iglobal;
         for (file.globals()) |global_index| {
             const global = elf_file.symbol(global_index);
             const file_ptr = global.file(elf_file) orelse continue;
@@ -199,7 +199,38 @@ pub const File = union(enum) {
     pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
-            .object => @panic("TODO"),
+            .object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
+        const path = switch (file) {
+            .zig_object => |x| x.path,
+            .object => |x| x.path,
+            inline else => unreachable,
+        };
+        const state = switch (file) {
+            .zig_object => |x| &x.output_ar_state,
+            .object => |x| &x.output_ar_state,
+            inline else => unreachable,
+        };
+        if (path.len <= Archive.max_member_name_len) return;
+        state.name_off = try ar_strtab.insert(allocator, path);
+    }
+
+    pub fn updateArSize(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSize(elf_file),
+            .object => |x| x.updateArSize(),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
+        return switch (file) {
+            .zig_object => |x| x.writeAr(elf_file, writer),
+            .object => |x| x.writeAr(writer),
             inline else => unreachable,
         };
     }

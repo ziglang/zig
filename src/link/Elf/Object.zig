@@ -20,6 +20,7 @@ alive: bool = true,
 num_dynrelocs: u32 = 0,
 
 output_symtab_size: Elf.SymtabSize = .{},
+output_ar_state: Archive.ArState = .{},
 
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -96,7 +97,9 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
                 sym.st_name + strtab_bias;
         }
     }
+}
 
+pub fn init(self: *Object, elf_file: *Elf) !void {
     try self.initAtoms(elf_file);
     try self.initSymtab(elf_file);
 
@@ -651,6 +654,36 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
     }
 }
 
+pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
+    const gpa = elf_file.base.allocator;
+    const start = self.first_global orelse self.symtab.items.len;
+
+    try ar_symtab.symtab.ensureUnusedCapacity(gpa, self.symtab.items.len - start);
+
+    for (self.symtab.items[start..]) |sym| {
+        if (sym.st_shndx == elf.SHN_UNDEF) continue;
+        const off = try ar_symtab.strtab.insert(gpa, self.getString(sym.st_name));
+        ar_symtab.symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
+    }
+}
+
+pub fn updateArSize(self: *Object) void {
+    self.output_ar_state.size = self.data.len;
+}
+
+pub fn writeAr(self: Object, writer: anytype) !void {
+    const name = self.path;
+    const hdr = Archive.setArHdr(.{
+        .name = if (name.len <= Archive.max_member_name_len)
+            .{ .name = name }
+        else
+            .{ .name_off = self.output_ar_state.name_off },
+        .size = @intCast(self.data.len),
+    });
+    try writer.writeAll(mem.asBytes(&hdr));
+    try writer.writeAll(self.data);
+}
+
 pub fn locals(self: Object) []const Symbol.Index {
     const end = self.first_global orelse self.symbols.items.len;
     return self.symbols.items[0..end];
@@ -922,6 +955,7 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");

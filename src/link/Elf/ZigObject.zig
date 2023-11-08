@@ -3,7 +3,6 @@
 //! and any relocations that may have been emitted.
 //! Think about this as fake in-memory Object file for the Zig module.
 
-/// Path is owned by Module and lives as long as *Module.
 path: []const u8,
 index: File.Index,
 
@@ -78,7 +77,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     try self.atoms.append(gpa, 0); // null input section
     try self.strtab.buffer.append(gpa, 0);
 
-    const name_off = try self.strtab.insert(gpa, std.fs.path.stem(self.path));
+    const name_off = try self.strtab.insert(gpa, self.path);
     const symbol_index = try elf_file.addSymbol();
     try self.local_symbols.append(gpa, symbol_index);
     const symbol_ptr = elf_file.symbol(symbol_index);
@@ -98,6 +97,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
 }
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
+    allocator.free(self.path);
     self.local_esyms.deinit(allocator);
     self.global_esyms.deinit(allocator);
     self.strtab.deinit(allocator);
@@ -512,23 +512,11 @@ pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, elf_file: *
         const global = elf_file.symbol(global_index);
         const file_ptr = global.file(elf_file).?;
         assert(file_ptr.index() == self.index);
-        if (global.type(elf_file) == elf.SHN_UNDEF) continue;
+        if (global.outputShndx() == null) continue;
 
         const off = try ar_symtab.strtab.insert(gpa, global.name(elf_file));
         ar_symtab.symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
     }
-}
-
-pub fn updateArStrtab(
-    self: *ZigObject,
-    allocator: Allocator,
-    ar_strtab: *Archive.ArStrtab,
-) error{OutOfMemory}!void {
-    const name = try std.fmt.allocPrint(allocator, "{s}.o", .{std.fs.path.stem(self.path)});
-    defer allocator.free(name);
-    if (name.len <= 15) return;
-    const name_off = try ar_strtab.insert(allocator, name);
-    self.output_ar_state.name_off = name_off;
 }
 
 pub fn updateArSize(self: *ZigObject, elf_file: *Elf) void {
@@ -549,11 +537,12 @@ pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
     const amt = try elf_file.base.file.?.preadAll(contents, 0);
     if (amt != self.output_ar_state.size) return error.InputOutput;
 
-    const name = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(self.path)});
-    defer gpa.free(name);
-
+    const name = self.path;
     const hdr = Archive.setArHdr(.{
-        .name = if (name.len <= 15) .{ .name = name } else .{ .name_off = self.output_ar_state.name_off },
+        .name = if (name.len <= Archive.max_member_name_len)
+            .{ .name = name }
+        else
+            .{ .name_off = self.output_ar_state.name_off },
         .size = @intCast(size),
     });
     try writer.writeAll(mem.asBytes(&hdr));

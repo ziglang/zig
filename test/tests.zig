@@ -1095,6 +1095,16 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
+        if (test_target.target.getCpuArch() == .x86_64 and
+            test_target.target.getOsTag() == .windows and
+            test_target.target.cpu_arch == null and
+            test_target.optimize_mode != .Debug and
+            mem.eql(u8, options.name, "std"))
+        {
+            // https://github.com/ziglang/zig/issues/17902
+            continue;
+        }
+
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;

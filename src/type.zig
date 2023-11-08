@@ -2415,6 +2415,7 @@ pub const Type = struct {
                     for (field_vals, 0..) |*field_val, i_usize| {
                         const i: u32 = @intCast(i_usize);
                         if (struct_type.fieldIsComptime(ip, i)) {
+                            assert(struct_type.haveFieldInits(ip));
                             field_val.* = struct_type.field_inits.get(ip)[i];
                             continue;
                         }
@@ -3014,6 +3015,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
+                assert(struct_type.haveFieldInits(ip));
                 if (struct_type.fieldIsComptime(ip, index)) {
                     return struct_type.field_inits.get(ip)[index].toValue();
                 } else {

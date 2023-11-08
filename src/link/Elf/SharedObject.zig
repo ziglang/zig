@@ -72,7 +72,6 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     }
 
     try self.parseVersions(elf_file);
-    try self.initSymtab(elf_file);
 }
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
@@ -120,7 +119,7 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
     }
 }
 
-fn initSymtab(self: *SharedObject, elf_file: *Elf) !void {
+pub fn init(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
     const symtab = self.getSymtabRaw();
     const strtab = self.getStrtabRaw();

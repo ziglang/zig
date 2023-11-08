@@ -463,6 +463,7 @@ pub const Key = union(enum) {
 
         pub fn fieldInit(s: @This(), ip: *const InternPool, i: usize) Index {
             if (s.field_inits.len == 0) return .none;
+            assert(s.haveFieldInits(ip));
             return s.field_inits.get(ip)[i];
         }
 
@@ -494,6 +495,14 @@ pub const Key = union(enum) {
         pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeStruct.Flags {
             assert(self.layout != .Packed);
             const flags_field_index = std.meta.fieldIndex(Tag.TypeStruct, "flags").?;
+            return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
+        }
+
+        /// The returned pointer expires with any addition to the `InternPool`.
+        /// Asserts that the struct is packed.
+        pub fn packedFlagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeStructPacked.Flags {
+            assert(self.layout == .Packed);
+            const flags_field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?;
             return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
         }
 
@@ -546,6 +555,30 @@ pub const Key = union(enum) {
             s.flagsPtr(ip).alignment_wip = false;
         }
 
+        pub fn setInitsWip(s: @This(), ip: *InternPool) bool {
+            switch (s.layout) {
+                .Packed => {
+                    const flag = &s.packedFlagsPtr(ip).field_inits_wip;
+                    if (flag.*) return true;
+                    flag.* = true;
+                    return false;
+                },
+                .Auto, .Extern => {
+                    const flag = &s.flagsPtr(ip).field_inits_wip;
+                    if (flag.*) return true;
+                    flag.* = true;
+                    return false;
+                },
+            }
+        }
+
+        pub fn clearInitsWip(s: @This(), ip: *InternPool) void {
+            switch (s.layout) {
+                .Packed => s.packedFlagsPtr(ip).field_inits_wip = false,
+                .Auto, .Extern => s.flagsPtr(ip).field_inits_wip = false,
+            }
+        }
+
         pub fn setFullyResolved(s: @This(), ip: *InternPool) bool {
             if (s.layout == .Packed) return true;
             const flags_ptr = s.flagsPtr(ip);
@@ -586,6 +619,20 @@ pub const Key = union(enum) {
         pub fn haveFieldTypes(s: @This(), ip: *const InternPool) bool {
             const types = s.field_types.get(ip);
             return types.len == 0 or types[0] != .none;
+        }
+
+        pub fn haveFieldInits(s: @This(), ip: *const InternPool) bool {
+            return switch (s.layout) {
+                .Packed => s.packedFlagsPtr(ip).inits_resolved,
+                .Auto, .Extern => s.flagsPtr(ip).inits_resolved,
+            };
+        }
+
+        pub fn setHaveFieldInits(s: @This(), ip: *InternPool) void {
+            switch (s.layout) {
+                .Packed => s.packedFlagsPtr(ip).inits_resolved = true,
+                .Auto, .Extern => s.flagsPtr(ip).inits_resolved = true,
+            }
         }
 
         pub fn haveLayout(s: @This(), ip: *InternPool) bool {
@@ -3000,6 +3047,14 @@ pub const Tag = enum(u8) {
         namespace: Module.Namespace.OptionalIndex,
         backing_int_ty: Index,
         names_map: MapIndex,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            /// Dependency loop detection when resolving field inits.
+            field_inits_wip: bool,
+            inits_resolved: bool,
+            _: u30 = 0,
+        };
     };
 
     /// At first I thought of storing the denormalized data externally, such as...
@@ -3045,6 +3100,7 @@ pub const Tag = enum(u8) {
             requires_comptime: RequiresComptime,
             is_tuple: bool,
             assumed_runtime_bits: bool,
+            assumed_pointer_aligned: bool,
             has_namespace: bool,
             any_comptime_fields: bool,
             any_default_inits: bool,
@@ -3057,14 +3113,18 @@ pub const Tag = enum(u8) {
             field_types_wip: bool,
             /// Dependency loop detection when resolving struct layout.
             layout_wip: bool,
-            /// Determines whether `size`, `alignment`, runtime field order, and
+            /// Indicates whether `size`, `alignment`, runtime field order, and
             /// field offets are populated.
             layout_resolved: bool,
+            /// Dependency loop detection when resolving field inits.
+            field_inits_wip: bool,
+            /// Indicates whether `field_inits` has been resolved.
+            inits_resolved: bool,
             // The types and all its fields have had their layout resolved. Even through pointer,
             // which `layout_resolved` does not ensure.
             fully_resolved: bool,
 
-            _: u11 = 0,
+            _: u8 = 0,
         };
     };
 };
@@ -5347,6 +5407,7 @@ pub const StructTypeInit = struct {
     is_tuple: bool,
     any_comptime_fields: bool,
     any_default_inits: bool,
+    inits_resolved: bool,
     any_aligned_fields: bool,
 };
 
@@ -5399,6 +5460,10 @@ pub fn getStructType(
                     .namespace = ini.namespace,
                     .backing_int_ty = .none,
                     .names_map = names_map,
+                    .flags = .{
+                        .field_inits_wip = false,
+                        .inits_resolved = ini.inits_resolved,
+                    },
                 }),
             });
             ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
@@ -5431,6 +5496,7 @@ pub fn getStructType(
                 .requires_comptime = ini.requires_comptime,
                 .is_tuple = ini.is_tuple,
                 .assumed_runtime_bits = false,
+                .assumed_pointer_aligned = false,
                 .has_namespace = ini.namespace != .none,
                 .any_comptime_fields = ini.any_comptime_fields,
                 .any_default_inits = ini.any_default_inits,
@@ -5440,6 +5506,8 @@ pub fn getStructType(
                 .field_types_wip = false,
                 .layout_wip = false,
                 .layout_resolved = false,
+                .field_inits_wip = false,
+                .inits_resolved = ini.inits_resolved,
                 .fully_resolved = false,
             },
         }),
@@ -6451,6 +6519,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
+            Tag.TypeStructPacked.Flags,
             Tag.Variable.Flags,
             => @bitCast(@field(extra, field.name)),
 
@@ -6525,6 +6594,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
+            Tag.TypeStructPacked.Flags,
             Tag.Variable.Flags,
             FuncAnalysis,
             => @bitCast(int32),

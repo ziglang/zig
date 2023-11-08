@@ -21,6 +21,9 @@ pub fn build(b: *Build) void {
         .abi = .gnu,
     };
 
+    // Exercise linker in ar mode
+    elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+
     // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
@@ -621,6 +624,65 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
     const check = exe.checkObject();
     check.checkInDynamicSymtab();
     check.checkContains("foo");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testEmitStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "emit-static-lib", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addCSourceBytes(obj1,
+        \\int foo = 0;
+        \\int bar = 2;
+        \\int fooBar() {
+        \\  return foo + bar;
+        \\}
+    , &.{});
+
+    const obj2 = addObject(b, "obj2", opts);
+    addCSourceBytes(obj2, "int tentative;", &.{"-fcommon"});
+
+    const obj3 = addObject(b, "a_very_long_file_name_so_that_it_ends_up_in_strtab", opts);
+    addZigSourceBytes(obj3,
+        \\fn weakFoo() callconv(.C) usize {
+        \\    return 42;
+        \\}
+        \\export var strongBar: usize = 100;
+        \\comptime {
+        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .Weak });
+        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .Strong });
+        \\}
+    );
+
+    const lib = addStaticLibrary(b, "lib", opts);
+    lib.addObject(obj1);
+    lib.addObject(obj2);
+    lib.addObject(obj3);
+
+    const check = lib.checkObject();
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("foo");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("bar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("fooBar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj2.getEmittedBin());
+    check.checkExact("tentative");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("weakFoo");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("strongBar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("strongBarAlias");
     test_step.dependOn(&check.step);
 
     return test_step;
@@ -1858,34 +1920,30 @@ fn testLinkingObj(b: *Build, opts: Options) *Step {
 fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-static-lib", opts);
 
-    const lib = b.addStaticLibrary(.{
-        .name = "alib",
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = false,
-    });
+    const obj = addObject(b, "bobj", opts);
+    addZigSourceBytes(obj, "export var bar: i32 = -42;");
+
+    const lib = addStaticLibrary(b, "alib", opts);
     addZigSourceBytes(lib,
-        \\extern var mod: usize;
-        \\export fn callMe() usize {
-        \\    return me * mod;
+        \\export fn foo() i32 {
+        \\    return 42;
         \\}
-        \\var me: usize = 42;
     );
+    lib.addObject(obj);
 
     const exe = addExecutable(b, "testlib", opts);
     addZigSourceBytes(exe,
         \\const std = @import("std");
-        \\extern fn callMe() usize;
-        \\export var mod: usize = 2;
+        \\extern fn foo() i32;
+        \\extern var bar: i32;
         \\pub fn main() void {
-        \\    std.debug.print("{d}\n", .{callMe()});
+        \\    std.debug.print("{d}\n", .{foo() + bar});
         \\}
     );
     exe.linkLibrary(lib);
 
     const run = addRunArtifact(exe);
-    run.expectStdErrEqual("84\n");
+    run.expectStdErrEqual("0\n");
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -3332,7 +3390,7 @@ fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
         .target = opts.target,
         .optimize = opts.optimize,
         .use_llvm = opts.use_llvm,
-        .use_lld = true,
+        .use_lld = opts.use_lld,
     });
 }
 
