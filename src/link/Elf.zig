@@ -5003,7 +5003,8 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
 
         const shdr = self.shdrs.items[sec.shndx];
 
-        const num_relocs = @divExact(shdr.sh_size, shdr.sh_entsize);
+        const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
+            return error.Overflow;
         var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
