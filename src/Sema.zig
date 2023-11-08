@@ -16431,18 +16431,16 @@ fn analyzeCmp(
     if (is_equality_cmp and lhs_ty.zigTypeTag(mod) == .ErrorUnion and rhs_ty.zigTypeTag(mod) == .ErrorSet) {
         if (try sema.resolveValue(lhs)) |lhs_val| {
             if (lhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
-        } else {
-            const casted_lhs = try sema.analyzeErrUnionCode(block, lhs_src, lhs);
-            return sema.cmpSelf(block, src, casted_lhs, rhs, op, lhs_src, rhs_src);
         }
+        const casted_lhs = try sema.analyzeErrUnionCode(block, lhs_src, lhs);
+        return sema.cmpSelf(block, src, casted_lhs, rhs, op, lhs_src, rhs_src);
     }
     if (is_equality_cmp and lhs_ty.zigTypeTag(mod) == .ErrorSet and rhs_ty.zigTypeTag(mod) == .ErrorUnion) {
         if (try sema.resolveValue(rhs)) |rhs_val| {
             if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
-        } else {
-            const casted_rhs = try sema.analyzeErrUnionCode(block, rhs_src, rhs);
-            return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
         }
+        const casted_rhs = try sema.analyzeErrUnionCode(block, rhs_src, rhs);
+        return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
     }
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]?LazySrcLoc{ lhs_src, rhs_src } });
