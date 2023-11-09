@@ -30668,6 +30668,9 @@ fn bitCast(
     }
 
     if (try sema.resolveValue(inst)) |val| {
+        if (val.isUndef(mod)) {
+            return mod.undefRef(dest_ty);
+        }
         if (try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0)) |result_val| {
             return Air.internedToRef(result_val.toIntern());
         }
