@@ -107,7 +107,7 @@ pub const File = extern struct {
         var pos: u64 = undefined;
         if (.Success != self.getPosition(&pos)) return SeekError.SeekError;
         const seek_back = offset < 0;
-        const amt = std.math.absCast(offset);
+        const amt = @abs(offset);
         if (seek_back) {
             pos += amt;
         } else {
