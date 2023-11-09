@@ -122,6 +122,7 @@ dynamic_section_index: ?u16 = null,
 dynstrtab_section_index: ?u16 = null,
 dynsymtab_section_index: ?u16 = null,
 eh_frame_section_index: ?u16 = null,
+eh_frame_rela_section_index: ?u16 = null,
 eh_frame_hdr_section_index: ?u16 = null,
 hash_section_index: ?u16 = null,
 gnu_hash_section_index: ?u16 = null,
@@ -3583,7 +3584,7 @@ fn initSectionsObject(self: *Elf) !void {
             .addralign = ptr_size,
             .offset = std.math.maxInt(u64),
         });
-        // _ = try self.addRelaShdr(".rela.eh_frame", self.eh_frame_section_index.?);
+        self.eh_frame_rela_section_index = try self.addRelaShdr(".rela.eh_frame", self.eh_frame_section_index.?);
     }
 
     try self.initSymtab();
@@ -3954,6 +3955,7 @@ fn sortShdrs(self: *Elf) !void {
 
     for (&[_]*?u16{
         &self.eh_frame_section_index,
+        &self.eh_frame_rela_section_index,
         &self.eh_frame_hdr_section_index,
         &self.got_section_index,
         &self.symtab_section_index,
@@ -4769,6 +4771,9 @@ fn updateSymtabSize(self: *Elf) !void {
     for (self.output_sections.keys()) |_| {
         nlocals += 1;
     }
+    if (self.eh_frame_section_index) |_| {
+        nlocals += 1;
+    }
 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
@@ -5162,9 +5167,26 @@ fn writeSectionSymbols(self: *Elf) void {
         };
         ilocal += 1;
     }
+
+    if (self.eh_frame_section_index) |shndx| {
+        const shdr = self.shdrs.items[shndx];
+        const out_sym = &self.symtab.items[ilocal];
+        out_sym.* = .{
+            .st_name = 0,
+            .st_value = shdr.sh_addr,
+            .st_info = elf.STT_SECTION,
+            .st_shndx = @intCast(shndx),
+            .st_size = 0,
+            .st_other = 0,
+        };
+        ilocal += 1;
+    }
 }
 
 pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
+    if (self.eh_frame_section_index) |index| {
+        if (index == shndx) return @intCast(self.output_sections.keys().len + 1);
+    }
     return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
 
