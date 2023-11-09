@@ -282,6 +282,22 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
     return eh_frame_hdr_header_size + count * 8;
 }
 
+pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
+    var count: usize = 0;
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            count += cie.relocs(elf_file).len;
+        }
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+            count += fde.relocs(elf_file).len;
+        }
+    }
+    return count;
+}
+
 fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file: *Elf, contents: []u8) !void {
     const offset = std.math.cast(usize, rel.r_offset - rec.offset) orelse return error.Overflow;
     const P = @as(i64, @intCast(rec.address(elf_file) + offset));

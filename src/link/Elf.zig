@@ -4245,6 +4245,11 @@ fn updateSectionSizesObject(self: *Elf) !void {
 
     if (self.eh_frame_section_index) |index| {
         self.shdrs.items[index].sh_size = try eh_frame.calcEhFrameSize(self);
+
+        if (self.eh_frame_rela_section_index) |rela_index| {
+            const shdr = &self.shdrs.items[rela_index];
+            shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
+        }
     }
 
     try self.updateSymtabSize();
