@@ -77,7 +77,7 @@ embed_file_work_queue: std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .{},
+failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.Diag.Bundle) = .{},
 
 /// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -318,15 +318,286 @@ pub const CObject = struct {
         failure_retryable,
     },
 
-    pub const ErrorMsg = struct {
-        msg: []const u8,
-        line: u32,
-        column: u32,
+    pub const Diag = struct {
+        level: u32 = 0,
+        category: u32 = 0,
+        msg: []const u8 = &.{},
+        src_loc: SrcLoc = .{},
+        src_ranges: []const SrcRange = &.{},
+        sub_diags: []const Diag = &.{},
 
-        pub fn destroy(em: *ErrorMsg, gpa: Allocator) void {
-            gpa.free(em.msg);
-            gpa.destroy(em);
+        pub const SrcLoc = struct {
+            file: u32 = 0,
+            line: u32 = 0,
+            column: u32 = 0,
+            offset: u32 = 0,
+        };
+
+        pub const SrcRange = struct {
+            start: SrcLoc = .{},
+            end: SrcLoc = .{},
+        };
+
+        pub fn deinit(diag: *Diag, gpa: Allocator) void {
+            gpa.free(diag.msg);
+            gpa.free(diag.src_ranges);
+            for (diag.sub_diags) |sub_diag| {
+                var sub_diag_mut = sub_diag;
+                sub_diag_mut.deinit(gpa);
+            }
+            gpa.free(diag.sub_diags);
+            diag.* = undefined;
         }
+
+        pub fn count(diag: Diag) u32 {
+            var total: u32 = 1;
+            for (diag.sub_diags) |sub_diag| total += sub_diag.count();
+            return total;
+        }
+
+        pub fn addToErrorBundle(diag: Diag, eb: *ErrorBundle.Wip, bundle: Bundle, note: *u32) !void {
+            const err_msg = try eb.addErrorMessage(try diag.toErrorMessage(eb, bundle, 0));
+            eb.extra.items[note.*] = @intFromEnum(err_msg);
+            note.* += 1;
+            for (diag.sub_diags) |sub_diag| try sub_diag.addToErrorBundle(eb, bundle, note);
+        }
+
+        pub fn toErrorMessage(
+            diag: Diag,
+            eb: *ErrorBundle.Wip,
+            bundle: Bundle,
+            notes_len: u32,
+        ) !ErrorBundle.ErrorMessage {
+            var start = diag.src_loc.offset;
+            var end = diag.src_loc.offset;
+            for (diag.src_ranges) |src_range| {
+                if (src_range.start.file == diag.src_loc.file and
+                    src_range.start.line == diag.src_loc.line)
+                {
+                    start = @min(src_range.start.offset, start);
+                }
+                if (src_range.end.file == diag.src_loc.file and
+                    src_range.end.line == diag.src_loc.line)
+                {
+                    end = @max(src_range.end.offset, end);
+                }
+            }
+
+            const file_name = bundle.file_names.get(diag.src_loc.file) orelse "";
+            const source_line = source_line: {
+                if (diag.src_loc.offset == 0 or diag.src_loc.column == 0) break :source_line 0;
+
+                const file = std.fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
+                defer file.close();
+                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+
+                var line = std.ArrayList(u8).init(eb.gpa);
+                defer line.deinit();
+                file.reader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
+
+                break :source_line try eb.addString(line.items);
+            };
+
+            return .{
+                .msg = try eb.addString(diag.msg),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(file_name),
+                    .line = diag.src_loc.line -| 1,
+                    .column = diag.src_loc.column -| 1,
+                    .span_start = start,
+                    .span_main = diag.src_loc.offset,
+                    .span_end = end + 1,
+                    .source_line = source_line,
+                }),
+                .notes_len = notes_len,
+            };
+        }
+
+        pub const Bundle = struct {
+            file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
+            category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
+            diags: []Diag = &.{},
+
+            pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
+                var file_name_it = bundle.file_names.valueIterator();
+                while (file_name_it.next()) |file_name| gpa.free(file_name.*);
+                bundle.file_names.deinit(gpa);
+
+                var category_name_it = bundle.category_names.valueIterator();
+                while (category_name_it.next()) |category_name| gpa.free(category_name.*);
+                bundle.category_names.deinit(gpa);
+
+                for (bundle.diags) |*diag| diag.deinit(gpa);
+                gpa.free(bundle.diags);
+
+                gpa.destroy(bundle);
+            }
+
+            pub fn parse(gpa: Allocator, path: []const u8) !*Bundle {
+                const BitcodeReader = @import("codegen/llvm/BitcodeReader.zig");
+                const BlockId = enum(u32) {
+                    Meta = 8,
+                    Diag,
+                    _,
+                };
+                const RecordId = enum(u32) {
+                    Version = 1,
+                    DiagInfo,
+                    SrcRange,
+                    DiagFlag,
+                    CatName,
+                    FileName,
+                    FixIt,
+                    _,
+                };
+                const WipDiag = struct {
+                    level: u32 = 0,
+                    category: u32 = 0,
+                    msg: []const u8 = &.{},
+                    src_loc: SrcLoc = .{},
+                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .{},
+                    sub_diags: std.ArrayListUnmanaged(Diag) = .{},
+
+                    fn deinit(wip_diag: *@This(), allocator: Allocator) void {
+                        allocator.free(wip_diag.msg);
+                        wip_diag.src_ranges.deinit(allocator);
+                        for (wip_diag.sub_diags.items) |*sub_diag| sub_diag.deinit(allocator);
+                        wip_diag.sub_diags.deinit(allocator);
+                        wip_diag.* = undefined;
+                    }
+                };
+
+                const file = try std.fs.cwd().openFile(path, .{});
+                defer file.close();
+                var br = std.io.bufferedReader(file.reader());
+                const reader = br.reader();
+                var bc = BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                defer bc.deinit();
+
+                var file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                errdefer {
+                    var file_name_it = file_names.valueIterator();
+                    while (file_name_it.next()) |file_name| gpa.free(file_name.*);
+                    file_names.deinit(gpa);
+                }
+
+                var category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                errdefer {
+                    var category_name_it = category_names.valueIterator();
+                    while (category_name_it.next()) |category_name| gpa.free(category_name.*);
+                    category_names.deinit(gpa);
+                }
+
+                var stack: std.ArrayListUnmanaged(WipDiag) = .{};
+                defer {
+                    for (stack.items) |*wip_diag| wip_diag.deinit(gpa);
+                    stack.deinit(gpa);
+                }
+                try stack.append(gpa, .{});
+
+                try bc.checkMagic("DIAG");
+                while (try bc.next()) |item| switch (item) {
+                    .start_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
+                        .Meta => if (stack.items.len > 0) try bc.skipBlock(block),
+                        .Diag => try stack.append(gpa, .{}),
+                        _ => try bc.skipBlock(block),
+                    },
+                    .record => |record| switch (@as(RecordId, @enumFromInt(record.id))) {
+                        .Version => if (record.operands[0] != 2) return error.InvalidVersion,
+                        .DiagInfo => {
+                            const top = &stack.items[stack.items.len - 1];
+                            top.level = @intCast(record.operands[0]);
+                            top.src_loc = .{
+                                .file = @intCast(record.operands[1]),
+                                .line = @intCast(record.operands[2]),
+                                .column = @intCast(record.operands[3]),
+                                .offset = @intCast(record.operands[4]),
+                            };
+                            top.category = @intCast(record.operands[5]);
+                            top.msg = try gpa.dupe(u8, record.blob);
+                        },
+                        .SrcRange => try stack.items[stack.items.len - 1].src_ranges.append(gpa, .{
+                            .start = .{
+                                .file = @intCast(record.operands[0]),
+                                .line = @intCast(record.operands[1]),
+                                .column = @intCast(record.operands[2]),
+                                .offset = @intCast(record.operands[3]),
+                            },
+                            .end = .{
+                                .file = @intCast(record.operands[4]),
+                                .line = @intCast(record.operands[5]),
+                                .column = @intCast(record.operands[6]),
+                                .offset = @intCast(record.operands[7]),
+                            },
+                        }),
+                        .DiagFlag => {},
+                        .CatName => {
+                            try category_names.ensureUnusedCapacity(gpa, 1);
+                            category_names.putAssumeCapacity(
+                                @intCast(record.operands[0]),
+                                try gpa.dupe(u8, record.blob),
+                            );
+                        },
+                        .FileName => {
+                            try file_names.ensureUnusedCapacity(gpa, 1);
+                            file_names.putAssumeCapacity(
+                                @intCast(record.operands[0]),
+                                try gpa.dupe(u8, record.blob),
+                            );
+                        },
+                        .FixIt => {},
+                        _ => {},
+                    },
+                    .end_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
+                        .Meta => {},
+                        .Diag => {
+                            var wip_diag = stack.pop();
+                            errdefer wip_diag.deinit(gpa);
+
+                            const src_ranges = try wip_diag.src_ranges.toOwnedSlice(gpa);
+                            errdefer gpa.free(src_ranges);
+
+                            const sub_diags = try wip_diag.sub_diags.toOwnedSlice(gpa);
+                            errdefer {
+                                for (sub_diags) |*sub_diag| sub_diag.deinit(gpa);
+                                gpa.free(sub_diags);
+                            }
+
+                            try stack.items[stack.items.len - 1].sub_diags.append(gpa, .{
+                                .level = wip_diag.level,
+                                .category = wip_diag.category,
+                                .msg = wip_diag.msg,
+                                .src_loc = wip_diag.src_loc,
+                                .src_ranges = src_ranges,
+                                .sub_diags = sub_diags,
+                            });
+                        },
+                        _ => {},
+                    },
+                };
+
+                const bundle = try gpa.create(Bundle);
+                assert(stack.items.len == 1);
+                bundle.* = .{
+                    .file_names = file_names,
+                    .category_names = category_names,
+                    .diags = try stack.items[0].sub_diags.toOwnedSlice(gpa),
+                };
+                return bundle;
+            }
+
+            pub fn addToErrorBundle(bundle: Bundle, eb: *ErrorBundle.Wip) !void {
+                for (bundle.diags) |diag| {
+                    const notes_len = diag.count() - 1;
+                    try eb.addRootErrorMessage(try diag.toErrorMessage(eb, bundle, notes_len));
+                    if (notes_len > 0) {
+                        var note = try eb.reserveNotes(notes_len);
+                        for (diag.sub_diags) |sub_diag|
+                            try sub_diag.addToErrorBundle(eb, bundle, &note);
+                    }
+                }
+            }
+        };
     };
 
     /// Returns if there was failure.
@@ -2826,10 +3097,15 @@ fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) vo
 
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
-    var total: usize = self.failed_c_objects.count() +
+    var total: usize =
         self.misc_failures.count() +
         @intFromBool(self.alloc_failure_occurred) +
         self.lld_errors.items.len;
+
+    {
+        var it = self.failed_c_objects.iterator();
+        while (it.next()) |entry| total += entry.value_ptr.*.diags.len;
+    }
 
     if (!build_options.only_core_functionality) {
         for (self.failed_win32_resources.values()) |errs| {
@@ -2911,24 +3187,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
 
     {
         var it = self.failed_c_objects.iterator();
-        while (it.next()) |entry| {
-            const c_object = entry.key_ptr.*;
-            const err_msg = entry.value_ptr.*;
-            // TODO these fields will need to be adjusted when we have proper
-            // C error reporting bubbling up.
-            try bundle.addRootErrorMessage(.{
-                .msg = try bundle.printString("unable to build C object: {s}", .{err_msg.msg}),
-                .src_loc = try bundle.addSourceLocation(.{
-                    .src_path = try bundle.addString(c_object.src.src_path),
-                    .span_start = 0,
-                    .span_main = 0,
-                    .span_end = 1,
-                    .line = err_msg.line,
-                    .column = err_msg.column,
-                    .source_line = 0, // TODO
-                }),
-            });
-        }
+        while (it.next()) |entry| try entry.value_ptr.*.addToErrorBundle(&bundle);
     }
 
     if (!build_options.only_core_functionality) {
@@ -4209,19 +4468,9 @@ fn reportRetryableCObjectError(
 ) error{OutOfMemory}!void {
     c_object.status = .failure_retryable;
 
-    const c_obj_err_msg = try comp.gpa.create(CObject.ErrorMsg);
-    errdefer comp.gpa.destroy(c_obj_err_msg);
-    const msg = try std.fmt.allocPrint(comp.gpa, "{s}", .{@errorName(err)});
-    errdefer comp.gpa.free(msg);
-    c_obj_err_msg.* = .{
-        .msg = msg,
-        .line = 0,
-        .column = 0,
-    };
-    {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        try comp.failed_c_objects.putNoClobber(comp.gpa, c_object, c_obj_err_msg);
+    switch (comp.failCObj(c_object, "{s}", .{@errorName(err)})) {
+        error.AnalysisFail => return,
+        else => |e| return e,
     }
 }
 
@@ -4457,6 +4706,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
+        const out_diag_path = try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
@@ -4470,18 +4720,20 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
         try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
-            .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
-            .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+            .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
+            .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
         if (comp.clang_passthrough_mode) {
             if (comp.emit_asm != null) {
                 argv.appendAssumeCapacity("-S");
             } else if (comp.emit_llvm_ir != null) {
-                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+                argv.appendSliceAssumeCapacity(&.{ "-emit-llvm", "-S" });
             } else if (comp.emit_llvm_bc != null) {
                 argv.appendAssumeCapacity("-emit-llvm");
             }
+        } else {
+            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", out_diag_path });
         }
 
         if (comp.verbose_cc) {
@@ -4524,10 +4776,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 switch (term) {
                     .Exited => |code| {
                         if (code != 0) {
-                            // TODO parse clang stderr and turn it into an error message
-                            // and then call failCObjWithOwnedErrorMsg
-                            log.err("clang failed with stderr: {s}", .{stderr});
-                            return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                            const bundle = CObject.Diag.Bundle.parse(comp.gpa, out_diag_path) catch |err| {
+                                log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
+                                return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                            };
+                            return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
                         }
                     },
                     else => {
@@ -5413,37 +5666,45 @@ pub fn addCCArgs(
     try argv.appendSlice(comp.clang_argv);
 }
 
-fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8, args: anytype) SemaError {
-    @setCold(true);
-    const err_msg = blk: {
-        const msg = try std.fmt.allocPrint(comp.gpa, format, args);
-        errdefer comp.gpa.free(msg);
-        const err_msg = try comp.gpa.create(CObject.ErrorMsg);
-        errdefer comp.gpa.destroy(err_msg);
-        err_msg.* = .{
-            .msg = msg,
-            .line = 0,
-            .column = 0,
-        };
-        break :blk err_msg;
-    };
-    return comp.failCObjWithOwnedErrorMsg(c_object, err_msg);
-}
-
-fn failCObjWithOwnedErrorMsg(
+fn failCObj(
     comp: *Compilation,
     c_object: *CObject,
-    err_msg: *CObject.ErrorMsg,
+    comptime format: []const u8,
+    args: anytype,
+) SemaError {
+    @setCold(true);
+    const diag_bundle = blk: {
+        const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
+        diag_bundle.* = .{};
+        errdefer diag_bundle.destroy(comp.gpa);
+
+        try diag_bundle.file_names.ensureTotalCapacity(comp.gpa, 1);
+        diag_bundle.file_names.putAssumeCapacity(1, try comp.gpa.dupe(u8, c_object.src.src_path));
+
+        diag_bundle.diags = try comp.gpa.alloc(CObject.Diag, 1);
+        diag_bundle.diags[0] = .{};
+        diag_bundle.diags[0].level = 3;
+        diag_bundle.diags[0].msg = try std.fmt.allocPrint(comp.gpa, format, args);
+        diag_bundle.diags[0].src_loc.file = 1;
+        break :blk diag_bundle;
+    };
+    return comp.failCObjWithOwnedDiagBundle(c_object, diag_bundle);
+}
+
+fn failCObjWithOwnedDiagBundle(
+    comp: *Compilation,
+    c_object: *CObject,
+    diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
     @setCold(true);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
         {
-            errdefer err_msg.destroy(comp.gpa);
+            errdefer diag_bundle.destroy(comp.gpa);
             try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);
         }
-        comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
+        comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, diag_bundle);
     }
     c_object.status = .failure;
     return error.AnalysisFail;
