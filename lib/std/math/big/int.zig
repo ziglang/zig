@@ -1744,7 +1744,7 @@ pub const Mutable = struct {
         assert(mask.positive);
 
         r.positive = true;
-        std.mem.set(Limb, r.limbs, 0);
+        @memset(r.limbs, 0);
 
         var mask_limb: Limb = mask.limbs[0];
         var mask_limb_index: Limb = 0;
@@ -1754,7 +1754,7 @@ pub const Mutable = struct {
             const mask_limb_bit: Log2Limb = limb_bit: while (true) {
                 const mask_limb_tz = @ctz(mask_limb);
                 if (mask_limb_tz != @sizeOf(Limb) * 8) {
-                    const cast_limb_bit = @intCast(Log2Limb, mask_limb_tz);
+                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
                     mask_limb ^= @as(Limb, 1) << cast_limb_bit;
                     break :limb_bit cast_limb_bit;
                 }
@@ -1769,13 +1769,13 @@ pub const Mutable = struct {
             };
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @truncate(Log2Limb, i);
+            const i_limb_bit: Log2Limb = @truncate(i);
 
             if (i_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
 
             const source_bit_set = source.limbs[i_limb_index] & (@as(Limb, 1) << i_limb_bit) != 0;
 
-            r.limbs[mask_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << mask_limb_bit;
+            r.limbs[mask_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << mask_limb_bit;
         }
 
         r.normalize(r.limbs.len);
@@ -1790,7 +1790,7 @@ pub const Mutable = struct {
         assert(mask.positive);
 
         r.positive = true;
-        std.mem.set(Limb, r.limbs, 0);
+        @memset(r.limbs, 0);
 
         var mask_limb: Limb = mask.limbs[0];
         var mask_limb_index: Limb = 0;
@@ -1800,7 +1800,7 @@ pub const Mutable = struct {
             const mask_limb_bit: Log2Limb = limb_bit: while (true) {
                 const mask_limb_tz = @ctz(mask_limb);
                 if (mask_limb_tz != @sizeOf(Limb) * 8) {
-                    const cast_limb_bit = @intCast(Log2Limb, mask_limb_tz);
+                    const cast_limb_bit: Log2Limb = @intCast(mask_limb_tz);
                     mask_limb ^= @as(Limb, 1) << cast_limb_bit;
                     break :limb_bit cast_limb_bit;
                 }
@@ -1815,13 +1815,13 @@ pub const Mutable = struct {
             };
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @truncate(Log2Limb, i);
+            const i_limb_bit: Log2Limb = @truncate(i);
 
             if (mask_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
 
             const source_bit_set = source.limbs[mask_limb_index] & (@as(Limb, 1) << mask_limb_bit) != 0;
 
-            r.limbs[i_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << i_limb_bit;
+            r.limbs[i_limb_index] |= @as(Limb, @intFromBool(source_bit_set)) << i_limb_bit;
         }
 
         r.normalize(r.limbs.len);
