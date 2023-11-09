@@ -4797,7 +4797,11 @@ fn writeAtomsObject(self: *Elf) !void {
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-            log.debug("writing atom({d}) at 0x{x}", .{ atom_index, sh_offset + offset });
+            log.debug("writing atom({d}) from 0x{x} to 0x{x}", .{
+                atom_index,
+                sh_offset + offset,
+                sh_offset + offset + size,
+            });
 
             // TODO decompress directly into provided buffer
             const out_code = buffer[offset..][0..size];
@@ -5048,6 +5052,7 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
             if (!atom_ptr.flags.alive) continue;
             try atom_ptr.writeRelocs(self, &relocs);
         }
+        assert(relocs.items.len == num_relocs);
 
         const SortRelocs = struct {
             pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
@@ -5058,6 +5063,12 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
 
         mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
+        log.debug("writing {s} from 0x{x} to 0x{x}", .{
+            self.getShString(shdr.sh_name),
+            shdr.sh_offset,
+            shdr.sh_offset + shdr.sh_size,
+        });
+
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
     }
 
@@ -5067,6 +5078,11 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrameObject(self, buffer.writer());
+        log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
+            shdr.sh_offset,
+            shdr.sh_offset + shdr.sh_size,
+        });
+        assert(buffer.items.len == sh_size);
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
     if (self.eh_frame_rela_section_index) |shndx| {
@@ -5075,6 +5091,11 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrameRelocs(self, buffer.writer());
+        assert(buffer.items.len == sh_size);
+        log.debug("writing .rela.eh_frame from 0x{x} to 0x{x}", .{
+            shdr.sh_offset,
+            shdr.sh_offset + shdr.sh_size,
+        });
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
@@ -5091,6 +5112,11 @@ fn writeComdatGroups(self: *Elf) !void {
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try cgs.write(self, buffer.writer());
+        assert(buffer.items.len == sh_size);
+        log.debug("writing COMDAT group from 0x{x} to 0x{x}", .{
+            shdr.sh_offset,
+            shdr.sh_offset + shdr.sh_size,
+        });
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 }
@@ -5098,6 +5124,7 @@ fn writeComdatGroups(self: *Elf) !void {
 fn writeShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index) |index| {
         const shdr = self.shdrs.items[index];
+        log.debug("writing .shstrtab from 0x{x} to 0x{x}", .{ shdr.sh_offset, shdr.sh_offset + shdr.sh_size });
         try self.base.file.?.pwriteAll(self.shstrtab.items, shdr.sh_offset);
     }
 }
@@ -5112,7 +5139,15 @@ fn writeSymtab(self: *Elf) !void {
     };
     const nsyms = math.cast(usize, @divExact(symtab_shdr.sh_size, sym_size)) orelse return error.Overflow;
 
-    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, symtab_shdr.sh_offset });
+    log.debug("writing {d} symbols in .symtab from 0x{x} to 0x{x}", .{
+        nsyms,
+        symtab_shdr.sh_offset,
+        symtab_shdr.sh_offset + symtab_shdr.sh_size,
+    });
+    log.debug("writing .strtab from 0x{x} to 0x{x}", .{
+        strtab_shdr.sh_offset,
+        strtab_shdr.sh_offset + strtab_shdr.sh_size,
+    });
 
     try self.symtab.resize(gpa, nsyms);
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
@@ -5154,55 +5189,6 @@ fn writeSymtab(self: *Elf) !void {
         const file_ptr = self.file(index).?;
         file_ptr.writeSymtab(self);
     }
-
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => {
-            const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
-            defer gpa.free(buf);
-
-            for (buf, self.symtab.items) |*out, sym| {
-                out.* = .{
-                    .st_name = sym.st_name,
-                    .st_info = sym.st_info,
-                    .st_other = sym.st_other,
-                    .st_shndx = sym.st_shndx,
-                    .st_value = @as(u32, @intCast(sym.st_value)),
-                    .st_size = @as(u32, @intCast(sym.st_size)),
-                };
-                if (foreign_endian) mem.byteSwapAllFields(elf.Elf32_Sym, out);
-            }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), symtab_shdr.sh_offset);
-        },
-        .p64 => {
-            if (foreign_endian) {
-                for (self.symtab.items) |*sym| mem.byteSwapAllFields(elf.Elf64_Sym, sym);
-            }
-            try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), symtab_shdr.sh_offset);
-        },
-    }
-
-    try self.base.file.?.pwriteAll(self.strtab.items, strtab_shdr.sh_offset);
-}
-
-fn writeSymtabZigObject(self: *Elf, zig_object: *ZigObject) !void {
-    const gpa = self.base.allocator;
-    const symtab_shdr = self.shdrs.items[self.symtab_section_index.?];
-    const strtab_shdr = self.shdrs.items[self.strtab_section_index.?];
-    const sym_size: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Sym),
-        .p64 => @sizeOf(elf.Elf64_Sym),
-    };
-    const nsyms = math.cast(usize, @divExact(symtab_shdr.sh_size, sym_size)) orelse return error.Overflow;
-
-    log.debug("writing {d} symbols at 0x{x}", .{ nsyms, symtab_shdr.sh_offset });
-
-    try self.symtab.resize(gpa, nsyms);
-    const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
-    try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
-
-    self.writeSectionSymbols();
-    zig_object.asFile().writeSymtab(self);
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {

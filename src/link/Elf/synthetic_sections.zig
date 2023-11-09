@@ -1527,7 +1527,7 @@ pub const ComdatGroupSection = struct {
         const cg = elf_file.comdatGroup(cgs.cg_index);
         const object = cgs.file(elf_file).?.object;
         const members = object.comdatGroupMembers(cg.shndx);
-        try writeInt(@as(u32, elf.GRP_COMDAT), elf_file, writer);
+        try writer.writeInt(u32, elf.GRP_COMDAT, .little);
         for (members) |shndx| {
             const shdr = object.shdrs.items[shndx];
             switch (shdr.sh_type) {
@@ -1535,12 +1535,12 @@ pub const ComdatGroupSection = struct {
                     const atom_index = object.atoms.items[shdr.sh_info];
                     const atom = elf_file.atom(atom_index).?;
                     const rela = elf_file.output_rela_sections.get(atom.outputShndx().?).?;
-                    try writeInt(rela.shndx, elf_file, writer);
+                    try writer.writeInt(u32, rela.shndx, .little);
                 },
                 else => {
                     const atom_index = object.atoms.items[shndx];
                     const atom = elf_file.atom(atom_index).?;
-                    try writeInt(atom.outputShndx().?, elf_file, writer);
+                    try writer.writeInt(u32, atom.outputShndx().?, .little);
                 },
             }
         }
