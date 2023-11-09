@@ -3611,6 +3611,8 @@ fn initComdatGroups(self: *Elf) !void {
                     .name = ".group",
                     .type = elf.SHT_GROUP,
                     .entsize = @sizeOf(u32),
+                    .addralign = @alignOf(u32),
+                    .offset = std.math.maxInt(u64),
                 }),
                 .cg_index = cg_index,
             };
@@ -4293,13 +4295,22 @@ fn updateSectionSizesObject(self: *Elf) !void {
         shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
     }
 
-    self.updateComdatGroupsSizes();
     try self.updateSymtabSize();
+    self.updateComdatGroupsSizes();
     self.updateShStrtabSize();
 }
 
 fn updateComdatGroupsSizes(self: *Elf) void {
-    _ = self;
+    for (self.comdat_group_sections.items) |cg| {
+        const shdr = &self.shdrs.items[cg.shndx];
+        shdr.sh_size = cg.size(self);
+        shdr.sh_link = self.symtab_section_index.?;
+
+        const sym = self.symbol(cg.symbol(self));
+        std.debug.print("{s}\n", .{sym.name(self)});
+        shdr.sh_info = sym.outputSymtabIndex(self) orelse
+            self.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+    }
 }
 
 fn updateShStrtabSize(self: *Elf) void {
@@ -5068,8 +5079,21 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
+    try self.writeComdatGroups();
     try self.writeSymtab();
     try self.writeShStrtab();
+}
+
+fn writeComdatGroups(self: *Elf) !void {
+    const gpa = self.base.allocator;
+    for (self.comdat_group_sections.items) |cgs| {
+        const shdr = self.shdrs.items[cgs.shndx];
+        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        defer buffer.deinit();
+        try cgs.write(self, buffer.writer());
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+    }
 }
 
 fn writeShStrtab(self: *Elf) !void {
