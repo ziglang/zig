@@ -19492,14 +19492,13 @@ fn structInitAnon(
 
     const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
     const values = try sema.arena.alloc(InternPool.Index, types.len);
-
-    var fields = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
+    const fields = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
 
     // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
         var extra_index = extra_end;
-        for (types, values, fields, 0..) |*field_ty, *value_i, *field_i, i_usize| {
+        for (types, values, fields, 0..) |*field_ty, *value, *field, i_usize| {
             const i: u32 = @intCast(i_usize);
             const item = switch (kind) {
                 .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
@@ -19518,7 +19517,7 @@ fn structInitAnon(
             };
 
             const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
-            field_i.* = name_ip;
+            field.* = name_ip;
 
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init).toIntern();
@@ -19535,9 +19534,9 @@ fn structInitAnon(
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (try sema.resolveValue(init)) |init_val| {
-                value_i.* = try init_val.intern(field_ty.toType(), mod);
+                value.* = try init_val.intern(field_ty.toType(), mod);
             } else {
-                value_i.* = .none;
+                value.* = .none;
                 runtime_index = i;
             }
         }
