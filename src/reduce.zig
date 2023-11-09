@@ -226,7 +226,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
 
             try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
-            //std.debug.print("trying this code:\n{s}\n", .{rendered.items});
+            // std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
             std.debug.print("{d} random transformations: {s}. {d}/{d}\n", .{
@@ -324,11 +324,20 @@ fn transformationsToFixups(
         .delete_var_decl => |delete_var_decl| {
             try fixups.omit_nodes.put(gpa, delete_var_decl.var_decl_node, {});
             for (delete_var_decl.references.items) |ident_node| {
-                try fixups.replace_nodes.put(gpa, ident_node, "undefined");
+                try fixups.replace_nodes_with_string.put(gpa, ident_node, "undefined");
             }
         },
         .replace_with_undef => |node| {
-            try fixups.replace_nodes.put(gpa, node, "undefined");
+            try fixups.replace_nodes_with_string.put(gpa, node, "undefined");
+        },
+        .replace_with_true => |node| {
+            try fixups.replace_nodes_with_string.put(gpa, node, "true");
+        },
+        .replace_with_false => |node| {
+            try fixups.replace_nodes_with_string.put(gpa, node, "false");
+        },
+        .replace_node => |r| {
+            try fixups.replace_nodes_with_node.put(gpa, r.to_replace, r.replacement);
         },
         .inline_imported_file => |inline_imported_file| {
             const full_imported_path = try std.fs.path.join(gpa, &.{
@@ -371,7 +380,7 @@ fn transformationsToFixups(
             try other_file_ast.renderToArrayList(&other_source, inlined_fixups);
             try other_source.appendSlice("}");
 
-            try fixups.replace_nodes.put(
+            try fixups.replace_nodes_with_string.put(
                 gpa,
                 inline_imported_file.builtin_call_node,
                 try arena.dupe(u8, other_source.items),
