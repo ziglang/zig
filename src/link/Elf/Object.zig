@@ -687,7 +687,6 @@ pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
         const out_shdr = &elf_file.shdrs.items[out_shndx];
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
         out_shdr.sh_entsize = @sizeOf(elf.Elf64_Rela);
-        out_shdr.sh_info = self.initOutputSection(elf_file, atom.inputShdr(elf_file)) catch unreachable;
     }
 }
 
@@ -695,13 +694,18 @@ pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
-        const shndx = atom.relocsShndx() orelse continue;
-        const shdr = self.shdrs.items[shndx];
-        const out_shndx = self.initOutputSection(elf_file, shdr) catch unreachable;
+        const shndx = blk: {
+            const shndx = atom.relocsShndx() orelse continue;
+            const shdr = self.shdrs.items[shndx];
+            break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
+        };
+        const shdr = &elf_file.shdrs.items[shndx];
+        shdr.sh_info = atom.outputShndx().?;
+        shdr.sh_link = elf_file.symtab_section_index.?;
 
         const gpa = elf_file.base.allocator;
         const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom.outputShndx().?);
-        if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = out_shndx };
+        if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
         try gop.value_ptr.atom_list.append(gpa, atom_index);
     }
 }

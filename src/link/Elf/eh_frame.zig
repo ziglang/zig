@@ -268,7 +268,11 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
         }
     }
 
-    return offset + 4; // NULL terminator
+    if (!elf_file.isRelocatable()) {
+        offset += 4; // NULL terminator
+    }
+
+    return offset;
 }
 
 pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
@@ -371,6 +375,39 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     }
 
     try writer.writeInt(u32, 0, .little);
+}
+
+pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
+    const gpa = elf_file.base.allocator;
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            try writer.writeAll(cie.data(elf_file));
+        }
+    }
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+
+            const contents = try gpa.dupe(u8, fde.data(elf_file));
+            defer gpa.free(contents);
+
+            std.mem.writeInt(
+                i32,
+                contents[4..8],
+                @truncate(@as(i64, @intCast(fde.out_offset + 4)) - @as(i64, @intCast(fde.cie(elf_file).out_offset))),
+                .little,
+            );
+
+            try writer.writeAll(contents);
+        }
+    }
 }
 
 fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {

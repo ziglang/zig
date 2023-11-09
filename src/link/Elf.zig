@@ -1446,8 +1446,6 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
     // input Object files.
-    // Any qualifing unresolved symbol will be upgraded to an absolute, weak
-    // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
     self.claimUnresolvedObject();
@@ -4037,11 +4035,10 @@ fn sortShdrs(self: *Elf) !void {
         shdr.sh_info = self.plt_section_index.?;
     }
 
-    for (self.shdrs.items) |*shdr| {
-        if (shdr.sh_type == elf.SHT_RELA and shdr.sh_flags & elf.SHF_INFO_LINK != 0) {
-            shdr.sh_link = self.symtab_section_index.?;
-            shdr.sh_info = backlinks[shdr.sh_info];
-        }
+    if (self.eh_frame_rela_section_index) |index| {
+        const shdr = &self.shdrs.items[index];
+        shdr.sh_link = self.symtab_section_index.?;
+        shdr.sh_info = self.eh_frame_section_index.?;
     }
 
     {
@@ -4121,6 +4118,12 @@ fn sortShdrs(self: *Elf) !void {
             const out_shndx = global.outputShndx() orelse continue;
             global.output_section_index = backlinks[out_shndx];
         }
+    }
+
+    for (self.output_rela_sections.keys(), self.output_rela_sections.values()) |shndx, sec| {
+        const shdr = &self.shdrs.items[sec.shndx];
+        shdr.sh_link = self.symtab_section_index.?;
+        shdr.sh_info = shndx;
     }
 }
 
@@ -5009,7 +5012,7 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        try eh_frame.writeEhFrame(self, buffer.writer());
+        try eh_frame.writeEhFrameObject(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
     if (self.eh_frame_rela_section_index) |shndx| {
