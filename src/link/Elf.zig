@@ -3951,6 +3951,12 @@ fn sortShdrs(self: *Elf) !void {
         self.shdrs.appendAssumeCapacity(slice[sorted.shndx]);
     }
 
+    try self.resetShdrIndexes(backlinks);
+}
+
+fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
+    const gpa = self.base.allocator;
+
     for (&[_]*?u16{
         &self.eh_frame_section_index,
         &self.eh_frame_rela_section_index,
