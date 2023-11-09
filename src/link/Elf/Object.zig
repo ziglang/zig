@@ -142,7 +142,7 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                 const group_nmembers = @divExact(group_raw_data.len, @sizeOf(u32));
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
-                if (group_members[0] != 0x1) { // GRP_COMDAT
+                if (group_members[0] != elf.GRP_COMDAT) {
                     // TODO convert into an error
                     log.debug("{}: unknown SHT_GROUP format", .{self.fmtPath()});
                     continue;
@@ -939,16 +939,17 @@ fn formatComdatGroups(
     _ = options;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
-    try writer.writeAll("  comdat groups\n");
+    try writer.writeAll("  COMDAT groups\n");
     for (object.comdat_groups.items) |cg_index| {
         const cg = elf_file.comdatGroup(cg_index);
         const cg_owner = elf_file.comdatGroupOwner(cg.owner);
         if (cg_owner.file != object.index) continue;
+        try writer.print("    COMDAT({d})\n", .{cg_index});
         const cg_members = object.comdatGroupMembers(cg.shndx);
         for (cg_members) |shndx| {
             const atom_index = object.atoms.items[shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
-            try writer.print("    atom({d}) : {s}\n", .{ atom_index, atom.name(elf_file) });
+            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom.name(elf_file) });
         }
     }
 }

@@ -102,6 +102,9 @@ copy_rel: CopyRelSection = .{},
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 /// .got.zig section
 zig_got: ZigGotSection = .{},
+/// SHT_GROUP sections
+/// Applies only to a relocatable.
+comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 
 /// Tracked section headers with incremental updates to Zig object.
 /// .rela.* sections are only used when emitting a relocatable object file.
@@ -394,6 +397,7 @@ pub fn deinit(self: *Elf) void {
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
     self.zig_got.deinit(gpa);
+    self.comdat_group_sections.deinit(gpa);
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -3585,8 +3589,33 @@ fn initSectionsObject(self: *Elf) !void {
         self.eh_frame_rela_section_index = try self.addRelaShdr(".rela.eh_frame", self.eh_frame_section_index.?);
     }
 
+    try self.initComdatGroups();
     try self.initSymtab();
     try self.initShStrtab();
+}
+
+fn initComdatGroups(self: *Elf) !void {
+    const gpa = self.base.allocator;
+
+    for (self.objects.items) |index| {
+        const object = self.file(index).?.object;
+
+        for (object.comdat_groups.items) |cg_index| {
+            const cg = self.comdatGroup(cg_index);
+            const cg_owner = self.comdatGroupOwner(cg.owner);
+            if (cg_owner.file != index) continue;
+
+            const cg_sec = try self.comdat_group_sections.addOne(gpa);
+            cg_sec.* = .{
+                .shndx = try self.addSection(.{
+                    .name = ".group",
+                    .type = elf.SHT_GROUP,
+                    .entsize = @sizeOf(u32),
+                }),
+                .cg_index = cg_index,
+            };
+        }
+    }
 }
 
 fn initSymtab(self: *Elf) !void {
@@ -3892,7 +3921,7 @@ fn shdrRank(self: *Elf, shndx: u16) u8 {
 
         elf.SHT_DYNAMIC => return 0xf3,
 
-        elf.SHT_RELA => return 0xf,
+        elf.SHT_RELA, elf.SHT_GROUP => return 0xf,
 
         elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
             if (flags & elf.SHF_EXECINSTR != 0) {
@@ -4131,6 +4160,10 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
         shdr.sh_link = self.symtab_section_index.?;
         shdr.sh_info = shndx;
     }
+
+    for (self.comdat_group_sections.items) |*cg| {
+        cg.shndx = backlinks[cg.shndx];
+    }
 }
 
 fn updateSectionSizes(self: *Elf) !void {
@@ -4260,8 +4293,13 @@ fn updateSectionSizesObject(self: *Elf) !void {
         shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
     }
 
+    self.updateComdatGroupsSizes();
     try self.updateSymtabSize();
     self.updateShStrtabSize();
+}
+
+fn updateComdatGroupsSizes(self: *Elf) void {
+    _ = self;
 }
 
 fn updateShStrtabSize(self: *Elf) void {
@@ -6168,7 +6206,12 @@ fn fmtDumpState(
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
 
-    try writer.writeAll("Output shdrs\n");
+    try writer.writeAll("Output COMDAT groups\n");
+    for (self.comdat_group_sections.items) |cg| {
+        try writer.print("shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
+    }
+
+    try writer.writeAll("\nOutput shdrs\n");
     for (self.shdrs.items, 0..) |shdr, shndx| {
         try writer.print("shdr({d}) : phdr({?d}) : {}\n", .{
             shndx,
@@ -6332,6 +6375,7 @@ const Archive = @import("Elf/Archive.zig");
 pub const Atom = @import("Elf/Atom.zig");
 const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
+const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
 const DynamicSection = synthetic_sections.DynamicSection;
 const DynsymSection = synthetic_sections.DynsymSection;

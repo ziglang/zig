@@ -1499,6 +1499,30 @@ pub const VerneedSection = struct {
     }
 };
 
+pub const ComdatGroupSection = struct {
+    shndx: u32,
+    cg_index: u32,
+
+    // pub fn size(cg: ComdatGroupSection) usize {
+    //     return cg.members.items.len + 1;
+    // }
+
+    // pub fn write(cg: ComdatGroupSection, elf_file: *Elf, writer: anytype) !void {
+    //     try writeInt(@as(u32, elf.GRP_COMDAT), elf_file, writer);
+    //     for (cg.members.items) |atom_index| {
+    //         const atom = elf_file.atom(atom_index);
+    //         const input_shdr = atom.inputShdr(elf_file);
+    //         switch (input_shdr.sh_type) {
+    //             elf.SHT_RELA => {
+
+    //         },
+    //             else => {},
+    //         }
+    //     }
+    //     try writer.writeAll(mem.sliceAsBytes(cg.members.items));
+    // }
+};
+
 fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
     const entry_size = elf_file.archPtrWidthBytes();
     const endian = elf_file.base.options.target.cpu.arch.endian();
