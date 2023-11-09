@@ -32060,14 +32060,86 @@ fn analyzeSlice(
         .Pointer => switch (ptr_ptr_child_ty.ptrSize(mod)) {
             .One => {
                 const double_child_ty = ptr_ptr_child_ty.childType(mod);
+                ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 if (double_child_ty.zigTypeTag(mod) == .Array) {
                     ptr_sentinel = double_child_ty.sentinel(mod);
-                    ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                     slice_ty = ptr_ptr_child_ty;
                     array_ty = double_child_ty;
                     elem_ty = double_child_ty.childType(mod);
                 } else {
-                    return sema.fail(block, src, "slice of single-item pointer", .{});
+                    const bounds_error_message = "slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]";
+                    if (uncasted_end_opt == .none) {
+                        return sema.fail(block, src, bounds_error_message, .{});
+                    }
+                    const start_value = try sema.resolveConstDefinedValue(
+                        block,
+                        start_src,
+                        uncasted_start,
+                        .{ .needed_comptime_reason = bounds_error_message },
+                    );
+
+                    const end_value = try sema.resolveConstDefinedValue(
+                        block,
+                        end_src,
+                        uncasted_end_opt,
+                        .{ .needed_comptime_reason = bounds_error_message },
+                    );
+
+                    if (try sema.compareScalar(start_value, .neq, end_value, Type.comptime_int)) {
+                        if (try sema.compareScalar(start_value, .neq, InternPool.Index.zero.toValue(), Type.comptime_int)) {
+                            const err_msg = try sema.errMsg(block, start_src, bounds_error_message, .{});
+                            try sema.errNote(
+                                block,
+                                start_src,
+                                err_msg,
+                                "expected '{}', found '{}'",
+                                .{
+                                    Value.zero_comptime_int.fmtValue(Type.comptime_int, mod),
+                                    start_value.fmtValue(Type.comptime_int, mod),
+                                },
+                            );
+                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                        } else if (try sema.compareScalar(end_value, .neq, InternPool.Index.one.toValue(), Type.comptime_int)) {
+                            const err_msg = try sema.errMsg(block, end_src, bounds_error_message, .{});
+                            try sema.errNote(
+                                block,
+                                end_src,
+                                err_msg,
+                                "expected '{}', found '{}'",
+                                .{
+                                    Value.one_comptime_int.fmtValue(Type.comptime_int, mod),
+                                    end_value.fmtValue(Type.comptime_int, mod),
+                                },
+                            );
+                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                        }
+                    } else {
+                        if (try sema.compareScalar(end_value, .gt, InternPool.Index.one.toValue(), Type.comptime_int)) {
+                            return sema.fail(
+                                block,
+                                end_src,
+                                "end index {} out of bounds for slice of single-item pointer",
+                                .{end_value.fmtValue(Type.comptime_int, mod)},
+                            );
+                        }
+                    }
+
+                    array_ty = try mod.arrayType(.{
+                        .len = 1,
+                        .child = double_child_ty.toIntern(),
+                    });
+                    const ptr_info = ptr_ptr_child_ty.ptrInfo(mod);
+                    slice_ty = try mod.ptrType(.{
+                        .child = array_ty.toIntern(),
+                        .flags = .{
+                            .alignment = ptr_info.flags.alignment,
+                            .is_const = ptr_info.flags.is_const,
+                            .is_allowzero = ptr_info.flags.is_allowzero,
+                            .is_volatile = ptr_info.flags.is_volatile,
+                            .address_space = ptr_info.flags.address_space,
+                        },
+                    });
+                    elem_ty = double_child_ty;
                 }
             },
             .Many, .C => {
