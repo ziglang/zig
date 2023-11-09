@@ -4307,7 +4307,6 @@ fn updateComdatGroupsSizes(self: *Elf) void {
         shdr.sh_link = self.symtab_section_index.?;
 
         const sym = self.symbol(cg.symbol(self));
-        std.debug.print("{s}\n", .{sym.name(self)});
         shdr.sh_info = sym.outputSymtabIndex(self) orelse
             self.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
     }
@@ -6131,7 +6130,7 @@ fn formatShdr(
     });
 }
 
-fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(formatShdrFlags) {
+pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
@@ -6288,12 +6287,12 @@ fn fmtDumpState(
 
     try writer.writeAll("Output COMDAT groups\n");
     for (self.comdat_group_sections.items) |cg| {
-        try writer.print("shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
+        try writer.print("  shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
     }
 
     try writer.writeAll("\nOutput shdrs\n");
     for (self.shdrs.items, 0..) |shdr, shndx| {
-        try writer.print("shdr({d}) : phdr({?d}) : {}\n", .{
+        try writer.print("  shdr({d}) : phdr({?d}) : {}\n", .{
             shndx,
             self.phdr_to_shdr_table.get(@intCast(shndx)),
             self.fmtShdr(shdr),
@@ -6301,7 +6300,7 @@ fn fmtDumpState(
     }
     try writer.writeAll("\nOutput phdrs\n");
     for (self.phdrs.items, 0..) |phdr, phndx| {
-        try writer.print("phdr{d} : {}\n", .{ phndx, self.fmtPhdr(phdr) });
+        try writer.print("  phdr{d} : {}\n", .{ phndx, self.fmtPhdr(phdr) });
     }
 }
 
