@@ -24,6 +24,7 @@ pub fn build(b: *Build) void {
     // Exercise linker in -r mode
     elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = musl_target }));
     elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
 
     // Exercise linker in ar mode
     elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
@@ -2135,6 +2136,48 @@ fn testPreinitArray(b: *Build, opts: Options) *Step {
         check.checkInDynamicSection();
         check.checkContains("PREINIT_ARRAY");
     }
+
+    return test_step;
+}
+
+fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame", opts);
+
+    const obj = addObject(b, "obj", opts);
+    addCppSourceBytes(obj,
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+    , &.{});
+    addCppSourceBytes(obj,
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+    , &.{});
+    obj.linkLibCpp();
+
+    const exe = addExecutable(b, "test", opts);
+    addCppSourceBytes(exe,
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what() << std::endl;
+        \\  }
+        \\  return 0;
+        \\}
+    , &.{});
+    exe.addObject(obj);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("exception=Oh no!");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
