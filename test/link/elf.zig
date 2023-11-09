@@ -2167,7 +2167,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         \\  try {
         \\    try_again();
         \\  } catch (const std::exception &e) {
-        \\    std::cout << "exception=" << e.what() << std::endl;
+        \\    std::cout << "exception=" << e.what();
         \\  }
         \\  return 0;
         \\}
