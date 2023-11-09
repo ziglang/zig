@@ -75,6 +75,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
     try self.atoms.append(gpa, 0); // null input section
+    try self.relocs.append(gpa, .{}); // null relocs section
     try self.strtab.buffer.append(gpa, 0);
 
     const name_off = try self.strtab.insert(gpa, self.path);

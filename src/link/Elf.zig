@@ -4483,6 +4483,7 @@ fn allocateAllocSectionsObject(self: *Elf) !void {
     for (self.shdrs.items) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const needed_size = shdr.sh_size;
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
@@ -4817,38 +4818,6 @@ fn updateSymtabSize(self: *Elf) !void {
         };
         ctx.iglobal += nlocals;
     }
-
-    const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
-    symtab_shdr.sh_info = nlocals + 1;
-    symtab_shdr.sh_link = self.strtab_section_index.?;
-
-    const sym_size: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Sym),
-        .p64 => @sizeOf(elf.Elf64_Sym),
-    };
-    const needed_size = (nlocals + nglobals + 1) * sym_size;
-    symtab_shdr.sh_size = needed_size;
-
-    const strtab = &self.shdrs.items[self.strtab_section_index.?];
-    strtab.sh_size = strsize + 1;
-}
-
-fn updateSymtabSizeZigObject(self: *Elf, zig_object: *ZigObject) void {
-    var nlocals: u32 = 0;
-    var nglobals: u32 = 0;
-    var strsize: u32 = 0;
-
-    // Section symbols
-    for (self.output_sections.keys()) |_| {
-        nlocals += 1;
-    }
-
-    zig_object.output_symtab_ctx.ilocal = nlocals + 1;
-    try zig_object.asFile().updateSymtabSize(self);
-    nlocals += zig_object.output_symtab_ctx.nlocals;
-    nglobals += zig_object.output_symtab_ctx.nglobals;
-    strsize += zig_object.output_symtab_ctx.strsize;
-    zig_object.output_symtab_ctx.iglobal = nlocals + 1;
 
     const symtab_shdr = &self.shdrs.items[self.symtab_section_index.?];
     symtab_shdr.sh_info = nlocals + 1;
