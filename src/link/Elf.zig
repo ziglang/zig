@@ -6124,11 +6124,67 @@ fn formatShdr(
     _ = options;
     _ = unused_fmt_string;
     const shdr = ctx.shdr;
-    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x})", .{
+    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : flags({})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
         shdr.sh_addr,                           shdr.sh_addralign,
-        shdr.sh_size,
+        shdr.sh_size,                           fmtShdrFlags(shdr.sh_flags),
     });
+}
+
+fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(formatShdrFlags) {
+    return .{ .data = sh_flags };
+}
+
+fn formatShdrFlags(
+    sh_flags: u64,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = unused_fmt_string;
+    _ = options;
+    if (elf.SHF_WRITE & sh_flags != 0) {
+        try writer.writeAll("W");
+    }
+    if (elf.SHF_ALLOC & sh_flags != 0) {
+        try writer.writeAll("A");
+    }
+    if (elf.SHF_EXECINSTR & sh_flags != 0) {
+        try writer.writeAll("X");
+    }
+    if (elf.SHF_MERGE & sh_flags != 0) {
+        try writer.writeAll("M");
+    }
+    if (elf.SHF_STRINGS & sh_flags != 0) {
+        try writer.writeAll("S");
+    }
+    if (elf.SHF_INFO_LINK & sh_flags != 0) {
+        try writer.writeAll("I");
+    }
+    if (elf.SHF_LINK_ORDER & sh_flags != 0) {
+        try writer.writeAll("L");
+    }
+    if (elf.SHF_EXCLUDE & sh_flags != 0) {
+        try writer.writeAll("E");
+    }
+    if (elf.SHF_COMPRESSED & sh_flags != 0) {
+        try writer.writeAll("C");
+    }
+    if (elf.SHF_GROUP & sh_flags != 0) {
+        try writer.writeAll("G");
+    }
+    if (elf.SHF_OS_NONCONFORMING & sh_flags != 0) {
+        try writer.writeAll("O");
+    }
+    if (elf.SHF_TLS & sh_flags != 0) {
+        try writer.writeAll("T");
+    }
+    if (elf.SHF_X86_64_LARGE & sh_flags != 0) {
+        try writer.writeAll("l");
+    }
+    if (elf.SHF_MIPS_ADDR & sh_flags != 0 or elf.SHF_ARM_PURECODE & sh_flags != 0) {
+        try writer.writeAll("p");
+    }
 }
 
 const FormatPhdrCtx = struct {
