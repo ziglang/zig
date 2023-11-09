@@ -6,5 +6,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:21: error: duplicate field
-// :2:13: note: other field here
+// :2:13: error: duplicate field
+// :2:21: note: other field here
