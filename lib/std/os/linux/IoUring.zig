@@ -1464,7 +1464,7 @@ pub const CompletionQueue = struct {
 ///     const buffers_count: u16 = 256;
 ///     const buffer_size: u32 = 4096;
 ///     const buffers = try allocator.alloc(u8, buffers_count * buffers_size);
-///     var buf_grp = try BuffersGroup.init.ring(&ring, group_id, buffers, buffer_size, buffers_count);
+///     var buf_grp = try BufferGroup.init.ring(&ring, group_id, buffers, buffer_size, buffers_count);
 ///
 ///     // prepare recv on fd with buffer picked from group
 ///     _ = try buf_grp.recv(user_data, fd, 0);
