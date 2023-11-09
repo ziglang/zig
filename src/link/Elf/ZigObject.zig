@@ -18,7 +18,7 @@ relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .{},
 
 num_dynrelocs: u32 = 0,
 
-output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_ctx: Elf.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
 dwarf: ?Dwarf = null,
@@ -75,6 +75,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
     try self.atoms.append(gpa, 0); // null input section
+    try self.relocs.append(gpa, .{}); // null relocs section
     try self.strtab.buffer.append(gpa, 0);
 
     const name_off = try self.strtab.insert(gpa, self.path);
@@ -287,22 +288,6 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     return symbol_index;
 }
 
-pub fn addSectionSymbol(self: *ZigObject, shndx: u16, elf_file: *Elf) !void {
-    assert(elf_file.isRelocatable());
-    const gpa = elf_file.base.allocator;
-    const symbol_index = try elf_file.addSymbol();
-    try self.local_symbols.append(gpa, symbol_index);
-    const symbol_ptr = elf_file.symbol(symbol_index);
-    symbol_ptr.file_index = self.index;
-    symbol_ptr.output_section_index = shndx;
-
-    const esym_index = try self.addLocalEsym(gpa);
-    const esym = &self.local_esyms.items(.elf_sym)[esym_index];
-    esym.st_info = elf.STT_SECTION;
-    esym.st_shndx = shndx;
-    symbol_ptr.esym_index = esym_index;
-}
-
 /// TODO actually create fake input shdrs and return that instead.
 pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
     _ = self;
@@ -393,8 +378,7 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
 
         const global = elf_file.symbol(index);
         if (global.file(elf_file)) |file| {
-            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or
-                file.index() <= self.index) continue;
+            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or file.index() <= self.index) continue;
         }
 
         global.value = 0;
@@ -549,94 +533,18 @@ pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
     try writer.writeAll(contents);
 }
 
-pub fn updateRelaSectionSizes(self: ZigObject, elf_file: *Elf) void {
-    _ = self;
+pub fn addAtomsToRelaSections(self: ZigObject, elf_file: *Elf) !void {
+    for (self.atoms.items) |atom_index| {
+        const atom = elf_file.atom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        _ = atom.relocsShndx() orelse continue;
+        const out_shndx = atom.outputShndx().?;
+        const out_shdr = elf_file.shdrs.items[out_shndx];
+        if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
 
-    for (&[_]?u16{
-        elf_file.zig_text_rela_section_index,
-        elf_file.zig_data_rel_ro_rela_section_index,
-        elf_file.zig_data_rela_section_index,
-    }) |maybe_index| {
-        const index = maybe_index orelse continue;
-        const shdr = &elf_file.shdrs.items[index];
-        const meta = elf_file.last_atom_and_free_list_table.get(@intCast(shdr.sh_info)).?;
-        const last_atom_index = meta.last_atom_index;
-
-        var atom = elf_file.atom(last_atom_index) orelse continue;
-        while (true) {
-            const relocs = atom.relocs(elf_file);
-            shdr.sh_size += relocs.len * shdr.sh_entsize;
-            if (elf_file.atom(atom.prev_index)) |prev| {
-                atom = prev;
-            } else break;
-        }
-    }
-
-    for (&[_]?u16{
-        elf_file.zig_text_rela_section_index,
-        elf_file.zig_data_rel_ro_rela_section_index,
-        elf_file.zig_data_rela_section_index,
-    }) |maybe_index| {
-        const index = maybe_index orelse continue;
-        const shdr = &elf_file.shdrs.items[index];
-        if (shdr.sh_size == 0) shdr.sh_offset = 0;
-    }
-}
-
-pub fn writeRelaSections(self: ZigObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
-
-    for (&[_]?u16{
-        elf_file.zig_text_rela_section_index,
-        elf_file.zig_data_rel_ro_rela_section_index,
-        elf_file.zig_data_rela_section_index,
-    }) |maybe_index| {
-        const index = maybe_index orelse continue;
-        const shdr = elf_file.shdrs.items[index];
-        const meta = elf_file.last_atom_and_free_list_table.get(@intCast(shdr.sh_info)).?;
-        const last_atom_index = meta.last_atom_index;
-
-        var atom = elf_file.atom(last_atom_index) orelse continue;
-
-        var relocs = std.ArrayList(elf.Elf64_Rela).init(gpa);
-        defer relocs.deinit();
-        try relocs.ensureTotalCapacityPrecise(@intCast(@divExact(shdr.sh_size, shdr.sh_entsize)));
-
-        while (true) {
-            for (atom.relocs(elf_file)) |rel| {
-                const target = elf_file.symbol(self.symbol(rel.r_sym()));
-                const r_offset = atom.value + rel.r_offset;
-                const r_sym: u32 = if (target.flags.global)
-                    (target.esym_index & symbol_mask) + @as(u32, @intCast(self.local_esyms.slice().len))
-                else
-                    target.esym_index;
-                const r_type = switch (rel.r_type()) {
-                    Elf.R_X86_64_ZIG_GOT32,
-                    Elf.R_X86_64_ZIG_GOTPCREL,
-                    => unreachable, // Sanity check if we accidentally emitted those.
-                    else => |r_type| r_type,
-                };
-                relocs.appendAssumeCapacity(.{
-                    .r_offset = r_offset,
-                    .r_addend = rel.r_addend,
-                    .r_info = (@as(u64, @intCast(r_sym + 1)) << 32) | r_type,
-                });
-            }
-            if (elf_file.atom(atom.prev_index)) |prev| {
-                atom = prev;
-            } else break;
-        }
-
-        const SortRelocs = struct {
-            pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-                _ = ctx;
-                return lhs.r_offset < rhs.r_offset;
-            }
-        };
-
-        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
-
-        try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
+        const gpa = elf_file.base.allocator;
+        const sec = elf_file.output_rela_sections.getPtr(out_shndx).?;
+        try sec.atom_list.append(gpa, atom_index);
     }
 }
 

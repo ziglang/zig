@@ -4400,7 +4400,7 @@ fn zirValidateArrayInitTy(
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
-    const ty_src: LazySrcLoc = .{ .node_offset_init_ty = inst_data.src_node };
+    const ty_src: LazySrcLoc = if (is_result_ty) src else .{ .node_offset_init_ty = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
     const ty = sema.resolveType(block, ty_src, extra.ty) catch |err| switch (err) {
         // It's okay for the type to be unknown: this will result in an anonymous array init.
@@ -5610,6 +5610,8 @@ fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.In
     const src_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].node;
     const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
+    if (block.is_comptime)
+        return sema.fail(block, src, "encountered @trap at comptime", .{});
     _ = try block.addNoOp(.trap);
     return always_noreturn;
 }
@@ -7754,21 +7756,6 @@ fn analyzeInlineCallArg(
     }
 
     return null;
-}
-
-fn analyzeCallArg(
-    sema: *Sema,
-    block: *Block,
-    arg_src: LazySrcLoc,
-    param_ty: Type,
-    uncasted_arg: Air.Inst.Ref,
-    opts: CoerceOpts,
-) !Air.Inst.Ref {
-    try sema.resolveTypeFully(param_ty);
-    return sema.coerceExtra(block, param_ty, uncasted_arg, arg_src, opts) catch |err| switch (err) {
-        error.NotCoercible => unreachable,
-        else => |e| return e,
-    };
 }
 
 fn instantiateGenericCall(
@@ -13988,13 +13975,48 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const lhs = try sema.resolveInst(extra.lhs);
-    const lhs_ty = sema.typeOf(lhs);
+    const extra = sema.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+    const uncoerced_lhs = try sema.resolveInst(extra.lhs);
+    const uncoerced_lhs_ty = sema.typeOf(uncoerced_lhs);
     const src: LazySrcLoc = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const operator_src: LazySrcLoc = .{ .node_offset_main_token = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+
+    const lhs, const lhs_ty = coerced_lhs: {
+        // If we have a result type, we might be able to do this more efficiently
+        // by coercing the LHS first. Specifically, if we want an array or vector
+        // and have a tuple, coerce the tuple immediately.
+        no_coerce: {
+            if (extra.res_ty == .none) break :no_coerce;
+            const res_ty_inst = try sema.resolveInst(extra.res_ty);
+            const res_ty = try sema.analyzeAsType(block, src, res_ty_inst);
+            if (res_ty.isGenericPoison()) break :no_coerce;
+            if (!uncoerced_lhs_ty.isTuple(mod)) break :no_coerce;
+            const lhs_len = uncoerced_lhs_ty.structFieldCount(mod);
+            const lhs_dest_ty = switch (res_ty.zigTypeTag(mod)) {
+                else => break :no_coerce,
+                .Array => try mod.arrayType(.{
+                    .child = res_ty.childType(mod).toIntern(),
+                    .len = lhs_len,
+                    .sentinel = if (res_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                }),
+                .Vector => try mod.vectorType(.{
+                    .child = res_ty.childType(mod).toIntern(),
+                    .len = lhs_len,
+                }),
+            };
+            // Attempt to coerce to this type, but don't emit an error if it fails. Instead,
+            // just exit out of this path and let the usual error happen later, so that error
+            // messages are consistent.
+            const coerced = sema.coerceExtra(block, lhs_dest_ty, uncoerced_lhs, lhs_src, .{ .report_err = false }) catch |err| switch (err) {
+                error.NotCoercible => break :no_coerce,
+                else => |e| return e,
+            };
+            break :coerced_lhs .{ coerced, lhs_dest_ty };
+        }
+        break :coerced_lhs .{ uncoerced_lhs, uncoerced_lhs_ty };
+    };
 
     if (lhs_ty.isTuple(mod)) {
         // In `**` rhs must be comptime-known, but lhs can be runtime-known
@@ -14076,6 +14098,14 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     try sema.requireRuntimeBlock(block, src, lhs_src);
 
+    // Grab all the LHS values ahead of time, rather than repeatedly emitting instructions
+    // to get the same elem values.
+    const lhs_vals = try sema.arena.alloc(Air.Inst.Ref, lhs_len);
+    for (lhs_vals, 0..) |*lhs_val, idx| {
+        const idx_ref = try mod.intRef(Type.usize, idx);
+        lhs_val.* = try sema.elemVal(block, lhs_src, lhs, idx_ref, src, false);
+    }
+
     if (ptr_addrspace) |ptr_as| {
         const alloc_ty = try sema.ptrType(.{
             .child = result_ty.toIntern(),
@@ -14089,14 +14119,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
         var elem_i: usize = 0;
         while (elem_i < result_len) {
-            var lhs_i: usize = 0;
-            while (lhs_i < lhs_len) : (lhs_i += 1) {
+            for (lhs_vals) |lhs_val| {
                 const elem_index = try mod.intRef(Type.usize, elem_i);
-                elem_i += 1;
-                const lhs_index = try mod.intRef(Type.usize, lhs_i);
                 const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
-                const init = try sema.elemVal(block, lhs_src, lhs, lhs_index, src, true);
-                try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
+                try sema.storePtr2(block, src, elem_ptr, src, lhs_val, lhs_src, .store);
+                elem_i += 1;
             }
         }
         if (lhs_info.sentinel) |sent_val| {
@@ -14110,17 +14137,9 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, result_len);
-    var elem_i: usize = 0;
-    while (elem_i < result_len) {
-        var lhs_i: usize = 0;
-        while (lhs_i < lhs_len) : (lhs_i += 1) {
-            const lhs_index = try mod.intRef(Type.usize, lhs_i);
-            const init = try sema.elemVal(block, lhs_src, lhs, lhs_index, src, true);
-            element_refs[elem_i] = init;
-            elem_i += 1;
-        }
+    for (0..try sema.usizeCast(block, rhs_src, factor)) |i| {
+        @memcpy(element_refs[i * lhs_len ..][0..lhs_len], lhs_vals);
     }
-
     return block.addAggregateInit(result_ty, element_refs);
 }
 
@@ -20868,7 +20887,7 @@ fn zirReify(
                         break :msg msg;
                     };
                     return sema.failWithOwnedErrorMsg(block, msg);
-                } else if (layout == .Packed and !(validatePackedType(field_ty, mod))) {
+                } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
                         errdefer msg.destroy(gpa);
@@ -21235,7 +21254,7 @@ fn reifyStruct(
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
-        } else if (layout == .Packed and !(validatePackedType(field_ty, mod))) {
+        } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "packed structs cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(gpa);
@@ -25608,8 +25627,9 @@ fn explainWhyTypeIsNotExtern(
 }
 
 /// Returns true if `ty` is allowed in packed types.
-/// Does *NOT* require `ty` to be resolved in any way.
-fn validatePackedType(ty: Type, mod: *Module) bool {
+/// Does not require `ty` to be resolved in any way, but may resolve whether it is comptime-only.
+fn validatePackedType(sema: *Sema, ty: Type) !bool {
+    const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Type,
         .ComptimeFloat,
@@ -25634,7 +25654,7 @@ fn validatePackedType(ty: Type, mod: *Module) bool {
         .Vector,
         .Enum,
         => return true,
-        .Pointer => return !ty.isSlice(mod),
+        .Pointer => return !ty.isSlice(mod) and !try sema.typeRequiresComptime(ty),
         .Struct, .Union => return ty.containerLayout(mod) == .Packed,
     }
 }
@@ -25669,7 +25689,12 @@ fn explainWhyTypeIsNotPacked(
         .Optional,
         .Array,
         => try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{}),
-        .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
+        .Pointer => if (ty.isSlice(mod)) {
+            try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
+        } else {
+            try mod.errNoteNonLazy(src_loc, msg, "comptime-only pointer has no guaranteed in-memory representation", .{});
+            try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
+        },
         .Fn => {
             try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
             try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
@@ -26614,8 +26639,9 @@ fn finishFieldCallBind(
 
     const container_ty = ptr_ty.childType(mod);
     if (container_ty.zigTypeTag(mod) == .Struct) {
-        try sema.resolveStructFieldInits(container_ty);
-        if (try container_ty.structFieldValueComptime(mod, field_index)) |default_val| {
+        if (container_ty.structFieldIsComptime(field_index, mod)) {
+            try sema.resolveStructFieldInits(container_ty);
+            const default_val = (try container_ty.structFieldValueComptime(mod, field_index)).?;
             return .{ .direct = Air.internedToRef(default_val.toIntern()) };
         }
     }
@@ -29380,10 +29406,10 @@ fn coerceVarArgParam(
             "integer and float literals passed to variadic function must be casted to a fixed-size number type",
             .{},
         ),
-        .Fn => blk: {
+        .Fn => fn_ptr: {
             const fn_val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
             const fn_decl = fn_val.pointerDecl(mod).?;
-            break :blk try sema.analyzeDeclRef(fn_decl);
+            break :fn_ptr try sema.analyzeDeclRef(fn_decl);
         },
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .Float => float: {
@@ -29397,7 +29423,33 @@ fn coerceVarArgParam(
                 else => unreachable,
             }
         },
-        else => inst,
+        else => if (uncasted_ty.isAbiInt(mod)) int: {
+            if (!try sema.validateExternType(uncasted_ty, .param_ty)) break :int inst;
+            const target = sema.mod.getTarget();
+            const uncasted_info = uncasted_ty.intInfo(mod);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .int,
+                .unsigned => .uint,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_int,
+                .unsigned => Type.c_uint,
+            }, inst, inst_src);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .long,
+                .unsigned => .ulong,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_long,
+                .unsigned => Type.c_ulong,
+            }, inst, inst_src);
+            if (uncasted_info.bits <= target.c_type_bit_size(switch (uncasted_info.signedness) {
+                .signed => .longlong,
+                .unsigned => .ulonglong,
+            })) break :int try sema.coerce(block, switch (uncasted_info.signedness) {
+                .signed => Type.c_longlong,
+                .unsigned => Type.c_ulonglong,
+            }, inst, inst_src);
+            break :int inst;
+        } else inst,
     };
 
     const coerced_ty = sema.typeOf(coerced);
@@ -30622,6 +30674,8 @@ fn bitCast(
     }
 
     if (try sema.resolveValue(inst)) |val| {
+        if (val.isUndef(mod))
+            return mod.undefRef(dest_ty);
         if (try sema.bitCastVal(block, inst_src, val, old_ty, dest_ty, 0)) |result_val| {
             return Air.internedToRef(result_val.toIntern());
         }
@@ -35806,7 +35860,7 @@ fn semaStructFields(
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
             },
-            .Packed => if (!validatePackedType(field_ty, mod)) {
+            .Packed => if (!try sema.validatePackedType(field_ty)) {
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(decl_index, .{
                         .index = field_i,
@@ -36359,7 +36413,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        } else if (layout == .Packed and !validatePackedType(field_ty, mod)) {
+        } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
             const msg = msg: {
                 const ty_src = mod.fieldSrcLoc(union_type.decl, .{
                     .index = field_i,

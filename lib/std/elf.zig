@@ -1664,6 +1664,8 @@ pub const EM = enum(u16) {
     }
 };
 
+pub const GRP_COMDAT = 1;
+
 /// Section data should be writable during execution.
 pub const SHF_WRITE = 0x1;
 
