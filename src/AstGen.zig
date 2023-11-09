@@ -1718,6 +1718,64 @@ fn structInitExpr(
         }
     }
 
+    // Temporary Arena to simplify freeing the HashMaps
+    var dup_arena = std.heap.ArenaAllocator.init(astgen.arena);
+    const dup_alloc = dup_arena.allocator();
+
+    // Key: The first found variable.
+    // Value: A list of following duplicate variable names.
+    var duplicate_names = std.AutoHashMap(Ast.TokenIndex, ?std.ArrayList(Ast.TokenIndex)).init(dup_alloc);
+    try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
+
+    // Basic check to maintain O(N).
+    var isDuplicate = false;
+
+    for (struct_init.ast.fields) |field| {
+        const name_token = tree.firstToken(field) - 2;
+        const name_index = try astgen.identAsString(name_token);
+
+        // Is the variable name already set?
+        const gop = try duplicate_names.getOrPut(name_index);
+
+        if (gop.found_existing) {
+            // Append the name_index to the existing key's list.
+            try gop.value_ptr.*.?.append(name_token);
+
+            isDuplicate = true;
+        } else {
+            gop.value_ptr.* = std.ArrayList(Ast.TokenIndex).init(dup_alloc);
+            try gop.value_ptr.*.?.append(name_token);
+        }
+    }
+
+    if (isDuplicate) {
+        var it = duplicate_names.iterator();
+
+        while (it.next()) |entry| {
+            if (entry.value_ptr.*) |dup_list| {
+                if (dup_list.items.len > 1) {
+                    var errorNotes = std.ArrayList(u32).init(dup_alloc);
+
+                    for (dup_list.items[1..]) |duplicate| {
+                        try errorNotes.append(try astgen.errNoteTok(duplicate, "duplicate field name", .{}));
+                    }
+
+                    try astgen.appendErrorTokNotes(
+                        dup_list.items[0],
+                        "this variable has duplicate names",
+                        .{},
+                        errorNotes.items,
+                    );
+                }
+            }
+        }
+
+        dup_arena.deinit();
+        return error.AnalysisFail;
+    }
+
+    dup_arena.deinit();
+
     if (struct_init.ast.type_expr != 0) {
         // Typed inits do not use RLS for language simplicity.
         const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
@@ -1734,8 +1792,6 @@ fn structInitExpr(
     switch (ri.rl) {
         .none => return structInitExprAnon(gz, scope, node, struct_init),
         .discard => {
-            // Even if discarding we must perform an anonymous init to check for duplicate field names.
-            // TODO: should duplicate field names be caught in AstGen?
             _ = try structInitExprAnon(gz, scope, node, struct_init);
             return .void_value;
         },
