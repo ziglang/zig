@@ -1724,7 +1724,7 @@ fn structInitExpr(
 
     // Key: The first found variable.
     // Value: A list of following duplicate variable names.
-    var duplicate_names = std.AutoHashMap(Ast.TokenIndex, ?std.ArrayList(Ast.TokenIndex)).init(dup_alloc);
+    var duplicate_names = std.AutoHashMap(Ast.TokenIndex, std.ArrayList(Ast.TokenIndex)).init(dup_alloc);
     try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
     // Basic check to maintain O(N) best case.
@@ -1738,11 +1738,11 @@ fn structInitExpr(
         const gop = try duplicate_names.getOrPut(name_index);
 
         if (gop.found_existing) {
-            try gop.value_ptr.*.?.append(name_token);
+            try gop.value_ptr.append(name_token);
             isDuplicate = true;
         } else {
             gop.value_ptr.* = std.ArrayList(Ast.TokenIndex).init(dup_alloc);
-            try gop.value_ptr.*.?.append(name_token);
+            try gop.value_ptr.append(name_token);
         }
     }
 
@@ -1750,21 +1750,20 @@ fn structInitExpr(
         var it = duplicate_names.iterator();
 
         while (it.next()) |entry| {
-            if (entry.value_ptr.*) |dup_list| {
-                if (dup_list.items.len > 1) {
-                    var errorNotes = std.ArrayList(u32).init(dup_alloc);
+            const dup_list = entry.value_ptr.*;
+            if (dup_list.items.len > 1) {
+                var errorNotes = std.ArrayList(u32).init(dup_alloc);
 
-                    for (dup_list.items[1..]) |duplicate| {
-                        try errorNotes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
-                    }
-
-                    try astgen.appendErrorTokNotes(
-                        dup_list.items[0],
-                        "duplicate field",
-                        .{},
-                        errorNotes.items,
-                    );
+                for (dup_list.items[1..]) |duplicate| {
+                    try errorNotes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
                 }
+
+                try astgen.appendErrorTokNotes(
+                    dup_list.items[0],
+                    "duplicate field",
+                    .{},
+                    errorNotes.items,
+                );
             }
         }
 
