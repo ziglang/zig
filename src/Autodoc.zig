@@ -1436,7 +1436,7 @@ fn walkInstruction(
             const slice_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1444,7 +1444,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var start: DocData.WalkResult = try self.walkRef(
+            const start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1452,7 +1452,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var len: DocData.WalkResult = try self.walkRef(
+            const len: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1460,7 +1460,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
+            const sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
                 try self.walkRef(
                     file,
                     parent_scope,
@@ -1574,7 +1574,7 @@ fn walkInstruction(
             const binop_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1582,7 +1582,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1603,6 +1603,56 @@ fn walkInstruction(
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
+                .expr = .{ .binOpIndex = binop_index },
+            };
+        },
+        .array_mul => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.ArrayMul, pl_node.payload_index);
+
+            const binop_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
+
+            const lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+                call_ctx,
+            );
+            const rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.rhs,
+                false,
+                call_ctx,
+            );
+            const res_ty: ?DocData.WalkResult = if (extra.data.res_ty != .none)
+                try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    extra.data.res_ty,
+                    false,
+                    call_ctx,
+                )
+            else
+                null;
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const rhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+            self.exprs.items[binop_index] = .{ .binOp = .{
+                .name = @tagName(tags[@intFromEnum(inst)]),
+                .lhs = lhs_index,
+                .rhs = rhs_index,
+            } };
+
+            return DocData.WalkResult{
+                .typeRef = if (res_ty) |rt| rt.expr else null,
                 .expr = .{ .binOpIndex = binop_index },
             };
         },
