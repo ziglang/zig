@@ -4245,11 +4245,10 @@ fn updateSectionSizesObject(self: *Elf) !void {
 
     if (self.eh_frame_section_index) |index| {
         self.shdrs.items[index].sh_size = try eh_frame.calcEhFrameSize(self);
-
-        if (self.eh_frame_rela_section_index) |rela_index| {
-            const shdr = &self.shdrs.items[rela_index];
-            shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
-        }
+    }
+    if (self.eh_frame_rela_section_index) |index| {
+        const shdr = &self.shdrs.items[index];
+        shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
     }
 
     try self.updateSymtabSize();
@@ -5011,6 +5010,14 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrame(self, buffer.writer());
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+    }
+    if (self.eh_frame_rela_section_index) |shndx| {
+        const shdr = self.shdrs.items[shndx];
+        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        defer buffer.deinit();
+        try eh_frame.writeEhFrameRelocs(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 

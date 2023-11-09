@@ -373,6 +373,62 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     try writer.writeInt(u32, 0, .little);
 }
 
+fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
+    const r_offset = rec.address(elf_file) + rel.r_offset - rec.offset;
+    const r_type = rel.r_type();
+    var r_addend = rel.r_addend;
+    var r_sym: u32 = 0;
+    switch (sym.type(elf_file)) {
+        elf.STT_SECTION => {
+            r_addend += @intCast(sym.value);
+            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+        },
+        else => {
+            r_sym = sym.outputSymtabIndex(elf_file) orelse 0;
+        },
+    }
+
+    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+        Atom.fmtRelocType(r_type),
+        r_offset,
+        r_sym,
+        sym.name(elf_file),
+        r_addend,
+    });
+
+    return .{
+        .r_offset = r_offset,
+        .r_addend = r_addend,
+        .r_info = (@as(u64, @intCast(r_sym)) << 32) | r_type,
+    };
+}
+
+pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
+    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            for (cie.relocs(elf_file)) |rel| {
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const out_rel = emitReloc(elf_file, cie, sym, rel);
+                try writer.writeStruct(out_rel);
+            }
+        }
+
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+            for (fde.relocs(elf_file)) |rel| {
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const out_rel = emitReloc(elf_file, fde, sym, rel);
+                try writer.writeStruct(out_rel);
+            }
+        }
+    }
+}
+
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     try writer.writeByte(1); // version
     try writer.writeByte(EH_PE.pcrel | EH_PE.sdata4);
