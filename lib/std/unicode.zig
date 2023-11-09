@@ -942,7 +942,8 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     errdefer result.deinit();
 
     var remaining = utf8;
-    if (builtin.zig_backend != .stage2_x86_64) {
+    // Need support for std.simd.interlace
+    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
         const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
         const Chunk = @Vector(chunk_len, u8);
 
@@ -986,7 +987,8 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var dest_i: usize = 0;
 
     var remaining = utf8;
-    if (builtin.zig_backend != .stage2_x86_64) {
+    // Need support for std.simd.interlace
+    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
         const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
         const Chunk = @Vector(chunk_len, u8);
 
