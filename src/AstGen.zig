@@ -1718,17 +1718,15 @@ fn structInitExpr(
         }
     }
 
-    // Temporary Arena to simplify freeing the HashMaps
-    var dup_arena = std.heap.ArenaAllocator.init(astgen.arena);
-    const dup_alloc = dup_arena.allocator();
+    // First: The first found field.
+    // Duplicates: A list of following duplicate field names.
+    const DupeNameRecord = struct { first: Ast.TokenIndex, duplicates: ArrayListUnmanaged(Ast.TokenIndex) };
 
-    // Key: The first found variable.
-    // Value: A list of following duplicate variable names.
-    var duplicate_names = std.AutoHashMap(Ast.TokenIndex, std.ArrayList(Ast.TokenIndex)).init(dup_alloc);
+    var duplicate_names = std.AutoHashMap(u32, DupeNameRecord).init(astgen.arena);
     try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
-    // Basic check to maintain O(N) best case.
-    var isDuplicate = false;
+    // // Basic check to maintain O(N) best case.
+    var any_duplicate = false;
 
     for (struct_init.ast.fields) |field| {
         const name_token = tree.firstToken(field) - 2;
@@ -1738,40 +1736,36 @@ fn structInitExpr(
         const gop = try duplicate_names.getOrPut(name_index);
 
         if (gop.found_existing) {
-            try gop.value_ptr.append(name_token);
-            isDuplicate = true;
+            try gop.value_ptr.duplicates.append(astgen.arena, name_token);
+            any_duplicate = true;
         } else {
-            gop.value_ptr.* = std.ArrayList(Ast.TokenIndex).init(dup_alloc);
-            try gop.value_ptr.append(name_token);
+            gop.value_ptr.first = name_token;
         }
     }
 
-    if (isDuplicate) {
+    if (any_duplicate) {
         var it = duplicate_names.iterator();
 
         while (it.next()) |entry| {
-            const dup_list = entry.value_ptr.*;
-            if (dup_list.items.len > 1) {
-                var errorNotes = std.ArrayList(u32).init(dup_alloc);
+            const record = entry.value_ptr.*;
+            if (record.duplicates.items.len > 0) {
+                var error_notes = std.ArrayList(u32).init(astgen.arena);
 
-                for (dup_list.items[1..]) |duplicate| {
-                    try errorNotes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                for (record.duplicates.items) |duplicate| {
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
                 }
 
                 try astgen.appendErrorTokNotes(
-                    dup_list.items[0],
+                    record.first,
                     "duplicate field",
                     .{},
-                    errorNotes.items,
+                    error_notes.items,
                 );
             }
         }
 
-        dup_arena.deinit();
         return error.AnalysisFail;
     }
-
-    dup_arena.deinit();
 
     if (struct_init.ast.type_expr != 0) {
         // Typed inits do not use RLS for language simplicity.

@@ -19492,14 +19492,13 @@ fn structInitAnon(
 
     const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
     const values = try sema.arena.alloc(InternPool.Index, types.len);
-    const fields = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
+    const names = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
 
     // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
         var extra_index = extra_end;
-        for (types, values, fields, 0..) |*field_ty, *value, *field, i_usize| {
-            const i: u32 = @intCast(i_usize);
+        for (types, values, names, 0..) |*field_ty, *field_val, *field_name, i_usize| {
             const item = switch (kind) {
                 .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
                 .typed_init => sema.code.extraData(Zir.Inst.StructInit.Item, extra_index),
@@ -19517,14 +19516,14 @@ fn structInitAnon(
             };
 
             const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
-            field.* = name_ip;
+            field_name.* = name_ip;
 
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init).toIntern();
             if (field_ty.toType().zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const decl = mod.declPtr(block.src_decl);
-                    const field_src = mod.initSrc(src.node_offset.x, decl, i);
+                    const field_src = mod.initSrc(src.node_offset.x, decl, @intCast(i_usize));
                     const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
@@ -19534,17 +19533,17 @@ fn structInitAnon(
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (try sema.resolveValue(init)) |init_val| {
-                value.* = try init_val.intern(field_ty.toType(), mod);
+                field_val.* = try init_val.intern(field_ty.toType(), mod);
             } else {
-                value.* = .none;
-                runtime_index = i;
+                field_val.* = .none;
+                runtime_index = @intCast(i_usize);
             }
         }
         break :rs runtime_index;
     };
 
     const tuple_ty = try ip.getAnonStructType(gpa, .{
-        .names = fields,
+        .names = names,
         .types = types,
         .values = values,
     });
