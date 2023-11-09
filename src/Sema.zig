@@ -4690,17 +4690,7 @@ fn validateStructInit(
             try sema.tupleFieldIndex(block, struct_ty, field_name, field_src)
         else
             try sema.structFieldIndex(block, struct_ty, field_name, field_src);
-        if (found_fields[field_index.*].unwrap()) |other_field_ptr| {
-            const other_field_ptr_data = sema.code.instructions.items(.data)[@intFromEnum(other_field_ptr)].pl_node;
-            const other_field_src: LazySrcLoc = .{ .node_offset_initializer = other_field_ptr_data.src_node };
-            const msg = msg: {
-                const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
-                errdefer msg.destroy(gpa);
-                try sema.errNote(block, other_field_src, msg, "other field here", .{});
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
+        assert(found_fields[field_index.*] == .none);
         found_fields[field_index.*] = field_ptr.toOptional();
     }
 
@@ -19203,18 +19193,6 @@ fn zirStructInit(
                 try sema.tupleFieldIndex(block, resolved_ty, field_name, field_src)
             else
                 try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
-            if (field_inits[field_index] != .none) {
-                const other_field_type = found_fields[field_index];
-                const other_field_type_data = zir_datas[@intFromEnum(other_field_type)].pl_node;
-                const other_field_src: LazySrcLoc = .{ .node_offset_initializer = other_field_type_data.src_node };
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
-                    errdefer msg.destroy(gpa);
-                    try sema.errNote(block, other_field_src, msg, "other field here", .{});
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
             found_fields[field_index] = item.data.field_type;
             const uncoerced_init = try sema.resolveInst(item.data.init);
             const field_ty = resolved_ty.structFieldType(field_index, mod);
@@ -19515,14 +19493,13 @@ fn structInitAnon(
     const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
     const values = try sema.arena.alloc(InternPool.Index, types.len);
 
-    var fields = std.AutoArrayHashMap(InternPool.NullTerminatedString, u32).init(sema.arena);
-    try fields.ensureUnusedCapacity(types.len);
+    var fields = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
 
     // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
         var extra_index = extra_end;
-        for (types, 0..) |*field_ty, i_usize| {
+        for (types, values, fields, 0..) |*field_ty, *value_i, *field_i, i_usize| {
             const i: u32 = @intCast(i_usize);
             const item = switch (kind) {
                 .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
@@ -19539,22 +19516,9 @@ fn structInitAnon(
                     break :name sema.code.nullTerminatedString(field_type_extra.data.name_start);
                 },
             };
-            const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
-            const gop = fields.getOrPutAssumeCapacity(name_ip);
-            if (gop.found_existing) {
-                const msg = msg: {
-                    const decl = mod.declPtr(block.src_decl);
-                    const field_src = mod.initSrc(src.node_offset.x, decl, i);
-                    const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
-                    errdefer msg.destroy(gpa);
 
-                    const prev_source = mod.initSrc(src.node_offset.x, decl, gop.value_ptr.*);
-                    try sema.errNote(block, prev_source, msg, "other field here", .{});
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            gop.value_ptr.* = i;
+            const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
+            field_i.* = name_ip;
 
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init).toIntern();
@@ -19571,9 +19535,9 @@ fn structInitAnon(
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (try sema.resolveValue(init)) |init_val| {
-                values[i] = try init_val.intern(field_ty.toType(), mod);
+                value_i.* = try init_val.intern(field_ty.toType(), mod);
             } else {
-                values[i] = .none;
+                value_i.* = .none;
                 runtime_index = i;
             }
         }
@@ -19581,7 +19545,7 @@ fn structInitAnon(
     };
 
     const tuple_ty = try ip.getAnonStructType(gpa, .{
-        .names = fields.keys(),
+        .names = fields,
         .types = types,
         .values = values,
     });
