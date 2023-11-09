@@ -1727,7 +1727,7 @@ fn structInitExpr(
     var duplicate_names = std.AutoHashMap(Ast.TokenIndex, ?std.ArrayList(Ast.TokenIndex)).init(dup_alloc);
     try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
-    // Basic check to maintain O(N).
+    // Basic check to maintain O(N) best case.
     var isDuplicate = false;
 
     for (struct_init.ast.fields) |field| {
@@ -1738,9 +1738,7 @@ fn structInitExpr(
         const gop = try duplicate_names.getOrPut(name_index);
 
         if (gop.found_existing) {
-            // Append the name_index to the existing key's list.
             try gop.value_ptr.*.?.append(name_token);
-
             isDuplicate = true;
         } else {
             gop.value_ptr.* = std.ArrayList(Ast.TokenIndex).init(dup_alloc);
@@ -1757,12 +1755,12 @@ fn structInitExpr(
                     var errorNotes = std.ArrayList(u32).init(dup_alloc);
 
                     for (dup_list.items[1..]) |duplicate| {
-                        try errorNotes.append(try astgen.errNoteTok(duplicate, "duplicate field name", .{}));
+                        try errorNotes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
                     }
 
                     try astgen.appendErrorTokNotes(
                         dup_list.items[0],
-                        "this variable has duplicate names",
+                        "duplicate field",
                         .{},
                         errorNotes.items,
                     );
