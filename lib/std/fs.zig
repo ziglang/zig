@@ -749,7 +749,9 @@ pub const IterableDir = struct {
                         }
                     }
 
-                    const dir_info: *w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
+                    // While the official api docs guarantee FILE_BOTH_DIR_INFORMATION to be aligned properly
+                    // this may not always be the case (e.g. due to faulty VM/Sandboxing tools)
+                    const dir_info: *align(2) w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
                     if (dir_info.NextEntryOffset != 0) {
                         self.index += dir_info.NextEntryOffset;
                     } else {
