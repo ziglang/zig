@@ -10,8 +10,10 @@ const assert = std.debug.assert;
 const Server = @This();
 const proto = @import("protocol.zig");
 
+/// Allocator used for all allocations made by the client.
 allocator: Allocator,
 
+/// Server socket struct
 socket: net.StreamServer,
 
 /// An interface to a plain connection.
@@ -22,10 +24,14 @@ pub const Connection = struct {
     stream: net.Stream,
     protocol: Protocol,
 
+    /// current connection closing state
     closing: bool = true,
 
+    /// read buffer
     read_buf: [buffer_size]u8 = undefined,
+    /// read buffer starting position
     read_start: u16 = 0,
+    /// read buffer end position
     read_end: u16 = 0,
 
     pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
@@ -49,14 +55,19 @@ pub const Connection = struct {
         conn.read_end = @as(u16, @intCast(nread));
     }
 
+    /// Returns array of data contained in current read buffer.
+    /// Returned data is what is contained in range of current read and end positions of the read buffer pointers.
     pub fn peek(conn: *Connection) []const u8 {
         return conn.read_buf[conn.read_start..conn.read_end];
     }
 
+    /// Drops specified number of bytes from read buffer
     pub fn drop(conn: *Connection, num: u16) void {
         conn.read_start += num;
     }
 
+    /// Reads specified number of bytes (`len`) from given buffer of data
+    /// Throws `ReadError` in case of errors.
     pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         assert(len <= buffer.len);
 
@@ -106,10 +117,13 @@ pub const Connection = struct {
 
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
 
+    /// Returns current reader of the connection
     pub fn reader(conn: *Connection) Reader {
         return Reader{ .context = conn };
     }
 
+    /// Writes all data specified in buffer.
+    /// Throws `WriteError` in case of errors
     pub fn writeAll(conn: *Connection, buffer: []const u8) WriteError!void {
         return switch (conn.protocol) {
             .plain => conn.stream.writeAll(buffer),
@@ -120,6 +134,8 @@ pub const Connection = struct {
         };
     }
 
+    /// Writes a specified buffer of data.
+    /// Throws `WriteError` in case of errors
     pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
         return switch (conn.protocol) {
             .plain => conn.stream.write(buffer),
@@ -137,10 +153,12 @@ pub const Connection = struct {
 
     pub const Writer = std.io.Writer(*Connection, WriteError, write);
 
+    /// Returns current writer of the connection
     pub fn writer(conn: *Connection) Writer {
         return Writer{ .context = conn };
     }
 
+    /// Closes this connection
     pub fn close(conn: *Connection) void {
         conn.stream.close();
     }
@@ -288,10 +306,11 @@ pub const Request = struct {
 };
 
 /// A HTTP response waiting to be sent.
-///
-///                                  [/ <----------------------------------- \]
+/// ```
+///                                   [/ <-------------------------------------- \]
 /// Order of operations: accept -> wait -> send  [ -> write -> finish][ -> reset /]
 ///                                   \ -> read /
+/// ```
 pub const Response = struct {
     version: http.Version = .@"HTTP/1.1",
     status: http.Status = .ok,
@@ -676,13 +695,16 @@ pub fn deinit(server: *Server) void {
     server.socket.deinit();
 }
 
+/// Set of possible errors to expect if `listen()` method fails
 pub const ListenError = std.os.SocketError || std.os.BindError || std.os.ListenError || std.os.SetSockOptError || std.os.GetSockNameError;
 
 /// Start the HTTP server listening on the given address.
+/// Throws `ListenError` on failure.
 pub fn listen(server: *Server, address: net.Address) ListenError!void {
     try server.socket.listen(address);
 }
 
+/// Set of possible errors to expect if network accept operations fail
 pub const AcceptError = net.StreamServer.AcceptError || Allocator.Error;
 
 pub const HeaderStrategy = union(enum) {
@@ -704,6 +726,7 @@ pub const AcceptOptions = struct {
 };
 
 /// Accept a new connection.
+/// Throws `AcceptError`
 pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 

@@ -157,6 +157,7 @@ pub const ConnectionPool = struct {
         pool.free_size = new_size;
     }
 
+    /// Deinitializes a connection pool.
     pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
         pool.mutex.lock();
 
@@ -530,7 +531,9 @@ pub const Response = struct {
 pub const Request = struct {
     uri: Uri,
     client: *Client,
-    /// is null when this connection is released
+
+    /// Underlying connection of this request.
+    /// Is set to *null* when this connection is released.
     connection: ?*Connection,
 
     method: http.Method,
@@ -616,6 +619,7 @@ pub const Request = struct {
         };
     }
 
+    /// Set of errors that may occur during send operations
     pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
     pub const SendOptions = struct {
@@ -751,6 +755,7 @@ pub const Request = struct {
         return index;
     }
 
+    /// Set of errors that may occur while waiting for network operations
     pub const WaitError = RequestError || SendError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, RedirectRequiresResend, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
 
     /// Waits for a response from the server and parses any headers that are sent.
@@ -891,6 +896,7 @@ pub const Request = struct {
         }
     }
 
+    /// Set of errors that may occur during read operations
     pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{ DecompressionFailure, InvalidTrailers };
 
     pub const Reader = std.io.Reader(*Request, ReadError, read);
@@ -939,6 +945,7 @@ pub const Request = struct {
         return index;
     }
 
+    /// Set of write errors that may occur during write operations
     pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Request, WriteError, write);
