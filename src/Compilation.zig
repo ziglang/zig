@@ -270,11 +270,11 @@ pub const LangToExt = std.ComptimeStringMap(FileExt, .{
     .{ "c", .c },
     .{ "c-header", .h },
     .{ "c++", .cpp },
-    .{ "c++-header", .h },
+    .{ "c++-header", .hpp },
     .{ "objective-c", .m },
-    .{ "objective-c-header", .h },
+    .{ "objective-c-header", .hm },
     .{ "objective-c++", .mm },
-    .{ "objective-c++-header", .h },
+    .{ "objective-c++-header", .hmm },
     .{ "assembler", .assembly },
     .{ "assembler-with-cpp", .assembly_with_cpp },
     .{ "cuda", .cu },
@@ -887,6 +887,8 @@ pub const ClangPreprocessorMode = enum {
     yes,
     /// This means we are doing `zig cc -E`.
     stdout,
+    /// precompiled C header
+    pch,
 };
 
 pub const Framework = link.File.MachO.Framework;
@@ -4393,6 +4395,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 .assembly_with_cpp => "assembler-with-cpp",
                 .c => "c",
                 .cpp => "c++",
+                .h => "c-header",
+                .hpp => "c++-header",
+                .hm => "objective-c-header",
+                .hmm => "objective-c++-header",
                 .cu => "cuda",
                 .m => "objective-c",
                 .mm => "objective-c++",
@@ -4418,10 +4424,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             else
                 "/dev/null";
 
-            try argv.ensureUnusedCapacity(5);
+            try argv.ensureUnusedCapacity(6);
             switch (comp.clang_preprocessor_mode) {
-                .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
-                .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+                .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
+                .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
+                .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
                 .stdout => argv.appendAssumeCapacity("-E"),
             }
 
@@ -4456,10 +4463,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         try argv.appendSlice(c_object.src.extra_flags);
         try argv.appendSlice(c_object.src.cache_exempt_flags);
 
-        try argv.ensureUnusedCapacity(5);
+        try argv.ensureUnusedCapacity(6);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
+            .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
         if (comp.clang_passthrough_mode) {
@@ -5101,7 +5109,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     if (target.os.tag == .windows) switch (ext) {
-        .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
+        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
             try argv.append(
                 try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
@@ -5111,7 +5119,7 @@ pub fn addCCArgs(
     };
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h, .cu, .rc => {
+        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -5679,6 +5687,9 @@ pub const FileExt = enum {
     cpp,
     cu,
     h,
+    hpp,
+    hm,
+    hmm,
     m,
     mm,
     ll,
@@ -5697,7 +5708,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .m, .mm, .cu => true,
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
 
             .ll,
             .bc,
@@ -5722,6 +5733,9 @@ pub const FileExt = enum {
             .cpp => ".cpp",
             .cu => ".cu",
             .h => ".h",
+            .hpp => ".h",
+            .hm => ".h",
+            .hmm => ".h",
             .m => ".m",
             .mm => ".mm",
             .ll => ".ll",

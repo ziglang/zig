@@ -1694,7 +1694,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1746,7 +1746,7 @@ fn buildOutputType(
                 assembly,
                 preprocessor,
             };
-            var c_out_mode: COutMode = .link;
+            var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
@@ -1789,7 +1789,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
                             try create_module.c_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
@@ -2462,7 +2462,12 @@ fn buildOutputType(
                 }
             }
 
-            switch (c_out_mode) {
+            // precompiled header syntax: "zig cc -x c-header test.h -o test.pch"
+            const emit_pch = ((file_ext == .h or file_ext == .hpp or file_ext == .hm or file_ext == .hmm) and c_out_mode == null);
+            if (emit_pch)
+                c_out_mode = .preprocessor;
+
+            switch (c_out_mode orelse .link) {
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
@@ -2511,11 +2516,16 @@ fn buildOutputType(
                         // For example `zig cc` and no args should print the "no input files" message.
                         return process.exit(try clangMain(arena, all_args));
                     }
-                    if (out_path) |p| {
-                        emit_bin = .{ .yes = p };
-                        clang_preprocessor_mode = .yes;
+                    if (emit_pch) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
+                        clang_preprocessor_mode = .pch;
                     } else {
-                        clang_preprocessor_mode = .stdout;
+                        if (out_path) |p| {
+                            emit_bin = .{ .yes = p };
+                            clang_preprocessor_mode = .yes;
+                        } else {
+                            clang_preprocessor_mode = .stdout;
+                        }
                     }
                 },
             }
@@ -2882,13 +2892,16 @@ fn buildOutputType(
                     },
                 }
             },
-            .basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = root_name,
-                .target = target,
-                .output_mode = create_module.resolved_options.output_mode,
-                .link_mode = create_module.resolved_options.link_mode,
-                .version = optional_version,
-            }),
+            .basename = if (clang_preprocessor_mode == .pch)
+                try std.fmt.allocPrint(arena, "{s}.pch", .{root_name})
+            else
+                try std.zig.binNameAlloc(arena, .{
+                    .root_name = root_name,
+                    .target = target,
+                    .output_mode = create_module.resolved_options.output_mode,
+                    .link_mode = create_module.resolved_options.link_mode,
+                    .version = optional_version,
+                }),
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
