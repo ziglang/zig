@@ -4923,6 +4923,14 @@ fn structDeclInner(
         }
     };
 
+    const DupeNameRecord = struct { first: Ast.TokenIndex, duplicates: ArrayListUnmanaged(Ast.TokenIndex) };
+
+    var duplicate_names = std.AutoHashMap(u32, DupeNameRecord).init(astgen.arena);
+    try duplicate_names.ensureTotalCapacity(field_count);
+
+    // // Basic check to maintain O(N) best case.
+    var any_duplicate = false;
+
     var known_non_opv = false;
     var known_comptime_only = false;
     var any_comptime_fields = false;
@@ -4934,11 +4942,12 @@ fn structDeclInner(
             .field => |field| field,
         };
 
+        const field_name = try astgen.identAsString(member.ast.main_token);
+
         if (!is_tuple) {
             member.convertToNonTupleLike(astgen.tree.nodes);
             assert(!member.ast.tuple_like);
 
-            const field_name = try astgen.identAsString(member.ast.main_token);
             wip_members.appendToField(field_name);
         } else if (!member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
@@ -4951,6 +4960,15 @@ fn structDeclInner(
             return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
         }
 
+        const gop = try duplicate_names.getOrPut(field_name);
+
+        if (gop.found_existing) {
+            try gop.value_ptr.duplicates.append(astgen.arena, member.ast.main_token);
+            any_duplicate = true;
+        } else {
+            gop.value_ptr.first = member.ast.main_token;
+        }
+
         const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
         const have_type_body = !block_scope.isEmpty();
         const have_align = member.ast.align_expr != 0;
@@ -4959,7 +4977,7 @@ fn structDeclInner(
 
         if (is_comptime) {
             switch (layout) {
-                .Packed => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
+                .Packed => return astgen.failTok(member.comptime_token.?, "packed cannot be marked comptime", .{}),
                 .Extern => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
                 .Auto => any_comptime_fields = true,
             }
@@ -5022,6 +5040,32 @@ fn structDeclInner(
         } else if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});
         }
+    }
+
+    if (any_duplicate) {
+        var it = duplicate_names.iterator();
+
+        while (it.next()) |entry| {
+            const record = entry.value_ptr.*;
+            if (record.duplicates.items.len > 0) {
+                var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                for (record.duplicates.items) |duplicate| {
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                }
+
+                try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
+
+                try astgen.appendErrorTokNotes(
+                    record.first,
+                    "duplicate struct field: '{s}'",
+                    .{try astgen.identifierTokenString(record.first)},
+                    error_notes.items,
+                );
+            }
+        }
+
+        return error.AnalysisFail;
     }
 
     try gz.setStruct(decl_inst, .{
