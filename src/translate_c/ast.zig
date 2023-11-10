@@ -1625,13 +1625,18 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
             const main_token = try c.addToken(.equal, "=");
             if (payload.value.tag() == .identifier) {
-                // Render as `_ = @TypeOf(foo);` to avoid tripping "pointless discard" error.
+                // Render as `_ = &foo;` to avoid tripping "pointless discard" and "local variable never mutated" errors.
+                var addr_of_pl: Payload.UnOp = .{
+                    .base = .{ .tag = .address_of },
+                    .data = payload.value,
+                };
+                const addr_of: Node = .{ .ptr_otherwise = &addr_of_pl.base };
                 return c.addNode(.{
                     .tag = .assign,
                     .main_token = main_token,
                     .data = .{
                         .lhs = lhs,
-                        .rhs = try renderBuiltinCall(c, "@TypeOf", &.{payload.value}),
+                        .rhs = try renderNode(c, addr_of),
                     },
                 });
             } else {
