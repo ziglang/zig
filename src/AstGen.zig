@@ -4938,13 +4938,22 @@ fn structDeclInner(
             .field => |field| field,
         };
 
-        const field_name = try astgen.identAsString(member.ast.main_token);
-
         if (!is_tuple) {
+            const field_name = try astgen.identAsString(member.ast.main_token);
+
             member.convertToNonTupleLike(astgen.tree.nodes);
             assert(!member.ast.tuple_like);
 
             wip_members.appendToField(field_name);
+
+            const gop = try duplicate_names.getOrPut(field_name);
+
+            if (gop.found_existing) {
+                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+                any_duplicate = true;
+            } else {
+                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+            }
         } else if (!member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
         }
@@ -4954,17 +4963,6 @@ fn structDeclInner(
 
         if (member.ast.type_expr == 0) {
             return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
-        }
-
-        if (!is_tuple) {
-            const gop = try duplicate_names.getOrPut(field_name);
-
-            if (gop.found_existing) {
-                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
-                any_duplicate = true;
-            } else {
-                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
-            }
         }
 
         const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
