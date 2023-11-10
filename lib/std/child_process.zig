@@ -847,7 +847,7 @@ pub const ChildProcess = struct {
             }
 
             windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-                var original_err = switch (no_path_err) {
+                const original_err = switch (no_path_err) {
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,

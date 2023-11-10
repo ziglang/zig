@@ -332,13 +332,13 @@ test "Random float chi-square goodness of fit" {
     while (i < num_numbers) : (i += 1) {
         const rand_f32 = random.float(f32);
         const rand_f64 = random.float(f64);
-        var f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
+        const f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
         if (f32_put.found_existing) {
             f32_put.value_ptr.* += 1;
         } else {
             f32_put.value_ptr.* = 1;
         }
-        var f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
+        const f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
         if (f64_put.found_existing) {
             f64_put.value_ptr.* += 1;
         } else {

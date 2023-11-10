@@ -95,7 +95,7 @@ fn AesOcb(comptime Aes: anytype) type {
             var ktop_: Block = undefined;
             aes_enc_ctx.encrypt(&ktop_, &nx);
             const ktop = mem.readInt(u128, &ktop_, .big);
-            var stretch = (@as(u192, ktop) << 64) | @as(u192, @as(u64, @truncate(ktop >> 64)) ^ @as(u64, @truncate(ktop >> 56)));
+            const stretch = (@as(u192, ktop) << 64) | @as(u192, @as(u64, @truncate(ktop >> 64)) ^ @as(u64, @truncate(ktop >> 56)));
             var offset: Block = undefined;
             mem.writeInt(u128, &offset, @as(u128, @truncate(stretch >> (64 - @as(u7, bottom)))), .big);
             return offset;

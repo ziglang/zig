@@ -33,12 +33,12 @@ test "parse and render IPv6 addresses" {
         "::ffff:123.5.123.5",
     };
     for (ips, 0..) |ip, i| {
-        var addr = net.Address.parseIp6(ip, 0) catch unreachable;
+        const addr = net.Address.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (builtin.os.tag == .linux) {
-            var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
+            const addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
             try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
@@ -80,7 +80,7 @@ test "parse and render IPv4 addresses" {
         "123.255.0.91",
         "127.0.0.1",
     }) |ip| {
-        var addr = net.Address.parseIp4(ip, 0) catch unreachable;
+        const addr = net.Address.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
@@ -303,10 +303,10 @@ test "listen on a unix socket, send bytes, receive bytes" {
     var server = net.StreamServer.init(.{});
     defer server.deinit();
 
-    var socket_path = try generateFileName("socket.unix");
+    const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
-    var socket_addr = try net.Address.initUnix(socket_path);
+    const socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 

@@ -33,8 +33,8 @@ fn log1p_32(x: f32) f32 {
     const Lg3: f32 = 0x91e9ee.0p-25;
     const Lg4: f32 = 0xf89e26.0p-26;
 
-    const u = @as(u32, @bitCast(x));
-    var ix = u;
+    const u: u32 = @bitCast(x);
+    const ix = u;
     var k: i32 = 1;
     var f: f32 = undefined;
     var c: f32 = undefined;
@@ -112,8 +112,8 @@ fn log1p_64(x: f64) f64 {
     const Lg6: f64 = 1.531383769920937332e-01;
     const Lg7: f64 = 1.479819860511658591e-01;
 
-    var ix = @as(u64, @bitCast(x));
-    var hx = @as(u32, @intCast(ix >> 32));
+    const ix: u64 = @bitCast(x);
+    const hx: u32 = @intCast(ix >> 32);
     var k: i32 = 1;
     var c: f64 = undefined;
     var f: f64 = undefined;

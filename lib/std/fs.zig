@@ -1689,7 +1689,7 @@ pub const Dir = struct {
         }
         if (builtin.os.tag == .windows) {
             var dir_path_buffer: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-            var dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
+            const dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
             if (builtin.link_libc) {
                 return os.chdirW(dir_path);
             }
@@ -1810,7 +1810,7 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        var dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
+        const dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
             .no_follow = args.no_follow,
             .create_disposition = w.FILE_OPEN,
         });

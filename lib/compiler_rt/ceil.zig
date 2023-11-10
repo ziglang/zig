@@ -32,7 +32,7 @@ pub fn __ceilh(x: f16) callconv(.C) f16 {
 
 pub fn ceilf(x: f32) callconv(.C) f32 {
     var u: u32 = @bitCast(x);
-    var e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
+    const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
 
     // TODO: Shouldn't need this explicit check.

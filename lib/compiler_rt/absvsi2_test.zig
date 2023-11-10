@@ -3,7 +3,7 @@ const testing = @import("std").testing;
 const __absvsi2 = @import("absvsi2.zig").__absvsi2;
 
 fn test__absvsi2(a: i32, expected: i32) !void {
-    var result = __absvsi2(a);
+    const result = __absvsi2(a);
     try testing.expectEqual(expected, result);
 }
 

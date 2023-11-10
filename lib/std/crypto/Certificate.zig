@@ -982,7 +982,7 @@ pub const rsa = struct {
             if (mgf_len > mgf_out_buf.len) { // Modulus > 4096 bits
                 return error.InvalidSignature;
             }
-            var mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
+            const mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
             var dbMask = try MGF1(Hash, mgf_out, h, mgf_len);
 
             // 8.   Let DB = maskedDB \xor dbMask.

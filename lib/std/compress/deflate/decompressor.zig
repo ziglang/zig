@@ -136,11 +136,11 @@ const HuffmanDecoder = struct {
 
         self.min = min;
         if (max > huffman_chunk_bits) {
-            var num_links = @as(u32, 1) << @as(u5, @intCast(max - huffman_chunk_bits));
+            const num_links = @as(u32, 1) << @as(u5, @intCast(max - huffman_chunk_bits));
             self.link_mask = @as(u32, @intCast(num_links - 1));
 
             // create link tables
-            var link = next_code[huffman_chunk_bits + 1] >> 1;
+            const link = next_code[huffman_chunk_bits + 1] >> 1;
             self.links = try self.allocator.alloc([]u16, huffman_num_chunks - link);
             self.sub_chunks = ArrayList(u32).init(self.allocator);
             self.initialized = true;
@@ -148,7 +148,7 @@ const HuffmanDecoder = struct {
             while (j < huffman_num_chunks) : (j += 1) {
                 var reverse = @as(u32, @intCast(bu.bitReverse(u16, @as(u16, @intCast(j)), 16)));
                 reverse >>= @as(u32, @intCast(16 - huffman_chunk_bits));
-                var off = j - @as(u32, @intCast(link));
+                const off = j - @as(u32, @intCast(link));
                 if (sanity) {
                     // check we are not overwriting an existing chunk
                     assert(self.chunks[reverse] == 0);
@@ -168,9 +168,9 @@ const HuffmanDecoder = struct {
             if (n == 0) {
                 continue;
             }
-            var ncode = next_code[n];
+            const ncode = next_code[n];
             next_code[n] += 1;
-            var chunk = @as(u16, @intCast((li << huffman_value_shift) | n));
+            const chunk = @as(u16, @intCast((li << huffman_value_shift) | n));
             var reverse = @as(u16, @intCast(bu.bitReverse(u16, @as(u16, @intCast(ncode)), 16)));
             reverse >>= @as(u4, @intCast(16 - n));
             if (n <= huffman_chunk_bits) {
@@ -187,14 +187,14 @@ const HuffmanDecoder = struct {
                     self.chunks[off] = chunk;
                 }
             } else {
-                var j = reverse & (huffman_num_chunks - 1);
+                const j = reverse & (huffman_num_chunks - 1);
                 if (sanity) {
                     // Expect an indirect chunk
                     assert(self.chunks[j] & huffman_count_mask == huffman_chunk_bits + 1);
                     // Longer codes should have been
                     // associated with a link table above.
                 }
-                var value = self.chunks[j] >> huffman_value_shift;
+                const value = self.chunks[j] >> huffman_value_shift;
                 var link_tab = self.links[value];
                 reverse >>= huffman_chunk_bits;
                 var off = reverse;
@@ -354,8 +354,8 @@ pub fn Decompressor(comptime ReaderType: type) type {
         fn init(allocator: Allocator, in_reader: ReaderType, dict: ?[]const u8) !Self {
             fixed_huffman_decoder = try fixedHuffmanDecoderInit(allocator);
 
-            var bits = try allocator.create([max_num_lit + max_num_dist]u32);
-            var codebits = try allocator.create([num_codes]u32);
+            const bits = try allocator.create([max_num_lit + max_num_dist]u32);
+            const codebits = try allocator.create([num_codes]u32);
 
             var dd = ddec.DictDecoder{};
             try dd.init(allocator, max_match_offset, dict);
@@ -416,7 +416,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             }
             self.final = self.b & 1 == 1;
             self.b >>= 1;
-            var typ = self.b & 3;
+            const typ = self.b & 3;
             self.b >>= 2;
             self.nb -= 1 + 2;
             switch (typ) {
@@ -494,21 +494,21 @@ pub fn Decompressor(comptime ReaderType: type) type {
             while (self.nb < 5 + 5 + 4) {
                 try self.moreBits();
             }
-            var nlit = @as(u32, @intCast(self.b & 0x1F)) + 257;
+            const nlit = @as(u32, @intCast(self.b & 0x1F)) + 257;
             if (nlit > max_num_lit) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
                 return InflateError.CorruptInput;
             }
             self.b >>= 5;
-            var ndist = @as(u32, @intCast(self.b & 0x1F)) + 1;
+            const ndist = @as(u32, @intCast(self.b & 0x1F)) + 1;
             if (ndist > max_num_dist) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
                 return InflateError.CorruptInput;
             }
             self.b >>= 5;
-            var nclen = @as(u32, @intCast(self.b & 0xF)) + 4;
+            const nclen = @as(u32, @intCast(self.b & 0xF)) + 4;
             // num_codes is 19, so nclen is always valid.
             self.b >>= 4;
             self.nb -= 5 + 5 + 4;
@@ -536,9 +536,9 @@ pub fn Decompressor(comptime ReaderType: type) type {
             // HLIT + 257 code lengths, HDIST + 1 code lengths,
             // using the code length Huffman code.
             i = 0;
-            var n = nlit + ndist;
+            const n = nlit + ndist;
             while (i < n) {
-                var x = try self.huffSym(&self.hd1);
+                const x = try self.huffSym(&self.hd1);
                 if (x < 16) {
                     // Actual length.
                     self.bits[i] = x;
@@ -618,7 +618,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 switch (self.step_state) {
                     .init => {
                         // Read literal and/or (length, distance) according to RFC section 3.2.3.
-                        var v = try self.huffSym(self.hl.?);
+                        const v = try self.huffSym(self.hl.?);
                         var n: u32 = 0; // number of bits extra
                         var length: u32 = 0;
                         switch (v) {
@@ -699,7 +699,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                         switch (dist) {
                             0...3 => dist += 1,
                             4...max_num_dist - 1 => { // 4...29
-                                var nb = @as(u32, @intCast(dist - 2)) >> 1;
+                                const nb = @as(u32, @intCast(dist - 2)) >> 1;
                                 // have 1 bit in bottom of dist, need nb more.
                                 var extra = (dist & 1) << @as(u5, @intCast(nb));
                                 while (self.nb < nb) {
@@ -757,14 +757,14 @@ pub fn Decompressor(comptime ReaderType: type) type {
             self.b = 0;
 
             // Length then ones-complement of length.
-            var nr: u32 = 4;
+            const nr: u32 = 4;
             self.inner_reader.readNoEof(self.buf[0..nr]) catch {
                 self.err = InflateError.UnexpectedEndOfStream;
                 return InflateError.UnexpectedEndOfStream;
             };
             self.roffset += @as(u64, @intCast(nr));
-            var n = @as(u32, @intCast(self.buf[0])) | @as(u32, @intCast(self.buf[1])) << 8;
-            var nn = @as(u32, @intCast(self.buf[2])) | @as(u32, @intCast(self.buf[3])) << 8;
+            const n = @as(u32, @intCast(self.buf[0])) | @as(u32, @intCast(self.buf[1])) << 8;
+            const nn = @as(u32, @intCast(self.buf[2])) | @as(u32, @intCast(self.buf[3])) << 8;
             if (@as(u16, @intCast(nn)) != @as(u16, @truncate(~n))) {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;
@@ -789,7 +789,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
                 buf = buf[0..self.copy_len];
             }
 
-            var cnt = try self.inner_reader.read(buf);
+            const cnt = try self.inner_reader.read(buf);
             if (cnt < buf.len) {
                 self.err = InflateError.UnexpectedEndOfStream;
             }
@@ -819,7 +819,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
         }
 
         fn moreBits(self: *Self) InflateError!void {
-            var c = self.inner_reader.readByte() catch |e| {
+            const c = self.inner_reader.readByte() catch |e| {
                 if (e == error.EndOfStream) {
                     return InflateError.UnexpectedEndOfStream;
                 }
@@ -845,7 +845,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             var b = self.b;
             while (true) {
                 while (nb < n) {
-                    var c = self.inner_reader.readByte() catch |e| {
+                    const c = self.inner_reader.readByte() catch |e| {
                         self.b = b;
                         self.nb = nb;
                         if (e == error.EndOfStream) {
@@ -1053,7 +1053,7 @@ test "inflate A Tale of Two Cities (1859) intro" {
     defer decomp.deinit();
 
     var got: [700]u8 = undefined;
-    var got_len = try decomp.reader().read(&got);
+    const got_len = try decomp.reader().read(&got);
     try testing.expectEqual(@as(usize, 616), got_len);
     try testing.expectEqualSlices(u8, expected, got[0..expected.len]);
 }
@@ -1117,6 +1117,6 @@ fn decompress(input: []const u8) !void {
     const reader = fib.reader();
     var decomp = try decompressor(allocator, reader, null);
     defer decomp.deinit();
-    var output = try decomp.reader().readAllAlloc(allocator, math.maxInt(usize));
+    const output = try decomp.reader().readAllAlloc(allocator, math.maxInt(usize));
     defer std.testing.allocator.free(output);
 }

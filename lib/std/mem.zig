@@ -403,11 +403,11 @@ test "zeroes" {
         b: u32,
     };
 
-    var c = zeroes(C_union);
+    const c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
     try testing.expectEqual(@as(u32, 0), c.b);
 
-    comptime var comptime_union = zeroes(C_union);
+    const comptime_union = comptime zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
     try testing.expectEqual(@as(u32, 0), comptime_union.b);
 
@@ -3399,7 +3399,7 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_slice: []i32 = &array;
+        const mut_slice: []i32 = &array;
         var mut_it = reverseIterator(mut_slice);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3419,7 +3419,7 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_ptr_to_array: *[2]i32 = &array;
+        const mut_ptr_to_array: *[2]i32 = &array;
         var mut_it = reverseIterator(mut_ptr_to_array);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3581,7 +3581,7 @@ test "replacementSize" {
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
 pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
-    var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
+    const output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
     _ = replace(T, input, needle, replacement, output);
     return output;
 }
@@ -3693,8 +3693,8 @@ pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @as(T, @ptrFromInt(base));
-            var aligned = alignPointer(ptr, align_to);
+            const ptr: T = @ptrFromInt(base);
+            const aligned = alignPointer(ptr, align_to);
             try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
@@ -3848,7 +3848,7 @@ test "bytesAsValue" {
         .big => "\xC0\xDE\xFA\xCE",
         .little => "\xCE\xFA\xDE\xC0",
     }.*;
-    var codeface = bytesAsValue(u32, &codeface_bytes);
+    const codeface = bytesAsValue(u32, &codeface_bytes);
     try testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
     for (codeface_bytes) |b|
@@ -3941,6 +3941,7 @@ test "bytesAsSlice" {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
         try testing.expect(slice.len == 2);
         try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
@@ -3957,6 +3958,7 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
         try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
@@ -3967,8 +3969,8 @@ test "bytesAsSlice on a packed struct" {
         a: u8,
     };
 
-    var b = [1]u8{9};
-    var f = bytesAsSlice(F, &b);
+    const b: [1]u8 = .{9};
+    const f = bytesAsSlice(F, &b);
     try testing.expect(f[0].a == 9);
 }
 
@@ -4120,8 +4122,7 @@ pub const alignForwardGeneric = @compileError("renamed to alignForward");
 /// result eventually gets discarded.
 // TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
-    var a: u8 = 0;
-    if (@typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime) return;
+    if (@inComptime()) return;
 
     const max_gp_register_bits = @bitSizeOf(c_long);
     const t = @typeInfo(@TypeOf(val));

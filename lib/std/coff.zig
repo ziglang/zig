@@ -1075,7 +1075,7 @@ pub const Coff = struct {
         var stream = std.io.fixedBufferStream(data);
         const reader = stream.reader();
         try stream.seekTo(pe_pointer_offset);
-        var coff_header_offset = try reader.readInt(u32, .little);
+        const coff_header_offset = try reader.readInt(u32, .little);
         try stream.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
