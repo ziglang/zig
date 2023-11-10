@@ -1740,6 +1740,7 @@ fn structInitExpr(
                 try gop.value_ptr.append(astgen.arena, name_token);
                 any_duplicate = true;
             } else {
+                gop.value_ptr.* = .{};
                 try gop.value_ptr.append(astgen.arena, name_token);
             }
         }
@@ -4921,7 +4922,7 @@ fn structDeclInner(
         }
     };
 
-    var duplicate_names = std.AutoHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
+    var duplicate_names = std.AutoArrayHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
     try duplicate_names.ensureTotalCapacity(field_count);
 
     // When there aren't errors, use this to avoid a second iteration.
@@ -4952,6 +4953,7 @@ fn structDeclInner(
                 try gop.value_ptr.append(astgen.arena, member.ast.main_token);
                 any_duplicate = true;
             } else {
+                gop.value_ptr.* = .{};
                 try gop.value_ptr.append(astgen.arena, member.ast.main_token);
             }
         } else if (!member.ast.tuple_like) {
@@ -4973,7 +4975,7 @@ fn structDeclInner(
 
         if (is_comptime) {
             switch (layout) {
-                .Packed => return astgen.failTok(member.comptime_token.?, "packed cannot be marked comptime", .{}),
+                .Packed => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
                 .Extern => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
                 .Auto => any_comptime_fields = true,
             }
