@@ -4139,17 +4139,24 @@ test "ring mapped buffers multishot recv" {
                 cqe_recv = a;
             }
 
-            // cancel operation is success
-            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
-            // NOENT - the request identified by user_data could not be located.
-            if (cqe_cancel.err() != os.E.NOENT) {
-                try testing.expect(cqe_cancel.res == 0);
-            }
+            // Note on differnet kernel results:
+            // on older kernel (tested with v6.0.16, v6.1.57, v6.2.12, v6.4.16)
+            //   cqe_cancel.err() == .NOENT
+            //   cqe_crecv.err() == .NOBUFS
+            // on kernel (tested with v6.5.0, v6.5.7)
+            //   cqe_cancel.err() == .SUCCESS
+            //   cqe_crecv.err() == .CANCELED
+            //
+            // std.debug.print("cancel: {}, recv: {}\n", .{ cqe_cancel.err(), cqe_recv.err() });
 
-            // recv operation is failed with err CANCELED
+            // cancel operation is success (or NOENT on older kernels)
+            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
+            try testing.expect(cqe_cancel.err() == .NOENT or cqe_cancel.err() == .SUCCESS);
+
+            // recv operation is failed with err CANCELED (or NOBUFS on older kernels)
             try testing.expectEqual(recv_user_data, cqe_recv.user_data);
             try testing.expect(cqe_recv.res < 0);
-            try testing.expectEqual(os.E.CANCELED, cqe_recv.err());
+            try testing.expect(cqe_recv.err() == .NOBUFS or cqe_recv.err() == .CANCELED);
             try testing.expect(cqe_recv.flags & linux.IORING_CQE_F_MORE == 0);
         }
     }
