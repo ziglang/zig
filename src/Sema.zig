@@ -7766,21 +7766,6 @@ fn analyzeInlineCallArg(
     return null;
 }
 
-fn analyzeCallArg(
-    sema: *Sema,
-    block: *Block,
-    arg_src: LazySrcLoc,
-    param_ty: Type,
-    uncasted_arg: Air.Inst.Ref,
-    opts: CoerceOpts,
-) !Air.Inst.Ref {
-    try sema.resolveTypeFully(param_ty);
-    return sema.coerceExtra(block, param_ty, uncasted_arg, arg_src, opts) catch |err| switch (err) {
-        error.NotCoercible => unreachable,
-        else => |e| return e,
-    };
-}
-
 fn instantiateGenericCall(
     sema: *Sema,
     block: *Block,
