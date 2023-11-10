@@ -2438,8 +2438,9 @@ fn errMsg(
     src: LazySrcLoc,
     comptime format: []const u8,
     args: anytype,
-) error{OutOfMemory}!*Module.ErrorMsg {
+) error{ NeededSourceLocation, OutOfMemory }!*Module.ErrorMsg {
     const mod = sema.mod;
+    if (src == .unneeded) return error.NeededSourceLocation;
     const src_decl = mod.declPtr(block.src_decl);
     return Module.ErrorMsg.create(sema.gpa, src.toSrcLoc(src_decl, mod), format, args);
 }
@@ -2455,14 +2456,13 @@ pub fn fail(
     return sema.failWithOwnedErrorMsg(block, err_msg);
 }
 
-fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg) CompileError {
+fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg) error{ AnalysisFail, OutOfMemory } {
     @setCold(true);
     const gpa = sema.gpa;
     const mod = sema.mod;
 
     ref: {
         errdefer err_msg.destroy(gpa);
-        if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
 
         if (crash_report.is_enabled and mod.comp.debug_compile_errors) {
             var wip_errors: std.zig.ErrorBundle.Wip = undefined;
