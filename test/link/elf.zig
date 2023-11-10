@@ -2,9 +2,8 @@
 //! Currently, we support linking x86_64 Linux, but in the future we
 //! will progressively relax those to exercise more combinations.
 
-pub fn build(b: *Build) void {
+pub fn testAll(b: *Build) *Step {
     const elf_step = b.step("test-elf", "Run ELF tests");
-    b.default_step = elf_step;
 
     const default_target = CrossTarget{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
@@ -123,6 +122,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
+
+    return elf_step;
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -3582,7 +3583,6 @@ const std = @import("std");
 const Build = std.Build;
 const Compile = Step.Compile;
 const CrossTarget = std.zig.CrossTarget;
-const LazyPath = Build.LazyPath;
 const Run = Step.Run;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;

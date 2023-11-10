@@ -5,6 +5,11 @@ pub const Case = struct {
 
 pub const cases = [_]Case{
     .{
+        .build_root = "test/link",
+        .import = @import("link/link.zig"),
+    },
+
+    .{
         .build_root = "test/link/bss",
         .import = @import("link/bss/build.zig"),
     },
@@ -27,12 +32,6 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/glibc_compat",
         .import = @import("link/glibc_compat/build.zig"),
-    },
-
-    // Elf Cases
-    .{
-        .build_root = "test/link",
-        .import = @import("link/elf.zig"),
     },
 
     // WASM Cases
