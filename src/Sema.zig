@@ -32809,9 +32809,17 @@ fn cmpVector(
     const casted_lhs = try sema.coerce(block, resolved_ty, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_ty, rhs, rhs_src);
 
+    const result_ty = try mod.vectorType(.{
+        .len = lhs_ty.vectorLen(mod),
+        .child = .bool_type,
+    });
+
     const runtime_src: LazySrcLoc = src: {
         if (try sema.resolveValue(casted_lhs)) |lhs_val| {
             if (try sema.resolveValue(casted_rhs)) |rhs_val| {
+                if (lhs_val.isUndef(mod) or rhs_val.isUndef(mod)) {
+                    return mod.undefRef(result_ty);
+                }
                 const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
                 return Air.internedToRef(cmp_val.toIntern());
             } else {
