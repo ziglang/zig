@@ -251,7 +251,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .incremental,
     };
 
-    if (options.use_llvm) {
+    if (options.use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
