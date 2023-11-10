@@ -77,11 +77,14 @@ fn testResolvingBoundarySymbols(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
+    return link.addTestStep(b, "macho-" ++ prefix, opts);
+}
+
 const addCppSourceBytes = link.addCppSourceBytes;
 const addExecutable = link.addExecutable;
 const addObject = link.addObject;
 const addRunArtifact = link.addRunArtifact;
-const addTestStep = link.addTestStep;
 const addZigSourceBytes = link.addZigSourceBytes;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
