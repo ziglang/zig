@@ -2042,3 +2042,20 @@ test "circular dependency through pointer field of a union" {
     try expect(outer.u.outer == null);
     try expect(outer.u.inner == null);
 }
+
+test "pass nested union with rls" {
+    const Union = union(enum) {
+        a: u32,
+        b: union(enum) {
+            c: u7,
+            d: u3,
+        },
+
+        fn getC(u: @This()) u7 {
+            return u.b.c;
+        }
+    };
+
+    var c: u7 = 32;
+    try expectEqual(@as(u7, 32), Union.getC(.{ .b = .{ .c = c } }));
+}
