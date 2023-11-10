@@ -1722,53 +1722,51 @@ fn structInitExpr(
         }
     }
 
-    // First: The first found field.
-    // Duplicates: A list of following duplicate field names.
-    const DupeNameRecord = struct { first: Ast.TokenIndex, duplicates: ArrayListUnmanaged(Ast.TokenIndex) };
+    {
+        var duplicate_names = std.AutoArrayHashMap(u32, ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
+        defer duplicate_names.deinit();
+        try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
-    var duplicate_names = std.AutoHashMap(u32, DupeNameRecord).init(astgen.arena);
-    try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
+        // When there aren't errors, use this to avoid a second iteration.
+        var any_duplicate = false;
 
-    // // Basic check to maintain O(N) best case.
-    var any_duplicate = false;
+        for (struct_init.ast.fields) |field| {
+            const name_token = tree.firstToken(field) - 2;
+            const name_index = try astgen.identAsString(name_token);
 
-    for (struct_init.ast.fields) |field| {
-        const name_token = tree.firstToken(field) - 2;
-        const name_index = try astgen.identAsString(name_token);
+            const gop = try duplicate_names.getOrPut(name_index);
 
-        // Is the variable name already set?
-        const gop = try duplicate_names.getOrPut(name_index);
-
-        if (gop.found_existing) {
-            try gop.value_ptr.duplicates.append(astgen.arena, name_token);
-            any_duplicate = true;
-        } else {
-            gop.value_ptr.first = name_token;
-        }
-    }
-
-    if (any_duplicate) {
-        var it = duplicate_names.iterator();
-
-        while (it.next()) |entry| {
-            const record = entry.value_ptr.*;
-            if (record.duplicates.items.len > 0) {
-                var error_notes = std.ArrayList(u32).init(astgen.arena);
-
-                for (record.duplicates.items) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
-                }
-
-                try astgen.appendErrorTokNotes(
-                    record.first,
-                    "duplicate field",
-                    .{},
-                    error_notes.items,
-                );
+            if (gop.found_existing) {
+                try gop.value_ptr.append(astgen.arena, name_token);
+                any_duplicate = true;
+            } else {
+                try gop.value_ptr.append(astgen.arena, name_token);
             }
         }
 
-        return error.AnalysisFail;
+        if (any_duplicate) {
+            var it = duplicate_names.iterator();
+
+            while (it.next()) |entry| {
+                const record = entry.value_ptr.*;
+                if (record.items.len > 1) {
+                    var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                    for (record.items[1..]) |duplicate| {
+                        try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                    }
+
+                    try astgen.appendErrorTokNotes(
+                        record.items[0],
+                        "duplicate field",
+                        .{},
+                        error_notes.items,
+                    );
+                }
+            }
+
+            return error.AnalysisFail;
+        }
     }
 
     if (struct_init.ast.type_expr != 0) {
@@ -4923,12 +4921,10 @@ fn structDeclInner(
         }
     };
 
-    const DupeNameRecord = struct { first: Ast.TokenIndex, duplicates: ArrayListUnmanaged(Ast.TokenIndex) };
-
-    var duplicate_names = std.AutoHashMap(u32, DupeNameRecord).init(astgen.arena);
+    var duplicate_names = std.AutoHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
     try duplicate_names.ensureTotalCapacity(field_count);
 
-    // // Basic check to maintain O(N) best case.
+    // When there aren't errors, use this to avoid a second iteration.
     var any_duplicate = false;
 
     var known_non_opv = false;
@@ -4960,13 +4956,15 @@ fn structDeclInner(
             return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
         }
 
-        const gop = try duplicate_names.getOrPut(field_name);
+        if (!is_tuple) {
+            const gop = try duplicate_names.getOrPut(field_name);
 
-        if (gop.found_existing) {
-            try gop.value_ptr.duplicates.append(astgen.arena, member.ast.main_token);
-            any_duplicate = true;
-        } else {
-            gop.value_ptr.first = member.ast.main_token;
+            if (gop.found_existing) {
+                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+                any_duplicate = true;
+            } else {
+                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+            }
         }
 
         const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
@@ -5047,19 +5045,19 @@ fn structDeclInner(
 
         while (it.next()) |entry| {
             const record = entry.value_ptr.*;
-            if (record.duplicates.items.len > 0) {
+            if (record.items.len > 1) {
                 var error_notes = std.ArrayList(u32).init(astgen.arena);
 
-                for (record.duplicates.items) |duplicate| {
+                for (record.items[1..]) |duplicate| {
                     try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
                 }
 
                 try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                 try astgen.appendErrorTokNotes(
-                    record.first,
+                    record.items[0],
                     "duplicate struct field: '{s}'",
-                    .{try astgen.identifierTokenString(record.first)},
+                    .{try astgen.identifierTokenString(record.items[0])},
                     error_notes.items,
                 );
             }
@@ -5067,6 +5065,8 @@ fn structDeclInner(
 
         return error.AnalysisFail;
     }
+
+    duplicate_names.deinit();
 
     try gz.setStruct(decl_inst, .{
         .src_node = node,
