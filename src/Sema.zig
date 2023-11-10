@@ -5620,6 +5620,8 @@ fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.In
     const src_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].node;
     const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
+    if (block.is_comptime)
+        return sema.fail(block, src, "encountered @trap at comptime", .{});
     _ = try block.addNoOp(.trap);
     return always_noreturn;
 }
