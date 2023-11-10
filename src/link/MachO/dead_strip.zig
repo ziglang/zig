@@ -50,6 +50,7 @@ fn collectRoots(macho_file: *MachO, roots: *AtomTable) !void {
             for (macho_file.globals.items) |global| {
                 const sym = macho_file.getSymbol(global);
                 if (sym.undf()) continue;
+                if (sym.n_desc == MachO.N_BOUNDARY) continue;
 
                 if (global.getFile()) |file| {
                     try addRoot(macho_file, roots, file, global);

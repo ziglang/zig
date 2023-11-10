@@ -2,9 +2,8 @@
 //! Currently, we support linking x86_64 Linux, but in the future we
 //! will progressively relax those to exercise more combinations.
 
-pub fn build(b: *Build) void {
+pub fn testAll(b: *Build) *Step {
     const elf_step = b.step("test-elf", "Run ELF tests");
-    b.default_step = elf_step;
 
     const default_target = CrossTarget{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
@@ -123,6 +122,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
+
+    return elf_step;
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -3479,110 +3480,25 @@ fn testZText(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-const Options = struct {
-    target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
-    optimize: std.builtin.OptimizeMode = .Debug,
-    use_llvm: bool = true,
-    use_lld: bool = false,
-};
-
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
-    const target = opts.target.zigTriple(b.allocator) catch @panic("OOM");
-    const optimize = @tagName(opts.optimize);
-    const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
-    const name = std.fmt.allocPrint(b.allocator, "test-elf-" ++ prefix ++ "-{s}-{s}-{s}", .{
-        target,
-        optimize,
-        use_llvm,
-    }) catch @panic("OOM");
-    return b.step(name, "");
+    return link.addTestStep(b, "elf-" ++ prefix, opts);
 }
 
-fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addExecutable(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addObject(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addStaticLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addSharedLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addRunArtifact(comp: *Compile) *Run {
-    const b = comp.step.owner;
-    const run = b.addRunArtifact(comp);
-    run.skip_foreign_checks = true;
-    return run;
-}
-
-fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.zig", bytes);
-    file.addStepDependencies(&comp.step);
-    comp.root_src = file;
-}
-
-fn addCSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.c", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
-}
-
-fn addCppSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.cpp", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
-}
-
-fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
-    const b = comp.step.owner;
-    const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
-    const file = WriteFile.create(b).add("a.s", actual_bytes);
-    comp.addAssemblyFile(file);
-}
-
-fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
-    comp.expect_errors = expected_errors;
-    const bin_file = comp.getEmittedBin();
-    bin_file.addStepDependencies(test_step);
-}
-
+const addAsmSourceBytes = link.addAsmSourceBytes;
+const addCSourceBytes = link.addCSourceBytes;
+const addCppSourceBytes = link.addCppSourceBytes;
+const addExecutable = link.addExecutable;
+const addObject = link.addObject;
+const addRunArtifact = link.addRunArtifact;
+const addSharedLibrary = link.addSharedLibrary;
+const addStaticLibrary = link.addStaticLibrary;
+const addZigSourceBytes = link.addZigSourceBytes;
+const expectLinkErrors = link.expectLinkErrors;
+const link = @import("link.zig");
 const std = @import("std");
 
 const Build = std.Build;
-const Compile = Step.Compile;
 const CrossTarget = std.zig.CrossTarget;
-const LazyPath = Build.LazyPath;
-const Run = Step.Run;
+const Options = link.Options;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;
