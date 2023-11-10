@@ -242,7 +242,7 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
         s5, s6, s6, s6, s7, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx,
     };
 
-    var n = remaining.len;
+    const n = remaining.len;
     var i: usize = 0;
     while (i < n) {
         const first_byte = remaining[i];

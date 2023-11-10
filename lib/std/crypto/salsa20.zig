@@ -605,8 +605,8 @@ test "xsalsa20poly1305 box" {
     crypto.random.bytes(&msg);
     crypto.random.bytes(&nonce);
 
-    var kp1 = try Box.KeyPair.create(null);
-    var kp2 = try Box.KeyPair.create(null);
+    const kp1 = try Box.KeyPair.create(null);
+    const kp2 = try Box.KeyPair.create(null);
     try Box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
     try Box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
 }
@@ -617,7 +617,7 @@ test "xsalsa20poly1305 sealedbox" {
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
     crypto.random.bytes(&msg);
 
-    var kp = try Box.KeyPair.create(null);
+    const kp = try Box.KeyPair.create(null);
     try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
 }

@@ -812,7 +812,7 @@ pub fn writeStackTraceWindows(
     var addr_buf: [1024]usize = undefined;
     const n = walkStackWindows(addr_buf[0..], context);
     const addrs = addr_buf[0..n];
-    var start_i: usize = if (start_addr) |saddr| blk: {
+    const start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs, 0..) |addr, i| {
             if (addr == saddr) break :blk i;
         }
@@ -1158,7 +1158,7 @@ pub fn readElfDebugInfo(
                 var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
                 defer zlib_stream.deinit();
 
-                var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
+                const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
 
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
@@ -2046,7 +2046,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
-            var info = OFileInfo{
+            const info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
             };
@@ -2122,7 +2122,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.getPtr(o_file_path) orelse
+                const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
