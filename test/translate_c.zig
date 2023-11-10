@@ -123,10 +123,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    while (true) if (true) {
         \\        var a: c_int = 1;
-        \\        _ = @TypeOf(a);
+        \\        _ = &a;
         \\    } else {
         \\        var b: c_int = 2;
-        \\        _ = @TypeOf(b);
+        \\        _ = &b;
         \\    };
         \\    if (true) if (true) {};
         \\}
@@ -199,7 +199,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        .B = 0,
         \\        .C = 0,
         \\    };
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\    {
         \\        const struct_Foo_1 = extern struct {
         \\            A: c_int = @import("std").mem.zeroes(c_int),
@@ -211,7 +211,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            .B = 0,
         \\            .C = 0,
         \\        };
-        \\        _ = @TypeOf(a_2);
+        \\        _ = &a_2;
         \\    }
         \\}
     });
@@ -240,24 +240,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        B: c_int,
         \\        C: c_int,
         \\    };
-        \\    _ = @TypeOf(union_unnamed_1);
+        \\    _ = &union_unnamed_1;
         \\    const Foo = union_unnamed_1;
         \\    var a: Foo = Foo{
         \\        .A = @as(c_int, 0),
         \\    };
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\    {
         \\        const union_unnamed_2 = extern union {
         \\            A: c_int,
         \\            B: c_int,
         \\            C: c_int,
         \\        };
-        \\        _ = @TypeOf(union_unnamed_2);
+        \\        _ = &union_unnamed_2;
         \\        const Foo_1 = union_unnamed_2;
         \\        var a_2: Foo_1 = Foo_1{
         \\            .A = @as(c_int, 0),
         \\        };
-        \\        _ = @TypeOf(a_2);
+        \\        _ = &a_2;
         \\    }
         \\}
     });
@@ -325,7 +325,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    const bar_1 = struct {
         \\        threadlocal var static: c_int = 2;
         \\    };
-        \\    _ = @TypeOf(bar_1);
+        \\    _ = &bar_1;
         \\    return 0;
         \\}
     });
@@ -344,7 +344,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
         \\pub export fn bar() c_int {
         \\    var a: c_int = 2;
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\    return 0;
         \\}
         \\pub export fn baz() c_int {
@@ -359,7 +359,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn main() void {
         \\    var a: c_int = @as(c_int, @bitCast(@as(c_uint, @truncate(@alignOf(c_int)))));
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\}
     });
 
@@ -507,7 +507,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define bar(x) (&x, +3, 4 == 4, 5 * 6, baz(1, 2), 2 % 2, baz(1,2))
     , &[_][]const u8{
         \\pub const foo = blk_1: {
-        \\    _ = @TypeOf(foo);
+        \\    _ = &foo;
         \\    break :blk_1 bar;
         \\};
         ,
@@ -729,7 +729,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn function(arg_opaque_1: ?*struct_opaque) void {
         \\    var opaque_1 = arg_opaque_1;
         \\    var cast: ?*struct_opaque_2 = @as(?*struct_opaque_2, @ptrCast(opaque_1));
-        \\    _ = @TypeOf(cast);
+        \\    _ = &cast;
         \\}
     });
 
@@ -764,7 +764,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\pub export fn my_fn() align(128) void {}
             \\pub export fn other_fn() void {
             \\    var ARR: [16]u8 align(16) = undefined;
-            \\    _ = @TypeOf(ARR);
+            \\    _ = &ARR;
             \\}
         });
     }
@@ -801,17 +801,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\    var b: u8 = 123;
-        \\    _ = @TypeOf(b);
+        \\    _ = &b;
         \\    const c: c_int = undefined;
-        \\    _ = @TypeOf(c);
+        \\    _ = &c;
         \\    const d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
-        \\    _ = @TypeOf(d);
+        \\    _ = &d;
         \\    var e: c_int = 10;
-        \\    _ = @TypeOf(e);
+        \\    _ = &e;
         \\    var f: c_uint = 10;
-        \\    _ = @TypeOf(f);
+        \\    _ = &f;
         \\}
     });
 
@@ -870,7 +870,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    const v2 = struct {
         \\        const static: [5:0]u8 = "2.2.2".*;
         \\    };
-        \\    _ = @TypeOf(v2);
+        \\    _ = &v2;
         \\}
     });
 
@@ -913,7 +913,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var func_ptr: ?*anyopaque = @as(?*anyopaque, @ptrCast(&foo));
         \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
-        \\    _ = @TypeOf(typed_func_ptr);
+        \\    _ = &typed_func_ptr;
         \\}
     });
 
@@ -1360,7 +1360,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\}
     });
 
@@ -1599,23 +1599,23 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var p: ?*anyopaque = undefined;
         \\    {
         \\        var to_char: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_char);
+        \\        _ = &to_char;
         \\        var to_short: [*c]c_short = @as([*c]c_short, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_short);
+        \\        _ = &to_short;
         \\        var to_int: [*c]c_int = @as([*c]c_int, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_int);
+        \\        _ = &to_int;
         \\        var to_longlong: [*c]c_longlong = @as([*c]c_longlong, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_longlong);
+        \\        _ = &to_longlong;
         \\    }
         \\    {
         \\        var to_char: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_char);
+        \\        _ = &to_char;
         \\        var to_short: [*c]c_short = @as([*c]c_short, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_short);
+        \\        _ = &to_short;
         \\        var to_int: [*c]c_int = @as([*c]c_int, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_int);
+        \\        _ = &to_int;
         \\        var to_longlong: [*c]c_longlong = @as([*c]c_longlong, @ptrCast(@alignCast(p)));
-        \\        _ = @TypeOf(to_longlong);
+        \\        _ = &to_longlong;
         \\    }
         \\}
     });
@@ -1859,11 +1859,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var arr: [10]u8 = [1]u8{
         \\        1,
         \\    } ++ [1]u8{0} ** 9;
-        \\    _ = @TypeOf(arr);
+        \\    _ = &arr;
         \\    var arr1: [10][*c]u8 = [1][*c]u8{
         \\        null,
         \\    } ++ [1][*c]u8{null} ** 9;
-        \\    _ = @TypeOf(arr1);
+        \\    _ = &arr1;
         \\}
     });
 
@@ -2107,16 +2107,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub var c: c_int = 4;
         \\pub export fn foo(arg_c_1: u8) void {
         \\    var c_1 = arg_c_1;
-        \\    _ = @TypeOf(c_1);
+        \\    _ = &c_1;
         \\    var a_2: c_int = undefined;
         \\    var b_3: u8 = 123;
         \\    b_3 = @as(u8, @bitCast(@as(i8, @truncate(a_2))));
         \\    {
         \\        var d: c_int = 5;
-        \\        _ = @TypeOf(d);
+        \\        _ = &d;
         \\    }
         \\    var d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
-        \\    _ = @TypeOf(d);
+        \\    _ = &d;
         \\}
     });
 
@@ -2215,7 +2215,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    {
         \\        var i: c_int = 2;
         \\        var b: c_int = 4;
-        \\        _ = @TypeOf(b);
+        \\        _ = &b;
         \\        while ((i + @as(c_int, 2)) != 0) : (i = 2) {
         \\            var a: c_int = 2;
         \\            _ = blk: {
@@ -2228,7 +2228,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        }
         \\    }
         \\    var i: u8 = 2;
-        \\    _ = @TypeOf(i);
+        \\    _ = &i;
         \\}
     });
 
@@ -2465,27 +2465,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn escapes() [*c]const u8 {
         \\    var a: u8 = '\'';
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\    var b: u8 = '\\';
-        \\    _ = @TypeOf(b);
+        \\    _ = &b;
         \\    var c: u8 = '\x07';
-        \\    _ = @TypeOf(c);
+        \\    _ = &c;
         \\    var d: u8 = '\x08';
-        \\    _ = @TypeOf(d);
+        \\    _ = &d;
         \\    var e: u8 = '\x0c';
-        \\    _ = @TypeOf(e);
+        \\    _ = &e;
         \\    var f: u8 = '\n';
-        \\    _ = @TypeOf(f);
+        \\    _ = &f;
         \\    var g: u8 = '\r';
-        \\    _ = @TypeOf(g);
+        \\    _ = &g;
         \\    var h: u8 = '\t';
-        \\    _ = @TypeOf(h);
+        \\    _ = &h;
         \\    var i: u8 = '\x0b';
-        \\    _ = @TypeOf(i);
+        \\    _ = &i;
         \\    var j: u8 = '\x00';
-        \\    _ = @TypeOf(j);
+        \\    _ = &j;
         \\    var k: u8 = '"';
-        \\    _ = @TypeOf(k);
+        \\    _ = &k;
         \\    return "'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
     });
@@ -2681,7 +2681,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() c_int {
         \\    return blk: {
         \\        var a: c_int = 1;
-        \\        _ = @TypeOf(a);
+        \\        _ = &a;
         \\        break :blk a;
         \\    };
         \\}
@@ -2785,7 +2785,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\int bar(void) { return 0; }
     , &[_][]const u8{
         \\pub inline fn CALL(arg: anytype) @TypeOf(bar()) {
-        \\    _ = @TypeOf(arg);
+        \\    _ = &arg;
         \\    return bar();
         \\}
     });
@@ -2844,14 +2844,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    if (true) {
         \\        var a: c_int = 2;
-        \\        _ = @TypeOf(a);
+        \\        _ = &a;
         \\    }
         \\    if ((blk: {
         \\        _ = @as(c_int, 2);
         \\        break :blk @as(c_int, 5);
         \\    }) != 0) {
         \\        var a: c_int = 2;
-        \\        _ = @TypeOf(a);
+        \\        _ = &a;
         \\    }
         \\}
     });
@@ -3331,7 +3331,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define a 2
     , &[_][]const u8{
         \\pub inline fn FOO(bar: anytype) @TypeOf(baz(@import("std").zig.c_translation.cast(?*anyopaque, baz))) {
-        \\    _ = @TypeOf(bar);
+        \\    _ = &bar;
         \\    return baz(@import("std").zig.c_translation.cast(?*anyopaque, baz));
         \\}
         ,
@@ -3471,7 +3471,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(arg_a: [*c]c_int) void {
         \\    var a = arg_a;
-        \\    _ = @TypeOf(a);
+        \\    _ = &a;
         \\}
         \\pub export fn bar(arg_a: [*c]const c_int) void {
         \\    var a = arg_a;
@@ -3831,12 +3831,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar(arg_x: c_int, arg_y: c_int) c_int {
         \\    var x = arg_x;
         \\    var y = arg_y;
-        \\    _ = @TypeOf(y);
+        \\    _ = &y;
         \\    return x;
         \\}
         ,
         \\pub inline fn FOO(A: anytype, B: anytype) @TypeOf(A) {
-        \\    _ = @TypeOf(B);
+        \\    _ = &B;
         \\    return A;
         \\}
     });
@@ -3931,7 +3931,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
             \\    var c: c_longlong = @divExact(@as(c_longlong, @bitCast(@intFromPtr(a) -% @intFromPtr(b))), @sizeOf(u8));
-            \\    _ = @TypeOf(c);
+            \\    _ = &c;
             \\}
         });
     } else {
@@ -3946,7 +3946,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    var a: S = undefined;
             \\    var b: S = undefined;
             \\    var c: c_long = @divExact(@as(c_long, @bitCast(@intFromPtr(a) -% @intFromPtr(b))), @sizeOf(u8));
-            \\    _ = @TypeOf(c);
+            \\    _ = &c;
             \\}
         });
     }
