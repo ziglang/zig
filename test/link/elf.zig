@@ -21,6 +21,11 @@ pub fn build(b: *Build) void {
         .abi = .gnu,
     };
 
+    // Exercise linker in -r mode
+    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = musl_target }));
+    elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+
     // Exercise linker in ar mode
     elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
 
@@ -629,6 +634,53 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testEmitRelocatable(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "emit-relocatable", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addZigSourceBytes(obj1,
+        \\const std = @import("std");
+        \\extern var bar: i32;
+        \\export fn foo() i32 {
+        \\   return bar;
+        \\}
+        \\export fn printFoo() void {
+        \\    std.debug.print("foo={d}\n", .{foo()});
+        \\}
+    );
+    addCSourceBytes(obj1,
+        \\#include <stdio.h>
+        \\int bar = 42;
+        \\void printBar() {
+        \\  fprintf(stderr, "bar=%d\n", bar);
+        \\}
+    , &.{});
+    obj1.linkLibC();
+
+    const exe = addExecutable(b, "test", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn printFoo() void;
+        \\extern fn printBar() void;
+        \\pub fn main() void {
+        \\    printFoo();
+        \\    printBar();
+        \\}
+    );
+    exe.addObject(obj1);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual(
+        \\foo=42
+        \\bar=42
+        \\
+    );
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testEmitStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-static-lib", opts);
 
@@ -951,7 +1003,6 @@ fn testGcSectionsZig(b: *Build, opts: Options) *Step {
     const obj = addObject(b, "obj", .{
         .target = opts.target,
         .use_llvm = true,
-        .use_lld = true,
     });
     addCSourceBytes(obj,
         \\int live_var1 = 1;
@@ -2084,6 +2135,89 @@ fn testPreinitArray(b: *Build, opts: Options) *Step {
         const check = exe.checkObject();
         check.checkInDynamicSection();
         check.checkContains("PREINIT_ARRAY");
+    }
+
+    return test_step;
+}
+
+fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame", opts);
+
+    {
+        const obj = addObject(b, "obj1", opts);
+        addCppSourceBytes(obj,
+            \\#include <stdexcept>
+            \\int try_me() {
+            \\  throw std::runtime_error("Oh no!");
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\extern int try_me();
+            \\int try_again() {
+            \\  return try_me();
+            \\}
+        , &.{});
+        obj.linkLibCpp();
+
+        const exe = addExecutable(b, "test1", opts);
+        addCppSourceBytes(exe,
+            \\#include <iostream>
+            \\#include <stdexcept>
+            \\extern int try_again();
+            \\int main() {
+            \\  try {
+            \\    try_again();
+            \\  } catch (const std::exception &e) {
+            \\    std::cout << "exception=" << e.what();
+            \\  }
+            \\  return 0;
+            \\}
+        , &.{});
+        exe.addObject(obj);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        // Let's make the object file COMDAT group heavy!
+        const obj = addObject(b, "obj2", opts);
+        addCppSourceBytes(obj,
+            \\#include <stdexcept>
+            \\int try_me() {
+            \\  throw std::runtime_error("Oh no!");
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\extern int try_me();
+            \\int try_again() {
+            \\  return try_me();
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\#include <iostream>
+            \\#include <stdexcept>
+            \\extern int try_again();
+            \\int main() {
+            \\  try {
+            \\    try_again();
+            \\  } catch (const std::exception &e) {
+            \\    std::cout << "exception=" << e.what();
+            \\  }
+            \\  return 0;
+            \\}
+        , &.{});
+        obj.linkLibCpp();
+
+        const exe = addExecutable(b, "test2", opts);
+        exe.addObject(obj);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
     }
 
     return test_step;
