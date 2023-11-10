@@ -8916,7 +8916,9 @@ fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air
                 .ty = result_ty.toIntern(),
                 .name = err_name,
             } }))),
-            else => {},
+            .payload => |payload|
+                if (payload.toValue().isUndef(mod))
+                    return mod.undefRef(result_ty),
         }
     }
 
