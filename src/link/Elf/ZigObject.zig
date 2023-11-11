@@ -749,14 +749,14 @@ fn getDeclShdrIndex(
                         .type = elf.SHT_NOBITS,
                         .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
                         .name = ".tbss",
-                        .offset = std.math.maxInt(u32),
+                        .offset = std.math.maxInt(u64),
                     });
 
                     break :blk elf_file.sectionByName(".tdata") orelse try elf_file.addSection(.{
                         .type = elf.SHT_PROGBITS,
                         .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
                         .name = ".tdata",
-                        .offset = std.math.maxInt(u32),
+                        .offset = std.math.maxInt(u64),
                     });
                 }
                 if (variable.is_const) break :blk elf_file.zig_data_rel_ro_section_index.?;
