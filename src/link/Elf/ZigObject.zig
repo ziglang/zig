@@ -723,7 +723,18 @@ pub fn getOrCreateMetadataForDecl(
 ) !Symbol.Index {
     const gop = try self.decls.getOrPut(elf_file.base.allocator, decl_index);
     if (!gop.found_existing) {
-        gop.value_ptr.* = .{ .symbol_index = try self.addAtom(elf_file) };
+        const symbol_index = try self.addAtom(elf_file);
+        const mod = elf_file.base.options.module.?;
+        const decl = mod.declPtr(decl_index);
+        const single_threaded = elf_file.base.options.single_threaded;
+        if (decl.getOwnedVariable(mod)) |variable| {
+            if (variable.is_threadlocal and !single_threaded) {
+                const sym = elf_file.symbol(symbol_index);
+                self.elfSym(sym.esym_index).st_info = elf.STT_TLS;
+            }
+        }
+
+        gop.value_ptr.* = .{ .symbol_index = symbol_index };
     }
     return gop.value_ptr.symbol_index;
 }
@@ -891,7 +902,7 @@ fn updateTlv(
     const decl = mod.declPtr(decl_index);
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
-    log.debug("updateTlv {s}{*}", .{ decl_name, decl });
+    log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
 
     const required_alignment = decl.getAlignment(mod);
 
@@ -906,7 +917,7 @@ fn updateTlv(
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
-    esym.st_info |= elf.STT_TLS;
+    esym.st_info = elf.STT_TLS;
     esym.st_size = code.len;
 
     atom_ptr.alignment = required_alignment;

@@ -319,20 +319,25 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
     return Immediate.s(0);
 }
 
-fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const needsZigGot = struct {
-        fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
-            const elf_file = ctx.cast(link.File.Elf).?;
-            const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-            return elf_file.symbol(sym_index).flags.needs_zig_got;
-        }
-    }.needsZigGot;
+fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
+    const elf_file = ctx.cast(link.File.Elf).?;
+    const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+    return elf_file.symbol(sym_index).flags.needs_zig_got;
+}
 
+fn isTls(sym: bits.Symbol, ctx: *link.File) bool {
+    const elf_file = ctx.cast(link.File.Elf).?;
+    const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+    return elf_file.symbol(sym_index).isTls(elf_file);
+}
+
+fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
     const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
         .Exe => false,
         .Obj => true,
         .Lib => lower.bin_file.options.link_mode == .Static,
     };
+
     var emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
@@ -346,6 +351,29 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(prefix == .none);
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
+
+                    if (isTls(sym, lower.bin_file)) {
+                        lower.result_insts[lower.result_insts_len] =
+                            try Instruction.new(.none, .mov, &[_]Operand{
+                            .{ .reg = ops[0].reg.to64() },
+                            .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
+                        });
+                        lower.result_insts_len += 1;
+                        _ = lower.reloc(.{ .linker_reloc = sym });
+                        if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                            const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+                            elf_file.symbol(sym_index).flags.needs_zig_got = false;
+                        }
+                        emit_mnemonic = .lea;
+                        switch (mnemonic) {
+                            .lea, .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = ops[0].reg.to64() },
+                                .disp = undefined,
+                            }) },
+                            else => unreachable,
+                        }
+                    }
+
                     _ = lower.reloc(.{ .linker_reloc = sym });
                     break :op if (lower.bin_file.options.pic) switch (mnemonic) {
                         .lea => {
