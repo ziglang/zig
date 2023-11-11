@@ -4531,7 +4531,10 @@ fn allocateAllocSectionsObject(self: *Elf) !void {
     for (self.shdrs.items) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (shdr.sh_type == elf.SHT_NOBITS) {
+            shdr.sh_offset = 0;
+            continue;
+        }
         const needed_size = shdr.sh_size;
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
