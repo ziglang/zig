@@ -402,7 +402,7 @@ pub fn allocateTlvAtoms(self: ZigObject, elf_file: *Elf) void {
         const local = elf_file.symbol(tlv.symbol_index);
         const shdr = elf_file.shdrs.items[atom.output_section_index];
         atom.value += shdr.sh_addr;
-        local.value += shdr.sh_addr;
+        local.value = atom.value;
 
         // TODO exported TLS vars
     }
