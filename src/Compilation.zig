@@ -152,9 +152,6 @@ libunwind_static_lib: ?CRTFile = null,
 /// Populated when we build the TSAN static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 tsan_static_lib: ?CRTFile = null,
-/// Populated when we build the libssp static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libssp_static_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
@@ -286,7 +283,6 @@ const Job = union(enum) {
     libcxx: void,
     libcxxabi: void,
     libtsan: void,
-    libssp: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
@@ -683,7 +679,6 @@ pub const MiscTask = enum {
     libtsan,
     wasi_libc_crt_file,
     compiler_rt,
-    libssp,
     zig_libc,
     analyze_mod,
 
@@ -1072,8 +1067,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         .Exe => true,
     };
 
-    const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
-
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
@@ -1355,10 +1348,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (stack_check and !target_util.supportsStackProbing(options.target))
             return error.StackCheckUnsupportedByTarget;
 
-        const capable_of_building_ssp = canBuildLibSsp(options.target, use_llvm);
-
-        const stack_protector: u32 = options.want_stack_protector orelse b: {
-            if (!target_util.supportsStackProtector(options.target)) break :b @as(u32, 0);
+        const stack_protector: u32 = sp: {
+            const zig_backend = zigBackend(options.target, use_llvm);
+            if (!target_util.supportsStackProtector(options.target, zig_backend)) {
+                if (options.want_stack_protector) |x| {
+                    if (x > 0) return error.StackProtectorUnsupportedByTarget;
+                }
+                break :sp 0;
+            }
 
             // This logic is checking for linking libc because otherwise our start code
             // which is trying to set up TLS (i.e. the fs/gs registers) but the stack
@@ -1367,21 +1364,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // as being exempt from stack protection checks, we could change this logic
             // to supporting stack protection even when not linking libc.
             // TODO file issue about this
-            if (!link_libc) break :b 0;
-            if (!capable_of_building_ssp) break :b 0;
-            if (is_safe_mode) break :b default_stack_protector_buffer_size;
-            break :b 0;
-        };
-        if (stack_protector != 0) {
-            if (!target_util.supportsStackProtector(options.target))
-                return error.StackProtectorUnsupportedByTarget;
-            if (!capable_of_building_ssp)
-                return error.StackProtectorUnsupportedByBackend;
-            if (!link_libc)
-                return error.StackProtectorUnavailableWithoutLibC;
-        }
+            if (!link_libc) {
+                if (options.want_stack_protector) |x| {
+                    if (x > 0) return error.StackProtectorUnavailableWithoutLibC;
+                }
+                break :sp 0;
+            }
 
-        const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
+            if (options.want_stack_protector) |x| break :sp x;
+            if (is_safe_mode) break :sp default_stack_protector_buffer_size;
+            break :sp 0;
+        };
+
+        const include_compiler_rt = options.want_compiler_rt orelse
+            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         const single_threaded = st: {
             if (target_util.isSingleThreaded(options.target)) {
@@ -2196,18 +2192,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 comp.job_queued_compiler_rt_obj = true;
             }
         }
-        if (needs_c_symbols) {
-            // Related: https://github.com/ziglang/zig/issues/7265.
-            if (comp.bin_file.options.stack_protector != 0 and
-                (!comp.bin_file.options.link_libc or
-                !target_util.libcProvidesStackProtector(target)))
-            {
-                try comp.work_queue.writeItem(.{ .libssp = {} });
-            }
 
-            if (!comp.bin_file.options.link_libc and capable_of_building_zig_libc) {
-                try comp.work_queue.writeItem(.{ .zig_libc = {} });
-            }
+        if (!comp.bin_file.options.skip_linker_dependencies and is_exe_or_dyn_lib and
+            !comp.bin_file.options.link_libc and capable_of_building_zig_libc)
+        {
+            try comp.work_queue.writeItem(.{ .zig_libc = {} });
         }
     }
 
@@ -2251,9 +2240,6 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_obj) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (self.libssp_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.libc_static_lib) |*crt_file| {
@@ -4020,26 +4006,6 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                     "unable to build WASI libc CRT file: {s}",
                     .{@errorName(err)},
                 );
-            };
-        },
-        .libssp => {
-            const named_frame = tracy.namedFrame("libssp");
-            defer named_frame.end();
-
-            comp.buildOutputFromZig(
-                "ssp.zig",
-                .Lib,
-                &comp.libssp_static_lib,
-                .libssp,
-                prog_node,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libssp,
-                    "unable to build libssp: {s}",
-                    .{@errorName(err)},
-                ),
             };
         },
         .zig_libc => {
@@ -6522,21 +6488,6 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
     return switch (zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
         .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
-        else => build_options.have_llvm,
-    };
-}
-
-fn canBuildLibSsp(target: std.Target, use_llvm: bool) bool {
-    switch (target.os.tag) {
-        .plan9 => return false,
-        else => {},
-    }
-    switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
-        else => {},
-    }
-    return switch (zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
         else => build_options.have_llvm,
     };
 }
