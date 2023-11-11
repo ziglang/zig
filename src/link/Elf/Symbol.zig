@@ -51,6 +51,13 @@ pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
     return symbol.type(elf_file) == elf.STT_GNU_IFUNC;
 }
 
+// TODO this check is enough for ZigObject emitted TLS vars but what about those emitted
+// by different backends/compilers?
+pub fn isTls(symbol: Symbol, elf_file: *Elf) bool {
+    if (symbol.file(elf_file) == null) return false;
+    return symbol.type(elf_file) == elf.STT_TLS;
+}
+
 pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
     const esym = symbol.elfSym(elf_file);
     const file_ptr = symbol.file(elf_file).?;
