@@ -758,7 +758,11 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .array_cat        => return simpleBinOp(gz, scope, ri, node, .array_cat),
 
         .array_mult => {
-            const result = try gz.addPlNode(.array_mul, node, Zir.Inst.Bin{
+            // This syntax form does not currently use the result type in the language specification.
+            // However, the result type can be used to emit more optimal code for large multiplications by
+            // having Sema perform a coercion before the multiplication operation.
+            const result = try gz.addPlNode(.array_mul, node, Zir.Inst.ArrayMul{
+                .res_ty = if (try ri.rl.resultType(gz, node)) |t| t else .none,
                 .lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs),
                 .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs),
             });

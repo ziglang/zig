@@ -140,9 +140,20 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..], 0..) |c, i| {
-        if (i + start_offset == token_start) {
-            loc.line_end = i + start_offset;
+
+    // Scan to by line until we go past the token start
+    while (std.mem.indexOfScalarPos(u8, self.source, loc.line_start, '\n')) |i| {
+        if (i >= token_start) {
+            break; // Went past
+        }
+        loc.line += 1;
+        loc.line_start = i + 1;
+    }
+
+    const offset = loc.line_start;
+    for (self.source[offset..], 0..) |c, i| {
+        if (i + offset == token_start) {
+            loc.line_end = i + offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
                 loc.line_end += 1;
             }

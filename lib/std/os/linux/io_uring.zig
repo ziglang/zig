@@ -2072,6 +2072,7 @@ test "openat" {
     const cqe_openat = try ring.copy_cqe();
     try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.err() == .INVAL) return error.SkipZigTest;
+    if (cqe_openat.err() == .BADF) return error.SkipZigTest;
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
     try testing.expect(cqe_openat.res > 0);
     try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
@@ -2329,7 +2330,8 @@ test "timeout_remove" {
     // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
     var cqes: [2]os.linux.io_uring_cqe = undefined;
-    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+    cqes[0] = try ring.copy_cqe();
+    cqes[1] = try ring.copy_cqe();
 
     for (cqes) |cqe| {
         // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
@@ -2499,6 +2501,8 @@ test "statx" {
         // The filesystem containing the file referred to by fd does not support this operation;
         // or the mode is not supported by the filesystem containing the file referred to by fd:
         .OPNOTSUPP => return error.SkipZigTest,
+        // not supported on older kernels (5.4)
+        .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -3144,6 +3148,7 @@ test "remove_buffers" {
 
         const cqe = try ring.copy_cqe();
         switch (cqe.err()) {
+            .INVAL => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
@@ -3234,6 +3239,8 @@ test "provide_buffers: accept/connect/send/recv" {
         switch (cqe.err()) {
             // Happens when the kernel is < 5.7
             .INVAL => return error.SkipZigTest,
+            // Happens on the kernel 5.4
+            .BADF => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }

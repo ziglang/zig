@@ -3,7 +3,7 @@ symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
-output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_ctx: Elf.SymtabCtx = .{},
 
 pub fn deinit(self: *LinkerDefined, allocator: Allocator) void {
     self.symtab.deinit(allocator);

@@ -4877,11 +4877,14 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
             switch (opt_mcv) {
                 else => unreachable,
 
-                .register => |opt_reg| try self.asmRegisterImmediate(
-                    .{ ._s, .bt },
-                    opt_reg,
-                    Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
-                ),
+                .register => |opt_reg| {
+                    try self.truncateRegister(pl_ty, opt_reg);
+                    try self.asmRegisterImmediate(
+                        .{ ._s, .bt },
+                        opt_reg,
+                        Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
+                    );
+                },
 
                 .load_frame => |frame_addr| try self.asmMemoryImmediate(
                     .{ ._, .mov },
@@ -7430,16 +7433,20 @@ fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air:
     };
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
+    const abi_size: u16 = @intCast(src_ty.abiSize(mod));
     switch (tag) {
         .not => {
-            const limb_abi_size: u16 = @intCast(@min(src_ty.abiSize(mod), 8));
+            const limb_abi_size: u16 = @min(abi_size, 8);
             const int_info = if (src_ty.ip_index == .bool_type)
                 std.builtin.Type.Int{ .signedness = .unsigned, .bits = 1 }
             else
                 src_ty.intInfo(mod);
             var byte_off: i32 = 0;
             while (byte_off * 8 < int_info.bits) : (byte_off += limb_abi_size) {
-                const limb_bits: u16 = @intCast(@min(int_info.bits - byte_off * 8, limb_abi_size * 8));
+                const limb_bits: u16 = @intCast(@min(switch (int_info.signedness) {
+                    .signed => abi_size * 8,
+                    .unsigned => int_info.bits,
+                } - byte_off * 8, limb_abi_size * 8));
                 const limb_ty = try mod.intType(int_info.signedness, limb_bits);
                 const limb_mcv = switch (byte_off) {
                     0 => dst_mcv,
@@ -7454,7 +7461,6 @@ fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air:
         },
         .neg => {
             try self.genUnOpMir(.{ ._, .neg }, src_ty, dst_mcv);
-            const abi_size: u16 = @intCast(src_ty.abiSize(mod));
             const bit_size = src_ty.intInfo(mod).bits;
             if (abi_size * 8 > bit_size) {
                 if (dst_mcv.isRegister()) {

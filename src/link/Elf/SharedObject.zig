@@ -21,7 +21,7 @@ verdef_sect_index: ?u16 = null,
 needed: bool,
 alive: bool,
 
-output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_ctx: Elf.SymtabCtx = .{},
 
 pub fn isSharedObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});

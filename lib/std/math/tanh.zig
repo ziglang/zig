@@ -135,16 +135,16 @@ test "math.tanh64" {
 }
 
 test "math.tanh32.special" {
-    try expect(tanh32(0.0) == 0.0);
-    try expect(tanh32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(tanh32(0.0)));
+    try expect(math.isNegativeZero(tanh32(-0.0)));
     try expect(tanh32(math.inf(f32)) == 1.0);
     try expect(tanh32(-math.inf(f32)) == -1.0);
     try expect(math.isNan(tanh32(math.nan(f32))));
 }
 
 test "math.tanh64.special" {
-    try expect(tanh64(0.0) == 0.0);
-    try expect(tanh64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(tanh64(0.0)));
+    try expect(math.isNegativeZero(tanh64(-0.0)));
     try expect(tanh64(math.inf(f64)) == 1.0);
     try expect(tanh64(-math.inf(f64)) == -1.0);
     try expect(math.isNan(tanh64(math.nan(f64))));
