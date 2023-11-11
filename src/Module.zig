@@ -3542,8 +3542,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
@@ -3593,6 +3591,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
 
     new_namespace.ty = struct_ty.toType();
     new_decl.val = struct_ty.toValue();
+    new_decl.has_tv = true;
+    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
 
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
