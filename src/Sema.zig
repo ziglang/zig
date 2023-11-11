@@ -4814,7 +4814,7 @@ fn validateStructInit(
 
             // Possible performance enhancement: save the `block_index` between iterations
             // of the for loop.
-            var block_index = block.instructions.items.len - 1;
+            var block_index = block.instructions.items.len -| 1;
             while (block_index > 0) : (block_index -= 1) {
                 const store_inst = block.instructions.items[block_index];
                 if (Air.indexToRef(store_inst) == field_ptr_ref) {
@@ -5070,7 +5070,7 @@ fn zirValidatePtrArrayInit(
 
         // Possible performance enhancement: save the `block_index` between iterations
         // of the for loop.
-        var block_index = block.instructions.items.len - 1;
+        var block_index = block.instructions.items.len -| 1;
         while (block_index > 0) : (block_index -= 1) {
             const store_inst = block.instructions.items[block_index];
             if (Air.indexToRef(store_inst) == elem_ptr_ref) {
