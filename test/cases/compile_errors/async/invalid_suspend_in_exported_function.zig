@@ -1,7 +1,7 @@
 export fn entry() void {
     var frame = async func();
     var result = await frame;
-    _ = result;
+    _ = &result;
 }
 fn func() void {
     suspend {}

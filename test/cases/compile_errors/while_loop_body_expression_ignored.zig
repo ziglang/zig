@@ -6,18 +6,22 @@ export fn f1() void {
 }
 export fn f2() void {
     var x: ?i32 = null;
+    _ = &x;
     while (x) |_| returns();
 }
 export fn f3() void {
     var x: anyerror!i32 = error.Bad;
+    _ = &x;
     while (x) |_| returns() else |_| unreachable;
 }
 export fn f4() void {
     var a = true;
+    _ = &a;
     while (a) {} else true;
 }
 export fn f5() void {
     var a = true;
+    _ = &a;
     const foo = while (a) returns() else true;
     _ = foo;
 }
@@ -29,15 +33,15 @@ export fn f5() void {
 // :5:25: error: value of type 'usize' ignored
 // :5:25: note: all non-void values must be used
 // :5:25: note: this error can be suppressed by assigning the value to '_'
-// :9:26: error: value of type 'usize' ignored
-// :9:26: note: all non-void values must be used
-// :9:26: note: this error can be suppressed by assigning the value to '_'
-// :13:26: error: value of type 'usize' ignored
-// :13:26: note: all non-void values must be used
-// :13:26: note: this error can be suppressed by assigning the value to '_'
-// :17:23: error: value of type 'bool' ignored
-// :17:23: note: all non-void values must be used
-// :17:23: note: this error can be suppressed by assigning the value to '_'
-// :21:34: error: value of type 'usize' ignored
-// :21:34: note: all non-void values must be used
-// :21:34: note: this error can be suppressed by assigning the value to '_'
+// :10:26: error: value of type 'usize' ignored
+// :10:26: note: all non-void values must be used
+// :10:26: note: this error can be suppressed by assigning the value to '_'
+// :15:26: error: value of type 'usize' ignored
+// :15:26: note: all non-void values must be used
+// :15:26: note: this error can be suppressed by assigning the value to '_'
+// :20:23: error: value of type 'bool' ignored
+// :20:23: note: all non-void values must be used
+// :20:23: note: this error can be suppressed by assigning the value to '_'
+// :25:34: error: value of type 'usize' ignored
+// :25:34: note: all non-void values must be used
+// :25:34: note: this error can be suppressed by assigning the value to '_'

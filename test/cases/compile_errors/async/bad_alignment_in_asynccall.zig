@@ -2,6 +2,7 @@ export fn entry() void {
     var ptr: fn () callconv(.Async) void = func;
     var bytes: [64]u8 = undefined;
     _ = @asyncCall(&bytes, {}, ptr, .{});
+    _ = &ptr;
 }
 fn func() callconv(.Async) void {}
 

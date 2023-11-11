@@ -1,5 +1,5 @@
 export fn foo() void {
-    var vga_mem: u16 = 0xB8000;
+    const vga_mem: u16 = 0xB8000;
     _ = vga_mem;
 }
 
@@ -7,4 +7,4 @@ export fn foo() void {
 // backend=stage2
 // target=native
 //
-// :2:24: error: type 'u16' cannot represent integer value '753664'
+// :2:26: error: type 'u16' cannot represent integer value '753664'

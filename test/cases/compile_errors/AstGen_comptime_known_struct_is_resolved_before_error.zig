@@ -6,7 +6,7 @@ const S2 = struct {
 };
 pub export fn entry() void {
     var s: S1 = undefined;
-    _ = s;
+    _ = &s;
 }
 
 // error

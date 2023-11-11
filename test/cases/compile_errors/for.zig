@@ -17,6 +17,7 @@ export fn c() void {
     for (buf) |*byte| {
         _ = byte;
     }
+    _ = &buf;
 }
 export fn d() void {
     const x: [*]const u8 = "hello";
@@ -39,6 +40,6 @@ export fn d() void {
 // :10:14: note: for loop operand must be a range, array, slice, tuple, or vector
 // :17:16: error: pointer capture of non pointer type '[10]u8'
 // :17:10: note: consider using '&' here
-// :24:5: error: unbounded for loop
-// :24:10: note: type '[*]const u8' has no upper bound
-// :24:18: note: type '[*]const u8' has no upper bound
+// :25:5: error: unbounded for loop
+// :25:10: note: type '[*]const u8' has no upper bound
+// :25:18: note: type '[*]const u8' has no upper bound

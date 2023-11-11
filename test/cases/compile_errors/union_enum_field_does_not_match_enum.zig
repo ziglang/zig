@@ -10,7 +10,7 @@ const Payload = union(Letter) {
     D: bool,
 };
 export fn entry() void {
-    var a = Payload{ .A = 1234 };
+    const a: Payload = .{ .A = 1234 };
     _ = a;
 }
 

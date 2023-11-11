@@ -1,5 +1,6 @@
 pub fn main() void {
     var a: u32 = 0;
+    _ = &a;
     if (a == 0) {
         comptime var b: u32 = 0;
         b = 1;
