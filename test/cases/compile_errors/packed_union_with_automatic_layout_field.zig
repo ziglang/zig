@@ -7,7 +7,7 @@ const Payload = packed union {
     B: bool,
 };
 export fn entry() void {
-    var a = Payload{ .B = true };
+    const a: Payload = .{ .B = true };
     _ = a;
 }
 

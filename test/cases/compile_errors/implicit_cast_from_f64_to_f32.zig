@@ -7,7 +7,7 @@ export fn entry() void {
 export fn entry2() void {
     var x1: f64 = 1.0;
     var y2: f32 = x1;
-    _ = y2;
+    _ = .{ &x1, &y2 };
 }
 
 // error

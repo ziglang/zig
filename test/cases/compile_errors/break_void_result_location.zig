@@ -10,6 +10,7 @@ export fn f2() void {
 }
 export fn f3() void {
     var t: bool = true;
+    _ = &t;
     const x: usize = while (t) {
         break;
     };
@@ -28,5 +29,5 @@ export fn f4() void {
 //
 // :2:22: error: expected type 'usize', found 'void'
 // :7:9: error: expected type 'usize', found 'void'
-// :14:9: error: expected type 'usize', found 'void'
-// :20:9: error: expected type 'usize', found 'void'
+// :15:9: error: expected type 'usize', found 'void'
+// :21:9: error: expected type 'usize', found 'void'

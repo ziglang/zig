@@ -1,5 +1,6 @@
 comptime {
     var a: bool = undefined;
+    _ = &a;
     _ = a or a;
 }
 
@@ -7,4 +8,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :3:9: error: use of undefined value here causes undefined behavior
+// :4:9: error: use of undefined value here causes undefined behavior

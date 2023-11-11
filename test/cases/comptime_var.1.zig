@@ -1,5 +1,6 @@
 pub fn main() void {
     var a: u32 = 0;
+    _ = &a;
     comptime var b: u32 = 0;
     switch (a) {
         0 => {},

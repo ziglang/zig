@@ -8,8 +8,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
     std.process.exit(1);
 }
 pub fn main() !void {
-    var a: @Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
-    var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
+    const a: @Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
+    const b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
     const x = add(a, b);
     _ = x;
     return error.TestFailed;
