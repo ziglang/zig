@@ -300,3 +300,11 @@ test "@offsetOf zero-bit field" {
     };
     try expect(@offsetOf(S, "b") == @offsetOf(S, "c"));
 }
+
+test "@bitSizeOf on array of structs" {
+    const S = struct {
+        foo: u64,
+    };
+
+    try expectEqual(128, @bitSizeOf([2]S));
+}
