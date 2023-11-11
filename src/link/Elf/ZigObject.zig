@@ -286,6 +286,7 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     self.local_esyms.items(.elf_sym)[esym_index].st_shndx = SHN_ATOM;
     symbol_ptr.esym_index = esym_index;
 
+    // TODO I'm thinking that maybe we shouldn' set this value unless it's actually needed?
     const relocs_index = @as(u32, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
@@ -490,7 +491,9 @@ pub fn addAtomsToRelaSections(self: ZigObject, elf_file: *Elf) !void {
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
-        _ = atom.relocsShndx() orelse continue;
+        const rela_shndx = atom.relocsShndx() orelse continue;
+        // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
+        if (self.relocs.items[rela_shndx].items.len == 0) continue;
         const out_shndx = atom.outputShndx().?;
         const out_shdr = elf_file.shdrs.items[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;

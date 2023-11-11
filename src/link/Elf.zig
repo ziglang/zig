@@ -4783,7 +4783,6 @@ fn writeAtomsObject(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const object = atom_ptr.file(self).?.object;
             const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
@@ -4796,7 +4795,11 @@ fn writeAtomsObject(self: *Elf) !void {
 
             // TODO decompress directly into provided buffer
             const out_code = buffer[offset..][0..size];
-            const in_code = try object.codeDecompressAlloc(self, atom_index);
+            const in_code = switch (atom_ptr.file(self).?) {
+                .object => |x| try x.codeDecompressAlloc(self, atom_index),
+                .zig_object => |x| try x.codeAlloc(self, atom_index),
+                else => unreachable,
+            };
             defer gpa.free(in_code);
             @memcpy(out_code, in_code);
         }
