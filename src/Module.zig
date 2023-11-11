@@ -1250,6 +1250,7 @@ pub const ErrorMsg = struct {
         comptime format: []const u8,
         args: anytype,
     ) !*ErrorMsg {
+        assert(src_loc.lazy != .unneeded);
         const err_msg = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(err_msg);
         err_msg.* = try ErrorMsg.init(gpa, src_loc, format, args);
