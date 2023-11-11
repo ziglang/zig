@@ -2,7 +2,7 @@ const std = @import("std");
 const LangOpts = @import("LangOpts.zig");
 const Type = @import("Type.zig");
 const llvm = @import("zig").codegen.llvm;
-const TargetSet = @import("builtins/Properties.zig").TargetSet;
+const TargetSet = @import("Builtins/Properties.zig").TargetSet;
 
 /// intmax_t for this target
 pub fn intMaxType(target: std.Target) Type {
@@ -349,8 +349,7 @@ pub fn isCygwinMinGW(target: std.Target) bool {
 }
 
 pub fn builtinEnabled(target: std.Target, enabled_for: TargetSet) bool {
-    var copy = enabled_for;
-    var it = copy.iterator();
+    var it = enabled_for.iterator();
     while (it.next()) |val| {
         switch (val) {
             .basic => return true,
@@ -398,8 +397,8 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .thumb,
         .thumbeb,
         => switch (arm_endianness orelse target.cpu.arch.endian()) {
-            .Little => "armelf_linux_eabi",
-            .Big => "armelfb_linux_eabi",
+            .little => "armelf_linux_eabi",
+            .big => "armelfb_linux_eabi",
         },
         .aarch64 => "aarch64linux",
         .aarch64_be => "aarch64linuxb",
@@ -657,6 +656,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris => "solaris",
+        .illumos => "illumos",
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
@@ -684,6 +684,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .watchos => "watchos",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
+        .liteos => "liteos",
         .opencl,
         .glsl450,
         .vulkan,

@@ -18,6 +18,7 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
+const EnvVar = introspect.EnvVar;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const BuildId = std.Build.CompileStep.BuildId;
@@ -211,6 +212,14 @@ pub fn main() anyerror!void {
         }
     }
 
+    if (build_options.only_reduce) {
+        if (mem.eql(u8, args[1], "reduce")) {
+            return @import("reduce.zig").main(gpa, arena, args);
+        } else {
+            @panic("only reduce is supported in a -Donly-reduce build");
+        }
+    }
+
     return mainArgs(gpa, arena, args);
 }
 
@@ -231,14 +240,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         fatal("expected command argument", .{});
     }
 
-    if (std.process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+    if (process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
         // Here we ignore the CC environment variable and exec `cc` as a child process.
         // However it's possible Zig is installed as *that* C compiler as well, which is
         // why we have this additional environment variable here to check.
-        var env_map = try std.process.getEnvMap(arena);
+        var env_map = try process.getEnvMap(arena);
 
         const inf_loop_env_key = "ZIG_IS_TRYING_TO_NOT_CALL_ITSELF";
         if (env_map.get(inf_loop_env_key) != null) {
@@ -254,11 +263,11 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         // CC environment variable. We detect and support this scenario here because of
         // the ZIG_IS_DETECTING_LIBC_PATHS environment variable.
         if (mem.eql(u8, args[1], "cc")) {
-            return std.process.execve(arena, args[1..], &env_map);
+            return process.execve(arena, args[1..], &env_map);
         } else {
             const modified_args = try arena.dupe([]const u8, args);
             modified_args[0] = "cc";
-            return std.process.execve(arena, modified_args, &env_map);
+            return process.execve(arena, modified_args, &env_map);
         }
     }
 
@@ -327,6 +336,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "env")) {
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
+    } else if (mem.eql(u8, cmd, "reduce")) {
+        return @import("reduce.zig").main(gpa, arena, args);
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -420,6 +431,7 @@ const usage_build_generic =
     \\  --deps [dep],[dep],...    Set dependency names for the root package
     \\      dep:  [[import=]name]
     \\  --main-mod-path           Set the directory of the root module
+    \\  --error-limit [num]       Set the maximum amount of distinct error values
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fPIE                     Force-enable Position Independent Executable
@@ -507,7 +519,9 @@ const usage_build_generic =
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
-    \\  --entry [name]                 Set the entrypoint symbol name
+    \\  -fentry                        Enable entry point with default symbol name
+    \\  -fentry=[name]                 Override the entry point symbol name
+    \\  -fno-entry                     Do not output any entry point
     \\  --force_undefined [name]       Specify the symbol must be defined for the link to succeed
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
@@ -605,16 +619,6 @@ const usage_build_generic =
     \\
 ;
 
-const repl_help =
-    \\Commands:
-    \\         update  Detect changes to source files and update output files.
-    \\            run  Execute the output file, if it is an executable or test.
-    \\ update-and-run  Perform an `update` followed by `run`.
-    \\           help  Print this text
-    \\           exit  Quit this repl
-    \\
-;
-
 const SOName = union(enum) {
     no,
     yes_default_value,
@@ -684,19 +688,6 @@ const Emit = union(enum) {
         return resolved;
     }
 };
-
-fn optionalStringEnvVar(arena: Allocator, name: []const u8) !?[]const u8 {
-    // Env vars aren't used in the bootstrap stage.
-    if (build_options.only_c) {
-        return null;
-    }
-    if (std.process.getEnvVarOwned(arena, name)) |value| {
-        return value;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => return null,
-        else => |e| return e,
-    }
-}
 
 const ArgMode = union(enum) {
     build: std.builtin.OutputMode,
@@ -796,8 +787,10 @@ fn buildOutputType(
     var no_builtin = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
-    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
-    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_CC");
+    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
+    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -854,6 +847,7 @@ fn buildOutputType(
     var linker_import_symbols: bool = false;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
+    var linker_force_entry: ?bool = null;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
@@ -891,15 +885,15 @@ fn buildOutputType(
     var each_lib_rpath: ?bool = null;
     var build_id: ?BuildId = null;
     var sysroot: ?[]const u8 = null;
-    var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
+    var libc_paths_file: ?[]const u8 = try EnvVar.ZIG_LIBC.get(arena);
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
-    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
-    var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
+    var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
+    var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var main_mod_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
@@ -921,6 +915,8 @@ fn buildOutputType(
     var error_tracing: ?bool = null;
     var pdb_out_path: ?[]const u8 = null;
     var dwarf_format: ?std.dwarf.Format = null;
+    var error_limit: ?Module.ErrorInt = null;
+
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
     // CPU features.
@@ -957,7 +953,7 @@ fn buildOutputType(
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    color = if (builtin.os.tag == .wasi or std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    color = if (builtin.os.tag == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -1050,6 +1046,11 @@ fn buildOutputType(
                         root_deps_str = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--main-mod-path")) {
                         main_mod_path = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--error-limit")) {
+                        const next_arg = args_iter.nextOrFatal();
+                        error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
+                            fatal("unable to parse error limit '{s}': {s}", .{ next_arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "-cflags")) {
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
@@ -1083,8 +1084,8 @@ fn buildOutputType(
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         optimize_mode_string = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--entry")) {
-                        entry = args_iter.nextOrFatal();
+                    } else if (mem.startsWith(u8, arg, "-fentry=")) {
+                        entry = arg["-fentry=".len..];
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(gpa, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack")) {
@@ -1515,6 +1516,10 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
+                    } else if (mem.eql(u8, arg, "-fentry")) {
+                        linker_force_entry = true;
+                    } else if (mem.eql(u8, arg, "-fno-entry")) {
+                        linker_force_entry = false;
                     } else if (mem.eql(u8, arg, "--export-memory")) {
                         linker_export_memory = true;
                     } else if (mem.eql(u8, arg, "--import-symbols")) {
@@ -2146,6 +2151,8 @@ fn buildOutputType(
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
+                } else if (mem.eql(u8, arg, "--no-entry")) {
+                    linker_force_entry = false;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2608,6 +2615,23 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
+    if (linker_force_entry) |force| {
+        if (!force) {
+            entry = null;
+        } else if (entry == null and output_mode == .Exe) {
+            entry = switch (target_info.target.ofmt) {
+                .coff => "wWinMainCRTStartup",
+                .macho => "_main",
+                .elf, .plan9 => "_start",
+                .wasm => defaultWasmEntryName(wasi_exec_model),
+                else => |tag| fatal("No default entry point available for output format {s}", .{@tagName(tag)}),
+            };
+        }
+    } else if (entry == null and target_info.target.isWasm() and output_mode == .Exe) {
+        // For WebAssembly the compiler defaults to setting the entry name when no flags are set.
+        entry = defaultWasmEntryName(wasi_exec_model);
+    }
+
     if (target_info.target.ofmt == .coff) {
         // Now that we know the target supports resources,
         // we can add the res files as link objects.
@@ -2629,6 +2653,23 @@ fn buildOutputType(
     if (target_info.target.cpu.arch.isWasm()) blk: {
         if (single_threaded == null) {
             single_threaded = true;
+        }
+        if (link_mode) |mode| {
+            if (mode == .Dynamic) {
+                if (linker_export_memory != null and linker_export_memory.?) {
+                    fatal("flags '-dynamic' and '--export-memory' are incompatible", .{});
+                }
+                // User did not supply `--export-memory` which is incompatible with -dynamic, therefore
+                // set the flag to false to ensure it does not get enabled by default.
+                linker_export_memory = false;
+            }
+        }
+        if (wasi_exec_model != null and wasi_exec_model.? == .reactor) {
+            if (entry) |entry_name| {
+                if (!mem.eql(u8, "_initialize", entry_name)) {
+                    fatal("the entry symbol of the reactor model must be '_initialize', but found '{s}'", .{entry_name});
+                }
+            }
         }
         if (linker_shared_memory) {
             if (output_mode == .Obj) {
@@ -3556,6 +3597,7 @@ fn buildOutputType(
         .reference_trace = reference_trace,
         .error_tracing = error_tracing,
         .pdb_out_path = pdb_out_path,
+        .error_limit = error_limit,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
@@ -3785,7 +3827,9 @@ fn serve(
                     try comp.makeBinFileWritable();
                 }
 
-                {
+                if (builtin.single_threaded) {
+                    try comp.update(main_progress_node);
+                } else {
                     var reset: std.Thread.ResetEvent = .{};
 
                     var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
@@ -4050,18 +4094,18 @@ fn runOrTest(
     if (runtime_args_start) |i| {
         try argv.appendSlice(all_args[i..]);
     }
-    var env_map = try std.process.getEnvMap(arena);
+    var env_map = try process.getEnvMap(arena);
     try env_map.put("ZIG_EXE", self_exe_path);
 
     // We do not execve for tests because if the test fails we want to print
     // the error message and invocation below.
-    if (std.process.can_execv and arg_mode == .run) {
+    if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
-        const err = std.process.execve(gpa, argv.items, &env_map);
+        const err = process.execve(gpa, argv.items, &env_map);
         try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
-    } else if (std.process.can_spawn) {
+    } else if (process.can_spawn) {
         var child = std.ChildProcess.init(argv.items, gpa);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;
@@ -4256,6 +4300,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.add(comp.c_frontend);
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
@@ -4290,7 +4335,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
                 var aro_comp = translate_c.Compilation.init(comp.gpa);
                 defer aro_comp.deinit();
@@ -4480,8 +4524,8 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 try stdout_writer.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
             }
 
-            if (std.process.can_spawn) {
-                var result = std.ChildProcess.exec(.{
+            if (process.can_spawn) {
+                var result = std.ChildProcess.run(.{
                     .allocator = gpa,
                     .argv = argv.items,
                     .max_output_bytes = std.math.maxInt(u32),
@@ -4906,6 +4950,7 @@ pub const usage_build =
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --zig-lib-dir [arg]           Override path to Zig lib directory
     \\  --build-runner [file]         Override path to build runner
+    \\  --seed [integer]              For shuffling dependency traversal order (default: random)
     \\  --fetch                       Exit after fetching dependency tree
     \\  -h, --help                    Print this help and exit
     \\
@@ -4913,7 +4958,7 @@ pub const usage_build =
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const work_around_btrfs_bug = builtin.os.tag == .linux and
-        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var color: Color = .auto;
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -4922,13 +4967,24 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         const self_exe_path = try introspect.findZigExePath(arena);
 
         var build_file: ?[]const u8 = null;
-        var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
-        var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
-        var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
-        var override_build_runner: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_BUILD_RUNNER");
+        var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+        var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+        var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
+        var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
+        var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+            EnvVar.ZIG_VERBOSE_LINK.isSet();
+        var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+            EnvVar.ZIG_VERBOSE_CC.isSet();
+        var verbose_air = false;
+        var verbose_intern_pool = false;
+        var verbose_generic_instances = false;
+        var verbose_llvm_ir: ?[]const u8 = null;
+        var verbose_llvm_bc: ?[]const u8 = null;
+        var verbose_cimport = false;
+        var verbose_llvm_cpu_features = false;
         var fetch_only = false;
 
         const argv_index_exe = child_argv.items.len;
@@ -4945,6 +5001,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         const argv_index_global_cache_dir = child_argv.items.len;
         _ = try child_argv.addOne();
 
+        try child_argv.appendSlice(&.{
+            "--seed",
+            try std.fmt.allocPrint(arena, "0x{x}", .{std.crypto.random.int(u32)}),
+        });
+        const argv_index_seed = child_argv.items.len - 1;
+
         {
             var i: usize = 0;
             while (i < args.len) : (i += 1) {
@@ -4959,7 +5021,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
-                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        try child_argv.appendSlice(&.{ arg, args[i] });
                         continue;
                     } else if (mem.eql(u8, arg, "--build-runner")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -4977,22 +5039,57 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         override_global_cache_dir = args[i];
                         continue;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
-                        try child_argv.append(arg);
                         reference_trace = 256;
                     } else if (mem.eql(u8, arg, "--fetch")) {
                         fetch_only = true;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                        try child_argv.append(arg);
                         const num = arg["-freference-trace=".len..];
                         reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
                             fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-                        try child_argv.append(arg);
                         reference_trace = null;
+                    } else if (mem.eql(u8, arg, "--debug-log")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        try child_argv.appendSlice(args[i .. i + 2]);
+                        i += 1;
+                        if (!build_options.enable_logging) {
+                            std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                        } else {
+                            try log_scopes.append(gpa, args[i]);
+                        }
+                        continue;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        try child_argv.append(arg);
-                        debug_compile_errors = true;
+                        if (!crash_report.is_enabled) {
+                            std.log.warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
+                        } else {
+                            debug_compile_errors = true;
+                        }
+                    } else if (mem.eql(u8, arg, "--verbose-link")) {
+                        verbose_link = true;
+                    } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                        verbose_cc = true;
+                    } else if (mem.eql(u8, arg, "--verbose-air")) {
+                        verbose_air = true;
+                    } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
+                        verbose_intern_pool = true;
+                    } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
+                        verbose_generic_instances = true;
+                    } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                        verbose_llvm_ir = "-";
+                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
+                        verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
+                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
+                        verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
+                    } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                        verbose_cimport = true;
+                    } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
+                        verbose_llvm_cpu_features = true;
+                    } else if (mem.eql(u8, arg, "--seed")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        i += 1;
+                        child_argv.items[argv_index_seed] = args[i];
+                        continue;
                     }
                 }
                 try child_argv.append(arg);
@@ -5125,6 +5222,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
+            try http_client.loadDefaultProxies();
+
             var progress: std.Progress = .{ .dont_print_on_dumb = true };
             const root_prog_node = progress.start("Fetch Packages", 0);
             defer root_prog_node.end();
@@ -5134,6 +5233,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .thread_pool = &thread_pool,
                 .global_cache = global_cache_directory,
                 .recursive = true,
+                .debug_hash = false,
                 .work_around_btrfs_bug = work_around_btrfs_bug,
             };
             defer job_queue.deinit();
@@ -5259,6 +5359,15 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
+            .verbose_cc = verbose_cc,
+            .verbose_link = verbose_link,
+            .verbose_air = verbose_air,
+            .verbose_intern_pool = verbose_intern_pool,
+            .verbose_generic_instances = verbose_generic_instances,
+            .verbose_llvm_ir = verbose_llvm_ir,
+            .verbose_llvm_bc = verbose_llvm_bc,
+            .verbose_cimport = verbose_cimport,
+            .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,
@@ -5282,7 +5391,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         break :argv child_argv.items;
     };
 
-    if (std.process.can_spawn) {
+    if (process.can_spawn) {
         var child = std.ChildProcess.init(child_argv, gpa);
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
@@ -5709,7 +5818,7 @@ fn fmtPathFile(
     fmt.out_buffer.shrinkRetainingCapacity(0);
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer);
+    try tree.renderToArrayList(&fmt.out_buffer, .{});
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 
@@ -6435,6 +6544,7 @@ pub fn cmdDumpZir(
         .mod = undefined,
         .root_decl = .none,
     };
+    defer file.zir.deinit(gpa);
 
     {
         const instruction_bytes = file.zir.instructions.len *
@@ -6575,7 +6685,7 @@ pub fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
     defer extra_map.deinit(gpa);
 
     try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
@@ -6947,9 +7057,9 @@ fn accessFrameworkPath(
 ) !bool {
     const sep = fs.path.sep_str;
 
-    for (&[_][]const u8{ "tbd", "dylib" }) |ext| {
+    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}.{s}", .{
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
             framework_dir_path,
             framework_name,
             framework_name,
@@ -6982,6 +7092,7 @@ pub const usage_fetch =
     \\Options:
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --debug-hash                  Print verbose hash information to stdout
     \\
 ;
 
@@ -6992,9 +7103,10 @@ fn cmdFetch(
 ) !void {
     const color: Color = .auto;
     const work_around_btrfs_bug = builtin.os.tag == .linux and
-        std.process.hasEnvVarConstant("ZIG_BTRFS_WORKAROUND");
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
-    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var debug_hash: bool = false;
 
     {
         var i: usize = 0;
@@ -7009,6 +7121,9 @@ fn cmdFetch(
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--debug-hash")) {
+                    debug_hash = true;
                     continue;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
@@ -7030,6 +7145,8 @@ fn cmdFetch(
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
+    try http_client.loadDefaultProxies();
+
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const root_prog_node = progress.start("Fetch", 0);
     defer root_prog_node.end();
@@ -7048,6 +7165,7 @@ fn cmdFetch(
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
+        .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
     };
     defer job_queue.deinit();
@@ -7148,4 +7266,12 @@ fn createDependenciesModule(
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;
+}
+
+fn defaultWasmEntryName(exec_model: ?std.builtin.WasiExecModel) []const u8 {
+    const model = exec_model orelse .command;
+    if (model == .reactor) {
+        return "_initialize";
+    }
+    return "_start";
 }

@@ -507,17 +507,6 @@ pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
     } });
 }
 
-pub fn ptrType(
-    self: *Module,
-    child: CacheRef,
-    storage_class: spec.StorageClass,
-) !CacheRef {
-    return try self.resolve(.{ .ptr_type = .{
-        .storage_class = storage_class,
-        .child_type = child,
-    } });
-}
-
 pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
     const ty = self.cache.lookup(ty_ref).int_type;
     const Value = Cache.Key.Int.Value;

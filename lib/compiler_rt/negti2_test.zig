@@ -6,7 +6,7 @@ fn test__negti2(a: i128, expected: i128) !void {
     try testing.expectEqual(expected, result);
 }
 
-test "negdi2" {
+test "negti2" {
     // TODO ensuring that math.minInt(i128); returns error
 
     try test__negti2(-3, 3);

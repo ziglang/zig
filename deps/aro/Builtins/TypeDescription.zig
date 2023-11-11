@@ -68,6 +68,9 @@ pub const ComponentIterator = struct {
             'z' => return .{ .spec = .z },
             'w' => return .{ .spec = .w },
             'F' => return .{ .spec = .F },
+            'G' => return .{ .spec = .G },
+            'H' => return .{ .spec = .H },
+            'M' => return .{ .spec = .M },
             'a' => return .{ .spec = .a },
             'A' => return .{ .spec = .A },
             'V', 'q', 'E' => {
@@ -233,6 +236,12 @@ const Spec = union(enum) {
     w,
     /// constant CFString
     F,
+    /// id
+    G,
+    /// SEL
+    H,
+    /// struct objc_super
+    M,
     /// __builtin_va_list
     a,
     /// "reference" to __builtin_va_list

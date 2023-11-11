@@ -61,7 +61,6 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
             } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
                 const lib_path = word[2..];
                 try self.addLibDir(lib_path);
-                try self.addRPath(lib_path);
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                 break;

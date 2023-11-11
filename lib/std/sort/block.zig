@@ -95,7 +95,7 @@ const Pull = struct {
 /// O(1) memory (no allocator required).
 /// Sorts in ascending order with respect to the given `lessThan` function.
 ///
-/// NOTE: the algorithm only work when the comparison is less-than or greater-than
+/// NOTE: The algorithm only works when the comparison is less-than or greater-than.
 ///       (See https://github.com/ziglang/zig/issues/8289)
 pub fn block(
     comptime T: type,

@@ -2649,7 +2649,7 @@ test "Conversion between vectors, arrays, and slices" {
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
-              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
@@ -2724,6 +2724,10 @@ test "pointer arithmetic with many-item pointer" {
     try expect(ptr[0] == 1);
     ptr += 1;
     try expect(ptr[0] == 2);
+
+    // slicing a many-item pointer without an end is equivalent to
+    // pointer arithmetic: `ptr[start..] == ptr + start`
+    try expect(ptr[1..] == ptr + 1);
 }
 
 test "pointer arithmetic with slices" {
@@ -2990,15 +2994,17 @@ pub fn main() anyerror!void {
       {#header_close#}
 
       {#header_open|Slices#}
+      <p>
+      A slice is a pointer and a length. The difference between an array and
+      a slice is that the array's length is part of the type and known at
+      compile-time, whereas the slice's length is known at runtime.
+      Both can be accessed with the `len` field.
+      </p>
       {#code_begin|test_safety|test_basic_slices|index out of bounds#}
 const expect = @import("std").testing.expect;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    // A slice is a pointer and a length. The difference between an array and
-    // a slice is that the array's length is part of the type and known at
-    // compile-time, whereas the slice's length is known at runtime.
-    // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
     try expect(@TypeOf(slice) == []i32);
@@ -3314,10 +3320,12 @@ test "default struct initialization fields" {
       {#header_close#}
 
       {#header_open|extern struct#}
-      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
-      C ABI for the target.</p>
-      <p>This kind of struct should only be used for compatibility with the C ABI. Every other
-      use case should be solved with {#link|packed struct#} or normal {#link|struct#}.</p>
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout matching
+      the C ABI for the target.</p>
+      <p>If well-defined in-memory layout is not required, {#link|struct#} is a better choice
+      because it places fewer restrictions on the compiler.</p>
+      <p>See {#link|packed struct#} for a struct that has the ABI of its backing integer,
+      which can be useful for modeling flags.</p>
       {#see_also|extern union|extern enum#}
       {#header_close#}
 
@@ -3336,9 +3344,6 @@ test "default struct initialization fields" {
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Non-ABI-aligned fields are packed into the smallest possible
-        ABI-aligned integers in accordance with the target endianness.
-        </li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -3375,11 +3380,11 @@ fn doTheTest() !void {
 
     var ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
-        .Big => {
+        .big => {
             try expect(ordered[0] == 0x12);
             try expect(ordered[1] == 0x34);
         },
-        .Little => {
+        .little => {
             try expect(ordered[0] == 0x34);
             try expect(ordered[1] == 0x12);
         },
@@ -5373,8 +5378,9 @@ test "fn reflection" {
       gets assigned the same integer value.
       </p>
       <p>
-      The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
+      The error set type defaults to a {#syntax#}u16{#endsyntax#}, though if the maximum number of distinct
+      error values is provided via the <kbd>--error-limit [num]</kbd> command line parameter an integer type
+      with the minimum number of bits required to represent all of the error values will be used.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -6199,7 +6205,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: usize) ?*u8;
+extern fn malloc(size: usize) ?[*]u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -6208,7 +6214,7 @@ fn doAThing() ?*Foo {
       {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+        is {#syntax#}[*]u8{#endsyntax#} <em>not</em> {#syntax#}?[*]u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
                     unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
@@ -8373,7 +8379,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -8694,7 +8700,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -10836,12 +10842,25 @@ pub fn build(b: *std.Build) void {
       {#code_begin|syntax|build_library#}
 const std = @import("std");
 
+// Although this function looks imperative, note that its job is to
+// declaratively construct a build graph that will be executed by an external
+// runner.
 pub fn build(b: *std.Build) void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
+
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
     const lib = b.addStaticLibrary(.{
         .name = "example",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
@@ -10852,6 +10871,8 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
@@ -10860,6 +10881,9 @@ pub fn build(b: *std.Build) void {
 
     const run_main_tests = b.addRunArtifact(main_tests);
 
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build test`
+    // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
 }
@@ -11316,12 +11340,12 @@ all your base are belong to us{#end_shell_samp#}
       {#header_open|WebAssembly#}
       <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
-      <p>For host environments like the web browser and nodejs, build as a dynamic library using the freestanding
+      <p>For host environments like the web browser and nodejs, build as an executable using the freestanding
       OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
-      {#code_begin|lib|math#}
+      {#code_begin|exe|math#}
       {#target_wasm#}
-      {#link_mode_dynamic#}
-      {#additonal_option|-rdynamic#}
+      {#additonal_option|-fno-entry#}
+      {#additonal_option|--export=add#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
@@ -11792,7 +11816,7 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
-      to form a Windows style line ending, but this is discouraged. Note that in mulitline strings, CRLF sequences will
+      to form a Windows style line ending, but this is discouraged. Note that in multiline strings, CRLF sequences will
       be encoded as LF when compiled into a zig program.
       A CR in any other context is not allowed.
       </p>

@@ -234,12 +234,12 @@ pub fn main() !void {
 
         switch (header.is_64) {
             true => switch (header.endian) {
-                .Big => try parseElf(parse, true, .Big),
-                .Little => try parseElf(parse, true, .Little),
+                .big => try parseElf(parse, true, .big),
+                .little => try parseElf(parse, true, .little),
             },
             false => switch (header.endian) {
-                .Big => try parseElf(parse, false, .Big),
-                .Little => try parseElf(parse, false, .Little),
+                .big => try parseElf(parse, false, .big),
+                .little => try parseElf(parse, false, .little),
             },
         }
     }

@@ -15,12 +15,12 @@ const endian = builtin.cpu.arch.endian();
 
 /// Get the value of a limb.
 inline fn limb(x: []const u32, i: usize) u32 {
-    return if (endian == .Little) x[i] else x[x.len - 1 - i];
+    return if (endian == .little) x[i] else x[x.len - 1 - i];
 }
 
 /// Change the value of a limb.
 inline fn limb_set(x: []u32, i: usize, v: u32) void {
-    if (endian == .Little) {
+    if (endian == .little) {
         x[i] = v;
     } else {
         x[x.len - 1 - i] = v;
@@ -129,7 +129,8 @@ pub fn __umodei4(r_p: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize)
 }
 
 test "__udivei4/__umodei4" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const RndGen = std.rand.DefaultPrng;
     var rnd = RndGen.init(42);

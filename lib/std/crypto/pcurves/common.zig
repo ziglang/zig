@@ -51,13 +51,13 @@ pub fn Field(comptime params: FieldParams) type {
 
         /// Reject non-canonical encodings of an element.
         pub fn rejectNonCanonical(s_: [encoded_length]u8, endian: std.builtin.Endian) NonCanonicalError!void {
-            var s = if (endian == .Little) s_ else orderSwap(s_);
+            var s = if (endian == .little) s_ else orderSwap(s_);
             const field_order_s = comptime fos: {
                 var fos: [encoded_length]u8 = undefined;
-                mem.writeIntLittle(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order);
+                mem.writeInt(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order, .little);
                 break :fos fos;
             };
-            if (crypto.utils.timingSafeCompare(u8, &s, &field_order_s, .Little) != .lt) {
+            if (crypto.utils.timingSafeCompare(u8, &s, &field_order_s, .little) != .lt) {
                 return error.NonCanonical;
             }
         }
@@ -71,8 +71,8 @@ pub fn Field(comptime params: FieldParams) type {
 
         /// Unpack a field element.
         pub fn fromBytes(s_: [encoded_length]u8, endian: std.builtin.Endian) NonCanonicalError!Fe {
-            var s = if (endian == .Little) s_ else orderSwap(s_);
-            try rejectNonCanonical(s, .Little);
+            var s = if (endian == .little) s_ else orderSwap(s_);
+            try rejectNonCanonical(s, .little);
             var limbs_z: NonMontgomeryDomainFieldElement = undefined;
             fiat.fromBytes(&limbs_z, s);
             var limbs: MontgomeryDomainFieldElement = undefined;
@@ -86,7 +86,7 @@ pub fn Field(comptime params: FieldParams) type {
             fiat.fromMontgomery(&limbs_z, fe.limbs);
             var s: [encoded_length]u8 = undefined;
             fiat.toBytes(&s, limbs_z);
-            return if (endian == .Little) s else orderSwap(s);
+            return if (endian == .little) s else orderSwap(s);
         }
 
         /// Element as an integer.
@@ -95,14 +95,14 @@ pub fn Field(comptime params: FieldParams) type {
         /// Create a field element from an integer.
         pub fn fromInt(comptime x: IntRepr) NonCanonicalError!Fe {
             var s: [encoded_length]u8 = undefined;
-            mem.writeIntLittle(IntRepr, &s, x);
-            return fromBytes(s, .Little);
+            mem.writeInt(IntRepr, &s, x, .little);
+            return fromBytes(s, .little);
         }
 
         /// Return the field element as an integer.
         pub fn toInt(fe: Fe) IntRepr {
-            const s = fe.toBytes(.Little);
-            return mem.readIntLittle(IntRepr, &s);
+            const s = fe.toBytes(.little);
+            return mem.readInt(IntRepr, &s, .little);
         }
 
         /// Return true if the field element is zero.
@@ -119,7 +119,7 @@ pub fn Field(comptime params: FieldParams) type {
 
         /// Return true if the element is odd.
         pub fn isOdd(fe: Fe) bool {
-            const s = fe.toBytes(.Little);
+            const s = fe.toBytes(.little);
             return @as(u1, @truncate(s[0])) != 0;
         }
 

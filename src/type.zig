@@ -414,7 +414,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -474,8 +473,11 @@ pub const Type = struct {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                    return !comptimeOnly(ty, mod);
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(ty)),
+                        .eager => !comptimeOnly(ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .anyframe_type => true,
                 .array_type => |array_type| {
@@ -496,13 +498,12 @@ pub const Type = struct {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
-                    }
+                    if (ignore_comptime_only) return true;
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(child_ty)),
+                        .eager => !comptimeOnly(child_ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .error_union_type,
                 .error_set_type,
@@ -633,7 +634,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -741,7 +741,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -905,8 +904,11 @@ pub const Type = struct {
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union_type => |info| return abiAlignmentAdvancedErrorUnion(ty, mod, strat, info.payload_type.toType()),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return .{ .scalar = .@"2" },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                    return .{ .scalar = intAbiAlignment(bits, target) };
+                },
 
                 // represents machine code; not a pointer
                 .func_type => |func_type| return .{
@@ -967,10 +969,11 @@ pub const Type = struct {
                         else => return .{ .scalar = .@"16" },
                     },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return .{ .scalar = .@"2" },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                        return .{ .scalar = intAbiAlignment(bits, target) };
+                    },
 
                     .void,
                     .type,
@@ -1031,66 +1034,20 @@ pub const Type = struct {
                     }
                     return .{ .scalar = big_align };
                 },
-
                 .union_type => |union_type| {
-                    if (opt_sema) |sema| {
-                        if (union_type.flagsPtr(ip).status == .field_types_wip) {
-                            // We'll guess "pointer-aligned", if the union has an
-                            // underaligned pointer field then some allocations
-                            // might require explicit alignment.
-                            return .{ .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)) };
-                        }
-                        _ = try sema.resolveTypeFields(ty);
-                    }
-                    if (!union_type.haveFieldTypes(ip)) switch (strat) {
+                    const flags = union_type.flagsPtr(ip).*;
+                    if (flags.alignment != .none) return .{ .scalar = flags.alignment };
+
+                    if (!union_type.haveLayout(ip)) switch (strat) {
                         .eager => unreachable, // union layout not resolved
-                        .sema => unreachable, // handled above
+                        .sema => |sema| return .{ .scalar = try sema.resolveUnionAlignment(ty, union_type) },
                         .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const union_obj = ip.loadUnionType(union_type);
-                    if (union_obj.field_names.len == 0) {
-                        if (union_obj.hasTag(ip)) {
-                            return abiAlignmentAdvanced(union_obj.enum_tag_ty.toType(), mod, strat);
-                        } else {
-                            return .{ .scalar = .@"1" };
-                        }
-                    }
 
-                    var max_align: Alignment = .@"1";
-                    if (union_obj.hasTag(ip)) max_align = union_obj.enum_tag_ty.toType().abiAlignment(mod);
-                    for (0..union_obj.field_names.len) |field_index| {
-                        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-                        const field_align = if (union_obj.field_aligns.len == 0)
-                            .none
-                        else
-                            union_obj.field_aligns.get(ip)[field_index];
-                        if (!(field_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.toIntern() },
-                            } })).toValue() },
-                            else => |e| return e,
-                        })) continue;
-
-                        const field_align_bytes: Alignment = if (field_align != .none)
-                            field_align
-                        else switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |a| a,
-                            .val => switch (strat) {
-                                .eager => unreachable, // struct layout not resolved
-                                .sema => unreachable, // handled above
-                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                    .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.toIntern() },
-                                } })).toValue() },
-                            },
-                        };
-                        max_align = max_align.max(field_align_bytes);
-                    }
-                    return .{ .scalar = max_align };
+                    return .{ .scalar = union_type.flagsPtr(ip).alignment };
                 },
                 .opaque_type => return .{ .scalar = .@"1" },
                 .enum_type => |enum_type| return .{
@@ -1099,7 +1056,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1284,8 +1240,11 @@ pub const Type = struct {
 
                 .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return AbiSizeAdvanced{ .scalar = 2 },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                },
 
                 .error_union_type => |error_union_type| {
                     const payload_ty = error_union_type.payload_type.toType();
@@ -1379,10 +1338,11 @@ pub const Type = struct {
                     .enum_literal,
                     => return AbiSizeAdvanced{ .scalar = 0 },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                        return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                    },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
                     .export_options => unreachable, // missing call to resolveTypeFields
@@ -1445,15 +1405,14 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    const union_obj = ip.loadUnionType(union_type);
-                    return AbiSizeAdvanced{ .scalar = mod.unionAbiSize(union_obj) };
+
+                    return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1576,8 +1535,7 @@ pub const Type = struct {
                 return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
             },
 
-            // TODO revisit this when we have the concept of the error tag type
-            .error_set_type, .inferred_error_set_type => return 16,
+            .error_set_type, .inferred_error_set_type => return mod.errorSetBits(),
 
             .error_union_type => {
                 // Optionals and error unions are not packed so their bitsize
@@ -1610,10 +1568,9 @@ pub const Type = struct {
                 .bool => return 1,
                 .void => return 0,
 
-                // TODO revisit this when we have the concept of the error tag type
                 .anyerror,
                 .adhoc_inferred_error_set,
-                => return 16,
+                => return mod.errorSetBits(),
 
                 .anyopaque => unreachable,
                 .type => unreachable,
@@ -1675,7 +1632,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -2172,8 +2128,7 @@ pub const Type = struct {
 
         while (true) switch (ty.toIntern()) {
             .anyerror_type, .adhoc_inferred_error_set_type => {
-                // TODO revisit this when error sets support custom int types
-                return .{ .signedness = .unsigned, .bits = 16 };
+                return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
             },
             .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
             .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
@@ -2192,8 +2147,9 @@ pub const Type = struct {
                 .enum_type => |enum_type| ty = enum_type.tag_ty.toType(),
                 .vector_type => |vector_type| ty = vector_type.child.toType(),
 
-                // TODO revisit this when error sets support custom int types
-                .error_set_type, .inferred_error_set_type => return .{ .signedness = .unsigned, .bits = 16 },
+                .error_set_type, .inferred_error_set_type => {
+                    return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
+                },
 
                 .anon_struct_type => unreachable,
 
@@ -2211,7 +2167,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2460,6 +2415,7 @@ pub const Type = struct {
                     for (field_vals, 0..) |*field_val, i_usize| {
                         const i: u32 = @intCast(i_usize);
                         if (struct_type.fieldIsComptime(ip, i)) {
+                            assert(struct_type.haveFieldInits(ip));
                             field_val.* = struct_type.field_inits.get(ip)[i];
                             continue;
                         }
@@ -2554,7 +2510,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2680,10 +2635,10 @@ pub const Type = struct {
                             if (struct_type.flagsPtr(ip).field_types_wip)
                                 return false;
 
-                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
-
                             struct_type.flagsPtr(ip).requires_comptime = .wip;
                             errdefer struct_type.flagsPtr(ip).requires_comptime = .unknown;
+
+                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
 
                             for (0..struct_type.field_types.len) |i_usize| {
                                 const i: u32 = @intCast(i_usize);
@@ -2723,12 +2678,12 @@ pub const Type = struct {
                         if (union_type.flagsPtr(ip).status == .field_types_wip)
                             return false;
 
+                        union_type.flagsPtr(ip).requires_comptime = .wip;
+                        errdefer union_type.flagsPtr(ip).requires_comptime = .unknown;
+
                         try sema.resolveTypeFieldsUnion(ty, union_type);
+
                         const union_obj = ip.loadUnionType(union_type);
-
-                        union_obj.flagsPtr(ip).requires_comptime = .wip;
-                        errdefer union_obj.flagsPtr(ip).requires_comptime = .unknown;
-
                         for (0..union_obj.field_types.len) |field_idx| {
                             const field_ty = union_obj.field_types.get(ip)[field_idx];
                             if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
@@ -2748,7 +2703,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -3061,6 +3015,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
+                assert(struct_type.haveFieldInits(ip));
                 if (struct_type.fieldIsComptime(ip, index)) {
                     return struct_type.field_inits.get(ip)[index].toValue();
                 } else {
@@ -3302,8 +3257,6 @@ pub const Type = struct {
     pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type };
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
-
-    pub const err_int = Type.u16;
 
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;

@@ -775,6 +775,13 @@ pub fn columnsUntilTabStop(column: usize, tab_columns: usize) usize {
     return tab_columns - (column % tab_columns);
 }
 
+pub fn columnWidth(cur_column: usize, c: u8, tab_columns: usize) usize {
+    return switch (c) {
+        '\t' => columnsUntilTabStop(cur_column, tab_columns),
+        else => 1,
+    };
+}
+
 pub const Number = struct {
     value: u32,
     is_long: bool = false,

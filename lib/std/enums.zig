@@ -425,7 +425,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             }
         }
 
-        /// Deccreases the all key counts by given multiset. If
+        /// Decreases the all key counts by given multiset. If
         /// the given multiset has more key counts than this,
         /// then that key will have a key count of zero.
         pub fn removeSet(self: *Self, other: Self) void {

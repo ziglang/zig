@@ -104,7 +104,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
-        .want_pie = comp.bin_file.options.pie,
+        .want_pie = null,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
         .want_lto = false,
         .function_sections = comp.bin_file.options.function_sections,

@@ -17,6 +17,7 @@ const NodeList = std.ArrayList(NodeIndex);
 const InitList = @import("InitList.zig");
 const Attribute = @import("Attribute.zig");
 const CharInfo = @import("CharInfo.zig");
+const TextLiteral = @import("TextLiteral.zig");
 const Value = @import("Value.zig");
 const SymbolStack = @import("SymbolStack.zig");
 const Symbol = SymbolStack.Symbol;
@@ -25,7 +26,8 @@ const StringId = @import("StringInterner.zig").StringId;
 const number_affixes = @import("number_affixes.zig");
 const NumberPrefix = number_affixes.Prefix;
 const NumberSuffix = number_affixes.Suffix;
-const BuiltinFunction = @import("builtins/BuiltinFunction.zig");
+const Builtins = @import("Builtins.zig");
+const Builtin = Builtins.Builtin;
 const target_util = @import("target.zig");
 
 const Parser = @This();
@@ -186,15 +188,18 @@ string_ids: struct {
     ucontext_t: StringId,
 },
 
-fn checkIdentifierCodepoint(comp: *Compilation, codepoint: u21, loc: Source.Location) Compilation.Error!bool {
-    if (codepoint <= 0x7F) return false;
-    var diagnosed = false;
+/// Checks codepoint for various pedantic warnings
+/// Returns true if diagnostic issued
+fn checkIdentifierCodepointWarnings(comp: *Compilation, codepoint: u21, loc: Source.Location) Compilation.Error!bool {
+    assert(codepoint >= 0x80);
+
+    const err_start = comp.diag.list.items.len;
+
     if (!CharInfo.isC99IdChar(codepoint)) {
         try comp.diag.add(.{
             .tag = .c99_compat,
             .loc = loc,
         }, &.{});
-        diagnosed = true;
     }
     if (CharInfo.isInvisible(codepoint)) {
         try comp.diag.add(.{
@@ -202,7 +207,6 @@ fn checkIdentifierCodepoint(comp: *Compilation, codepoint: u21, loc: Source.Loca
             .loc = loc,
             .extra = .{ .actual_codepoint = codepoint },
         }, &.{});
-        diagnosed = true;
     }
     if (CharInfo.homoglyph(codepoint)) |resembles| {
         try comp.diag.add(.{
@@ -210,31 +214,78 @@ fn checkIdentifierCodepoint(comp: *Compilation, codepoint: u21, loc: Source.Loca
             .loc = loc,
             .extra = .{ .codepoints = .{ .actual = codepoint, .resembles = resembles } },
         }, &.{});
-        diagnosed = true;
     }
-    return diagnosed;
+    return comp.diag.list.items.len != err_start;
+}
+
+/// Issues diagnostics for the current extended identifier token
+/// Return value indicates whether the token should be considered an identifier
+/// true means consider the token to actually be an identifier
+/// false means it is not
+fn validateExtendedIdentifier(p: *Parser) !bool {
+    assert(p.tok_ids[p.tok_i] == .extended_identifier);
+
+    const slice = p.tokSlice(p.tok_i);
+    const view = std.unicode.Utf8View.init(slice) catch {
+        try p.errTok(.invalid_utf8, p.tok_i);
+        return error.FatalError;
+    };
+    var it = view.iterator();
+
+    var valid_identifier = true;
+    var warned = false;
+    var len: usize = 0;
+    var invalid_char: u21 = undefined;
+    var loc = p.pp.tokens.items(.loc)[p.tok_i];
+
+    const standard = p.comp.langopts.standard;
+    while (it.nextCodepoint()) |codepoint| {
+        defer {
+            len += 1;
+            loc.byte_offset += std.unicode.utf8CodepointSequenceLength(codepoint) catch unreachable;
+        }
+        if (codepoint == '$') {
+            warned = true;
+            try p.comp.diag.add(.{
+                .tag = .dollar_in_identifier_extension,
+                .loc = loc,
+            }, &.{});
+        }
+
+        if (codepoint <= 0x7F) continue;
+        if (!valid_identifier) continue;
+
+        const allowed = standard.codepointAllowedInIdentifier(codepoint, len == 0);
+        if (!allowed) {
+            invalid_char = codepoint;
+            valid_identifier = false;
+            continue;
+        }
+
+        if (!warned) {
+            warned = try checkIdentifierCodepointWarnings(p.comp, codepoint, loc);
+        }
+    }
+
+    if (!valid_identifier) {
+        if (len == 1) {
+            try p.errExtra(.unexpected_character, p.tok_i, .{ .actual_codepoint = invalid_char });
+            return false;
+        } else {
+            try p.errExtra(.invalid_identifier_start_char, p.tok_i, .{ .actual_codepoint = invalid_char });
+        }
+    }
+
+    return true;
 }
 
 fn eatIdentifier(p: *Parser) !?TokenIndex {
     switch (p.tok_ids[p.tok_i]) {
         .identifier => {},
         .extended_identifier => {
-            const slice = p.tokSlice(p.tok_i);
-            var it = std.unicode.Utf8View.initUnchecked(slice).iterator();
-            var loc = p.pp.tokens.items(.loc)[p.tok_i];
-
-            if (mem.indexOfScalar(u8, slice, '$')) |i| {
-                loc.byte_offset += @intCast(i);
-                try p.comp.diag.add(.{
-                    .tag = .dollar_in_identifier_extension,
-                    .loc = loc,
-                }, &.{});
-                loc = p.pp.tokens.items(.loc)[p.tok_i];
-            }
-
-            while (it.nextCodepoint()) |c| {
-                if (try checkIdentifierCodepoint(p.comp, c, loc)) break;
-                loc.byte_offset += std.unicode.utf8CodepointSequenceLength(c) catch unreachable;
+            if (!try p.validateExtendedIdentifier()) {
+                p.tok_i += 1;
+                return null;
             }
         },
         else => return null,
@@ -417,7 +468,7 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
         defer p.strings.items.len = strings_top;
 
         const w = p.strings.writer();
-        const msg_str = p.retainedString(@"error".msg);
+        const msg_str = p.attributeMessageString(@"error".msg);
         try w.print("call to '{s}' declared with attribute error: {s}", .{ p.tokSlice(@"error".__name_tok), msg_str });
         const str = try p.comp.diag.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
         try p.errStr(.error_attribute, usage_tok, str);
@@ -427,7 +478,7 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
         defer p.strings.items.len = strings_top;
 
         const w = p.strings.writer();
-        const msg_str = p.retainedString(warning.msg);
+        const msg_str = p.attributeMessageString(warning.msg);
         try w.print("call to '{s}' declared with attribute warning: {s}", .{ p.tokSlice(warning.__name_tok), msg_str });
         const str = try p.comp.diag.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
         try p.errStr(.warning_attribute, usage_tok, str);
@@ -442,9 +493,10 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
     }
 }
 
+/// Assumes that the specified range was created by an ordinary or `u8` string literal
 /// Returned slice is invalidated if additional strings are added to p.retained_strings
-fn retainedString(p: *Parser, range: Value.ByteRange) []const u8 {
-    return range.slice(p.retained_strings.items);
+fn attributeMessageString(p: *Parser, range: Value.ByteRange) []const u8 {
+    return range.slice(p.retained_strings.items, .@"1");
 }
 
 fn errDeprecated(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, msg: ?Value.ByteRange) Compilation.Error!void {
@@ -460,7 +512,7 @@ fn errDeprecated(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, msg: ?Valu
     };
     try w.writeAll(reason);
     if (msg) |m| {
-        const str = p.retainedString(m);
+        const str = p.attributeMessageString(m);
         try w.print(": {s}", .{str});
     }
     const str = try p.comp.diag.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
@@ -566,6 +618,7 @@ fn diagnoseIncompleteDefinitions(p: *Parser) !void {
 
 /// root : (decl | assembly ';' | staticAssert)*
 pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
+    assert(pp.linemarkers == .none);
     pp.comp.pragmaEvent(.before_parse);
 
     var arena = std.heap.ArenaAllocator.init(pp.comp.gpa);
@@ -850,7 +903,7 @@ fn decl(p: *Parser) Error!bool {
         break :blk DeclSpec{ .ty = try spec.finish(p) };
     };
     if (decl_spec.noreturn) |tok| {
-        const attr = Attribute{ .tag = .noreturn, .args = .{ .noreturn = {} }, .syntax = .keyword };
+        const attr = Attribute{ .tag = .noreturn, .args = .{ .noreturn = .{} }, .syntax = .keyword };
         try p.attr_buf.append(p.gpa, .{ .attr = attr, .tok = tok });
     }
     var init_d = (try p.initDeclarator(&decl_spec, attr_buf_top)) orelse {
@@ -934,7 +987,7 @@ fn decl(p: *Parser) Error!bool {
                     const attr_buf_top_declarator = p.attr_buf.len;
                     defer p.attr_buf.len = attr_buf_top_declarator;
 
-                    var d = (try p.declarator(param_decl_spec.ty, .normal)) orelse {
+                    var d = (try p.declarator(param_decl_spec.ty, .param)) orelse {
                         try p.errTok(.missing_declaration, first_tok);
                         _ = try p.expectToken(.semicolon);
                         continue :param_loop;
@@ -1101,17 +1154,13 @@ fn staticAssertMessage(p: *Parser, cond_node: NodeIndex, message: Result) !?[]co
         try buf.appendSlice(")'");
     }
     if (message.node != .none) {
+        assert(p.nodes.items(.tag)[@intFromEnum(message.node)] == .string_literal_expr);
         if (buf.items.len > 0) {
             try buf.append(' ');
         }
-        const data = message.val.data.bytes;
-        try buf.ensureUnusedCapacity(data.len());
-        try Tree.dumpStr(
-            p.retained_strings.items,
-            data,
-            p.nodes.items(.tag)[@intFromEnum(message.node)],
-            buf.writer(),
-        );
+        const byte_range = message.val.data.bytes;
+        try buf.ensureUnusedCapacity(byte_range.len());
+        try byte_range.dumpString(message.ty, p.comp, p.retained_strings.items, buf.writer());
     }
     return try p.comp.diag.arena.allocator().dupe(u8, buf.items);
 }
@@ -1132,6 +1181,7 @@ fn staticAssert(p: *Parser) Error!bool {
             .string_literal_utf_8,
             .string_literal_utf_32,
             .string_literal_wide,
+            .unterminated_string_literal,
             => try p.stringLiteral(),
             else => {
                 try p.err(.expected_str_literal);
@@ -1692,10 +1742,10 @@ fn initDeclarator(p: *Parser, decl_spec: *DeclSpec, attr_buf_top: usize) Error!?
                 try p.errStr(.tentative_array, name, try p.typeStr(init_d.d.ty));
                 break :incomplete;
             } else if (init_d.d.ty.getRecord()) |record| {
-                _ = try p.tentative_defs.getOrPutValue(p.comp.gpa, record.name, init_d.d.name);
+                _ = try p.tentative_defs.getOrPutValue(p.gpa, record.name, init_d.d.name);
                 break :incomplete;
             } else if (init_d.d.ty.get(.@"enum")) |en| {
-                _ = try p.tentative_defs.getOrPutValue(p.comp.gpa, en.data.@"enum".name, init_d.d.name);
+                _ = try p.tentative_defs.getOrPutValue(p.gpa, en.data.@"enum".name, init_d.d.name);
                 break :incomplete;
             }
         }
@@ -2078,7 +2128,7 @@ fn recordSpec(p: *Parser) Error!Type {
             // TODO: msvc considers `#pragma pack` on a per-field basis
             .msvc => p.pragma_pack,
         };
-        record_layout.compute(record_ty, ty, p.pp.comp, pragma_pack_value);
+        record_layout.compute(record_ty, ty, p.comp, pragma_pack_value);
     }
 
     // finish by creating a node
@@ -2315,7 +2365,9 @@ fn enumSpec(p: *Parser) Error!Type {
         // check if this is a reference to a previous type
         const interned_name = try p.comp.intern(p.tokSlice(ident));
         if (try p.syms.findTag(p, interned_name, .keyword_enum, ident, p.tok_ids[p.tok_i])) |prev| {
-            try p.checkEnumFixedTy(fixed_ty, ident, prev);
+            // only check fixed underlying type in forward declarations and not in references.
+            if (p.tok_ids[p.tok_i] == .semicolon)
+                try p.checkEnumFixedTy(fixed_ty, ident, prev);
             return prev.ty;
         } else {
             // this is a forward declaration, create a new enum Type.
@@ -2651,6 +2703,7 @@ fn enumerator(p: *Parser, e: *Enumerator) Error!?EnumFieldAndNode {
             .node = res.node,
         } },
     });
+    try p.value_map.put(node, e.res.val);
     return EnumFieldAndNode{ .field = .{
         .name = interned_name,
         .ty = res.ty,
@@ -3355,7 +3408,7 @@ fn findScalarInitializer(p: *Parser, il: **InitList, ty: *Type, actual_ty: Type,
         return false;
     } else if (ty.get(.@"struct")) |struct_ty| {
         if (il.*.node != .none) return false;
-        if (actual_ty.eql(ty.*, p.pp.comp, false)) return true;
+        if (actual_ty.eql(ty.*, p.comp, false)) return true;
         const start_index = il.*.list.items.len;
         var index = if (start_index != 0) il.*.list.items[start_index - 1].index + 1 else start_index;
 
@@ -3375,14 +3428,14 @@ fn findScalarInitializer(p: *Parser, il: **InitList, ty: *Type, actual_ty: Type,
         return false;
     } else if (ty.get(.@"union")) |union_ty| {
         if (il.*.node != .none) return false;
-        if (actual_ty.eql(ty.*, p.pp.comp, false)) return true;
+        if (actual_ty.eql(ty.*, p.comp, false)) return true;
         if (union_ty.data.record.fields.len == 0) {
             try p.errTok(.empty_aggregate_init_braces, first_tok);
             return error.ParsingFailed;
         }
         ty.* = union_ty.data.record.fields[0].ty;
         il.* = try il.*.find(p.gpa, 0);
-        // if (il.*.node == .none and actual_ty.eql(ty, p.pp.comp, false)) return true;
+        // if (il.*.node == .none and actual_ty.eql(ty, p.comp, false)) return true;
         if (try p.findScalarInitializer(il, ty, actual_ty, first_tok)) return true;
         return false;
     }
@@ -3708,7 +3761,7 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, l_paren: TokenIndex
     const expected_items = 8; // arbitrarily chosen, most assembly will have fewer than 8 inputs/outputs/constraints/names
     const bytes_needed = expected_items * @sizeOf(?TokenIndex) + expected_items * 3 * @sizeOf(NodeIndex);
 
-    var stack_fallback = std.heap.stackFallback(bytes_needed, p.comp.gpa);
+    var stack_fallback = std.heap.stackFallback(bytes_needed, p.gpa);
     const allocator = stack_fallback.get();
 
     // TODO: Consider using a TokenIndex of 0 instead of null if we need to store the names in the tree
@@ -3900,7 +3953,7 @@ fn assembly(p: *Parser, kind: enum { global, decl_label, stmt }) Error!?NodeInde
 fn asmStr(p: *Parser) Error!Result {
     var i = p.tok_i;
     while (true) : (i += 1) switch (p.tok_ids[i]) {
-        .string_literal => {},
+        .string_literal, .unterminated_string_literal => {},
         .string_literal_utf_16, .string_literal_utf_8, .string_literal_utf_32 => {
             try p.errStr(.invalid_asm_str, p.tok_i, "unicode");
             return error.ParsingFailed;
@@ -4555,7 +4608,7 @@ const CallExpr = union(enum) {
     standard: NodeIndex,
     builtin: struct {
         node: NodeIndex,
-        tag: BuiltinFunction.Tag,
+        tag: Builtin.Tag,
     },
 
     fn init(p: *Parser, call_node: NodeIndex, func_node: NodeIndex) CallExpr {
@@ -4572,7 +4625,10 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => true,
             .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_va_start, .__va_start, .va_start => arg_idx != 1,
+                Builtin.tagFromName("__builtin_va_start").?,
+                Builtin.tagFromName("__va_start").?,
+                Builtin.tagFromName("va_start").?,
+                => arg_idx != 1,
                 else => true,
             },
         };
@@ -4582,8 +4638,11 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => true,
             .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_va_start, .__va_start, .va_start => arg_idx != 1,
-                .__builtin_complex => false,
+                Builtin.tagFromName("__builtin_va_start").?,
+                Builtin.tagFromName("__va_start").?,
+                Builtin.tagFromName("va_start").?,
+                => arg_idx != 1,
+                Builtin.tagFromName("__builtin_complex").? => false,
                 else => true,
             },
         };
@@ -4600,8 +4659,11 @@ const CallExpr = union(enum) {
 
         const builtin_tok = p.nodes.items(.data)[@intFromEnum(self.builtin.node)].decl.name;
         switch (self.builtin.tag) {
-            .__builtin_va_start, .__va_start, .va_start => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
-            .__builtin_complex => return p.checkComplexArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+            Builtin.tagFromName("__builtin_va_start").?,
+            Builtin.tagFromName("__va_start").?,
+            Builtin.tagFromName("va_start").?,
+            => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+            Builtin.tagFromName("__builtin_complex").? => return p.checkComplexArg(builtin_tok, first_after, param_tok, arg, arg_idx),
             else => {},
         }
     }
@@ -4615,7 +4677,7 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => null,
             .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_complex => 2,
+                Builtin.tagFromName("__builtin_complex").? => 2,
                 else => null,
             },
         };
@@ -4625,7 +4687,7 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => callable_ty.returnType(),
             .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_complex => {
+                Builtin.tagFromName("__builtin_complex").? => {
                     const last_param = p.list_buf.items[p.list_buf.items.len - 1];
                     return p.nodes.items(.ty)[@intFromEnum(last_param)].makeComplex();
                 },
@@ -6282,7 +6344,14 @@ fn typesCompatible(p: *Parser) Error!Result {
 
     try p.expectClosing(l_paren, .r_paren);
 
-    const compatible = first.compatible(second, p.comp);
+    var first_unqual = first.canonicalize(.standard);
+    first_unqual.qual.@"const" = false;
+    first_unqual.qual.@"volatile" = false;
+    var second_unqual = second.canonicalize(.standard);
+    second_unqual.qual.@"const" = false;
+    second_unqual.qual.@"volatile" = false;
+
+    const compatible = first_unqual.eql(second_unqual, p.comp, true);
 
     var res = Result{
         .val = Value.int(@intFromBool(compatible)),
@@ -7061,7 +7130,7 @@ fn checkComplexArg(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex,
     }
 }
 
-fn checkVariableBuiltinArgument(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32, tag: BuiltinFunction.Tag) !void {
+fn checkVariableBuiltinArgument(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32, tag: Builtin.Tag) !void {
     switch (tag) {
         .__builtin_va_start, .__va_start, .va_start => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
         else => {},
@@ -7399,12 +7468,15 @@ fn primaryExpr(p: *Parser) Error!Result {
         .string_literal_utf_8,
         .string_literal_utf_32,
         .string_literal_wide,
+        .unterminated_string_literal,
         => return p.stringLiteral(),
         .char_literal,
         .char_literal_utf_8,
         .char_literal_utf_16,
         .char_literal_utf_32,
         .char_literal_wide,
+        .empty_char_literal,
+        .unterminated_char_literal,
         => return p.charLiteral(),
         .zero => {
             p.tok_i += 1;
@@ -7461,253 +7533,199 @@ fn makePredefinedIdentifier(p: *Parser, start: u32) !Result {
 }
 
 fn stringLiteral(p: *Parser) Error!Result {
-    var start = p.tok_i;
-    // use 1 for wchar_t
-    var width: ?u8 = null;
-    var is_u8_literal = false;
-    while (true) {
-        switch (p.tok_ids[p.tok_i]) {
-            .string_literal => {},
-            .string_literal_utf_16 => if (width) |some| {
-                if (some != 16) try p.err(.unsupported_str_cat);
-            } else {
-                width = 16;
-            },
-            .string_literal_utf_8 => {
-                is_u8_literal = true;
-                if (width) |some| {
-                    if (some != 8) try p.err(.unsupported_str_cat);
-                } else {
-                    width = 8;
+    var string_end = p.tok_i;
+    var string_kind: TextLiteral.Kind = .char;
+    while (TextLiteral.Kind.classify(p.tok_ids[string_end], .string_literal)) |next| : (string_end += 1) {
+        string_kind = string_kind.concat(next) catch {
+            try p.errTok(.unsupported_str_cat, string_end);
+            while (p.tok_ids[p.tok_i].isStringLiteral()) : (p.tok_i += 1) {}
+            return error.ParsingFailed;
+        };
+        if (string_kind == .unterminated) {
+            try p.errTok(.unterminated_string_literal_error, string_end);
+            p.tok_i = string_end + 1;
+            return error.ParsingFailed;
+        }
+    }
+    assert(string_end > p.tok_i);
+
+    const char_width = string_kind.charUnitSize(p.comp);
+
+    const retain_start = mem.alignForward(usize, p.retained_strings.items.len, string_kind.internalStorageAlignment(p.comp));
+    try p.retained_strings.resize(retain_start);
+
+    while (p.tok_i < string_end) : (p.tok_i += 1) {
+        const this_kind = TextLiteral.Kind.classify(p.tok_ids[p.tok_i], .string_literal).?;
+        const slice = this_kind.contentSlice(p.tokSlice(p.tok_i));
+        var char_literal_parser = TextLiteral.Parser.init(slice, this_kind, 0x10ffff, p.comp);
+
+        try p.retained_strings.ensureUnusedCapacity((slice.len + 1) * @intFromEnum(char_width)); // +1 for null terminator
+        while (char_literal_parser.next()) |item| switch (item) {
+            .value => |v| {
+                switch (char_width) {
+                    .@"1" => p.retained_strings.appendAssumeCapacity(@intCast(v)),
+                    .@"2" => {
+                        const word: u16 = @intCast(v);
+                        p.retained_strings.appendSliceAssumeCapacity(mem.asBytes(&word));
+                    },
+                    .@"4" => p.retained_strings.appendSliceAssumeCapacity(mem.asBytes(&v)),
                 }
             },
-            .string_literal_utf_32 => if (width) |some| {
-                if (some != 32) try p.err(.unsupported_str_cat);
-            } else {
-                width = 32;
+            .codepoint => |c| {
+                switch (char_width) {
+                    .@"1" => {
+                        var buf: [4]u8 = undefined;
+                        const written = std.unicode.utf8Encode(c, &buf) catch unreachable;
+                        const encoded = buf[0..written];
+                        p.retained_strings.appendSliceAssumeCapacity(encoded);
+                    },
+                    .@"2" => {
+                        var utf16_buf: [2]u16 = undefined;
+                        var utf8_buf: [4]u8 = undefined;
+                        const utf8_written = std.unicode.utf8Encode(c, &utf8_buf) catch unreachable;
+                        const utf16_written = std.unicode.utf8ToUtf16Le(&utf16_buf, utf8_buf[0..utf8_written]) catch unreachable;
+                        const bytes = std.mem.sliceAsBytes(utf16_buf[0..utf16_written]);
+                        p.retained_strings.appendSliceAssumeCapacity(bytes);
+                    },
+                    .@"4" => {
+                        const val: u32 = c;
+                        p.retained_strings.appendSliceAssumeCapacity(mem.asBytes(&val));
+                    },
+                }
             },
-            .string_literal_wide => if (width) |some| {
-                if (some != 1) try p.err(.unsupported_str_cat);
-            } else {
-                width = 1;
+            .improperly_encoded => |bytes| p.retained_strings.appendSliceAssumeCapacity(bytes),
+            .utf8_text => |view| {
+                switch (char_width) {
+                    .@"1" => p.retained_strings.appendSliceAssumeCapacity(view.bytes),
+                    .@"2" => {
+                        var capacity_slice: []align(@alignOf(u16)) u8 = @alignCast(p.retained_strings.unusedCapacitySlice());
+                        const dest_len = std.mem.alignBackward(usize, capacity_slice.len, 2);
+                        var dest = std.mem.bytesAsSlice(u16, capacity_slice[0..dest_len]);
+                        const words_written = std.unicode.utf8ToUtf16Le(dest, view.bytes) catch unreachable;
+                        p.retained_strings.resize(p.retained_strings.items.len + words_written * 2) catch unreachable;
+                    },
+                    .@"4" => {
+                        var it = view.iterator();
+                        while (it.nextCodepoint()) |codepoint| {
+                            const val: u32 = codepoint;
+                            p.retained_strings.appendSliceAssumeCapacity(mem.asBytes(&val));
+                        }
+                    },
+                }
             },
-            else => break,
-        }
-        p.tok_i += 1;
-    }
-    if (width == null) width = 8;
-    if (width.? != 8) return p.todo("unicode string literals");
-
-    const string_start = p.retained_strings.items.len;
-    while (start < p.tok_i) : (start += 1) {
-        var slice = p.tokSlice(start);
-        slice = slice[0 .. slice.len - 1];
-        var i = mem.indexOf(u8, slice, "\"").? + 1;
-        try p.retained_strings.ensureUnusedCapacity(slice.len);
-        while (i < slice.len) : (i += 1) {
-            switch (slice[i]) {
-                '\\' => {
-                    i += 1;
-                    switch (slice[i]) {
-                        '\n' => i += 1,
-                        '\r' => i += 2,
-                        '\'', '\"', '\\', '?' => |c| p.retained_strings.appendAssumeCapacity(c),
-                        'n' => p.retained_strings.appendAssumeCapacity('\n'),
-                        'r' => p.retained_strings.appendAssumeCapacity('\r'),
-                        't' => p.retained_strings.appendAssumeCapacity('\t'),
-                        'a' => p.retained_strings.appendAssumeCapacity(0x07),
-                        'b' => p.retained_strings.appendAssumeCapacity(0x08),
-                        'e' => {
-                            try p.errExtra(.non_standard_escape_char, start, .{ .unsigned = i - 1 });
-                            p.retained_strings.appendAssumeCapacity(0x1B);
-                        },
-                        'f' => p.retained_strings.appendAssumeCapacity(0x0C),
-                        'v' => p.retained_strings.appendAssumeCapacity(0x0B),
-                        'x' => p.retained_strings.appendAssumeCapacity(try p.parseNumberEscape(start, 16, slice, &i)),
-                        '0'...'7' => p.retained_strings.appendAssumeCapacity(try p.parseNumberEscape(start, 8, slice, &i)),
-                        'u' => try p.parseUnicodeEscape(start, 4, slice, &i),
-                        'U' => try p.parseUnicodeEscape(start, 8, slice, &i),
-                        else => unreachable,
-                    }
-                },
-                else => |c| p.retained_strings.appendAssumeCapacity(c),
-            }
+        };
+        for (char_literal_parser.errors.constSlice()) |item| {
+            try p.errExtra(item.tag, p.tok_i, item.extra);
         }
     }
-    try p.retained_strings.append(0);
-    const slice = p.retained_strings.items[string_start..];
+    p.retained_strings.appendNTimesAssumeCapacity(0, @intFromEnum(char_width));
+    const slice = p.retained_strings.items[retain_start..];
 
     const arr_ty = try p.arena.create(Type.Array);
-    const specifier: Type.Specifier = if (is_u8_literal and p.comp.langopts.hasChar8_T()) .uchar else .char;
-
-    arr_ty.* = .{ .elem = .{ .specifier = specifier }, .len = slice.len };
+    arr_ty.* = .{ .elem = string_kind.elementType(p.comp), .len = @divExact(slice.len, @intFromEnum(char_width)) };
     var res: Result = .{
         .ty = .{
             .specifier = .array,
             .data = .{ .array = arr_ty },
         },
-        .val = Value.bytes(@intCast(string_start), @intCast(p.retained_strings.items.len)),
+        .val = Value.bytes(@intCast(retain_start), @intCast(p.retained_strings.items.len)),
     };
     res.node = try p.addNode(.{ .tag = .string_literal_expr, .ty = res.ty, .data = undefined });
     if (!p.in_macro) try p.value_map.put(res.node, res.val);
     return res;
 }
 
-fn parseNumberEscape(p: *Parser, tok: TokenIndex, base: u8, slice: []const u8, i: *usize) !u8 {
-    if (base == 16) i.* += 1; // skip x
-    var char: u8 = 0;
-    var reported = false;
-    while (i.* < slice.len) : (i.* += 1) {
-        const val = std.fmt.charToDigit(slice[i.*], base) catch break; // validated by Tokenizer
-        const product, const overflowed = @mulWithOverflow(char, base);
-        if (overflowed != 0 and !reported) {
-            try p.errExtra(.escape_sequence_overflow, tok, .{ .unsigned = i.* });
-            reported = true;
-        }
-        char = product + val;
-    }
-    i.* -= 1;
-    return char;
-}
-
-fn parseUnicodeEscape(p: *Parser, tok: TokenIndex, count: u8, slice: []const u8, i: *usize) !void {
-    const c = std.fmt.parseInt(u21, slice[i.* + 1 ..][0..count], 16) catch 0x110000; // count validated by tokenizer
-    i.* += count + 1;
-    if (!std.unicode.utf8ValidCodepoint(c) or (c < 0xa0 and c != '$' and c != '@' and c != '`')) {
-        try p.errExtra(.invalid_universal_character, tok, .{ .unsigned = i.* - count - 2 });
-        return;
-    }
-    var buf: [4]u8 = undefined;
-    const to_write = std.unicode.utf8Encode(c, &buf) catch unreachable; // validated above
-    p.retained_strings.appendSliceAssumeCapacity(buf[0..to_write]);
-}
-
 fn charLiteral(p: *Parser) Error!Result {
     defer p.tok_i += 1;
-    const allow_multibyte = switch (p.tok_ids[p.tok_i]) {
-        .char_literal => false,
-        .char_literal_utf_8 => false,
-        .char_literal_wide => true,
-        .char_literal_utf_16 => true,
-        .char_literal_utf_32 => true,
-        else => unreachable,
+    const tok_id = p.tok_ids[p.tok_i];
+    const char_kind = TextLiteral.Kind.classify(tok_id, .char_literal) orelse {
+        if (tok_id == .empty_char_literal) {
+            try p.err(.empty_char_literal_error);
+        } else if (tok_id == .unterminated_char_literal) {
+            try p.err(.unterminated_char_literal_error);
+        } else unreachable;
+        return .{
+            .ty = Type.int,
+            .val = Value.int(0),
+            .node = try p.addNode(.{ .tag = .char_literal, .ty = Type.int, .data = undefined }),
+        };
     };
-    const ty: Type = switch (p.tok_ids[p.tok_i]) {
-        .char_literal => .{ .specifier = .int },
-        .char_literal_utf_8 => .{ .specifier = .uchar },
-        .char_literal_wide => p.comp.types.wchar,
-        .char_literal_utf_16 => .{ .specifier = .ushort },
-        .char_literal_utf_32 => .{ .specifier = .ulong },
-        else => unreachable,
-    };
-    const max: u32 = switch (p.tok_ids[p.tok_i]) {
-        .char_literal => std.math.maxInt(u8),
-        .char_literal_wide => @intCast(p.comp.types.wchar.maxInt(p.comp)),
-        .char_literal_utf_8 => std.math.maxInt(u8),
-        .char_literal_utf_16 => std.math.maxInt(u16),
-        .char_literal_utf_32 => std.math.maxInt(u32),
-        else => unreachable,
-    };
-    var multichar: u8 = switch (p.tok_ids[p.tok_i]) {
-        .char_literal => 0,
-        .char_literal_wide => 4,
-        .char_literal_utf_8 => 2,
-        .char_literal_utf_16 => 2,
-        .char_literal_utf_32 => 2,
-        else => unreachable,
-    };
-
     var val: u32 = 0;
-    var overflow_reported = false;
-    var slice = p.tokSlice(p.tok_i);
-    slice = slice[0 .. slice.len - 1];
-    var i = mem.indexOf(u8, slice, "\'").? + 1;
-    while (i < slice.len) : (i += 1) {
-        var c: u32 = slice[i];
-        var multibyte = false;
-        switch (c) {
-            '\\' => {
-                i += 1;
-                switch (slice[i]) {
-                    '\n' => i += 1,
-                    '\r' => i += 2,
-                    '\'', '\"', '\\', '?' => c = slice[i],
-                    'n' => c = '\n',
-                    'r' => c = '\r',
-                    't' => c = '\t',
-                    'a' => c = 0x07,
-                    'b' => c = 0x08,
-                    'e' => {
-                        try p.errExtra(.non_standard_escape_char, p.tok_i, .{ .unsigned = i - 1 });
-                        c = 0x1B;
-                    },
-                    'f' => c = 0x0C,
-                    'v' => c = 0x0B,
-                    'x' => c = try p.parseNumberEscape(p.tok_i, 16, slice, &i),
-                    '0'...'7' => c = try p.parseNumberEscape(p.tok_i, 8, slice, &i),
-                    'u', 'U' => return p.todo("unicode escapes in char literals"),
-                    else => unreachable,
+
+    const slice = char_kind.contentSlice(p.tokSlice(p.tok_i));
+
+    if (slice.len == 1 and std.ascii.isASCII(slice[0])) {
+        // fast path: single unescaped ASCII char
+        val = slice[0];
+    } else {
+        const max_codepoint = char_kind.maxCodepoint(p.comp);
+        var char_literal_parser = TextLiteral.Parser.init(slice, char_kind, max_codepoint, p.comp);
+
+        const max_chars_expected = 4;
+        var stack_fallback = std.heap.stackFallback(max_chars_expected * @sizeOf(u32), p.comp.gpa);
+        var chars = std.ArrayList(u32).initCapacity(stack_fallback.get(), max_chars_expected) catch unreachable; // stack allocation already succeeded
+        defer chars.deinit();
+
+        while (char_literal_parser.next()) |item| switch (item) {
+            .value => |v| try chars.append(v),
+            .codepoint => |c| try chars.append(c),
+            .improperly_encoded => |s| {
+                try chars.ensureUnusedCapacity(s.len);
+                for (s) |c| chars.appendAssumeCapacity(c);
+            },
+            .utf8_text => |view| {
+                var it = view.iterator();
+                var max_codepoint_seen: u21 = 0;
+                try chars.ensureUnusedCapacity(view.bytes.len);
+                while (it.nextCodepoint()) |c| {
+                    max_codepoint_seen = @max(max_codepoint_seen, c);
+                    chars.appendAssumeCapacity(c);
+                }
+                if (max_codepoint_seen > max_codepoint) {
+                    char_literal_parser.err(.char_too_large, .{ .none = {} });
                 }
             },
-            // These are safe since the source is checked to be valid utf8.
-            0b1100_0000...0b1101_1111 => {
-                c &= 0b00011111;
-                c <<= 6;
-                c |= slice[i + 1] & 0b00111111;
-                i += 1;
-                multibyte = true;
-            },
-            0b1110_0000...0b1110_1111 => {
-                c &= 0b00001111;
-                c <<= 6;
-                c |= slice[i + 1] & 0b00111111;
-                c <<= 6;
-                c |= slice[i + 2] & 0b00111111;
-                i += 2;
-                multibyte = true;
-            },
-            0b1111_0000...0b1111_0111 => {
-                c &= 0b00000111;
-                c <<= 6;
-                c |= slice[i + 1] & 0b00111111;
-                c <<= 6;
-                c |= slice[i + 2] & 0b00111111;
-                c <<= 6;
-                c |= slice[i + 3] & 0b00111111;
-                i += 3;
-                multibyte = true;
-            },
-            else => {},
+        };
+
+        const is_multichar = chars.items.len > 1;
+        if (is_multichar) {
+            if (char_kind == .char and chars.items.len == 4) {
+                char_literal_parser.warn(.four_char_char_literal, .{ .none = {} });
+            } else if (char_kind == .char) {
+                char_literal_parser.warn(.multichar_literal_warning, .{ .none = {} });
+            } else {
+                const kind = switch (char_kind) {
+                    .wide => "wide",
+                    .utf_8, .utf_16, .utf_32 => "Unicode",
+                    else => unreachable,
+                };
+                char_literal_parser.err(.invalid_multichar_literal, .{ .str = kind });
+            }
         }
-        if (c > max or (multibyte and !allow_multibyte)) try p.err(.char_too_large);
-        switch (multichar) {
-            0, 2, 4 => multichar += 1,
-            1 => {
-                multichar = 99;
-                try p.err(.multichar_literal);
-            },
-            3 => {
-                try p.err(.unicode_multichar_literal);
-                return error.ParsingFailed;
-            },
-            5 => {
-                try p.err(.wide_multichar_literal);
-                val = 0;
-                multichar = 6;
-            },
-            6 => val = 0,
-            else => {},
+
+        var multichar_overflow = false;
+        if (char_kind == .char and is_multichar) {
+            for (chars.items) |item| {
+                val, const overflowed = @shlWithOverflow(val, 8);
+                multichar_overflow = multichar_overflow or overflowed != 0;
+                val += @as(u8, @truncate(item));
+            }
+        } else if (chars.items.len > 0) {
+            val = chars.items[chars.items.len - 1];
         }
-        const product, const overflowed = @mulWithOverflow(val, max +% 1);
-        if (overflowed != 0 and !overflow_reported) {
-            try p.errExtra(.char_lit_too_wide, p.tok_i, .{ .unsigned = i });
-            overflow_reported = true;
+
+        if (multichar_overflow) {
+            char_literal_parser.err(.char_lit_too_wide, .{ .none = {} });
         }
-        val = product + c;
+
+        for (char_literal_parser.errors.constSlice()) |item| {
+            try p.errExtra(item.tag, p.tok_i, item.extra);
+        }
     }
 
+    const ty = char_kind.charLiteralType(p.comp);
     // This is the type the literal will have if we're in a macro; macros always operate on intmax_t/uintmax_t values
-    const macro_ty = if (ty.isUnsignedInt(p.comp) or (p.tok_ids[p.tok_i] == .char_literal and p.comp.getCharSignedness() == .unsigned))
+    const macro_ty = if (ty.isUnsignedInt(p.comp) or (char_kind == .char and p.comp.getCharSignedness() == .unsigned))
         p.comp.types.intmax.makeIntegerUnsigned()
     else
         p.comp.types.intmax;
@@ -7892,7 +7910,7 @@ fn bitInt(p: *Parser, base: u8, buf: []const u8, suffix: NumberSuffix, tok_i: To
     try p.errStr(.pre_c2x_compat, tok_i, "'_BitInt' suffix for literals");
     try p.errTok(.bitint_suffix, tok_i);
 
-    var managed = try big.int.Managed.init(p.comp.gpa);
+    var managed = try big.int.Managed.init(p.gpa);
     defer managed.deinit();
 
     managed.setString(base, buf) catch |e| switch (e) {

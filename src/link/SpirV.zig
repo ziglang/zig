@@ -120,12 +120,19 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
     try self.object.updateDecl(module, decl_index);
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *SpirV,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement SpirV linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);

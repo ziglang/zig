@@ -45,6 +45,20 @@ pub export fn entry5() void {
     var b = T{ .@"0" = 123, .@"2" = 123, .@"1" = 123 };
     _ = b;
 }
+pub const Consideration = struct {
+    curve: Curve,
+    pub const Curve = union(enum) {
+        logistic: Parameters,
+
+        pub const Parameters = struct { f32, f32, f32, f32 };
+    };
+};
+pub export fn entry6() void {
+    const cons: []Consideration = &.{
+        .{ .curve = .{ .logistic = .{ -7, 1.0, 0 } } },
+    };
+    _ = cons;
+}
 
 // error
 // backend=stage2
@@ -54,3 +68,5 @@ pub export fn entry5() void {
 // :23:14: error: missing tuple field with index 1
 // :39:14: error: expected at most 2 tuple fields; found 3
 // :45:30: error: index '2' out of bounds of tuple 'struct{comptime comptime_int = 123, u32}'
+// :58:37: error: missing tuple field with index 3
+// :53:32: note: struct declared here

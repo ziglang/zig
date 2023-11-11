@@ -4,26 +4,21 @@ const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
 const fatal = @import("main.zig").fatal;
 
-pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
+pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
     _ = args;
-    const self_exe_path = try introspect.findZigExePath(gpa);
-    defer gpa.free(self_exe_path);
+    const self_exe_path = try introspect.findZigExePath(arena);
 
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(gpa, self_exe_path) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
-    defer gpa.free(zig_lib_directory.path.?);
     defer zig_lib_directory.handle.close();
 
-    const zig_std_dir = try std.fs.path.join(gpa, &[_][]const u8{ zig_lib_directory.path.?, "std" });
-    defer gpa.free(zig_std_dir);
+    const zig_std_dir = try std.fs.path.join(arena, &[_][]const u8{ zig_lib_directory.path.?, "std" });
 
-    const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
-    defer gpa.free(global_cache_dir);
+    const global_cache_dir = try introspect.resolveGlobalCacheDir(arena);
 
     const info = try std.zig.system.NativeTargetInfo.detect(.{});
-    const triple = try info.target.zigTriple(gpa);
-    defer gpa.free(triple);
+    const triple = try info.target.zigTriple(arena);
 
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
@@ -50,7 +45,16 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     try jws.objectField("target");
     try jws.write(triple);
 
+    try jws.objectField("env");
+    try jws.beginObject();
+    inline for (@typeInfo(introspect.EnvVar).Enum.fields) |field| {
+        try jws.objectField(field.name);
+        try jws.write(try @field(introspect.EnvVar, field.name).get(arena));
+    }
+    try jws.endObject();
+
     try jws.endObject();
     try w.writeByte('\n');
+
     try bw.flush();
 }

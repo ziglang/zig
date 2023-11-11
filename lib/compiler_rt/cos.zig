@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
 const common = @import("common.zig");

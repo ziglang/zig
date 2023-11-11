@@ -59,7 +59,7 @@ pub const Tz = struct {
         if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
         if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
 
-        if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
+        if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
             std.mem.byteSwapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
         }
 
@@ -73,7 +73,7 @@ pub const Tz = struct {
             var header = try reader.readStruct(Header);
             if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
             if (header.version != '2' and header.version != '3') return error.BadVersion;
-            if (builtin.target.cpu.arch.endian() != std.builtin.Endian.Big) {
+            if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
                 std.mem.byteSwapAllFields(@TypeOf(header.counts), &header.counts);
             }
 
@@ -98,7 +98,7 @@ pub const Tz = struct {
         // Parse transition types
         var i: usize = 0;
         while (i < header.counts.timecnt) : (i += 1) {
-            transitions[i].ts = if (legacy) try reader.readIntBig(i32) else try reader.readIntBig(i64);
+            transitions[i].ts = if (legacy) try reader.readInt(i32, .big) else try reader.readInt(i64, .big);
         }
 
         i = 0;
@@ -111,7 +111,7 @@ pub const Tz = struct {
         // Parse time types
         i = 0;
         while (i < header.counts.typecnt) : (i += 1) {
-            const offset = try reader.readIntBig(i32);
+            const offset = try reader.readInt(i32, .big);
             if (offset < -2147483648) return error.Malformed; // rfc8536: utoff [...] MUST NOT be -2**31
             const dst = try reader.readByte();
             if (dst != 0 and dst != 1) return error.Malformed; // rfc8536: (is)dst [...] The value MUST be 0 or 1.
@@ -144,12 +144,12 @@ pub const Tz = struct {
         // Parse leap seconds
         i = 0;
         while (i < header.counts.leapcnt) : (i += 1) {
-            const occur: i64 = if (legacy) try reader.readIntBig(i32) else try reader.readIntBig(i64);
+            const occur: i64 = if (legacy) try reader.readInt(i32, .big) else try reader.readInt(i64, .big);
             if (occur < 0) return error.Malformed; // rfc8536: occur [...] MUST be nonnegative
             if (i > 0 and leapseconds[i - 1].occurrence + 2419199 > occur) return error.Malformed; // rfc8536: occur [...] each later value MUST be at least 2419199 greater than the previous value
             if (occur > std.math.maxInt(i48)) return error.Malformed; // Unreasonably far into the future
 
-            const corr = try reader.readIntBig(i32);
+            const corr = try reader.readInt(i32, .big);
             if (i == 0 and corr != -1 and corr != 1) return error.Malformed; // rfc8536: The correction value in the first leap-second record, if present, MUST be either one (1) or minus one (-1)
             if (i > 0 and leapseconds[i - 1].correction != corr + 1 and leapseconds[i - 1].correction != corr - 1) return error.Malformed; // rfc8536: The correction values in adjacent leap-second records MUST differ by exactly one (1)
             if (corr > std.math.maxInt(i16)) return error.Malformed; // Unreasonably large correction

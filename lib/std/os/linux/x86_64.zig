@@ -431,11 +431,11 @@ fn getContextInternal() callconv(.Naked) usize {
         \\ leaq %[stack_offset:c](%%rdi), %%rsi
         \\ movq %%rdi, %%r8
         \\ xorl %%edi, %%edi
-        \\ movq %[sigaltstack], %%rax
+        \\ movl %[sigaltstack], %%eax
         \\ syscall
         \\ testq %%rax, %%rax
         \\ jnz 0f
-        \\ movq %[sigprocmask], %%rax
+        \\ movl %[sigprocmask], %%eax
         \\ xorl %%esi, %%esi
         \\ leaq %[sigmask_offset:c](%%r8), %%rdx
         \\ movl %[sigset_size], %%r10d

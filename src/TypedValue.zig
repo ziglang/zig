@@ -206,7 +206,6 @@ pub fn print(
             .inferred_error_set_type,
             => return Type.print(val.toType(), writer, mod),
             .undef => return writer.writeAll("undefined"),
-            .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
                 .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
@@ -321,7 +320,8 @@ pub fn print(
                             .val = decl.val,
                         }, writer, level - 1, mod);
                     },
-                    .anon_decl => |decl_val| {
+                    .anon_decl => |anon_decl| {
+                        const decl_val = anon_decl.val;
                         if (level == 0) return writer.print("(anon decl '{d}')", .{
                             @intFromEnum(decl_val),
                         });

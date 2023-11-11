@@ -663,7 +663,7 @@ pub const Symbol = struct {
 
     pub fn getNameOffset(self: Symbol) ?u32 {
         if (!std.mem.eql(u8, self.name[0..4], "\x00\x00\x00\x00")) return null;
-        const offset = std.mem.readIntLittle(u32, self.name[4..8]);
+        const offset = std.mem.readInt(u32, self.name[4..8], .little);
         return offset;
     }
 };
@@ -1075,7 +1075,7 @@ pub const Coff = struct {
         var stream = std.io.fixedBufferStream(data);
         const reader = stream.reader();
         try stream.seekTo(pe_pointer_offset);
-        var coff_header_offset = try reader.readIntLittle(u32);
+        var coff_header_offset = try reader.readInt(u32, .little);
         try stream.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
@@ -1142,7 +1142,7 @@ pub const Coff = struct {
         if (!mem.eql(u8, &cv_signature, "RSDS"))
             return error.InvalidPEMagic;
         try reader.readNoEof(self.guid[0..]);
-        self.age = try reader.readIntLittle(u32);
+        self.age = try reader.readInt(u32, .little);
 
         // Finally read the null-terminated string.
         var byte = try reader.readByte();
@@ -1223,7 +1223,7 @@ pub const Coff = struct {
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
-        const size = mem.readIntLittle(u32, self.data[offset..][0..4]);
+        const size = mem.readInt(u32, self.data[offset..][0..4], .little);
         if ((offset + size) > self.data.len) return error.InvalidStrtabSize;
 
         return Strtab{ .buffer = self.data[offset..][0..size] };
@@ -1324,9 +1324,9 @@ pub const Symtab = struct {
     fn asSymbol(raw: []const u8) Symbol {
         return .{
             .name = raw[0..8].*,
-            .value = mem.readIntLittle(u32, raw[8..12]),
-            .section_number = @as(SectionNumber, @enumFromInt(mem.readIntLittle(u16, raw[12..14]))),
-            .type = @as(SymType, @bitCast(mem.readIntLittle(u16, raw[14..16]))),
+            .value = mem.readInt(u32, raw[8..12], .little),
+            .section_number = @as(SectionNumber, @enumFromInt(mem.readInt(u16, raw[12..14], .little))),
+            .type = @as(SymType, @bitCast(mem.readInt(u16, raw[14..16], .little))),
             .storage_class = @as(StorageClass, @enumFromInt(raw[16])),
             .number_of_aux_symbols = raw[17],
         };
@@ -1335,27 +1335,27 @@ pub const Symtab = struct {
     fn asDebugInfo(raw: []const u8) DebugInfoDefinition {
         return .{
             .unused_1 = raw[0..4].*,
-            .linenumber = mem.readIntLittle(u16, raw[4..6]),
+            .linenumber = mem.readInt(u16, raw[4..6], .little),
             .unused_2 = raw[6..12].*,
-            .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
+            .pointer_to_next_function = mem.readInt(u32, raw[12..16], .little),
             .unused_3 = raw[16..18].*,
         };
     }
 
     fn asFuncDef(raw: []const u8) FunctionDefinition {
         return .{
-            .tag_index = mem.readIntLittle(u32, raw[0..4]),
-            .total_size = mem.readIntLittle(u32, raw[4..8]),
-            .pointer_to_linenumber = mem.readIntLittle(u32, raw[8..12]),
-            .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
+            .tag_index = mem.readInt(u32, raw[0..4], .little),
+            .total_size = mem.readInt(u32, raw[4..8], .little),
+            .pointer_to_linenumber = mem.readInt(u32, raw[8..12], .little),
+            .pointer_to_next_function = mem.readInt(u32, raw[12..16], .little),
             .unused = raw[16..18].*,
         };
     }
 
     fn asWeakExtDef(raw: []const u8) WeakExternalDefinition {
         return .{
-            .tag_index = mem.readIntLittle(u32, raw[0..4]),
-            .flag = @as(WeakExternalFlag, @enumFromInt(mem.readIntLittle(u32, raw[4..8]))),
+            .tag_index = mem.readInt(u32, raw[0..4], .little),
+            .flag = @as(WeakExternalFlag, @enumFromInt(mem.readInt(u32, raw[4..8], .little))),
             .unused = raw[8..18].*,
         };
     }
@@ -1368,11 +1368,11 @@ pub const Symtab = struct {
 
     fn asSectDef(raw: []const u8) SectionDefinition {
         return .{
-            .length = mem.readIntLittle(u32, raw[0..4]),
-            .number_of_relocations = mem.readIntLittle(u16, raw[4..6]),
-            .number_of_linenumbers = mem.readIntLittle(u16, raw[6..8]),
-            .checksum = mem.readIntLittle(u32, raw[8..12]),
-            .number = mem.readIntLittle(u16, raw[12..14]),
+            .length = mem.readInt(u32, raw[0..4], .little),
+            .number_of_relocations = mem.readInt(u16, raw[4..6], .little),
+            .number_of_linenumbers = mem.readInt(u16, raw[6..8], .little),
+            .checksum = mem.readInt(u32, raw[8..12], .little),
+            .number = mem.readInt(u16, raw[12..14], .little),
             .selection = @as(ComdatSelection, @enumFromInt(raw[14])),
             .unused = raw[15..18].*,
         };

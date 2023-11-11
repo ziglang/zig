@@ -1,8 +1,8 @@
 pub const File = union(enum) {
-    zig_module: *ZigModule,
+    zig_object: *ZigObject,
     linker_defined: *LinkerDefined,
     object: *Object,
-    // shared_object: *SharedObject,
+    shared_object: *SharedObject,
 
     pub fn index(file: File) Index {
         return switch (file) {
@@ -23,16 +23,16 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
-            .zig_module => |x| try writer.print("{s}", .{x.path}),
+            .zig_object => |x| try writer.print("{s}", .{x.path}),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            // .shared_object => |x| try writer.writeAll(x.path),
+            .shared_object => |x| try writer.writeAll(x.path),
         }
     }
 
     pub fn isAlive(file: File) bool {
         return switch (file) {
-            .zig_module => true,
+            .zig_object => true,
             .linker_defined => true,
             inline else => |x| x.alive,
         };
@@ -49,8 +49,7 @@ pub const File = union(enum) {
     pub fn symbolRank(file: File, sym: elf.Elf64_Sym, in_archive: bool) u32 {
         const base: u3 = blk: {
             if (sym.st_shndx == elf.SHN_COMMON) break :blk if (in_archive) 6 else 5;
-            // if (file == .shared or in_archive) break :blk switch (sym.st_bind()) {
-            if (in_archive) break :blk switch (sym.st_bind()) {
+            if (file == .shared_object or in_archive) break :blk switch (sym.st_bind()) {
                 elf.STB_GLOBAL => 3,
                 else => 4,
             };
@@ -69,37 +68,55 @@ pub const File = union(enum) {
     }
 
     pub fn resetGlobals(file: File, elf_file: *Elf) void {
-        switch (file) {
-            .linker_defined => unreachable,
-            inline else => |x| x.resetGlobals(elf_file),
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const name_offset = global.name_offset;
+            global.* = .{};
+            global.name_offset = name_offset;
+            global.flags.global = true;
         }
     }
 
     pub fn setAlive(file: File) void {
         switch (file) {
-            .zig_module, .linker_defined => {},
+            .zig_object, .linker_defined => {},
             inline else => |x| x.alive = true,
         }
     }
 
     pub fn markLive(file: File, elf_file: *Elf) void {
         switch (file) {
-            .linker_defined => unreachable,
+            .linker_defined => {},
             inline else => |x| x.markLive(elf_file),
         }
     }
 
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
-            .linker_defined => unreachable,
-            .zig_module => |x| x.atoms.keys(),
+            .linker_defined, .shared_object => &[0]Atom.Index{},
+            .zig_object => |x| x.atoms.items,
             .object => |x| x.atoms.items,
+        };
+    }
+
+    pub fn cies(file: File) []const Cie {
+        return switch (file) {
+            .zig_object => &[0]Cie{},
+            .object => |x| x.cies.items,
+            inline else => unreachable,
+        };
+    }
+
+    pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
+        return switch (file) {
+            .zig_object => |x| x.symbol(ind),
+            inline else => |x| x.symbols.items[ind],
         };
     }
 
     pub fn locals(file: File) []const Symbol.Index {
         return switch (file) {
-            .linker_defined => unreachable,
+            .linker_defined, .shared_object => &[0]Symbol.Index{},
             inline else => |x| x.locals(),
         };
     }
@@ -110,14 +127,113 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn updateSymtabSize(file: File, elf_file: *Elf) !void {
+        const output_symtab_ctx = switch (file) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
+        for (file.locals()) |local_index| {
+            const local = elf_file.symbol(local_index);
+            if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
+            const esym = local.elfSym(elf_file);
+            switch (esym.st_type()) {
+                elf.STT_SECTION, elf.STT_NOTYPE => continue,
+                else => {},
+            }
+            local.flags.output_symtab = true;
+            try local.setOutputSymtabIndex(output_symtab_ctx.nlocals, elf_file);
+            output_symtab_ctx.nlocals += 1;
+            output_symtab_ctx.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
+        }
+
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const file_ptr = global.file(elf_file) orelse continue;
+            if (file_ptr.index() != file.index()) continue;
+            if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
+            global.flags.output_symtab = true;
+            if (global.isLocal(elf_file)) {
+                try global.setOutputSymtabIndex(output_symtab_ctx.nlocals, elf_file);
+                output_symtab_ctx.nlocals += 1;
+            } else {
+                try global.setOutputSymtabIndex(output_symtab_ctx.nglobals, elf_file);
+                output_symtab_ctx.nglobals += 1;
+            }
+            output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+        }
+    }
+
+    pub fn writeSymtab(file: File, elf_file: *Elf) void {
+        for (file.locals()) |local_index| {
+            const local = elf_file.symbol(local_index);
+            const idx = local.outputSymtabIndex(elf_file) orelse continue;
+            const out_sym = &elf_file.symtab.items[idx];
+            out_sym.st_name = @intCast(elf_file.strtab.items.len);
+            elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
+            elf_file.strtab.appendAssumeCapacity(0);
+            local.setOutputSym(elf_file, out_sym);
+        }
+
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const file_ptr = global.file(elf_file) orelse continue;
+            if (file_ptr.index() != file.index()) continue;
+            const idx = global.outputSymtabIndex(elf_file) orelse continue;
+            const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
+            elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
+            elf_file.strtab.appendAssumeCapacity(0);
+            const out_sym = &elf_file.symtab.items[idx];
+            out_sym.st_name = st_name;
+            global.setOutputSym(elf_file, out_sym);
+        }
+    }
+
+    pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            .object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
+        const path = switch (file) {
+            .zig_object => |x| x.path,
+            .object => |x| x.path,
+            inline else => unreachable,
+        };
+        const state = switch (file) {
+            .zig_object => |x| &x.output_ar_state,
+            .object => |x| &x.output_ar_state,
+            inline else => unreachable,
+        };
+        if (path.len <= Archive.max_member_name_len) return;
+        state.name_off = try ar_strtab.insert(allocator, path);
+    }
+
+    pub fn updateArSize(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSize(elf_file),
+            .object => |x| x.updateArSize(),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
+        return switch (file) {
+            .zig_object => |x| x.writeAr(elf_file, writer),
+            .object => |x| x.writeAr(writer),
+            inline else => unreachable,
+        };
+    }
+
     pub const Index = u32;
 
     pub const Entry = union(enum) {
         null: void,
-        zig_module: ZigModule,
+        zig_object: ZigObject,
         linker_defined: LinkerDefined,
         object: Object,
-        // shared_object: SharedObject,
+        shared_object: SharedObject,
     };
 };
 
@@ -125,10 +241,12 @@ const std = @import("std");
 const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const Cie = @import("eh_frame.zig").Cie;
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");
-// const SharedObject = @import("SharedObject.zig");
+const SharedObject = @import("SharedObject.zig");
 const Symbol = @import("Symbol.zig");
-const ZigModule = @import("ZigModule.zig");
+const ZigObject = @import("ZigObject.zig");

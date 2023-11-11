@@ -348,7 +348,7 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
         // every 'z' starts with 0
         try a.append(0);
         // path component value of '/'
-        try a.writer().writeIntBig(u16, 1);
+        try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -381,11 +381,11 @@ fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !voi
     var it = std.mem.tokenizeScalar(u8, path, sep);
     while (it.next()) |component| {
         if (self.file_segments.get(component)) |num| {
-            try a.writer().writeIntBig(u16, num);
+            try a.writer().writeInt(u16, num, .big);
         } else {
             self.file_segments_i += 1;
             try self.file_segments.put(self.base.allocator, component, self.file_segments_i);
-            try a.writer().writeIntBig(u16, self.file_segments_i);
+            try a.writer().writeInt(u16, self.file_segments_i, .big);
         }
     }
 }
@@ -607,7 +607,7 @@ pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
         try l.append(toadd);
     } else if (delta_line != 0) {
         try l.append(0);
-        try l.writer().writeIntBig(i32, delta_line);
+        try l.writer().writeInt(i32, delta_line, .big);
     }
 }
 
@@ -922,7 +922,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     @memcpy(hdr_slice, self.hdr.toU8s()[0..hdr_size]);
     // write the fat header for 64 bit entry points
     if (self.sixtyfour_bit) {
-        mem.writeIntSliceBig(u64, hdr_buf[32..40], self.entry_val.?);
+        mem.writeInt(u64, hdr_buf[32..40], self.entry_val.?, .big);
     }
     // perform the relocs
     {
@@ -1116,13 +1116,16 @@ pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !Atom.Index {
     return atom_idx;
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *Plan9,
     module: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
-    _ = try self.seeDecl(decl_index);
+    switch (exported) {
+        .value => @panic("TODO: plan9 updateExports handling values"),
+        .decl_index => |decl_index| _ = try self.seeDecl(decl_index),
+    }
     // we do all the things in flush
     _ = module;
     _ = exports;
@@ -1308,9 +1311,9 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
     // log.debug("write sym{{name: {s}, value: {x}}}", .{ sym.name, sym.value });
     if (sym.type == .bad) return; // we don't want to write free'd symbols
     if (!self.sixtyfour_bit) {
-        try w.writeIntBig(u32, @as(u32, @intCast(sym.value)));
+        try w.writeInt(u32, @as(u32, @intCast(sym.value)), .big);
     } else {
-        try w.writeIntBig(u64, sym.value);
+        try w.writeInt(u64, sym.value, .big);
     }
     try w.writeByte(@intFromEnum(sym.type));
     try w.writeAll(sym.name);

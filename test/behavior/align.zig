@@ -15,6 +15,15 @@ test "global variable alignment" {
     }
 }
 
+test "large alignment of local constant" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
+
+    const x: f32 align(128) = 12.34;
+    try std.testing.expect(@intFromPtr(&x) % 128 == 0);
+}
+
 test "slicing array of length 1 can not assume runtime index is always zero" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -607,8 +616,8 @@ test "sub-aligned pointer field access" {
     const ptr: *align(1) Header = @ptrCast(buf[1..][0..8]);
     const x = ptr.bytes_len;
     switch (builtin.cpu.arch.endian()) {
-        .Big => try expect(x == 0x06070809),
-        .Little => try expect(x == 0x09080706),
+        .big => try expect(x == 0x06070809),
+        .little => try expect(x == 0x09080706),
     }
 }
 

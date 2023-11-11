@@ -177,7 +177,7 @@ fn genNode(func: *Fn, node: NodeIndex) Codegen.Error!Value {
         .int_literal => return Value{ .immediate = @bitCast(data.int) },
         .string_literal_expr => {
             const range = func.c.tree.value_map.get(node).?.data.bytes;
-            const str_bytes = range.slice(func.c.tree.strings);
+            const str_bytes = range.slice(func.c.tree.strings, .@"1");
             const section = try func.c.obj.getSection(.strings);
             const start = section.items.len;
             try section.appendSlice(str_bytes);

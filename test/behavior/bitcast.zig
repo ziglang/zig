@@ -107,14 +107,14 @@ fn testBitCastuXToBytes(comptime N: usize) !void {
 
         const byte_count = (N + 7) / 8;
         switch (native_endian) {
-            .Little => {
+            .little => {
                 var byte_i = 0;
                 while (byte_i < (byte_count - 1)) : (byte_i += 1) {
                     try expect(bytes[byte_i] == 0xff);
                 }
                 try expect(((bytes[byte_i] ^ 0xff) << -%@as(u3, @truncate(N))) == 0);
             },
-            .Big => {
+            .big => {
                 var byte_i = byte_count - 1;
                 while (byte_i > 0) : (byte_i -= 1) {
                     try expect(bytes[byte_i] == 0xff);
@@ -197,11 +197,11 @@ test "@bitCast extern structs at runtime and comptime" {
             var full = Full{ .number = 0x1234 };
             var two_halves = @as(TwoHalves, @bitCast(full));
             switch (native_endian) {
-                .Big => {
+                .big => {
                     try expect(two_halves.half1 == 0x12);
                     try expect(two_halves.half2 == 0x34);
                 },
-                .Little => {
+                .little => {
                     try expect(two_halves.half1 == 0x34);
                     try expect(two_halves.half2 == 0x12);
                 },
@@ -332,7 +332,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
@@ -411,8 +411,9 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 

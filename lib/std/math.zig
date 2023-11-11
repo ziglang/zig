@@ -222,6 +222,8 @@ pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
+pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
+pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
 pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
@@ -496,6 +498,7 @@ test "shl" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -540,6 +543,7 @@ test "shr" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -585,6 +589,7 @@ test "rotr" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -629,6 +634,7 @@ test "rotl" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -1214,7 +1220,9 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     }
                 },
                 .Float, .ComptimeFloat => {
-                    if (value >= maxInt(T)) {
+                    if (isNan(value)) {
+                        return 0;
+                    } else if (value >= maxInt(T)) {
                         return @as(T, maxInt(T));
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
@@ -1234,6 +1242,7 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+    try testing.expect(lossyCast(u32, nan(f32)) == 0);
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
@@ -1258,6 +1267,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test "lerp" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));

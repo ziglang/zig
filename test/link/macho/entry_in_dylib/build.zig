@@ -30,7 +30,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibrary(lib);
     exe.linkLibC();
-    exe.entry_symbol_name = "_bootstrap";
+    exe.entry = .{ .symbol_name = "_bootstrap" };
     exe.forceUndefinedSymbol("_my_main");
 
     const check_exe = exe.checkObject();

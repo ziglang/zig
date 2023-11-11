@@ -278,20 +278,20 @@ pub const Target = struct {
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 14, .minor = 0, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         else => unreachable,
@@ -299,19 +299,19 @@ pub const Target = struct {
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 6, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 1, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
                             .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
@@ -323,7 +323,7 @@ pub const Target = struct {
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8, .patch = 0 },
-                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 4, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
@@ -342,10 +342,10 @@ pub const Target = struct {
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
-                                .max = .{ .major = 5, .minor = 10, .patch = 81 },
+                                .min = .{ .major = 4, .minor = 19, .patch = 0 },
+                                .max = .{ .major = 6, .minor = 5, .patch = 7 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
+                            .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
                         },
                     },
 
@@ -733,7 +733,14 @@ pub const Target = struct {
 
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* |= other_set_int;
+                        },
+                        else => {
+                            set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                        },
+                    }
                 }
 
                 /// Removes the specified feature but not its dependents.
@@ -745,7 +752,14 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* &= ~other_set_int;
+                        },
+                        else => {
+                            set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                        },
+                    }
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -774,10 +788,20 @@ pub const Target = struct {
                 }
 
                 pub fn isSuperSetOf(set: Set, other_set: Set) bool {
-                    const V = @Vector(usize_count, usize);
-                    const set_v: V = set.ints;
-                    const other_v: V = other_set.ints;
-                    return @reduce(.And, (set_v & other_v) == other_v);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            var result = true;
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int|
+                                result = result and (set_int.* & other_set_int) == other_set_int;
+                            return result;
+                        },
+                        else => {
+                            const V = @Vector(usize_count, usize);
+                            const set_v: V = set.ints;
+                            const other_v: V = other_set.ints;
+                            return @reduce(.And, (set_v & other_v) == other_v);
+                        },
+                    }
                 }
             };
 
@@ -1167,7 +1191,7 @@ pub const Target = struct {
                     .loongarch32,
                     .loongarch64,
                     .arc,
-                    => .Little,
+                    => .little,
 
                     .armeb,
                     .aarch64_be,
@@ -1183,7 +1207,7 @@ pub const Target = struct {
                     .tce,
                     .lanai,
                     .s390x,
-                    => .Big,
+                    => .big,
                 };
             }
 

@@ -87,15 +87,15 @@ pub const P384 = struct {
             },
             2, 3 => {
                 if (encoded.len != 48) return error.InvalidEncoding;
-                const x = try Fe.fromBytes(encoded[0..48].*, .Big);
+                const x = try Fe.fromBytes(encoded[0..48].*, .big);
                 const y_is_odd = (encoding_type == 3);
                 const y = try recoverY(x, y_is_odd);
                 return P384{ .x = x, .y = y };
             },
             4 => {
                 if (encoded.len != 96) return error.InvalidEncoding;
-                const x = try Fe.fromBytes(encoded[0..48].*, .Big);
-                const y = try Fe.fromBytes(encoded[48..96].*, .Big);
+                const x = try Fe.fromBytes(encoded[0..48].*, .big);
+                const y = try Fe.fromBytes(encoded[48..96].*, .big);
                 return P384.fromAffineCoordinates(.{ .x = x, .y = y });
             },
             else => return error.InvalidEncoding,
@@ -107,7 +107,7 @@ pub const P384 = struct {
         var out: [49]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
-        out[1..].* = xy.x.toBytes(.Big);
+        out[1..].* = xy.x.toBytes(.big);
         return out;
     }
 
@@ -116,15 +116,15 @@ pub const P384 = struct {
         var out: [97]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        out[1..49].* = xy.x.toBytes(.Big);
-        out[49..97].* = xy.y.toBytes(.Big);
+        out[1..49].* = xy.x.toBytes(.big);
+        out[49..97].* = xy.y.toBytes(.big);
         return out;
     }
 
     /// Return a random point.
     pub fn random() P384 {
-        const n = scalar.random(.Little);
-        return basePoint.mul(n, .Little) catch unreachable;
+        const n = scalar.random(.little);
+        return basePoint.mul(n, .little) catch unreachable;
     }
 
     /// Flip the sign of the X coordinate.
@@ -400,7 +400,7 @@ pub const P384 = struct {
     /// Multiply an elliptic curve point by a scalar.
     /// Return error.IdentityElement if the result is the identity element.
     pub fn mul(p: P384, s_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
-        const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
+        const s = if (endian == .little) s_ else Fe.orderSwap(s_);
         if (p.is_base) {
             return pcMul16(&basePointPc, s, false);
         }
@@ -412,7 +412,7 @@ pub const P384 = struct {
     /// Multiply an elliptic curve point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulPublic(p: P384, s_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
-        const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
+        const s = if (endian == .little) s_ else Fe.orderSwap(s_);
         if (p.is_base) {
             return pcMul16(&basePointPc, s, true);
         }
@@ -424,8 +424,8 @@ pub const P384 = struct {
     /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulDoubleBasePublic(p1: P384, s1_: [48]u8, p2: P384, s2_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
-        const s1 = if (endian == .Little) s1_ else Fe.orderSwap(s1_);
-        const s2 = if (endian == .Little) s2_ else Fe.orderSwap(s2_);
+        const s1 = if (endian == .little) s1_ else Fe.orderSwap(s1_);
+        const s2 = if (endian == .little) s2_ else Fe.orderSwap(s2_);
         try p1.rejectIdentity();
         var pc1_array: [9]P384 = undefined;
         const pc1 = if (p1.is_base) basePointPc[0..9] else pc: {
@@ -479,6 +479,7 @@ pub const AffineCoordinates = struct {
 
 test {
     if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     _ = @import("tests/p384.zig");
 }

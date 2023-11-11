@@ -129,7 +129,7 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
 pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 
 /// Parses the URI or returns an error. This function is not compliant, but is required to parse
-/// some forms of URIs in the wild. Such as HTTP Location headers.
+/// some forms of URIs in the wild, such as HTTP Location headers.
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
@@ -171,9 +171,12 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
             }
         }
 
+        // only possible if uri consists of only `userinfo@`
+        if (start_of_host >= authority.len) break :a;
+
         var end_of_host: usize = authority.len;
 
-        if (authority[start_of_host] == '[') { // IPv6
+        if (authority.len > start_of_host and authority[start_of_host] == '[') { // IPv6
             end_of_host = std.mem.lastIndexOf(u8, authority, "]") orelse return error.InvalidFormat;
             end_of_host += 1;
 
@@ -208,24 +211,45 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
     return uri;
 }
 
-pub fn format(
+pub const WriteToStreamOptions = struct {
+    /// When true, include the scheme part of the URI.
+    scheme: bool = false,
+
+    /// When true, include the user and password part of the URI. Ignored if `authority` is false.
+    authentication: bool = false,
+
+    /// When true, include the authority part of the URI.
+    authority: bool = false,
+
+    /// When true, include the path part of the URI.
+    path: bool = false,
+
+    /// When true, include the query part of the URI. Ignored when `path` is false.
+    query: bool = false,
+
+    /// When true, include the fragment part of the URI. Ignored when `path` is false.
+    fragment: bool = false,
+
+    /// When true, do not escape any part of the URI.
+    raw: bool = false,
+};
+
+pub fn writeToStream(
     uri: Uri,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
+    options: WriteToStreamOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    _ = options;
-
-    const needs_absolute = comptime std.mem.indexOf(u8, fmt, "+") != null;
-    const needs_path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
-    const raw_uri = comptime std.mem.indexOf(u8, fmt, "r") != null;
-    const needs_fragment = comptime std.mem.indexOf(u8, fmt, "#") != null;
-
-    if (needs_absolute) {
+    if (options.scheme) {
         try writer.writeAll(uri.scheme);
         try writer.writeAll(":");
-        if (uri.host) |host| {
+
+        if (options.authority and uri.host != null) {
             try writer.writeAll("//");
+        }
+    }
+
+    if (options.authority) {
+        if (options.authentication and uri.host != null) {
             if (uri.user) |user| {
                 try writer.writeAll(user);
                 if (uri.password) |password| {
@@ -234,7 +258,9 @@ pub fn format(
                 }
                 try writer.writeAll("@");
             }
+        }
 
+        if (uri.host) |host| {
             try writer.writeAll(host);
 
             if (uri.port) |port| {
@@ -244,37 +270,60 @@ pub fn format(
         }
     }
 
-    if (needs_path) {
+    if (options.path) {
         if (uri.path.len == 0) {
             try writer.writeAll("/");
+        } else if (options.raw) {
+            try writer.writeAll(uri.path);
         } else {
-            if (raw_uri) {
-                try writer.writeAll(uri.path);
-            } else {
-                try Uri.writeEscapedPath(writer, uri.path);
-            }
+            try writeEscapedPath(writer, uri.path);
         }
 
-        if (uri.query) |q| {
+        if (options.query) if (uri.query) |q| {
             try writer.writeAll("?");
-            if (raw_uri) {
+            if (options.raw) {
                 try writer.writeAll(q);
             } else {
-                try Uri.writeEscapedQuery(writer, q);
+                try writeEscapedQuery(writer, q);
             }
-        }
+        };
 
-        if (needs_fragment) {
-            if (uri.fragment) |f| {
-                try writer.writeAll("#");
-                if (raw_uri) {
-                    try writer.writeAll(f);
-                } else {
-                    try Uri.writeEscapedQuery(writer, f);
-                }
+        if (options.fragment) if (uri.fragment) |f| {
+            try writer.writeAll("#");
+            if (options.raw) {
+                try writer.writeAll(f);
+            } else {
+                try writeEscapedQuery(writer, f);
             }
-        }
+        };
     }
+}
+
+pub fn format(
+    uri: Uri,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+
+    const scheme = comptime std.mem.indexOf(u8, fmt, ":") != null or fmt.len == 0;
+    const authentication = comptime std.mem.indexOf(u8, fmt, "@") != null or fmt.len == 0;
+    const authority = comptime std.mem.indexOf(u8, fmt, "+") != null or fmt.len == 0;
+    const path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
+    const query = comptime std.mem.indexOf(u8, fmt, "?") != null or fmt.len == 0;
+    const fragment = comptime std.mem.indexOf(u8, fmt, "#") != null or fmt.len == 0;
+    const raw = comptime std.mem.indexOf(u8, fmt, "r") != null or fmt.len == 0;
+
+    return writeToStream(uri, .{
+        .scheme = scheme,
+        .authentication = authentication,
+        .authority = authority,
+        .path = path,
+        .query = query,
+        .fragment = fragment,
+        .raw = raw,
+    }, writer);
 }
 
 /// Parses the URI or returns an error.
@@ -519,6 +568,7 @@ test "authority" {
     try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://userinfo@hostname")).host.?);
     try std.testing.expectEqualSlices(u8, "userinfo", (try parse("scheme://userinfo@hostname")).user.?);
     try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@hostname")).password);
+    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@")).host);
 
     try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://user:password@hostname")).host.?);
     try std.testing.expectEqualSlices(u8, "user", (try parse("scheme://user:password@hostname")).user.?);
@@ -709,7 +759,7 @@ test "URI query escaping" {
     const parsed = try Uri.parse(address);
 
     // format the URI to escape it
-    const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{}", .{parsed});
+    const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{/?}", .{parsed});
     defer std.testing.allocator.free(formatted_uri);
     try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
 }
@@ -727,6 +777,6 @@ test "format" {
     };
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try uri.format("+/", .{}, buf.writer());
+    try uri.format(":/?#", .{}, buf.writer());
     try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }

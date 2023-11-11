@@ -305,12 +305,12 @@ const Odb = struct {
         const n_objects = odb.index_header.fan_out_table[255];
         const offset_values_start = IndexHeader.size + n_objects * (oid_length + 4);
         try odb.index_file.seekTo(offset_values_start + found_index * 4);
-        const l1_offset: packed struct { value: u31, big: bool } = @bitCast(try odb.index_file.reader().readIntBig(u32));
+        const l1_offset: packed struct { value: u31, big: bool } = @bitCast(try odb.index_file.reader().readInt(u32, .big));
         const pack_offset = pack_offset: {
             if (l1_offset.big) {
                 const l2_offset_values_start = offset_values_start + n_objects * 4;
                 try odb.index_file.seekTo(l2_offset_values_start + l1_offset.value * 4);
-                break :pack_offset try odb.index_file.reader().readIntBig(u64);
+                break :pack_offset try odb.index_file.reader().readInt(u64, .big);
             } else {
                 break :pack_offset l1_offset.value;
             }
@@ -518,11 +518,11 @@ pub const Session = struct {
         defer headers.deinit();
         try headers.append("Git-Protocol", "version=2");
 
-        var request = try session.transport.request(.GET, info_refs_uri, headers, .{
+        var request = try session.transport.open(.GET, info_refs_uri, headers, .{
             .max_redirects = 3,
         });
         errdefer request.deinit();
-        try request.start(.{});
+        try request.send(.{});
         try request.finish();
 
         try request.wait();
@@ -641,12 +641,12 @@ pub const Session = struct {
         }
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.request(.POST, upload_pack_uri, headers, .{
+        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.start(.{});
+        try request.send(.{});
         try request.writeAll(body.items);
         try request.finish();
 
@@ -740,12 +740,12 @@ pub const Session = struct {
         try Packet.write(.{ .data = "done\n" }, body_writer);
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.request(.POST, upload_pack_uri, headers, .{
+        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.start(.{});
+        try request.send(.{});
         try request.writeAll(body.items);
         try request.finish();
 
@@ -845,12 +845,12 @@ const PackHeader = struct {
             else => |other| return other,
         };
         if (!mem.eql(u8, &actual_signature, signature)) return error.InvalidHeader;
-        const version = reader.readIntBig(u32) catch |e| switch (e) {
+        const version = reader.readInt(u32, .big) catch |e| switch (e) {
             error.EndOfStream => return error.InvalidHeader,
             else => |other| return other,
         };
         if (version != supported_version) return error.UnsupportedVersion;
-        const total_objects = reader.readIntBig(u32) catch |e| switch (e) {
+        const total_objects = reader.readInt(u32, .big) catch |e| switch (e) {
             error.EndOfStream => return error.InvalidHeader,
             else => |other| return other,
         };
@@ -966,14 +966,14 @@ const IndexHeader = struct {
     fn read(reader: anytype) !IndexHeader {
         var header_bytes = try reader.readBytesNoEof(size);
         if (!mem.eql(u8, header_bytes[0..4], signature)) return error.InvalidHeader;
-        const version = mem.readIntBig(u32, header_bytes[4..8]);
+        const version = mem.readInt(u32, header_bytes[4..8], .big);
         if (version != supported_version) return error.UnsupportedVersion;
 
         var fan_out_table: [256]u32 = undefined;
         var fan_out_table_stream = std.io.fixedBufferStream(header_bytes[8..]);
         const fan_out_table_reader = fan_out_table_stream.reader();
         for (&fan_out_table) |*entry| {
-            entry.* = fan_out_table_reader.readIntBig(u32) catch unreachable;
+            entry.* = fan_out_table_reader.readInt(u32, .big) catch unreachable;
         }
         return .{ .fan_out_table = fan_out_table };
     }
@@ -1041,9 +1041,9 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     var index_hashed_writer = hashedWriter(index_writer, Sha1.init(.{}));
     const writer = index_hashed_writer.writer();
     try writer.writeAll(IndexHeader.signature);
-    try writer.writeIntBig(u32, IndexHeader.supported_version);
+    try writer.writeInt(u32, IndexHeader.supported_version, .big);
     for (fan_out_table) |fan_out_entry| {
-        try writer.writeIntBig(u32, fan_out_entry);
+        try writer.writeInt(u32, fan_out_entry, .big);
     }
 
     for (oids.items) |oid| {
@@ -1051,7 +1051,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     }
 
     for (oids.items) |oid| {
-        try writer.writeIntBig(u32, index_entries.get(oid).?.crc32);
+        try writer.writeInt(u32, index_entries.get(oid).?.crc32, .big);
     }
 
     var big_offsets = std.ArrayListUnmanaged(u64){};
@@ -1059,15 +1059,15 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     for (oids.items) |oid| {
         const offset = index_entries.get(oid).?.offset;
         if (offset <= std.math.maxInt(u31)) {
-            try writer.writeIntBig(u32, @intCast(offset));
+            try writer.writeInt(u32, @intCast(offset), .big);
         } else {
             const index = big_offsets.items.len;
             try big_offsets.append(allocator, offset);
-            try writer.writeIntBig(u32, @as(u32, @intCast(index)) | (1 << 31));
+            try writer.writeInt(u32, @as(u32, @intCast(index)) | (1 << 31), .big);
         }
     }
     for (big_offsets.items) |offset| {
-        try writer.writeIntBig(u64, offset);
+        try writer.writeInt(u64, offset, .big);
     }
 
     try writer.writeAll(&pack_checksum);

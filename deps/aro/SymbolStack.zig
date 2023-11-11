@@ -48,7 +48,7 @@ pub fn scopeEnd(s: SymbolStack) u32 {
 }
 
 pub fn pushScope(s: *SymbolStack, p: *Parser) !void {
-    try s.scopes.append(p.pp.comp.gpa, @intCast(s.syms.len));
+    try s.scopes.append(p.gpa, @intCast(s.syms.len));
 }
 
 pub fn popScope(s: *SymbolStack) void {
@@ -154,7 +154,7 @@ pub fn defineTypedef(
         switch (kinds[i]) {
             .typedef => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (ty.eql(prev_ty, p.pp.comp, true)) break;
+                if (ty.eql(prev_ty, p.comp, true)) break;
                 try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev_ty));
                 const previous_tok = s.syms.items(.tok)[i];
                 if (previous_tok != 0) try p.errTok(.previous_definition, previous_tok);
@@ -163,7 +163,7 @@ pub fn defineTypedef(
             else => {},
         }
     }
-    try s.syms.append(p.pp.comp.gpa, .{
+    try s.syms.append(p.gpa, .{
         .kind = .typedef,
         .name = name,
         .tok = tok,
@@ -197,7 +197,7 @@ pub fn defineSymbol(
             },
             .decl => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.pp.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                 }
@@ -211,7 +211,7 @@ pub fn defineSymbol(
             else => {},
         }
     }
-    try s.syms.append(p.pp.comp.gpa, .{
+    try s.syms.append(p.gpa, .{
         .kind = if (constexpr) .constexpr else .def,
         .name = name,
         .tok = tok,
@@ -243,7 +243,7 @@ pub fn declareSymbol(
             },
             .decl => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.pp.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                 }
@@ -251,7 +251,7 @@ pub fn declareSymbol(
             },
             .def, .constexpr => if (names[i] == name) {
                 const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.pp.comp, true)) { // TODO adjusted equality check
+                if (!ty.eql(prev_ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
                     try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
                     break;
@@ -261,7 +261,7 @@ pub fn declareSymbol(
             else => {},
         }
     }
-    try s.syms.append(p.pp.comp.gpa, .{
+    try s.syms.append(p.gpa, .{
         .kind = .decl,
         .name = name,
         .tok = tok,
@@ -290,7 +290,7 @@ pub fn defineParam(s: *SymbolStack, p: *Parser, name: StringId, ty: Type, tok: T
     if (ty.is(.fp16) and !p.comp.hasHalfPrecisionFloatABI()) {
         try p.errStr(.suggest_pointer_for_invalid_fp16, tok, "parameters");
     }
-    try s.syms.append(p.pp.comp.gpa, .{
+    try s.syms.append(p.gpa, .{
         .kind = .def,
         .name = name,
         .tok = tok,
@@ -365,7 +365,7 @@ pub fn defineEnumeration(
             else => {},
         }
     }
-    try s.syms.append(p.pp.comp.gpa, .{
+    try s.syms.append(p.gpa, .{
         .kind = .enumeration,
         .name = name,
         .tok = tok,

@@ -364,7 +364,6 @@ pub const Value = struct {
             .inferred_error_set_type,
 
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -464,7 +463,6 @@ pub const Value = struct {
             .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .runtime_value => |runtime_value| runtime_value.val.toValue().toBigIntAdvanced(space, mod, opt_sema),
                 .int => |int| switch (int.storage) {
                     .u64, .i64, .big_int => int.storage.toBigInt(space),
                     .lazy_align, .lazy_size => |ty| {
@@ -701,15 +699,20 @@ pub const Value = struct {
                 }
             },
             .ErrorSet => {
-                // TODO revisit this when we have the concept of the error tag type
-                const Int = u16;
+                const bits = mod.errorSetBits();
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
+
                 const name = switch (ip.indexToKey(val.toIntern())) {
                     .err => |err| err.name,
                     .error_union => |error_union| error_union.val.err_name,
                     else => unreachable,
                 };
-                const int = @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(name).?));
-                std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @as(Int, @intCast(int)), endian);
+                var bigint_buffer: BigIntSpace = undefined;
+                const bigint = BigIntMutable.init(
+                    &bigint_buffer.limbs,
+                    mod.global_error_set.getIndex(name).?,
+                ).toConst();
+                bigint.writeTwosComplement(buffer[0..byte_count], endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
@@ -775,8 +778,8 @@ pub const Value = struct {
             .Void => {},
             .Bool => {
                 const byte_index = switch (endian) {
-                    .Little => bit_offset / 8,
-                    .Big => buffer.len - bit_offset / 8 - 1,
+                    .little => bit_offset / 8,
+                    .big => buffer.len - bit_offset / 8 - 1,
                 };
                 if (val.toBool()) {
                     buffer[byte_index] |= (@as(u8, 1) << @as(u3, @intCast(bit_offset % 8)));
@@ -812,7 +815,7 @@ pub const Value = struct {
                 var elem_i: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
-                    const tgt_elem_i = if (endian == .Big) len - elem_i - 1 else elem_i;
+                    const tgt_elem_i = if (endian == .big) len - elem_i - 1 else elem_i;
                     const elem_val = try val.elemValue(mod, tgt_elem_i);
                     try elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
                     bits += elem_bit_size;
@@ -987,10 +990,12 @@ pub const Value = struct {
                 }
             },
             .ErrorSet => {
-                // TODO revisit this when we have the concept of the error tag type
-                const Int = u16;
-                const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], endian);
-                const name = mod.global_error_set.keys()[@as(usize, @intCast(int))];
+                const bits = mod.errorSetBits();
+                const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
+                const int = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
+                const index = (int << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
+                const name = mod.global_error_set.keys()[@intCast(index)];
+
                 return (try mod.intern(.{ .err = .{
                     .ty = ty.toIntern(),
                     .name = name,
@@ -1059,8 +1064,8 @@ pub const Value = struct {
             .Void => return Value.void,
             .Bool => {
                 const byte = switch (endian) {
-                    .Big => buffer[buffer.len - bit_offset / 8 - 1],
-                    .Little => buffer[bit_offset / 8],
+                    .big => buffer[buffer.len - bit_offset / 8 - 1],
+                    .little => buffer[bit_offset / 8],
                 };
                 if (((byte >> @as(u3, @intCast(bit_offset % 8))) & 1) == 0) {
                     return Value.false;
@@ -1122,7 +1127,7 @@ pub const Value = struct {
                 const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
                 for (elems, 0..) |_, i| {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
-                    const tgt_elem_i = if (endian == .Big) elems.len - i - 1 else i;
+                    const tgt_elem_i = if (endian == .big) elems.len - i - 1 else i;
                     elems[tgt_elem_i] = try (try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena)).intern(elem_ty, mod);
                     bits += elem_bit_size;
                 }
@@ -1571,7 +1576,7 @@ pub const Value = struct {
             .none => switch (ip.indexToKey(switch (ptr.addr) {
                 .decl => |decl| mod.declPtr(decl).ty.toIntern(),
                 .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
-                .anon_decl => |anon_decl| ip.typeOf(anon_decl),
+                .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
                 .comptime_field => |comptime_field| ip.typeOf(comptime_field),
                 else => unreachable,
             })) {
@@ -1604,7 +1609,7 @@ pub const Value = struct {
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
-                    .anon_decl => |anon_decl| anon_decl.toValue().maybeElemValue(mod, index),
+                    .anon_decl => |anon_decl| anon_decl.val.toValue().maybeElemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
                         .toValue().maybeElemValue(mod, index),
                     .int, .eu_payload => null,
@@ -1646,34 +1651,6 @@ pub const Value = struct {
     pub fn isLazySize(val: Value, mod: *Module) bool {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| int.storage == .lazy_size,
-            else => false,
-        };
-    }
-
-    pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.isRuntimeValue(val.toIntern());
-    }
-
-    /// Returns true if a Value is backed by a variable
-    pub fn isVariable(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => true,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isVariable(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isVariable(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isVariable(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isVariable(mod),
-            },
             else => false,
         };
     }

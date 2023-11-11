@@ -417,8 +417,8 @@ pub const FloatMode = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Endian = enum {
-    Big,
-    Little,
+    big,
+    little,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -717,6 +717,7 @@ else
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+
 pub const panicInactiveUnionField: PanicInactiveUnionFieldFn = if (@hasDecl(root, "panicInactiveUnionField"))
     root.panicInactiveUnionField
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicInactiveUnionField"))
@@ -858,15 +859,15 @@ const default = struct {
     /// This function is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     fn panic(msg: []const u8, error_return_trace: ?*default.StackTrace, ret_addr: ?usize) noreturn {
-        @setCold(true);
+       @setCold(true);
 
         // For backends that cannot handle the language features depended on by the
         // default panic handler, we have a simpler panic handler:
         if (builtin.zig_backend == .stage2_wasm or
             builtin.zig_backend == .stage2_arm or
             builtin.zig_backend == .stage2_aarch64 or
-            builtin.zig_backend == .stage2_x86_64 or
             builtin.zig_backend == .stage2_x86 or
+            (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) or
             builtin.zig_backend == .stage2_riscv64 or
             builtin.zig_backend == .stage2_sparc64 or
             builtin.zig_backend == .stage2_spirv64)
@@ -921,9 +922,9 @@ const default = struct {
 
                 if (exit_data) |data| {
                     if (uefi.system_table.std_err) |out| {
-                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
                         _ = out.outputString(data);
-                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
                     }
                 }
 
@@ -935,6 +936,13 @@ const default = struct {
                 std.os.abort();
             },
             .cuda, .amdhsa => std.os.abort(),
+            .plan9 => {
+                var status: [std.os.plan9.ERRMAX]u8 = undefined;
+                const len = @min(msg.len, status.len - 1);
+                @memcpy(status[0..len], msg[0..len]);
+                status[len] = 0;
+                std.os.plan9.exits(status[0..len :0]);
+            },
             else => {
                 const first_trace_addr = ret_addr orelse @returnAddress();
                 std.debug.panicImpl(error_return_trace, first_trace_addr, msg);

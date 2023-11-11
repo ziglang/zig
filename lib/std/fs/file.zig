@@ -453,7 +453,7 @@ pub const File = struct {
         }
 
         /// Sets whether write permissions are provided.
-        /// On Unix, this affects *all* classes. If this is undesired, use `unixSet`
+        /// On Unix, this affects *all* classes. If this is undesired, use `unixSet`.
         /// This method *DOES NOT* set permissions on the filesystem: use `File.setPermissions(permissions)`
         pub fn setReadOnly(self: *Self, read_only: bool) void {
             self.inner.setReadOnly(read_only);
@@ -493,7 +493,7 @@ pub const File = struct {
         }
 
         /// Sets whether write permissions are provided.
-        /// This affects *all* classes. If this is undesired, use `unixSet`
+        /// This affects *all* classes. If this is undesired, use `unixSet`.
         /// This method *DOES NOT* set permissions on the filesystem: use `File.setPermissions(permissions)`
         pub fn setReadOnly(self: *Self, read_only: bool) void {
             if (read_only) {
@@ -706,7 +706,7 @@ pub const File = struct {
             return @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec;
         }
 
-        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
+        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
         /// Returns null if this is not supported by the OS or filesystem
         pub fn created(self: Self) ?i128 {
             if (!@hasDecl(@TypeOf(self.stat), "birthtime")) return null;
@@ -772,7 +772,7 @@ pub const File = struct {
             return @as(i128, self.statx.mtime.tv_sec) * std.time.ns_per_s + self.statx.mtime.tv_nsec;
         }
 
-        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
+        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
         /// Returns null if this is not supported by the filesystem, or on kernels before than version 4.11
         pub fn created(self: Self) ?i128 {
             if (self.statx.mask & os.linux.STATX_BTIME == 0) return null;
@@ -825,7 +825,7 @@ pub const File = struct {
             return self.modified_time;
         }
 
-        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
+        /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
         /// This never returns null, only returning an optional for compatibility with other OSes
         pub fn created(self: Self) ?i128 {
             return self.creation_time;

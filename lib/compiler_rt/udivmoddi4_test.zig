@@ -1,7 +1,9 @@
 // Disable formatting to avoid unnecessary source repository bloat.
 // zig fmt: off
-const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 const testing = @import("std").testing;
+const builtin = @import("builtin");
+const __udivmoddi4 = @import("int.zig").__udivmoddi4;
+const __aeabi_uldivmod = @import("arm.zig").__aeabi_uldivmod;
 
 fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
     var r: u64 = undefined;
@@ -13,6 +15,26 @@ fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
 test "udivmoddi4" {
     for (cases) |case| {
         try test__udivmoddi4(case[0], case[1], case[2], case[3]);
+    }
+}
+
+const ARMRes = extern struct {
+    q: u64, // r1:r0
+    r: u64, // r3:r2
+};
+
+fn test__aeabi_uldivmod(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
+    const actualUldivmod = @as(*const fn (a: u64, b: u64) callconv(.AAPCS) ARMRes, @ptrCast(&__aeabi_uldivmod));
+    const arm_res = actualUldivmod(a, b);
+    try testing.expectEqual(expected_q, arm_res.q);
+    try testing.expectEqual(expected_r, arm_res.r);
+}
+
+test "arm.__aeabi_uldivmod" {
+    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
+
+    for (cases) |case| {
+        try test__aeabi_uldivmod(case[0], case[1], case[2], case[3]);
     }
 }
 

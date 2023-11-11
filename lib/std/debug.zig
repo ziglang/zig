@@ -671,8 +671,8 @@ pub const StackIterator = struct {
             if (self.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
+                    defer self.fp = unwind_state.dwarf_context.getFp() catch 0;
                     if (self.next_unwind()) |return_address| {
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -1098,8 +1098,8 @@ pub fn readElfDebugInfo(
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-            elf.ELFDATA2LSB => .Little,
-            elf.ELFDATA2MSB => .Big,
+            elf.ELFDATA2LSB => .little,
+            elf.ELFDATA2MSB => .big,
             else => return error.InvalidElfEndian,
         };
         assert(endian == native_endian); // this is our own debug info
@@ -1135,8 +1135,8 @@ pub fn readElfDebugInfo(
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
                 const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
                 const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
-                const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
-                separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
+                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
+                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
                 separate_debug_filename = debug_filename;
                 continue;
             }
@@ -1868,10 +1868,10 @@ pub const DebugInfo = struct {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
                             const note_bytes = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
-                            const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
+                            const name_size = mem.readInt(u32, note_bytes[0..4], native_endian);
                             if (name_size != 4) continue;
-                            const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
-                            const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
+                            const desc_size = mem.readInt(u32, note_bytes[4..8], native_endian);
+                            const note_type = mem.readInt(u32, note_bytes[8..12], native_endian);
                             if (note_type != elf.NT_GNU_BUILD_ID) continue;
                             if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
                             context.build_id = note_bytes[16..][0..desc_size];
@@ -2040,7 +2040,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (missing_debug_info) return error.MissingDebugInfo;
 
             var di = DW.DwarfInfo{
-                .endian = .Little,
+                .endian = .little,
                 .sections = sections,
                 .is_macho = true,
             };
@@ -2340,7 +2340,7 @@ pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSuppor
     try os.sigaction(os.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
+/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");

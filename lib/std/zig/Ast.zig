@@ -12,6 +12,7 @@ tokens: TokenList.Slice,
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
+mode: Mode = .zig,
 
 errors: []const Error,
 
@@ -96,6 +97,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
+        .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
@@ -111,12 +113,14 @@ pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer);
+    try tree.renderToArrayList(&buffer, .{});
     return buffer.toOwnedSlice();
 }
 
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
-    return @import("./render.zig").renderTree(buffer, tree);
+pub const Fixups = private_render.Fixups;
+
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
+    return @import("./render.zig").renderTree(buffer, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
@@ -136,9 +140,20 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..], 0..) |c, i| {
-        if (i + start_offset == token_start) {
-            loc.line_end = i + start_offset;
+
+    // Scan to by line until we go past the token start
+    while (std.mem.indexOfScalarPos(u8, self.source, loc.line_start, '\n')) |i| {
+        if (i >= token_start) {
+            break; // Went past
+        }
+        loc.line += 1;
+        loc.line_start = i + 1;
+    }
+
+    const offset = loc.line_start;
+    for (self.source[offset..], 0..) |c, i| {
+        if (i + offset == token_start) {
+            loc.line_end = i + offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
                 loc.line_end += 1;
             }
@@ -2976,7 +2991,7 @@ pub const Node = struct {
         assign_mul,
         /// `lhs /= rhs`. main_token is op.
         assign_div,
-        /// `lhs *= rhs`. main_token is op.
+        /// `lhs %= rhs`. main_token is op.
         assign_mod,
         /// `lhs += rhs`. main_token is op.
         assign_add,
@@ -3118,7 +3133,7 @@ pub const Node = struct {
         /// `lhs[b..c]`. rhs is index into Slice
         /// main_token is the lbracket.
         slice,
-        /// `lhs[b..c :d]`. rhs is index into SliceSentinel
+        /// `lhs[b..c :d]`. rhs is index into SliceSentinel. Slice end "c" can be omitted.
         /// main_token is the lbracket.
         slice_sentinel,
         /// `lhs.*`. rhs is unused.
@@ -3218,12 +3233,13 @@ pub const Node = struct {
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
+        /// The cont expression part `: (a)` may be omitted.
         @"while",
         /// `for (lhs) rhs`.
         for_simple,
         /// `for (lhs[0..inputs]) lhs[inputs + 1] else lhs[inputs + 2]`. `For[rhs]`.
         @"for",
-        /// `lhs..rhs`.
+        /// `lhs..rhs`. rhs can be omitted.
         for_range,
         /// `if (lhs) rhs`.
         /// `if (lhs) |a| rhs`.
@@ -3527,6 +3543,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+const private_render = @import("./render.zig");
 
 test {
     testing.refAllDecls(@This());

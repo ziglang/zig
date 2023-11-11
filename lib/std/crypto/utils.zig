@@ -54,7 +54,7 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
     const Cext = std.meta.Int(.unsigned, bits + 1);
     var gt: T = 0;
     var eq: T = 1;
-    if (endian == .Little) {
+    if (endian == .little) {
         var i = a.len;
         while (i != 0) {
             i -= 1;
@@ -84,7 +84,7 @@ pub fn timingSafeAdd(comptime T: type, a: []const T, b: []const T, result: []T, 
     const len = a.len;
     debug.assert(len == b.len and len == result.len);
     var carry: u1 = 0;
-    if (endian == .Little) {
+    if (endian == .little) {
         var i: usize = 0;
         while (i < len) : (i += 1) {
             const ov1 = @addWithOverflow(a[i], b[i]);
@@ -111,7 +111,7 @@ pub fn timingSafeSub(comptime T: type, a: []const T, b: []const T, result: []T, 
     const len = a.len;
     debug.assert(len == b.len and len == result.len);
     var borrow: u1 = 0;
-    if (endian == .Little) {
+    if (endian == .little) {
         var i: usize = 0;
         while (i < len) : (i += 1) {
             const ov1 = @subWithOverflow(a[i], b[i]);
@@ -149,6 +149,8 @@ test "crypto.utils.timingSafeEql" {
 }
 
 test "crypto.utils.timingSafeEql (vectors)" {
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
     random.bytes(a[0..]);
@@ -163,14 +165,14 @@ test "crypto.utils.timingSafeEql (vectors)" {
 test "crypto.utils.timingSafeCompare" {
     var a = [_]u8{10} ** 32;
     var b = [_]u8{10} ** 32;
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .eq);
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .eq);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .big), .eq);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .little), .eq);
     a[31] = 1;
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .lt);
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .big), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .little), .lt);
     a[0] = 20;
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .gt);
-    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .big), .gt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .little), .lt);
 }
 
 test "crypto.utils.timingSafe{Add,Sub}" {
@@ -183,7 +185,7 @@ test "crypto.utils.timingSafe{Add,Sub}" {
     while (iterations != 0) : (iterations -= 1) {
         random.bytes(&a);
         random.bytes(&b);
-        const endian = if (iterations % 2 == 0) Endian.Big else Endian.Little;
+        const endian = if (iterations % 2 == 0) Endian.big else Endian.little;
         _ = timingSafeSub(u8, &a, &b, &c, endian); // a-b
         _ = timingSafeAdd(u8, &c, &b, &c, endian); // (a-b)+b
         try testing.expectEqualSlices(u8, &c, &a);

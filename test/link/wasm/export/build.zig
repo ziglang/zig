@@ -13,31 +13,34 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const no_export = b.addSharedLibrary(.{
+    const no_export = b.addExecutable(.{
         .name = "no-export",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
+    no_export.entry = .disabled;
     no_export.use_llvm = false;
     no_export.use_lld = false;
 
-    const dynamic_export = b.addSharedLibrary(.{
+    const dynamic_export = b.addExecutable(.{
         .name = "dynamic",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
+    dynamic_export.entry = .disabled;
     dynamic_export.rdynamic = true;
     dynamic_export.use_llvm = false;
     dynamic_export.use_lld = false;
 
-    const force_export = b.addSharedLibrary(.{
+    const force_export = b.addExecutable(.{
         .name = "force",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
+    force_export.entry = .disabled;
     force_export.export_symbol_names = &.{"foo"};
     force_export.use_llvm = false;
     force_export.use_lld = false;

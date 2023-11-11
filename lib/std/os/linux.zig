@@ -206,11 +206,11 @@ fn splitValueBE64(val: i64) [2]u32 {
 fn splitValue64(val: i64) [2]u32 {
     const u: u64 = @bitCast(val);
     switch (native_endian) {
-        .Little => return [2]u32{
+        .little => return [2]u32{
             @as(u32, @truncate(u)),
             @as(u32, @truncate(u >> 32)),
         },
-        .Big => return [2]u32{
+        .big => return [2]u32{
             @as(u32, @truncate(u >> 32)),
             @as(u32, @truncate(u)),
         },
@@ -1030,7 +1030,7 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
-pub fn gettimeofday(tv: *timeval, tz: *timezone) usize {
+pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
 
@@ -3740,35 +3740,6 @@ else
         fields: siginfo_fields_union,
     };
 
-pub const io_uring_params = extern struct {
-    sq_entries: u32,
-    cq_entries: u32,
-    flags: u32,
-    sq_thread_cpu: u32,
-    sq_thread_idle: u32,
-    features: u32,
-    wq_fd: u32,
-    resv: [3]u32,
-    sq_off: io_sqring_offsets,
-    cq_off: io_cqring_offsets,
-};
-
-// io_uring_params.features flags
-
-pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
-pub const IORING_FEAT_NODROP = 1 << 1;
-pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
-pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
-pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
-pub const IORING_FEAT_FAST_POLL = 1 << 5;
-pub const IORING_FEAT_POLL_32BITS = 1 << 6;
-pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
-pub const IORING_FEAT_EXT_ARG = 1 << 8;
-pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
-pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
-pub const IORING_FEAT_CQE_SKIP = 1 << 11;
-pub const IORING_FEAT_LINKED_FILE = 1 << 12;
-
 // io_uring_params.flags
 
 /// io_context is polled
@@ -3812,53 +3783,15 @@ pub const IORING_SETUP_SQE128 = 1 << 10;
 /// CQEs are 32 byte
 pub const IORING_SETUP_CQE32 = 1 << 11;
 
-pub const io_sqring_offsets = extern struct {
-    /// offset of ring head
-    head: u32,
+/// Only one task is allowed to submit requests
+pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
 
-    /// offset of ring tail
-    tail: u32,
+/// Defer running task work to get events.
+/// Rather than running bits of task work whenever the task transitions
+/// try to do it just before it is needed.
+pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
 
-    /// ring mask value
-    ring_mask: u32,
-
-    /// entries in ring
-    ring_entries: u32,
-
-    /// ring flags
-    flags: u32,
-
-    /// number of sqes not submitted
-    dropped: u32,
-
-    /// sqe index array
-    array: u32,
-
-    resv1: u32,
-    user_addr: u64,
-};
-
-// io_sqring_offsets.flags
-
-/// needs io_uring_enter wakeup
-pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
-/// kernel has cqes waiting beyond the cq ring
-pub const IORING_SQ_CQ_OVERFLOW = 1 << 1;
-/// task should enter the kernel
-pub const IORING_SQ_TASKRUN = 1 << 2;
-
-pub const io_cqring_offsets = extern struct {
-    head: u32,
-    tail: u32,
-    ring_mask: u32,
-    ring_entries: u32,
-    overflow: u32,
-    cqes: u32,
-    flags: u32,
-    resv: u32,
-    user_addr: u64,
-};
-
+/// IO submission data structure (Submission Queue Entry)
 pub const io_uring_sqe = extern struct {
     opcode: IORING_OP,
     flags: u8,
@@ -3872,8 +3805,17 @@ pub const io_uring_sqe = extern struct {
     buf_index: u16,
     personality: u16,
     splice_fd_in: i32,
-    __pad2: [2]u64,
+    addr3: u64,
+    resv: u64,
 };
+
+/// If sqe->file_index is set to this for opcodes that instantiate a new
+/// direct descriptor (like openat/openat2/accept), then io_uring will allocate
+/// an available direct descriptor instead of having the application pass one
+/// in. The picked direct descriptor will be returned in cqe->res, or -ENFILE
+/// if the space is full.
+/// Available since Linux 5.19
+pub const IORING_FILE_INDEX_ALLOC = maxInt(u32);
 
 pub const IOSQE_BIT = enum(u8) {
     FIXED_FILE,
@@ -3964,6 +3906,10 @@ pub const IORING_OP = enum(u8) {
 
     _,
 };
+// io_uring_sqe.uring_cmd_flags (rw_flags in the Zig struct)
+
+/// use registered buffer; pass thig flag along with setting sqe->buf_index.
+pub const IORING_URING_CMD_FIXED = 1 << 0;
 
 // io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
 pub const IORING_FSYNC_DATASYNC = 1 << 0;
@@ -3990,6 +3936,7 @@ pub const IORING_POLL_ADD_MULTI = 1 << 0;
 /// Update existing poll request, matching sqe->addr as the old user_data field.
 pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
 pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
+pub const IORING_POLL_ADD_LEVEL = 1 << 3;
 
 // ASYNC_CANCEL flags.
 
@@ -3999,6 +3946,8 @@ pub const IORING_ASYNC_CANCEL_ALL = 1 << 0;
 pub const IORING_ASYNC_CANCEL_FD = 1 << 1;
 /// Match any request
 pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
+/// 'fd' passed in is a fixed descriptor. Available since Linux 6.0
+pub const IORING_ASYNC_CANCEL_FD_FIXED = 1 << 3;
 
 // send/sendmsg and recv/recvmsg flags (sqe->ioprio)
 
@@ -4007,9 +3956,31 @@ pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
 pub const IORING_RECVSEND_POLL_FIRST = 1 << 0;
 /// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue to report CQEs on behalf of the same SQE.
 pub const IORING_RECV_MULTISHOT = 1 << 1;
+/// Use registered buffers, the index is stored in the buf_index field.
+pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
+/// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
+pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
+/// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
+pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
 
-/// accept flags stored in sqe->ioprio
+/// accept flags stored in sqe->iopri
 pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
+
+/// IORING_OP_MSG_RING command types, stored in sqe->addr
+pub const IORING_MSG_RING_COMMAND = enum(u8) {
+    /// pass sqe->len as 'res' and off as user_data
+    DATA,
+    /// send a registered fd to another ring
+    SEND_FD,
+};
+
+// io_uring_sqe.msg_ring_flags (rw_flags in the Zig struct)
+
+/// Don't post a CQE to the target ring. Not applicable for IORING_MSG_DATA, obviously.
+pub const IORING_MSG_RING_CQE_SKIP = 1 << 0;
+
+/// Pass through the flags from sqe->file_index (splice_fd_in in the zig struct) to cqe->flags */
+pub const IORING_MSG_RING_FLAGS_PASS = 1 << 1;
 
 // IO completion data structure (Completion Queue Entry)
 pub const io_uring_cqe = extern struct {
@@ -4019,6 +3990,8 @@ pub const io_uring_cqe = extern struct {
     /// result code for this event
     res: i32,
     flags: u32,
+
+    // Followed by 16 bytes of padding if initialized with IORING_SETUP_CQE32, doubling cqe size
 
     pub fn err(self: io_uring_cqe) E {
         if (self.res > -4096 and self.res < 0) {
@@ -4040,10 +4013,65 @@ pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 /// Set for notification CQEs. Can be used to distinct them from sends.
 pub const IORING_CQE_F_NOTIF = 1 << 3;
 
+pub const IORING_CQE_BUFFER_SHIFT = 16;
+
 /// Magic offsets for the application to mmap the data it needs
 pub const IORING_OFF_SQ_RING = 0;
 pub const IORING_OFF_CQ_RING = 0x8000000;
 pub const IORING_OFF_SQES = 0x10000000;
+
+/// Filled with the offset for mmap(2)
+pub const io_sqring_offsets = extern struct {
+    /// offset of ring head
+    head: u32,
+
+    /// offset of ring tail
+    tail: u32,
+
+    /// ring mask value
+    ring_mask: u32,
+
+    /// entries in ring
+    ring_entries: u32,
+
+    /// ring flags
+    flags: u32,
+
+    /// number of sqes not submitted
+    dropped: u32,
+
+    /// sqe index array
+    array: u32,
+
+    resv1: u32,
+    user_addr: u64,
+};
+
+// io_sqring_offsets.flags
+
+/// needs io_uring_enter wakeup
+pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
+/// kernel has cqes waiting beyond the cq ring
+pub const IORING_SQ_CQ_OVERFLOW = 1 << 1;
+/// task should enter the kernel
+pub const IORING_SQ_TASKRUN = 1 << 2;
+
+pub const io_cqring_offsets = extern struct {
+    head: u32,
+    tail: u32,
+    ring_mask: u32,
+    ring_entries: u32,
+    overflow: u32,
+    cqes: u32,
+    flags: u32,
+    resv: u32,
+    user_addr: u64,
+};
+
+// io_cqring_offsets.flags
+
+/// disable eventfd notifications
+pub const IORING_CQ_EVENTFD_DISABLED = 1 << 0;
 
 // io_uring_enter flags
 pub const IORING_ENTER_GETEVENTS = 1 << 0;
@@ -4052,8 +4080,37 @@ pub const IORING_ENTER_SQ_WAIT = 1 << 2;
 pub const IORING_ENTER_EXT_ARG = 1 << 3;
 pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
 
+pub const io_uring_params = extern struct {
+    sq_entries: u32,
+    cq_entries: u32,
+    flags: u32,
+    sq_thread_cpu: u32,
+    sq_thread_idle: u32,
+    features: u32,
+    wq_fd: u32,
+    resv: [3]u32,
+    sq_off: io_sqring_offsets,
+    cq_off: io_cqring_offsets,
+};
+
+// io_uring_params.features flags
+
+pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
+pub const IORING_FEAT_NODROP = 1 << 1;
+pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
+pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
+pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
+pub const IORING_FEAT_FAST_POLL = 1 << 5;
+pub const IORING_FEAT_POLL_32BITS = 1 << 6;
+pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
+pub const IORING_FEAT_EXT_ARG = 1 << 8;
+pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
+pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
+pub const IORING_FEAT_CQE_SKIP = 1 << 11;
+pub const IORING_FEAT_LINKED_FILE = 1 << 12;
+
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = enum(u8) {
+pub const IORING_REGISTER = enum(u32) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
@@ -4069,40 +4126,92 @@ pub const IORING_REGISTER = enum(u8) {
     REGISTER_ENABLE_RINGS,
 
     // extended with tagging
-    IORING_REGISTER_FILES2,
-    IORING_REGISTER_FILES_UPDATE2,
-    IORING_REGISTER_BUFFERS2,
-    IORING_REGISTER_BUFFERS_UPDATE,
+    REGISTER_FILES2,
+    REGISTER_FILES_UPDATE2,
+    REGISTER_BUFFERS2,
+    REGISTER_BUFFERS_UPDATE,
 
     // set/clear io-wq thread affinities
-    IORING_REGISTER_IOWQ_AFF,
-    IORING_UNREGISTER_IOWQ_AFF,
+    REGISTER_IOWQ_AFF,
+    UNREGISTER_IOWQ_AFF,
 
     // set/get max number of io-wq workers
-    IORING_REGISTER_IOWQ_MAX_WORKERS,
+    REGISTER_IOWQ_MAX_WORKERS,
 
     // register/unregister io_uring fd with the ring
-    IORING_REGISTER_RING_FDS,
-    IORING_UNREGISTER_RING_FDS,
+    REGISTER_RING_FDS,
+    NREGISTER_RING_FDS,
 
     // register ring based provide buffer group
-    IORING_REGISTER_PBUF_RING,
-    IORING_UNREGISTER_PBUF_RING,
+    REGISTER_PBUF_RING,
+    UNREGISTER_PBUF_RING,
 
     // sync cancelation API
-    IORING_REGISTER_SYNC_CANCEL,
+    REGISTER_SYNC_CANCEL,
 
     // register a range of fixed file slots for automatic slot allocation
-    IORING_REGISTER_FILE_ALLOC_RANGE,
+    REGISTER_FILE_ALLOC_RANGE,
+
+    // flag added to the opcode to use a registered ring fd
+    IORING_REGISTER_USE_REGISTERED_RING = 1 << 31,
 
     _,
 };
 
+/// io_uring_restriction->opcode values
+pub const IOWQ_CATEGORIES = enum(u8) {
+    BOUND,
+    UNBOUND,
+};
+
+/// deprecated, see struct io_uring_rsrc_update
 pub const io_uring_files_update = extern struct {
     offset: u32,
     resv: u32,
     fds: u64,
 };
+
+/// Register a fully sparse file space, rather than pass in an array of all -1 file descriptors.
+pub const IORING_RSRC_REGISTER_SPARSE = 1 << 0;
+
+pub const io_uring_rsrc_register = extern struct {
+    nr: u32,
+    flags: u32,
+    resv2: u64,
+    data: u64,
+    tags: u64,
+};
+
+pub const io_uring_rsrc_update = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+};
+
+pub const io_uring_rsrc_update2 = extern struct {
+    offset: u32,
+    resv: u32,
+    data: u64,
+    tags: u64,
+    nr: u32,
+    resv2: u32,
+};
+
+pub const io_uring_notification_slot = extern struct {
+    tag: u64,
+    resv: [3]u64,
+};
+
+pub const io_uring_notification_register = extern struct {
+    nr_slots: u32,
+    resv: u32,
+    resv2: u64,
+    data: u64,
+    resv3: u64,
+};
+
+/// Skip updating fd indexes set to this value in the fd table */
+pub const IORING_REGISTER_FILES_SKIP = -2;
 
 pub const IO_URING_OP_SUPPORTED = 1 << 0;
 
@@ -4131,7 +4240,7 @@ pub const io_uring_probe = extern struct {
 };
 
 pub const io_uring_restriction = extern struct {
-    opcode: u16,
+    opcode: IORING_RESTRICTION,
     arg: extern union {
         /// IORING_RESTRICTION_REGISTER_OP
         register_op: IORING_REGISTER,
@@ -4147,7 +4256,7 @@ pub const io_uring_restriction = extern struct {
 };
 
 /// io_uring_restriction->opcode values
-pub const IORING_RESTRICTION = enum(u8) {
+pub const IORING_RESTRICTION = enum(u16) {
     /// Allow an io_uring_register(2) opcode
     REGISTER_OP = 0,
 
@@ -4161,6 +4270,56 @@ pub const IORING_RESTRICTION = enum(u8) {
     SQE_FLAGS_REQUIRED = 3,
 
     _,
+};
+
+pub const io_uring_buf = extern struct {
+    addr: u64,
+    len: u32,
+    bid: u16,
+    resv: u16,
+};
+
+// io_uring_buf_ring struct omitted
+// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+
+/// argument for IORING_(UN)REGISTER_PBUF_RING
+pub const io_uring_buf_reg = extern struct {
+    ring_addr: u64,
+    ring_entries: u32,
+    bgid: u16,
+    pad: u16,
+    resv: [3]u64,
+};
+
+pub const io_uring_getevents_arg = extern struct {
+    sigmask: u64,
+    sigmask_sz: u32,
+    pad: u32,
+    ts: u64,
+};
+
+/// Argument for IORING_REGISTER_SYNC_CANCEL
+pub const io_uring_sync_cancel_reg = extern struct {
+    addr: u64,
+    fd: i32,
+    flags: u32,
+    timeout: kernel_timespec,
+    pad: [4]u64,
+};
+
+/// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
+/// The range is specified as [off, off + len)
+pub const io_uring_file_index_range = extern struct {
+    off: u32,
+    len: u32,
+    resv: u64,
+};
+
+pub const io_uring_recvmsg_out = extern struct {
+    namelen: u32,
+    controllen: u32,
+    payloadlen: u32,
+    flags: u32,
 };
 
 pub const utsname = extern struct {
@@ -5869,7 +6028,7 @@ pub const AUDIT = struct {
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @intFromEnum(arch.toElfMachine());
-            if (arch.endian() == .Little) res |= LE;
+            if (arch.endian() == .little) res |= LE;
             switch (arch) {
                 .aarch64,
                 .mips64,

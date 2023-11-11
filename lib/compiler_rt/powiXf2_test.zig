@@ -3,8 +3,10 @@
 // powihf2 adapted from powisf2 tests
 
 const powiXf2 = @import("powiXf2.zig");
-const testing = @import("std").testing;
-const math = @import("std").math;
+const std = @import("std");
+const builtin = @import("builtin");
+const testing = std.testing;
+const math = std.math;
 
 fn test__powihf2(a: f16, b: i32, expected: f16) !void {
     var result = powiXf2.__powihf2(a, b);

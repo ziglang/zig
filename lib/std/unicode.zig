@@ -1,7 +1,9 @@
 const std = @import("./std.zig");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
+const native_endian = builtin.cpu.arch.endian();
 
 /// Use this to replace an unknown, unrecognized, or unrepresentable character.
 ///
@@ -174,7 +176,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
     while (i < s.len) {
         // Fast path for ASCII sequences
         while (i + N <= s.len) : (i += N) {
-            const v = mem.readIntNative(usize, s[i..][0..N]);
+            const v = mem.readInt(usize, s[i..][0..N], native_endian);
             if (v & MASK != 0) break;
             len += N;
         }
@@ -200,21 +202,18 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 pub fn utf8ValidateSlice(input: []const u8) bool {
     var remaining = input;
 
-    const V_len = std.simd.suggestVectorSize(usize) orelse 1;
-    const V = @Vector(V_len, usize);
-    const u8s_in_vector = @sizeOf(usize) * V_len;
+    const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+    const Chunk = @Vector(chunk_len, u8);
 
     // Fast path. Check for and skip ASCII characters at the start of the input.
-    while (remaining.len >= u8s_in_vector) {
-        const chunk: V = @bitCast(remaining[0..u8s_in_vector].*);
-        const swapped = mem.littleToNative(V, chunk);
-        const reduced = @reduce(.Or, swapped);
-        const mask: usize = @bitCast([1]u8{0x80} ** @sizeOf(usize));
-        if (reduced & mask != 0) {
-            // Found a non ASCII byte
+    while (remaining.len >= chunk_len) {
+        const chunk: Chunk = remaining[0..chunk_len].*;
+        const mask: Chunk = @splat(0x80);
+        if (@reduce(.Or, chunk & mask == mask)) {
+            // found a non ASCII byte
             break;
         }
-        remaining = remaining[u8s_in_vector..];
+        remaining = remaining[chunk_len..];
     }
 
     // default lowest and highest continuation byte
@@ -453,12 +452,12 @@ pub const Utf16LeIterator = struct {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
         var code_units: [2]u16 = undefined;
-        code_units[0] = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
+        code_units[0] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
         it.i += 2;
         if (utf16IsHighSurrogate(code_units[0])) {
             // surrogate pair
             if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
-            code_units[1] = mem.readIntLittle(u16, it.bytes[it.i..][0..2]);
+            code_units[1] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
             const codepoint = try utf16DecodeSurrogatePair(&code_units);
             it.i += 2;
             return codepoint;
@@ -759,8 +758,34 @@ pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
-    var out_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            // We allocated enough space to encode every UTF-16 code unit
+            // as ASCII, so if the entire string is ASCII then we are
+            // guaranteed to have enough space allocated
+            result.appendSliceAssumeCapacity(&ascii_bytes);
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var out_index: usize = result.items.len;
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.items.len + utf8_len);
@@ -776,8 +801,34 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
-    var out_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            // We allocated enough space to encode every UTF-16 code unit
+            // as ASCII, so if the entire string is ASCII then we are
+            // guaranteed to have enough space allocated
+            result.appendSliceAssumeCapacity(&ascii_bytes);
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var out_index = result.items.len;
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
         try result.resize(result.items.len + utf8_len);
@@ -791,7 +842,31 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
 /// Returns end byte index into utf8.
 pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
     var end_index: usize = 0;
-    var it = Utf16LeIterator.init(utf16le);
+
+    var remaining = utf16le;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const chunk_byte_len = chunk_len * 2;
+            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
+            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
+            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
+            @memcpy(utf8[end_index .. end_index + chunk_len], &ascii_bytes);
+            end_index += chunk_len;
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    var it = Utf16LeIterator.init(remaining);
     while (try it.nextCodepoint()) |codepoint| {
         end_index += try utf8Encode(codepoint, utf8[end_index..]);
     }
@@ -803,16 +878,16 @@ test "utf16leToUtf8" {
     const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
     {
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 'A', .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 'a', .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0x80);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0x80, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xffff, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
@@ -820,8 +895,8 @@ test "utf16leToUtf8" {
 
     {
         // the values just outside the surrogate half range
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd7ff);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd7ff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xe000, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
@@ -829,8 +904,8 @@ test "utf16leToUtf8" {
 
     {
         // smallest surrogate pair
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd800);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd800, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
@@ -838,24 +913,24 @@ test "utf16leToUtf8" {
 
     {
         // largest surrogate pair
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdfff, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 
     {
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdcdc);
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdcdc);
+        mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdcdc, .little);
+        mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdcdc, .little);
         const result = utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result);
     }
@@ -866,7 +941,27 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
     errdefer result.deinit();
 
-    const view = try Utf8View.init(utf8);
+    var remaining = utf8;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const Chunk = @Vector(chunk_len, u8);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const zeroes: Chunk = @splat(0);
+            const utf16_chunk: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
+            result.appendSliceAssumeCapacity(std.mem.bytesAsSlice(u16, &utf16_chunk));
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    const view = try Utf8View.init(remaining);
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
@@ -889,11 +984,33 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
 /// Assumes there is enough space for the output.
 pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var dest_i: usize = 0;
+
+    var remaining = utf8;
+    if (builtin.zig_backend != .stage2_x86_64) {
+        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const Chunk = @Vector(chunk_len, u8);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const zeroes: Chunk = @splat(0);
+            const utf16_bytes: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
+            @memcpy(utf16le[dest_i..][0..chunk_len], std.mem.bytesAsSlice(u16, &utf16_bytes));
+            dest_i += chunk_len;
+            remaining = remaining[chunk_len..];
+        }
+    }
+
     var src_i: usize = 0;
-    while (src_i < utf8.len) {
-        const n = utf8ByteSequenceLength(utf8[src_i]) catch return error.InvalidUtf8;
+    while (src_i < remaining.len) {
+        const n = utf8ByteSequenceLength(remaining[src_i]) catch return error.InvalidUtf8;
         const next_src_i = src_i + n;
-        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
+        const codepoint = utf8Decode(remaining[src_i..next_src_i]) catch return error.InvalidUtf8;
         if (codepoint < 0x10000) {
             const short = @as(u16, @intCast(codepoint));
             utf16le[dest_i] = mem.nativeToLittle(u16, short);
@@ -1024,12 +1141,12 @@ test "fmtUtf16le" {
     try expectFmt("", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral(""))});
     try expectFmt("foo", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("foo"))});
     try expectFmt("𐐷", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("𐐷"))});
-    try expectFmt("퟿", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\xff\xd7")})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\x00\xd8")})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\xff\xdb")})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\x00\xdc")})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\xff\xdf")})});
-    try expectFmt("", "{}", .{fmtUtf16le(&[_]u16{std.mem.readIntNative(u16, "\x00\xe0")})});
+    try expectFmt("퟿", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xd7", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xd8", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xdb", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xdc", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xdf", native_endian)})});
+    try expectFmt("", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xe0", native_endian)})});
 }
 
 test "utf8ToUtf16LeStringLiteral" {

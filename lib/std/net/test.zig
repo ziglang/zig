@@ -60,7 +60,7 @@ test "parse and render IPv6 addresses" {
 }
 
 test "invalid but parseable IPv6 scope ids" {
-    if (builtin.os.tag != .linux or comptime !builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
         // Currently, resolveIp6 with alphanumerical scope IDs only works on Linux.
         // TODO Make this test pass on other operating systems.
         return error.SkipZigTest;

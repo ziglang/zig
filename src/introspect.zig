@@ -4,6 +4,7 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 const Compilation = @import("Compilation.zig");
+const build_options = @import("build_options");
 
 /// Returns the sub_path that worked, or `null` if none did.
 /// The path of the returned Directory is relative to `base`.
@@ -80,23 +81,17 @@ pub fn findZigLibDirFromSelfExe(
 
 /// Caller owns returned memory.
 pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
-    if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi)
         @compileError("on WASI the global cache dir must be resolved with preopens");
-    }
-    if (std.process.getEnvVarOwned(allocator, "ZIG_GLOBAL_CACHE_DIR")) |value| {
-        if (value.len > 0) {
-            return value;
-        } else {
-            allocator.free(value);
-        }
-    } else |_| {}
+
+    if (try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(allocator)) |value| return value;
 
     const appname = "zig";
 
     if (builtin.os.tag != .windows) {
-        if (std.os.getenv("XDG_CACHE_HOME")) |cache_root| {
+        if (EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
             return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
-        } else if (std.os.getenv("HOME")) |home| {
+        } else if (EnvVar.HOME.getPosix()) |home| {
             return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
         }
     }
@@ -146,3 +141,40 @@ pub fn resolvePath(
 pub fn isUpDir(p: []const u8) bool {
     return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == fs.path.sep);
 }
+
+/// Collects all the environment variables that Zig could possibly inspect, so
+/// that we can do reflection on this and print them with `zig env`.
+pub const EnvVar = enum {
+    ZIG_GLOBAL_CACHE_DIR,
+    ZIG_LOCAL_CACHE_DIR,
+    ZIG_LIB_DIR,
+    ZIG_LIBC,
+    ZIG_BUILD_RUNNER,
+    ZIG_VERBOSE_LINK,
+    ZIG_VERBOSE_CC,
+    ZIG_BTRFS_WORKAROUND,
+    CC,
+    NO_COLOR,
+    XDG_CACHE_HOME,
+    HOME,
+
+    pub fn isSet(comptime ev: EnvVar) bool {
+        return std.process.hasEnvVarConstant(@tagName(ev));
+    }
+
+    pub fn get(ev: EnvVar, arena: mem.Allocator) !?[]u8 {
+        // Env vars aren't used in the bootstrap stage.
+        if (build_options.only_c) return null;
+
+        if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
+            return value;
+        } else |err| switch (err) {
+            error.EnvironmentVariableNotFound => return null,
+            else => |e| return e,
+        }
+    }
+
+    pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
+        return std.os.getenvZ(@tagName(ev));
+    }
+};

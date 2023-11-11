@@ -332,10 +332,10 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const pk = PublicKey.fromSec1(server_pub_key) catch {
                                         return error.TlsDecryptFailure;
                                     };
-                                    const mul = pk.p.mulPublic(secp256r1_kp.secret_key.bytes, .Big) catch {
+                                    const mul = pk.p.mulPublic(secp256r1_kp.secret_key.bytes, .big) catch {
                                         return error.TlsDecryptFailure;
                                     };
-                                    shared_key = &mul.affineCoordinates().x.toBytes(.Big);
+                                    shared_key = &mul.affineCoordinates().x.toBytes(.big);
                                 },
                                 else => {
                                     return error.TlsIllegalParameter;
@@ -881,7 +881,7 @@ pub fn readAll(c: *Client, stream: anytype, buffer: []u8) !usize {
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
 pub fn readv(c: *Client, stream: anytype, iovecs: []std.os.iovec) !usize {
-    return readvAtLeast(c, stream, iovecs);
+    return readvAtLeast(c, stream, iovecs, 1);
 }
 
 /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
@@ -1049,10 +1049,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         }
         const ct: tls.ContentType = @enumFromInt(frag[in]);
         in += 1;
-        const legacy_version = mem.readIntBig(u16, frag[in..][0..2]);
+        const legacy_version = mem.readInt(u16, frag[in..][0..2], .big);
         in += 2;
         _ = legacy_version;
-        const record_len = mem.readIntBig(u16, frag[in..][0..2]);
+        const record_len = mem.readInt(u16, frag[in..][0..2], .big);
         if (record_len > max_ciphertext_len) return error.TlsRecordOverflow;
         in += 2;
         const end = in + record_len;
@@ -1136,7 +1136,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                         while (true) {
                             const handshake_type: tls.HandshakeType = @enumFromInt(cleartext[ct_i]);
                             ct_i += 1;
-                            const handshake_len = mem.readIntBig(u24, cleartext[ct_i..][0..3]);
+                            const handshake_len = mem.readInt(u24, cleartext[ct_i..][0..3], .big);
                             ct_i += 3;
                             const next_handshake_i = ct_i + handshake_len;
                             if (next_handshake_i > cleartext.len - 1)
@@ -1284,8 +1284,8 @@ const native_endian = builtin.cpu.arch.endian();
 
 inline fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
-        .Big => x,
-        .Little => @byteSwap(x),
+        .big => x,
+        .little => @byteSwap(x),
     };
 }
 

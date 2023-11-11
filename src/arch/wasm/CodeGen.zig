@@ -3139,16 +3139,22 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.In
     return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
 }
 
-fn lowerAnonDeclRef(func: *CodeGen, anon_decl: InternPool.Index, offset: u32) InnerError!WValue {
+fn lowerAnonDeclRef(
+    func: *CodeGen,
+    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    offset: u32,
+) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(anon_decl).toType();
+    const decl_val = anon_decl.val;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
 
     const is_fn_body = ty.zigTypeTag(mod) == .Fn;
     if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    const res = try func.bin_file.lowerAnonDecl(anon_decl, func.decl.srcLoc(mod));
+    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try func.bin_file.lowerAnonDecl(decl_val, decl_align, func.decl.srcLoc(mod));
     switch (res) {
         .ok => {},
         .fail => |em| {
@@ -3156,7 +3162,7 @@ fn lowerAnonDeclRef(func: *CodeGen, anon_decl: InternPool.Index, offset: u32) In
             return error.CodegenFail;
         },
     }
-    const target_atom_index = func.bin_file.anon_decls.get(anon_decl).?;
+    const target_atom_index = func.bin_file.anon_decls.get(decl_val).?;
     const target_sym_index = func.bin_file.getAtom(target_atom_index).getSymbolIndex().?;
     if (is_fn_body) {
         return WValue{ .function_index = target_sym_index };
@@ -3218,16 +3224,11 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
 
 /// This function is intended to assert that `isByRef` returns `false` for `ty`.
 /// However such an assertion fails on the behavior tests currently.
-fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
+fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     // TODO: enable this assertion
     //assert(!isByRef(ty, mod));
     const ip = &mod.intern_pool;
-    var val = arg_val;
-    switch (ip.indexToKey(val.ip_index)) {
-        .runtime_value => |rt| val = rt.val.toValue(),
-        else => {},
-    }
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
 
     switch (ip.indexToKey(val.ip_index)) {
@@ -3249,7 +3250,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .inferred_error_set_type,
         => unreachable, // types, not values
 
-        .undef, .runtime_value => unreachable, // handled above
+        .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
             .undefined,
             .void,
@@ -3296,6 +3297,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             return WValue{ .imm32 = int };
         },
         .error_union => |error_union| {
+            const err_int_ty = try mod.errorIntType();
             const err_tv: TypedValue = switch (error_union.val) {
                 .err_name => |err_name| .{
                     .ty = ty.errorUnionSet(mod),
@@ -3305,8 +3307,8 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                     } })).toValue(),
                 },
                 .payload => .{
-                    .ty = Type.err_int,
-                    .val = try mod.intValue(Type.err_int, 0),
+                    .ty = err_int_ty,
+                    .val = try mod.intValue(err_int_ty, 0),
                 },
             };
             const payload_type = ty.errorUnionPayload(mod);
@@ -3362,7 +3364,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                 const backing_int_ty = struct_type.backingIntType(ip).toType();
                 const int_val = try mod.intValue(
                     backing_int_ty,
-                    mem.readIntLittle(u64, &buf),
+                    mem.readInt(u64, &buf, .little),
                 );
                 return func.lowerConstant(int_val, backing_int_ty);
             },
@@ -3370,10 +3372,14 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         },
         .un => |un| {
             // in this case we have a packed union which will not be passed by reference.
-            const union_obj = mod.typeToUnion(ty).?;
-            const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
-            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-            return func.lowerConstant(un.val.toValue(), field_ty);
+            const constant_ty = if (un.tag == .none)
+                try ty.unionBackingType(mod)
+            else field_ty: {
+                const union_obj = mod.typeToUnion(ty).?;
+                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                break :field_ty union_obj.field_types.get(ip)[field_index].toType();
+            };
+            return func.lowerConstant(un.val.toValue(), constant_ty);
         },
         .memoized_call => unreachable,
     }
@@ -3705,8 +3711,10 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const errors_len = WValue{ .memory = sym_index };
 
     try func.emitWValue(operand);
-    const errors_len_val = try func.load(errors_len, Type.err_int, 0);
-    const result = try func.cmp(.stack, errors_len_val, Type.err_int, .lt);
+    const mod = func.bin_file.base.options.module.?;
+    const err_int_ty = try mod.errorIntType();
+    const errors_len_val = try func.load(errors_len, err_int_ty, 0);
+    const result = try func.cmp(.stack, errors_len_val, err_int_ty, .lt);
 
     return func.finishAir(inst, try result.toLocal(func, Type.bool), &.{un_op});
 }
@@ -3809,6 +3817,16 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         if (given_ty.isAnyFloat() or wanted_ty.isAnyFloat()) {
             const bitcast_result = try func.bitcast(wanted_ty, given_ty, operand);
             break :result try bitcast_result.toLocal(func, wanted_ty);
+        }
+        const mod = func.bin_file.base.options.module.?;
+        if (isByRef(given_ty, mod) and !isByRef(wanted_ty, mod)) {
+            const loaded_memory = try func.load(operand, wanted_ty, 0);
+            break :result try loaded_memory.toLocal(func, wanted_ty);
+        }
+        if (!isByRef(given_ty, mod) and isByRef(wanted_ty, mod)) {
+            const stack_memory = try func.allocStack(wanted_ty);
+            try func.store(stack_memory, operand, given_ty, 0);
+            break :result stack_memory;
         }
         break :result func.reuseOperand(ty_op.operand, operand);
     };

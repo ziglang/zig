@@ -507,7 +507,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     // if (!options.strip and options.module != null) {
-    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, options.target);
+    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, .dwarf32);
     //     try wasm_bin.initDebugSections();
     // }
 
@@ -603,7 +603,14 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
 pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
     if (!gop.found_existing) {
-        gop.value_ptr.* = try wasm.createAtom();
+        const atom_index = try wasm.createAtom();
+        gop.value_ptr.* = atom_index;
+        const atom = wasm.getAtom(atom_index);
+        const symbol = atom.symbolLoc().getSymbol(wasm);
+        const mod = wasm.base.options.module.?;
+        const decl = mod.declPtr(decl_index);
+        const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
     }
     return gop.value_ptr.*;
 }
@@ -1338,11 +1345,11 @@ pub fn deinit(wasm: *Wasm) void {
 pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
     var symbol: Symbol = .{
-        .name = undefined, // will be set after updateDecl
+        .name = std.math.maxInt(u32), // will be set after updateDecl as well as during atom creation for decls
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
-        .tag = undefined, // will be set after updateDecl
-        .index = undefined, // will be set after updateDecl
-        .virtual_address = undefined, // will be set during atom allocation
+        .tag = .undefined, // will be set after updateDecl
+        .index = std.math.maxInt(u32), // will be set during atom parsing
+        .virtual_address = std.math.maxInt(u32), // will be set during atom allocation
     };
     if (wasm.symbols_free_list.popOrNull()) |index| {
         wasm.symbols.items[index] = symbol;
@@ -1414,7 +1421,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     //         &decl_state.?,
     //     );
     // }
-    return wasm.finishUpdateDecl(decl_index, code);
+    return wasm.finishUpdateDecl(decl_index, code, .function);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -1468,7 +1475,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
         },
     };
 
-    return wasm.finishUpdateDecl(decl_index, code);
+    return wasm.finishUpdateDecl(decl_index, code, .data);
 }
 
 pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !void {
@@ -1485,7 +1492,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
     }
 }
 
-fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8) !void {
+fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8, symbol_tag: Symbol.Tag) !void {
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
@@ -1493,6 +1500,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     const symbol = &wasm.symbols.items[atom.sym_index];
     const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
+    symbol.tag = symbol_tag;
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
@@ -1702,25 +1710,37 @@ pub fn getDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn lowerAnonDecl(wasm: *Wasm, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(
+    wasm: *Wasm,
+    decl_val: InternPool.Index,
+    explicit_alignment: Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
-    if (gop.found_existing) {
-        return .ok;
+    if (!gop.found_existing) {
+        const mod = wasm.base.options.module.?;
+        const ty = mod.intern_pool.typeOf(decl_val).toType();
+        const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+        var name_buf: [32]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+            @intFromEnum(decl_val),
+        }) catch unreachable;
+
+        switch (try wasm.lowerConst(name, tv, src_loc)) {
+            .ok => |atom_index| wasm.anon_decls.values()[gop.index] = atom_index,
+            .fail => |em| return .{ .fail = em },
+        }
     }
 
-    const mod = wasm.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
-    const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__anon_{d}", .{@intFromEnum(decl_val)});
-    defer wasm.base.allocator.free(name);
-
-    switch (try wasm.lowerConst(name, tv, src_loc)) {
-        .ok => |atom_index| {
-            gop.value_ptr.* = atom_index;
-            return .ok;
+    const atom = wasm.getAtomPtr(wasm.anon_decls.values()[gop.index]);
+    atom.alignment = switch (atom.alignment) {
+        .none => explicit_alignment,
+        else => switch (explicit_alignment) {
+            .none => atom.alignment,
+            else => atom.alignment.maxStrict(explicit_alignment),
         },
-        .fail => |em| return .{ .fail = em },
-    }
+    };
+    return .ok;
 }
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1774,19 +1794,26 @@ pub fn deleteDeclExport(wasm: *Wasm, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     wasm: *Wasm,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
     if (wasm.base.options.emit == null) return;
 
+    const decl_index = switch (exported) {
+        .decl_index => |i| i,
+        .value => |val| {
+            _ = val;
+            @panic("TODO: implement Wasm linker code for exporting a constant value");
+        },
+    };
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
@@ -1804,7 +1831,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exp.exported_decl);
+        const exported_decl_index = switch (exp.exported) {
+            .value => {
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    "Unimplemented: exporting a named constant value",
+                    .{},
+                ));
+                continue;
+            },
+            .decl_index => |i| i,
+        };
+        const exported_atom_index = try wasm.getOrCreateAtomForDecl(exported_decl_index);
         const exported_atom = wasm.getAtom(exported_atom_index);
         const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
@@ -2340,7 +2379,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
         atom.deinit(wasm);
         break :blk index;
     } else new_atom: {
-        const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
+        const atom_index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
         try wasm.symbol_atom.put(wasm.base.allocator, loc, atom_index);
         try wasm.managed_atoms.append(wasm.base.allocator, undefined);
         break :new_atom atom_index;
@@ -2349,7 +2388,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
     atom.* = Atom.empty;
     atom.sym_index = loc.index;
     atom.size = 2;
-    try atom.code.writer(wasm.base.allocator).writeIntLittle(u16, @as(u16, @intCast(errors_len)));
+    try atom.code.writer(wasm.base.allocator).writeInt(u16, @intCast(errors_len), .little);
 
     try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
@@ -2786,15 +2825,11 @@ fn setupExports(wasm: *Wasm) !void {
 }
 
 fn setupStart(wasm: *Wasm) !void {
-    const entry_name = wasm.base.options.entry orelse "_start";
+    // do not export entry point if user set none or no default was set.
+    const entry_name = wasm.base.options.entry orelse return;
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) return; // Not required for reactors
-        } else {
-            return; // No entry point needed for non-executable wasm files
-        }
-        log.err("Entry symbol '{s}' missing", .{entry_name});
+        log.err("Entry symbol '{s}' missing, use '-fno-entry' to suppress", .{entry_name});
         return error.MissingSymbol;
     };
 
@@ -3120,7 +3155,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         const offset = @as(u32, @intCast(atom.code.items.len));
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
-        try atom.code.writer(wasm.base.allocator).writeIntLittle(u32, len - 1);
+        try atom.code.writer(wasm.base.allocator).writeInt(u32, len - 1, .little);
         // create relocation to the error name
         try atom.relocs.append(wasm.base.allocator, .{
             .index = names_atom.sym_index,
@@ -4255,11 +4290,11 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
         },
         .f32_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f32_const));
-            try writer.writeIntLittle(u32, @as(u32, @bitCast(val)));
+            try writer.writeInt(u32, @bitCast(val), .little);
         },
         .f64_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f64_const));
-            try writer.writeIntLittle(u64, @as(u64, @bitCast(val)));
+            try writer.writeInt(u64, @bitCast(val), .little);
         },
         .global_get => |val| {
             try writer.writeByte(std.wasm.opcode(.global_get));
@@ -4504,6 +4539,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (wasm.base.options.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
+        } else {
+            try argv.append("--no-entry");
         }
 
         // Increase the default stack size to a more reasonable value of 1MB instead of
@@ -4513,22 +4550,15 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
         try argv.append(arg);
 
-        if (wasm.base.options.output_mode == .Exe) {
-            if (wasm.base.options.wasi_exec_model == .reactor) {
-                // Reactor execution model does not have _start so lld doesn't look for it.
-                try argv.append("--no-entry");
-                // Make sure "_initialize" and other used-defined functions are exported if this is WASI reactor.
-                // If rdynamic is true, it will already be appended, so only verify if the user did not specify
-                // the flag in which case, we ensure `--export-dynamic` is called.
-                if (!wasm.base.options.rdynamic) {
-                    try argv.append("--export-dynamic");
-                }
-            }
-        } else if (wasm.base.options.entry == null) {
-            try argv.append("--no-entry"); // So lld doesn't look for _start.
-        }
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
+        }
+
+        if (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+            try argv.append("--shared");
+        }
+        if (wasm.base.options.pie) {
+            try argv.append("--pie");
         }
 
         // XXX - TODO: add when wasm-ld supports --build-id.
