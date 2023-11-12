@@ -138,7 +138,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 link.File.Elf.R_X86_64_ZIG_GOT32
                             else if (sym.flags.needs_got)
                                 std.elf.R_X86_64_GOT32
-                            else if (sym.isTls(elf_file))
+                            else if (sym.flags.is_tls)
                                 std.elf.R_X86_64_TPOFF32
                             else
                                 std.elf.R_X86_64_32;

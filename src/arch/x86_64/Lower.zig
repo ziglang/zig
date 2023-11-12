@@ -332,7 +332,7 @@ fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
 fn isTls(sym: bits.Symbol, ctx: *link.File) bool {
     const elf_file = ctx.cast(link.File.Elf).?;
     const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-    return elf_file.symbol(sym_index).isTls(elf_file);
+    return elf_file.symbol(sym_index).flags.is_tls;
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
@@ -380,10 +380,6 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             });
                             lower.result_insts_len += 1;
                             _ = lower.reloc(.{ .linker_dtpoff = sym });
-                            if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                                const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-                                elf_file.symbol(sym_index).flags.needs_zig_got = false;
-                            }
                             emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .rax },
@@ -398,10 +394,6 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             });
                             lower.result_insts_len += 1;
                             _ = lower.reloc(.{ .linker_reloc = sym });
-                            if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                                const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-                                elf_file.symbol(sym_index).flags.needs_zig_got = false;
-                            }
                             emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = ops[0].reg.to64() },
