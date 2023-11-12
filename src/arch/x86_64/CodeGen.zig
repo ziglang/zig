@@ -13381,35 +13381,25 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.Elf)) |_| {
-                try self.asmRegisterMemory(.{ ._, .lea }, dst_reg.to64(), .{
-                    .base = .{ .reloc = .{
+            _ = try self.addInst(.{
+                .tag = switch (src_mcv) {
+                    .lea_direct => .lea,
+                    .lea_got => .mov,
+                    else => unreachable,
+                },
+                .ops = switch (src_mcv) {
+                    .lea_direct => .direct_reloc,
+                    .lea_got => .got_reloc,
+                    else => unreachable,
+                },
+                .data = .{ .rx = .{
+                    .r1 = dst_reg.to64(),
+                    .payload = try self.addExtra(bits.Symbol{
                         .atom_index = atom_index,
                         .sym_index = sym_index,
-                    } },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                });
-            } else {
-                _ = try self.addInst(.{
-                    .tag = switch (src_mcv) {
-                        .lea_direct => .lea,
-                        .lea_got => .mov,
-                        else => unreachable,
-                    },
-                    .ops = switch (src_mcv) {
-                        .lea_direct => .direct_reloc,
-                        .lea_got => .got_reloc,
-                        else => unreachable,
-                    },
-                    .data = .{ .rx = .{
-                        .r1 = dst_reg.to64(),
-                        .payload = try self.addExtra(bits.Symbol{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        }),
-                    } },
-                });
-            }
+                    }),
+                } },
+            });
         },
         .lea_tlv => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
