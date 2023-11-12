@@ -6265,8 +6265,9 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
-    try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
+    try writer.print("{}\n", .{self.got.fmt(self)});
+    try writer.print("{}\n", .{self.plt.fmt(self)});
 
     try writer.writeAll("Output COMDAT groups\n");
     for (self.comdat_group_sections.items) |cg| {
