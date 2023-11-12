@@ -668,7 +668,12 @@ pub fn getOrCreateMetadataForLazySymbol(
         },
     };
     switch (metadata.state.*) {
-        .unused => metadata.symbol_index.* = try self.addAtom(elf_file),
+        .unused => {
+            const symbol_index = try self.addAtom(elf_file);
+            const sym = elf_file.symbol(symbol_index);
+            sym.flags.needs_zig_got = true;
+            metadata.symbol_index.* = symbol_index;
+        },
         .pending_flush => return metadata.symbol_index.*,
         .flushed => {},
     }
@@ -723,17 +728,19 @@ pub fn getOrCreateMetadataForDecl(
 ) !Symbol.Index {
     const gop = try self.decls.getOrPut(elf_file.base.allocator, decl_index);
     if (!gop.found_existing) {
+        const single_threaded = elf_file.base.options.single_threaded;
         const symbol_index = try self.addAtom(elf_file);
         const mod = elf_file.base.options.module.?;
         const decl = mod.declPtr(decl_index);
-        const single_threaded = elf_file.base.options.single_threaded;
+        const sym = elf_file.symbol(symbol_index);
         if (decl.getOwnedVariable(mod)) |variable| {
             if (variable.is_threadlocal and !single_threaded) {
-                const sym = elf_file.symbol(symbol_index);
-                self.elfSym(sym.esym_index).st_info = elf.STT_TLS;
+                sym.flags.is_tls = true;
             }
         }
-
+        if (!sym.flags.is_tls) {
+            sym.flags.needs_zig_got = true;
+        }
         gop.value_ptr.* = .{ .symbol_index = symbol_index };
     }
     return gop.value_ptr.symbol_index;
