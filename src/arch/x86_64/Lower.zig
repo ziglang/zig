@@ -389,14 +389,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             // Since we are linking statically, we emit LE model directly.
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .mov, &[_]Operand{
-                                .{ .reg = ops[0].reg.to64() },
+                                .{ .reg = .rax },
                                 .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
                             });
                             lower.result_insts_len += 1;
                             _ = lower.reloc(.{ .linker_reloc = sym });
                             emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                .base = .{ .reg = ops[0].reg.to64() },
+                                .base = .{ .reg = .rax },
                                 .disp = std.math.minInt(i32),
                             }) };
                         }
