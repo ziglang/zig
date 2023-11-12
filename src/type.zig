@@ -1519,7 +1519,10 @@ pub const Type = struct {
                 const len = array_type.len + @intFromBool(array_type.sentinel != .none);
                 if (len == 0) return 0;
                 const elem_ty = array_type.child.toType();
-                const elem_size = @max(elem_ty.abiAlignment(mod).toByteUnits(0), elem_ty.abiSize(mod));
+                const elem_size = @max(
+                    (try elem_ty.abiAlignmentAdvanced(mod, strat)).scalar.toByteUnits(0),
+                    (try elem_ty.abiSizeAdvanced(mod, strat)).scalar,
+                );
                 if (elem_size == 0) return 0;
                 const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
                 return (len - 1) * 8 * elem_size + elem_bit_size;

@@ -456,6 +456,20 @@ const Packet = union(enum) {
             },
         }
     }
+
+    /// Returns the normalized form of textual packet data, stripping any
+    /// trailing '\n'.
+    ///
+    /// As documented in
+    /// [protocol-common](https://git-scm.com/docs/protocol-common#_pkt_line_format),
+    /// non-binary (textual) pkt-line data should contain a trailing '\n', but
+    /// is not required to do so (implementations must support both forms).
+    fn normalizeText(data: []const u8) []const u8 {
+        return if (mem.endsWith(u8, data, "\n"))
+            data[0 .. data.len - 1]
+        else
+            data;
+    }
 };
 
 /// A client session for the Git protocol, currently limited to an HTTP(S)
@@ -554,7 +568,7 @@ pub const Session = struct {
             switch (packet) {
                 .flush => state = .response_start,
                 .data => |data| switch (state) {
-                    .response_start => if (mem.eql(u8, data, "version 2\n")) {
+                    .response_start => if (mem.eql(u8, Packet.normalizeText(data), "version 2")) {
                         return .{ .request = request };
                     } else {
                         state = .response_content;
@@ -573,6 +587,13 @@ pub const Session = struct {
         const Capability = struct {
             key: []const u8,
             value: ?[]const u8 = null,
+
+            fn parse(data: []const u8) Capability {
+                return if (mem.indexOfScalar(u8, data, '=')) |separator_pos|
+                    .{ .key = data[0..separator_pos], .value = data[separator_pos + 1 ..] }
+                else
+                    .{ .key = data };
+            }
         };
 
         fn deinit(iterator: *CapabilityIterator) void {
@@ -583,13 +604,7 @@ pub const Session = struct {
         fn next(iterator: *CapabilityIterator) !?Capability {
             switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
                 .flush => return null,
-                .data => |data| if (data.len > 0 and data[data.len - 1] == '\n') {
-                    if (mem.indexOfScalar(u8, data, '=')) |separator_pos| {
-                        return .{ .key = data[0..separator_pos], .value = data[separator_pos + 1 .. data.len - 1] };
-                    } else {
-                        return .{ .key = data[0 .. data.len - 1] };
-                    }
-                } else return error.UnexpectedPacket,
+                .data => |data| return Capability.parse(Packet.normalizeText(data)),
                 else => return error.UnexpectedPacket,
             }
         }
@@ -676,18 +691,19 @@ pub const Session = struct {
             switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
                 .flush => return null,
                 .data => |data| {
-                    const oid_sep_pos = mem.indexOfScalar(u8, data, ' ') orelse return error.InvalidRefPacket;
+                    const ref_data = Packet.normalizeText(data);
+                    const oid_sep_pos = mem.indexOfScalar(u8, ref_data, ' ') orelse return error.InvalidRefPacket;
                     const oid = parseOid(data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
 
-                    const name_sep_pos = mem.indexOfAnyPos(u8, data, oid_sep_pos + 1, " \n") orelse return error.InvalidRefPacket;
-                    const name = data[oid_sep_pos + 1 .. name_sep_pos];
+                    const name_sep_pos = mem.indexOfScalarPos(u8, ref_data, oid_sep_pos + 1, ' ') orelse ref_data.len;
+                    const name = ref_data[oid_sep_pos + 1 .. name_sep_pos];
 
                     var symref_target: ?[]const u8 = null;
                     var peeled: ?Oid = null;
                     var last_sep_pos = name_sep_pos;
-                    while (data[last_sep_pos] == ' ') {
-                        const next_sep_pos = mem.indexOfAnyPos(u8, data, last_sep_pos + 1, " \n") orelse return error.InvalidRefPacket;
-                        const attribute = data[last_sep_pos + 1 .. next_sep_pos];
+                    while (last_sep_pos < ref_data.len) {
+                        const next_sep_pos = mem.indexOfScalarPos(u8, ref_data, last_sep_pos + 1, ' ') orelse ref_data.len;
+                        const attribute = ref_data[last_sep_pos + 1 .. next_sep_pos];
                         if (mem.startsWith(u8, attribute, "symref-target:")) {
                             symref_target = attribute["symref-target:".len..];
                         } else if (mem.startsWith(u8, attribute, "peeled:")) {
@@ -762,7 +778,7 @@ pub const Session = struct {
             const packet = try Packet.read(reader, &buf);
             switch (state) {
                 .section_start => switch (packet) {
-                    .data => |data| if (mem.eql(u8, data, "packfile\n")) {
+                    .data => |data| if (mem.eql(u8, Packet.normalizeText(data), "packfile")) {
                         return .{ .request = request };
                     } else {
                         state = .section_content;
@@ -1462,5 +1478,11 @@ pub fn main() !void {
     std.debug.print("Starting checkout...\n", .{});
     var repository = try Repository.init(allocator, pack_file, index_file);
     defer repository.deinit();
-    try repository.checkout(worktree, commit);
+    var diagnostics: Diagnostics = .{ .allocator = allocator };
+    defer diagnostics.deinit();
+    try repository.checkout(worktree, commit, &diagnostics);
+
+    for (diagnostics.errors.items) |err| {
+        std.debug.print("Diagnostic: {}\n", .{err});
+    }
 }

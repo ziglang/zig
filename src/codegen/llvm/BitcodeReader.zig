@@ -51,8 +51,8 @@ pub const Block = struct {
 pub const Record = struct {
     name: []const u8,
     id: u32,
-    operands: []u64,
-    blob: []u8,
+    operands: []const u64,
+    blob: []const u8,
 
     fn toOwnedAbbrev(record: Record, allocator: std.mem.Allocator) !Abbrev {
         var operands = std.ArrayList(Abbrev.Operand).init(allocator);

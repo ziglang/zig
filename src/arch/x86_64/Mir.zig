@@ -6,19 +6,6 @@
 //! The main purpose of MIR is to postpone the assignment of offsets until Isel,
 //! so that, for example, the smaller encodings of jump instructions can be used.
 
-const Mir = @This();
-const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-
-const bits = @import("bits.zig");
-const encoder = @import("encoder.zig");
-
-const Air = @import("../../Air.zig");
-const CodeGen = @import("CodeGen.zig");
-const IntegerBitSet = std.bit_set.IntegerBitSet;
-const Register = bits.Register;
-
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
@@ -884,6 +871,8 @@ pub const Inst = struct {
         pseudo_dbg_line_line_column,
         /// Start of epilogue
         pseudo_dbg_epilogue_begin_none,
+        /// Start or end of inline function
+        pseudo_dbg_inline_func,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -987,6 +976,7 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
+        func: InternPool.Index,
         /// Register list
         reg_list: RegisterList,
     };
@@ -1198,3 +1188,14 @@ pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
         } else mem,
     };
 }
+
+const assert = std.debug.assert;
+const bits = @import("bits.zig");
+const builtin = @import("builtin");
+const encoder = @import("encoder.zig");
+const std = @import("std");
+
+const IntegerBitSet = std.bit_set.IntegerBitSet;
+const InternPool = @import("../../InternPool.zig");
+const Mir = @This();
+const Register = bits.Register;

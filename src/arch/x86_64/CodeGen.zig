@@ -10576,12 +10576,12 @@ fn genVarDbgInfo(
 
 fn airTrap(self: *Self) !void {
     try self.asmOpOnly(.{ ._, .ud2 });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {
     try self.asmOpOnly(.{ ._, .int3 });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airRetAddr(self: *Self, inst: Air.Inst.Index) !void {
@@ -10603,7 +10603,7 @@ fn airFence(self: *Self, inst: Air.Inst.Index) !void {
         .Acquire, .Release, .AcqRel => {},
         .SeqCst => try self.asmOpOnly(.{ ._, .mfence }),
     }
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
@@ -11419,21 +11419,23 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
             .column = dbg_stmt.column,
         } },
     });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
-    const func = mod.funcInfo(ty_fn.func);
-    // TODO emit debug info for function change
-    _ = func;
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_dbg_inline_func,
+        .data = .{ .func = ty_fn.func },
+    });
+    self.finishAirBookkeeping();
 }
 
 fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
     // TODO emit debug info lexical block
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    self.finishAirBookkeeping();
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -11518,9 +11520,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         .close_scope = true,
     });
 
-    // We already took care of pl_op.operand earlier, so we're going
-    // to pass .none here
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    // We already took care of pl_op.operand earlier, so there's nothing left to do.
+    self.finishAirBookkeeping();
 }
 
 fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MCValue {
@@ -11865,7 +11866,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     });
     _ = try self.asmJmpReloc(jmp_target);
 
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -11977,8 +11978,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         });
     }
 
-    // We already took care of pl_op.operand earlier, so we're going to pass .none here
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    // We already took care of pl_op.operand earlier, so there's nothing left to do
+    self.finishAirBookkeeping();
 }
 
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
