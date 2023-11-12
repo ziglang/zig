@@ -2522,18 +2522,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             try module.populateTestFunctions(main_progress_node);
         }
 
-        // Process the deletion set. We use a while loop here because the
-        // deletion set may grow as we call `clearDecl` within this loop,
-        // and more unreferenced Decls are revealed.
-        while (module.deletion_set.count() != 0) {
-            const decl_index = module.deletion_set.keys()[0];
-            const decl = module.declPtr(decl_index);
-            assert(decl.deletion_flag);
-            assert(decl.zir_decl_index != .none);
-
-            try module.clearDecl(decl_index, null);
-        }
-
         try module.processExports();
     }
 
@@ -3684,16 +3672,6 @@ pub fn performAllTheWork(
 
     if (comp.bin_file.options.module) |mod| {
         try reportMultiModuleErrors(mod);
-    }
-
-    {
-        const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
-        defer outdated_and_deleted_decls_frame.end();
-
-        // Iterate over all the files and look for outdated and deleted declarations.
-        if (comp.bin_file.options.module) |mod| {
-            try mod.processOutdatedAndDeletedDecls();
-        }
     }
 
     if (comp.bin_file.options.module) |mod| {
