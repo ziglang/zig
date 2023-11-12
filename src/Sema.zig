@@ -11523,6 +11523,17 @@ fn switchCond(
         .ErrorSet,
         .Enum,
         => {
+            if (operand_ty.isPtrAtRuntime(mod)) {
+                switch (operand_ty.childType(mod).zigTypeTag(mod)) {
+                    .Enum,
+                    .EnumLiteral,
+                    .Union,
+                    => {
+                        return sema.fail(block, src, "switch on pointer value while enum or union is expected", .{});
+                    },
+                    else => {},
+                }
+            }
             if (operand_ty.isSlice(mod)) {
                 return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(mod)});
             }
