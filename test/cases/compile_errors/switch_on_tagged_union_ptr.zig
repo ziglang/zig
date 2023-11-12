@@ -14,4 +14,4 @@ pub fn main() void {
 // backend=stage2
 // target=native
 //
-// :8:12: error: switch on pointer value while enum or union is expected
+// 8:13: error: switch on pointer value while enum or union is expected
