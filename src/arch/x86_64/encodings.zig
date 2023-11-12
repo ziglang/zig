@@ -486,6 +486,11 @@ pub const table = [_]Entry{
 
     .{ .pause, .zo, &.{}, &.{ 0xf3, 0x90 }, 0, .none, .none },
 
+    .{ .pdep, .rvm, &.{ .r32, .r32, .rm32 }, &.{ 0xf2, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .pdep, .rvm, &.{ .r64, .r64, .rm64 }, &.{ 0xf2, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w1, .bmi2 },
+    .{ .pext, .rvm, &.{ .r32, .r32, .rm32 }, &.{ 0xf3, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w0, .bmi2 },
+    .{ .pext, .rvm, &.{ .r64, .r64, .rm64 }, &.{ 0xf3, 0x0f, 0x38, 0xf5 }, 0, .vex_lz_w1, .bmi2 },
+
     .{ .pop, .o, &.{ .r16  }, &.{ 0x58 }, 0, .short, .none },
     .{ .pop, .o, &.{ .r64  }, &.{ 0x58 }, 0, .none,  .none },
     .{ .pop, .m, &.{ .rm16 }, &.{ 0x8f }, 0, .short, .none },
