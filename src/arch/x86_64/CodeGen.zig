@@ -1107,6 +1107,7 @@ fn formatWipMir(
         .cc = .Unspecified,
         .src_loc = data.self.src_loc,
     };
+    var first = true;
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
         error.LowerFail => {
             defer {
@@ -1125,7 +1126,11 @@ fn formatWipMir(
             return;
         },
         else => |e| return e,
-    }).insts) |lowered_inst| try writer.print("  | {}", .{lowered_inst});
+    }).insts) |lowered_inst| {
+        if (!first) try writer.writeAll("\ndebug(wip_mir): ");
+        try writer.print("  | {}", .{lowered_inst});
+        first = false;
+    }
 }
 fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
     return .{ .data = .{ .self = self, .inst = inst } };
@@ -15798,11 +15803,30 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     } else mcv: {
         const ip_index = Air.refToInterned(ref).?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
-        const mcv = try self.genTypedValue(.{
-            .ty = ty,
-            .val = ip_index.toValue(),
+        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
+            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = ip_index.toValue() });
+            switch (const_mcv) {
+                .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
+                    if (self.bin_file.options.pic) {
+                        try self.spillRegisters(&.{ .rdi, .rax });
+                    } else {
+                        try self.spillRegisters(&.{.rax});
+                    }
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
+                        .size = 8,
+                        .alignment = .@"8",
+                    }));
+                    try self.genSetMem(
+                        .{ .frame = frame_index },
+                        0,
+                        Type.usize,
+                        .{ .lea_symbol = .{ .sym = tlv_sym } },
+                    );
+                    break :init .{ .load_frame = .{ .index = frame_index } };
+                } else break :init const_mcv,
+                else => break :init const_mcv,
+            }
         });
-        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(mcv);
         break :mcv gop.value_ptr.short;
     };
 
