@@ -5,7 +5,10 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "@depositBits" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    switch (builtin.zig_backend) {
+        .stage2_llvm, .stage2_x86_64 => {},
+        else => return error.SkipZigTest, // TODO
+    }
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -13,7 +16,6 @@ test "@depositBits" {
             var b: u64 = 0xFFFF_FFFF_FFFF_FFFF;
             var c: u64 = 0x1234_5678_9012_3456;
             var d: u64 = 0x00F0_FF00_F00F_00FF;
-            var e: u128 = @as(u128, d) << 64;
 
             try expect(@depositBits(b, a) == 0);
             try expect(@depositBits(a, b) == 0);
@@ -22,7 +24,22 @@ test "@depositBits" {
             try expect(@depositBits(b, d) == d);
 
             try expect(@depositBits(c, d) == 0x0000_1200_3004_0056);
-            try expect(@depositBits(c, e) == 0x0000_1200_3004_0056 << 64);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@depositBits u128" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+
+    const S = struct {
+        pub fn doTheTest() !void {
+            var a: u64 = 0x1234_5678_9012_3456;
+            var b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+
+            try expect(@depositBits(a, b) == 0x0000_1200_3004_0056 << 64);
         }
     };
 
@@ -31,7 +48,10 @@ test "@depositBits" {
 }
 
 test "@extractBits" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    switch (builtin.zig_backend) {
+        .stage2_llvm, .stage2_x86_64 => {},
+        else => return error.SkipZigTest, // TODO
+    }
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -39,8 +59,6 @@ test "@extractBits" {
             var b: u64 = 0xFFFF_FFFF_FFFF_FFFF;
             var c: u64 = 0x1234_5678_9012_3456;
             var d: u64 = 0x00F0_FF00_F00F_00FF;
-            var e: u128 = @as(u128, c) << 64;
-            var f: u128 = @as(u128, d) << 64;
 
             try expect(@extractBits(b, a) == 0);
             try expect(@extractBits(a, b) == 0);
@@ -49,7 +67,22 @@ test "@extractBits" {
             try expect(@extractBits(d, b) == d);
 
             try expect(@extractBits(c, d) == 0x0356_9256);
-            try expect(@extractBits(e, f) == 0x0356_9256);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@extractBits u128" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        pub fn doTheTest() !void {
+            var a: u128 = 0x1234_5678_9012_3456 << 64;
+            var b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+
+            try expect(@extractBits(a, b) == 0x0356_9256);
         }
     };
 

@@ -384,6 +384,10 @@ pub const Inst = struct {
         @"or",
         /// Spin loop hint
         pause,
+        /// Parallel bits deposit
+        pdep,
+        /// Parallel bits extract
+        pext,
         /// Pop
         pop,
         /// Return the count of number of bits set to 1
