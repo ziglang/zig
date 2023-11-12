@@ -364,14 +364,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             _ = lower.reloc(.{ .linker_tlsld = sym });
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .lea, &[_]Operand{
-                                .{ .reg = ops[0].reg.to64() },
+                                .{ .reg = .rdi },
                                 .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             });
                             lower.result_insts_len += 1;
                             if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
                                 _ = lower.reloc(.{ .linker_extern_fn = .{
                                     .atom_index = sym.atom_index,
-                                    .sym_index = try elf_file.getGlobalSymbol("__tls_get_address", null),
+                                    .sym_index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
                                 } });
                             }
                             lower.result_insts[lower.result_insts_len] =
@@ -386,8 +386,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             }
                             emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                .base = .{ .reg = ops[0].reg.to64() },
-                                .disp = undefined,
+                                .base = .{ .reg = .rax },
+                                .disp = std.math.minInt(i32),
                             }) };
                         } else {
                             // Since we are linking statically, we emit LE model directly.
@@ -405,7 +405,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             emit_mnemonic = .lea;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = ops[0].reg.to64() },
-                                .disp = undefined,
+                                .disp = std.math.minInt(i32),
                             }) };
                         }
                     }
