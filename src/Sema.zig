@@ -8898,10 +8898,16 @@ fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air
     const result_ty = operand_ty.errorUnionSet(mod);
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
-        return Air.internedToRef((try mod.intern(.{ .err = .{
-            .ty = result_ty.toIntern(),
-            .name = mod.intern_pool.indexToKey(val.toIntern()).error_union.val.err_name,
-        } })));
+        switch (mod.intern_pool.indexToKey(val.toIntern()).error_union.val) {
+            .err_name => |err_name| return Air.internedToRef((try mod.intern(.{ .err = .{
+                .ty = result_ty.toIntern(),
+                .name = err_name,
+            } }))),
+            .payload => |payload| {
+                assert(payload.toValue().isUndef(mod));
+                return mod.undefRef(result_ty);
+            },
+        }
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -16413,6 +16419,7 @@ fn zirCmp(
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
+
     return sema.analyzeCmp(block, src, lhs, rhs, op, lhs_src, rhs_src, false);
 }
 
@@ -16444,10 +16451,16 @@ fn analyzeCmp(
         return sema.cmpNumeric(block, src, lhs, rhs, op, lhs_src, rhs_src);
     }
     if (is_equality_cmp and lhs_ty.zigTypeTag(mod) == .ErrorUnion and rhs_ty.zigTypeTag(mod) == .ErrorSet) {
+        if (try sema.resolveValue(lhs)) |lhs_val| {
+            if (lhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
+        }
         const casted_lhs = try sema.analyzeErrUnionCode(block, lhs_src, lhs);
         return sema.cmpSelf(block, src, casted_lhs, rhs, op, lhs_src, rhs_src);
     }
     if (is_equality_cmp and lhs_ty.zigTypeTag(mod) == .ErrorSet and rhs_ty.zigTypeTag(mod) == .ErrorUnion) {
+        if (try sema.resolveValue(rhs)) |rhs_val| {
+            if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
+        }
         const casted_rhs = try sema.analyzeErrUnionCode(block, rhs_src, rhs);
         return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
     }
@@ -16511,11 +16524,9 @@ fn cmpSelf(
         } else {
             // For bools, we still check the other operand, because we can lower
             // bool eq/neq more efficiently.
-            if (resolved_type.zigTypeTag(mod) == .Bool) {
-                if (try sema.resolveValue(casted_rhs)) |rhs_val| {
-                    if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
-                    return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
-                }
+            if (try sema.resolveValue(casted_rhs)) |rhs_val| {
+                if (rhs_val.isUndef(mod)) return mod.undefRef(Type.bool);
+                if (resolved_type.zigTypeTag(mod) == .Bool) return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
             }
             break :src lhs_src;
         }
@@ -38000,7 +38011,10 @@ fn compareVector(
         const lhs_elem = try lhs.elemValue(sema.mod, i);
         const rhs_elem = try rhs.elemValue(sema.mod, i);
         const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(mod));
-        scalar.* = try Value.makeBool(res_bool).intern(Type.bool, mod);
+        scalar.* = if (lhs_elem.isUndef(mod) or rhs_elem.isUndef(mod))
+            Air.refToInterned(try mod.undefRef(Type.bool)).?
+        else
+            try Value.makeBool(res_bool).intern(Type.bool, mod);
     }
     return (try mod.intern(.{ .aggregate = .{
         .ty = (try mod.vectorType(.{ .len = ty.vectorLen(mod), .child = .bool_type })).toIntern(),
