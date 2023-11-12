@@ -1121,8 +1121,9 @@ pub const Object = struct {
         const mod = object.module;
 
         const writer = object.builder.setModuleAsm();
-        var it = mod.global_assembly.valueIterator();
-        while (it.next()) |assembly| try writer.print("{s}\n", .{assembly.*});
+        for (mod.global_assembly.values()) |assembly| {
+            try writer.print("{s}\n", .{assembly});
+        }
         try object.builder.finishModuleAsm();
     }
 

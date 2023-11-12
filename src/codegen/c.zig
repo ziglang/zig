@@ -2506,8 +2506,9 @@ pub fn genTypeDecl(
 }
 
 pub fn genGlobalAsm(mod: *Module, writer: anytype) !void {
-    var it = mod.global_assembly.valueIterator();
-    while (it.next()) |asm_source| try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source.*, null)});
+    for (mod.global_assembly.values()) |asm_source| {
+        try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source, null)});
+    }
 }
 
 pub fn genErrDecls(o: *Object) !void {
