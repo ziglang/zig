@@ -11523,17 +11523,6 @@ fn switchCond(
         .ErrorSet,
         .Enum,
         => {
-            if (operand_ty.isPtrAtRuntime(mod)) {
-                switch (operand_ty.childType(mod).zigTypeTag(mod)) {
-                    .Enum,
-                    .EnumLiteral,
-                    .Union,
-                    => {
-                        return sema.fail(block, src, "switch on pointer value while enum or union is expected", .{});
-                    },
-                    else => {},
-                }
-            }
             if (operand_ty.isSlice(mod)) {
                 return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(mod)});
             }
@@ -13711,6 +13700,12 @@ fn validateSwitchItemSparse(
     src_node_offset: i32,
     switch_prong_src: Module.SwitchProngSrc,
 ) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const resolved_inst = try sema.resolveInst(item_ref);
+    if (operand_ty.zigTypeTag(mod) == .Pointer and sema.typeOf(resolved_inst).zigTypeTag(mod) == .EnumLiteral) {
+        const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
+        return sema.fail(block, operand_src, "switch on pointer value while enum or union is expected", .{});
+    }
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, src_node_offset, switch_prong_src, .none);
     const kv = (try seen_values.fetchPut(sema.gpa, item.val, switch_prong_src)) orelse return item.ref;
     try sema.validateSwitchDupe(block, kv.value, switch_prong_src, src_node_offset);

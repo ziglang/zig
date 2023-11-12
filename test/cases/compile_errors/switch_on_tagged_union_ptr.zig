@@ -6,6 +6,7 @@ const foo = union(enum) {
 pub fn main() void {
     const x = foo{ .f0 = 0 };
     switch (&x) {
+        .f0 => unreachable,
         else => {},
     }
 }
