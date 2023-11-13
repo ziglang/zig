@@ -175,7 +175,16 @@ int main(int argc, char **argv) {
         const char *child_argv[] = {
             cc, "-o", "zig2", "zig2.c", "compiler_rt.c",
             "-std=c99", "-O2", "-fno-stack-protector",
-            "-Wl,-z,stack-size=0x10000000", "-Istage1", NULL,
+            "-Istage1",
+#if defined(__APPLE__)
+            "-Wl,-stack_size,0x10000000",
+#else
+            "-Wl,-z,stack-size=0x10000000",
+#endif
+#if defined(__GNUC__)
+            "-pthread",
+#endif
+            NULL,
         };
         print_and_run(child_argv);
     }
