@@ -251,7 +251,6 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
         .type = @"type",
         .flags = flags,
         .name = name,
-        .offset = std.math.maxInt(u64),
     });
     return out_shndx;
 }
