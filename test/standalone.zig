@@ -235,6 +235,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/strip_empty_loop/build.zig"),
     },
     .{
+        .build_root = "test/standalone/strip_struct_init",
+        .import = @import("standalone/strip_struct_init/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/cmakedefine",
         .import = @import("standalone/cmakedefine/build.zig"),
     },

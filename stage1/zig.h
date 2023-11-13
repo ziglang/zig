@@ -61,6 +61,12 @@ typedef char bool;
 #define zig_gnuc
 #endif
 
+#if defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
+#define zig_f128_has_miscompilations 1
+#else
+#define zig_f128_has_miscompilations 0
+#endif
+
 #if _MSC_VER
 #define zig_const_arr
 #define zig_callconv(c) __##c
@@ -3155,22 +3161,22 @@ typedef zig_u128 zig_f80;
 #define zig_has_f128 1
 #define zig_libc_name_f128(name) name##q
 #define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
-#if FLT_MANT_DIG == 113
+#if !zig_f128_has_miscompilations && FLT_MANT_DIG == 113
 typedef float zig_f128;
 #define zig_make_f128(fp, repr) fp##f
-#elif DBL_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && DBL_MANT_DIG == 113
 typedef double zig_f128;
 #define zig_make_f128(fp, repr) fp
-#elif LDBL_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && LDBL_MANT_DIG == 113
 typedef long double zig_f128;
 #define zig_make_f128(fp, repr) fp##l
-#elif FLT128_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && FLT128_MANT_DIG == 113
 typedef _Float128 zig_f128;
 #define zig_make_f128(fp, repr) fp##f128
-#elif FLT64X_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && FLT64X_MANT_DIG == 113
 typedef _Float64x zig_f128;
 #define zig_make_f128(fp, repr) fp##f64x
-#elif defined(__SIZEOF_FLOAT128__)
+#elif !zig_f128_has_miscompilations && defined(__SIZEOF_FLOAT128__)
 typedef __float128 zig_f128;
 #define zig_make_f128(fp, repr) fp##q
 #undef zig_make_special_f128

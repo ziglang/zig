@@ -132,10 +132,6 @@ failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
 
-/// Candidates for deletion. After a semantic analysis update completes, this list
-/// contains Decls that need to be deleted if they end up having no references to them.
-deletion_set: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
 
@@ -165,7 +161,7 @@ emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
-global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
 
 reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     referencer: Decl.Index,
@@ -438,9 +434,6 @@ pub const Decl = struct {
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
     /// check if the value owns a `Namespace`, and destroy that too.
     owns_tv: bool,
-    /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
-    /// when removed.
-    deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
@@ -872,47 +865,6 @@ pub const Namespace = struct {
             return a_decl.name == b_decl.name;
         }
     };
-
-    pub fn deinit(ns: *Namespace, mod: *Module) void {
-        ns.destroyDecls(mod);
-        ns.* = undefined;
-    }
-
-    pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        for (decls.keys()) |decl_index| {
-            mod.destroyDecl(decl_index);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
-
-    pub fn deleteAllDecls(
-        ns: *Namespace,
-        mod: *Module,
-        outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-    ) !void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        // TODO rework this code to not panic on OOM.
-        // (might want to coordinate with the clearDecl function)
-
-        for (decls.keys()) |child_decl| {
-            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-            mod.destroyDecl(child_decl);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
 
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
@@ -2527,7 +2479,6 @@ pub fn deinit(mod: *Module) void {
         mod.embed_table.deinit(gpa);
     }
 
-    mod.deletion_set.deinit(gpa);
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
@@ -2590,8 +2541,20 @@ pub fn deinit(mod: *Module) void {
 
     mod.test_functions.deinit(gpa);
 
+    for (mod.global_assembly.values()) |s| {
+        gpa.free(s);
+    }
     mod.global_assembly.deinit(gpa);
+
     mod.reference_table.deinit(gpa);
+
+    {
+        var it = mod.intern_pool.allocated_namespaces.iterator(0);
+        while (it.next()) |namespace| {
+            namespace.decls.deinit(gpa);
+            namespace.usingnamespace_set.deinit(gpa);
+        }
+    }
 
     mod.intern_pool.deinit(gpa);
     mod.tmp_hack_arena.deinit();
@@ -2606,19 +2569,9 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const ip = &mod.intern_pool;
 
     {
-        const decl = mod.declPtr(decl_index);
         _ = mod.test_functions.swapRemove(decl_index);
-        if (decl.deletion_flag) {
-            assert(mod.deletion_set.swapRemove(decl_index));
-        }
-        if (mod.global_assembly.fetchRemove(decl_index)) |kv| {
+        if (mod.global_assembly.fetchSwapRemove(decl_index)) |kv| {
             gpa.free(kv.value);
-        }
-        if (decl.has_tv) {
-            if (decl.getOwnedInnerNamespaceIndex(mod).unwrap()) |i| {
-                mod.namespacePtr(i).destroyDecls(mod);
-                mod.destroyNamespace(i);
-            }
         }
     }
 
@@ -4422,56 +4375,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     }
 }
 
-/// Make it as if the semantic analysis for this Decl never happened.
-pub fn clearDecl(
-    mod: *Module,
-    decl_index: Decl.Index,
-    outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-) Allocator.Error!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const decl = mod.declPtr(decl_index);
-
-    const gpa = mod.gpa;
-
-    if (outdated_decls) |map| {
-        _ = map.swapRemove(decl_index);
-    }
-
-    if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-        kv.value.destroy(gpa);
-    }
-    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        var errors = kv.value;
-        errors.deinit(gpa);
-    }
-    if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-            kv.value.destroy(gpa);
-        }
-        assert(emit_h.decl_table.swapRemove(decl_index));
-    }
-    _ = mod.compile_log_decls.swapRemove(decl_index);
-    try mod.deleteDeclExports(decl_index);
-
-    if (decl.has_tv) {
-        if (decl.ty.isFnOrHasRuntimeBits(mod)) {
-            mod.comp.bin_file.freeDecl(decl_index);
-        }
-        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
-            try namespace.deleteAllDecls(mod, outdated_decls);
-        }
-    }
-
-    if (decl.deletion_flag) {
-        decl.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(decl_index));
-    }
-
-    decl.analysis = .unreferenced;
-}
-
 /// This function is exclusively called for anonymous decls.
 /// All resources referenced by anonymous decls are owned by InternPool
 /// so there is no cleanup to do here.
@@ -4486,14 +4389,6 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
         decl_emit_h.fwd_decl.deinit(gpa);
         decl_emit_h.* = undefined;
     }
-}
-
-/// We don't perform a deletion here, because this Decl or another one
-/// may end up referencing it before the update is complete.
-fn markDeclForDeletion(mod: *Module, decl_index: Decl.Index) !void {
-    const decl = mod.declPtr(decl_index);
-    decl.deletion_flag = true;
-    try mod.deletion_set.put(mod.gpa, decl_index, {});
 }
 
 /// Cancel the creation of an anon decl and delete any references to it.
@@ -4868,7 +4763,6 @@ pub fn allocateNewDecl(
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
-        .deletion_flag = false,
         .zir_decl_index = .none,
         .src_scope = src_scope,
         .generation = 0,
@@ -5364,52 +5258,6 @@ pub fn optionsSrc(mod: *Module, decl: *Decl, base_src: LazySrcLoc, wanted: []con
         }
     }
     return base_src;
-}
-
-/// Called from `performAllTheWork`, after all AstGen workers have finished,
-/// and before the main semantic analysis loop begins.
-pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
-    // Ultimately, the goal is to queue up `analyze_decl` tasks in the work queue
-    // for the outdated decls, but we cannot queue up the tasks until after
-    // we find out which ones have been deleted, otherwise there would be
-    // deleted Decl pointers in the work queue.
-    var outdated_decls = std.AutoArrayHashMap(Decl.Index, void).init(mod.gpa);
-    defer outdated_decls.deinit();
-    for (mod.import_table.values()) |file| {
-        try outdated_decls.ensureUnusedCapacity(file.outdated_decls.items.len);
-        for (file.outdated_decls.items) |decl_index| {
-            outdated_decls.putAssumeCapacity(decl_index, {});
-        }
-        file.outdated_decls.clearRetainingCapacity();
-
-        // Handle explicitly deleted decls from the source code. This is one of two
-        // places that Decl deletions happen. The other is in `Compilation`, after
-        // `performAllTheWork`, where we iterate over `Module.deletion_set` and
-        // delete Decls which are no longer referenced.
-        // If a Decl is explicitly deleted from source, and also no longer referenced,
-        // it may be both in this `deleted_decls` set, as well as in the
-        // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
-        // deletion set at this time.
-        for (file.deleted_decls.items) |decl_index| {
-            const decl = mod.declPtr(decl_index);
-
-            // Remove from the namespace it resides in, preserving declaration order.
-            assert(decl.zir_decl_index != .none);
-            _ = mod.namespacePtr(decl.src_namespace).decls.orderedRemoveAdapted(
-                decl.name,
-                DeclAdapter{ .mod = mod },
-            );
-
-            try mod.clearDecl(decl_index, &outdated_decls);
-            mod.destroyDecl(decl_index);
-        }
-        file.deleted_decls.clearRetainingCapacity();
-    }
-    // Finally we can queue up re-analysis tasks after we have processed
-    // the deleted decls.
-    for (outdated_decls.keys()) |key| {
-        try mod.markOutdatedDecl(key);
-    }
 }
 
 /// Called from `Compilation.update`, after everything is done, just before
