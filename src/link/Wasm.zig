@@ -3439,12 +3439,13 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
     try wasm.setupInitFunctions();
     try wasm.setupStart();
-    try wasm.setupImports();
 
     for (wasm.objects.items, 0..) |*object, object_index| {
         try object.parseIntoAtoms(gpa, @as(u16, @intCast(object_index)), wasm);
     }
 
+    wasm.markReferences();
+    try wasm.setupImports();
     try wasm.allocateAtoms();
     try wasm.setupMemory();
     wasm.allocateVirtualAddresses();
@@ -3529,6 +3530,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.setupInitFunctions();
     try wasm.setupErrorsLen();
     try wasm.setupStart();
+    wasm.markReferences();
     try wasm.setupImports();
     if (wasm.base.options.module) |mod| {
         var decl_it = wasm.decls.iterator();
@@ -5025,4 +5027,39 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
     const index = try wasm.putOrGetFuncType(func_type);
     try wasm.atom_types.put(wasm.base.allocator, atom_index, index);
     return index;
+}
+
+/// Verifies all resolved symbols and checks whether itself needs to be marked alive,
+/// as well as any of its references.
+fn markReferences(wasm: *Wasm) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    for (wasm.resolved_symbols.keys()) |sym_loc| {
+        const sym = sym_loc.getSymbol(wasm);
+        if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip()) {
+            wasm.mark(sym_loc);
+        }
+    }
+}
+
+/// Marks a symbol as 'alive' recursively so itself and any references it contains to
+/// other symbols will not be omit from the binary.
+fn mark(wasm: *Wasm, loc: SymbolLoc) void {
+    const symbol = loc.getSymbol(wasm);
+    if (symbol.isAlive()) {
+        // Symbol is already marked alive, including its references.
+        // This means we can skip it so we don't end up marking the same symbols
+        // multiple times.
+        return;
+    }
+    symbol.mark();
+
+    if (wasm.symbol_atom.get(loc)) |atom_index| {
+        const atom = wasm.getAtom(atom_index);
+        const relocations: []const types.Relocation = atom.relocs.items;
+        for (relocations) |reloc| {
+            const target_loc: SymbolLoc = .{ .index = reloc.index, .file = loc.file };
+            wasm.mark(target_loc.finalLoc(wasm));
+        }
+    }
 }
