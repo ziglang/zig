@@ -70,7 +70,12 @@ pub const Config = union(enum) {
         reset_attributes: u16,
     };
 
-    pub fn setColor(conf: Config, out_stream: anytype, color: Color) !void {
+    pub fn setColor(
+        conf: Config,
+        writer: anytype,
+        color: Color,
+    ) (@typeInfo(@TypeOf(writer.writeAll(""))).ErrorUnion.error_set ||
+        windows.SetConsoleTextAttributeError)!void {
         nosuspend switch (conf) {
             .no_color => return,
             .escape_codes => {
@@ -95,7 +100,7 @@ pub const Config = union(enum) {
                     .dim => "\x1b[2m",
                     .reset => "\x1b[0m",
                 };
-                try out_stream.writeAll(color_string);
+                try writer.writeAll(color_string);
             },
             .windows_api => |ctx| if (native_os == .windows) {
                 const attributes = switch (color) {
