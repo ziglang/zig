@@ -16526,6 +16526,7 @@ fn cmpSelf(
                 // For bools, we still check the other operand, because we can lower
                 // bool eq/neq more efficiently.
                 if (resolved_type.zigTypeTag(mod) == .Bool) return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
+            }
             break :src lhs_src;
         }
     };

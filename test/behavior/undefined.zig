@@ -84,3 +84,51 @@ test "type name of undefined" {
     const x = undefined;
     try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));
 }
+
+test "undefined propagation in equality operators for bool" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var foo: bool = undefined;
+    const x = foo == undefined;
+    try expectEqual(x, @as(bool, undefined));
+}
+
+test "undefined propagation in equality operators for pointer" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var foo: *i32 = undefined;
+    const x = foo == undefined;
+    try expectEqual(x, @as(bool, undefined));
+}
+
+test "undefined propagation in equality operators for optional" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var foo: ?*i32 = undefined;
+    const x = foo == undefined;
+    try expectEqual(x, @as(bool, undefined));
+}
+
+test "undefined propagation in equality operators for error union" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var foo: anyerror = undefined;
+    const x = foo == @as(anyerror!i32, undefined);
+    try expectEqual(x, @as(bool, undefined));
+}
+
+test "undefined propagation in equality operators for integers" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var foo: i32 = undefined;
+    const x = foo == undefined;
+    try expectEqual(x, @as(bool, undefined));
+}
+
+test "undefined propagation in equality operators for vectors" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var lhs = @Vector(3, u8){1, 2, undefined};
+    var rhs = @Vector(3, u8){undefined, 2, 3};
+    try expectEqual(lhs == rhs, @Vector(3, bool){undefined, true, undefined});
+}
