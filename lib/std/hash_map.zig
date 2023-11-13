@@ -679,6 +679,11 @@ pub fn HashMap(
             self.unmanaged = .{};
             return result;
         }
+
+        /// Rehash the map, in-place
+        pub fn rehash(self: *Self) void {
+            self.unmanaged.rehash(self.ctx);
+        }
     };
 }
 
@@ -1320,6 +1325,7 @@ pub fn HashMapUnmanaged(
             if (@TypeOf(hash) != Hash) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
             }
+
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var limit = self.capacity();
@@ -1501,6 +1507,85 @@ pub fn HashMapUnmanaged(
             const result = self.*;
             self.* = .{};
             return result;
+        }
+
+        /// Rehash the map, in-place
+        pub fn rehash(self: *Self, ctx: anytype) void {
+            const mask = self.capacity() - 1;
+
+            var metadata = self.metadata.?;
+            var keys_ptr = self.keys();
+            var values_ptr = self.values();
+            var curr: Size = 0;
+
+            // While we are re-hashing every slot, we will use the
+            // fingerprint to mark used buckets as being used and either free
+            // (needing to be rehashed) or tombstone (already rehashed).
+
+            while (curr < self.capacity()) : (curr += 1) {
+                metadata[curr].fingerprint = Metadata.free;
+            }
+
+            // Now iterate over all the buckets, rehashing them
+
+            curr = 0;
+            while (curr < self.capacity()) {
+                if (!metadata[curr].isUsed()) {
+                    assert(metadata[curr].isFree());
+                    curr += 1;
+                    continue;
+                }
+
+                var hash = ctx.hash(keys_ptr[curr]);
+                var fingerprint = Metadata.takeFingerprint(hash);
+                var idx = @as(usize, @truncate(hash & mask));
+
+                // For each bucket, rehash to an index:
+                // 1) before the cursor, probed into a free slot, or
+                // 2) equal to the cursor, no need to move, or
+                // 3) ahead of the cursor, probing over already rehashed
+
+                while ((idx < curr and metadata[idx].isUsed()) or
+                    (idx > curr and metadata[idx].fingerprint == Metadata.tombstone))
+                {
+                    idx = (idx + 1) & mask;
+                }
+
+                if (idx < curr) {
+                    assert(metadata[idx].isFree());
+                    metadata[idx].fill(fingerprint);
+                    keys_ptr[idx] = keys_ptr[curr];
+                    values_ptr[idx] = values_ptr[curr];
+
+                    metadata[curr].used = 0;
+                    assert(metadata[curr].isFree());
+                    keys_ptr[curr] = undefined;
+                    values_ptr[curr] = undefined;
+
+                    curr += 1;
+                } else if (idx == curr) {
+                    metadata[idx].fingerprint = fingerprint;
+                    curr += 1;
+                } else {
+                    assert(metadata[idx].fingerprint != Metadata.tombstone);
+                    metadata[idx].fingerprint = Metadata.tombstone;
+                    if (metadata[idx].isUsed()) {
+                        std.mem.swap(K, &keys_ptr[curr], &keys_ptr[idx]);
+                        std.mem.swap(V, &values_ptr[curr], &values_ptr[idx]);
+                    } else {
+                        metadata[idx].used = 1;
+                        keys_ptr[idx] = keys_ptr[curr];
+                        values_ptr[idx] = values_ptr[curr];
+
+                        metadata[curr].fingerprint = Metadata.free;
+                        metadata[curr].used = 0;
+                        keys_ptr[curr] = undefined;
+                        values_ptr[curr] = undefined;
+
+                        curr += 1;
+                    }
+                }
+            }
         }
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
@@ -2215,4 +2300,35 @@ test "std.hash_map repeat fetchRemove" {
     try testing.expect(map.get(1) != null);
     try testing.expect(map.get(2) != null);
     try testing.expect(map.get(3) != null);
+}
+
+test "std.hash_map rehash" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
+
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        try map.put(i, i);
+        if (i % 3 == 0) {
+            try expectEqual(map.remove(i), true);
+        }
+    }
+
+    map.rehash();
+
+    try expectEqual(map.count(), count * 2 / 3);
+
+    i = 0;
+    while (i < count) : (i += 1) {
+        if (i % 3 == 0) {
+            try expectEqual(map.get(i), null);
+        } else {
+            try expectEqual(map.get(i).?, i);
+        }
+    }
 }
