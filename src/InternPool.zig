@@ -6151,7 +6151,6 @@ fn finishFuncInstance(
         .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",
         .analysis = .complete,
-        .deletion_flag = false,
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .src_scope = fn_owner_decl.src_scope,
         .generation = generation,
@@ -7617,7 +7616,11 @@ pub fn createNamespace(
 }
 
 pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: Module.Namespace.Index) void {
-    ip.namespacePtr(index).* = undefined;
+    ip.namespacePtr(index).* = .{
+        .parent = undefined,
+        .file_scope = undefined,
+        .ty = undefined,
+    };
     ip.namespaces_free_list.append(gpa, index) catch {
         // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Namespace until garbage collection.
