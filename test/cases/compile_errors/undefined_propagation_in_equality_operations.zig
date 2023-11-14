@@ -18,7 +18,7 @@ test "undefined propagation in equality operators for optional" {
 
 test "undefined propagation in equality operators for error union" {
     var foo: anyerror = undefined;
-    _ = foo == undefined;
+    _ = foo == @as(anyerror!i32, undefined);
     if (foo == @as(anyerror!i32, undefined)) {}
 }
 
