@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -81,25 +82,87 @@ static const char *get_host_triple(void) {
     return global_buffer;
 }
 
+#if defined(__WIN32__)
+#define HOST_PATHSEP '\\'
+#else
+#define HOST_PATHSEP '/'
+#endif
+
+static const char *get_parent_dir(const char *cwd) {
+    // safe for our use case
+    static char global_buffer[255];
+    if (strlen(cwd) + 3 >= 255)
+        panic("unable to get parent directory");
+
+    sprintf(global_buffer, "%s%c..", cwd, HOST_PATHSEP);
+    return global_buffer;
+}
+
+static const char *join(const char *dirpath, const char *path) {
+    int size = strlen(dirpath) + strlen(path) + 1;
+    if (size >= 4096)
+        panic("unable to join dirpath and path");
+
+    char *buffer = malloc(size);
+    sprintf(buffer, "%s%c%s", dirpath, HOST_PATHSEP, path);
+
+    // memory is leaked
+    return buffer;
+}
+
+static const char *find_zig_root(void) {
+    const char *cwd = ".";
+    while (true) {
+        FILE *f = fopen(join(cwd, "stage1/zig1.wasm"), "r");
+        if (f != NULL) {
+            fclose(f);
+            return cwd;
+        }
+
+        cwd = get_parent_dir(cwd);
+    }
+
+    // unreachable
+    return NULL;
+}
+
+static const char *mprintf(const char *format, ...) {
+    va_list arg;
+    int n;
+    char *buf = malloc(255); // safe for our use case
+    va_start(arg, format);
+    n = vsprintf(buf, format, arg);
+    va_end(arg);
+
+    if (n < 0)
+        panic("mprintf failed");
+
+    // memory is leaked
+    return buf;
+}
+
 int main(int argc, char **argv) {
     const char *cc = get_c_compiler();
     const char *host_triple = get_host_triple();
+    const char *zig_root = find_zig_root();
 
     {
         const char *child_argv[] = {
-            cc, "-o", "zig-wasm2c", "stage1/wasm2c.c", "-O2", "-std=c99", NULL,
+            cc, "-o", "zig-wasm2c", join(zig_root, "stage1/wasm2c.c"), "-O2",
+            "-std=c99", NULL,
         };
         print_and_run(child_argv);
     }
     {
         const char *child_argv[] = {
-            "./zig-wasm2c", "stage1/zig1.wasm", "zig1.c", NULL,
+            "./zig-wasm2c", join(zig_root, "stage1/zig1.wasm"), "zig1.c", NULL
         };
         print_and_run(child_argv);
     }
     {
         const char *child_argv[] = {
-            cc, "-o", "zig1", "zig1.c", "stage1/wasi.c", "-std=c99", "-Os", "-lm", NULL,
+            cc, "-o", "zig1", "zig1.c", join(zig_root, "stage1/wasi.c"), "-std=c99",
+            "-Os", "-lm", NULL,
         };
         print_and_run(child_argv);
     }
@@ -136,13 +199,13 @@ int main(int argc, char **argv) {
 
     {
         const char *child_argv[] = {
-            "./zig1", "lib", "build-exe", "src/main.zig",
+            "./zig1", join(zig_root, "lib"), "build-exe", join(zig_root, "src/main.zig"),
             "-ofmt=c", "-lc", "-OReleaseSmall",
             "--name", "zig2", "-femit-bin=zig2.c",
             "--mod", "build_options::config.zig",
-            "--mod", "Builtins/Builtin.def::src/stubs/aro_builtins.zig",
-            "--mod", "Attribute/names.def::src/stubs/aro_names.zig",
-            "--mod", "aro:Builtins/Builtin.def,Attribute/names.def:deps/aro/lib.zig",
+            "--mod", mprintf("Builtins/Builtin.def::%s%csrc/stubs/aro_builtins.zig", zig_root, HOST_PATHSEP),
+            "--mod", mprintf("Attribute/names.def::%s%csrc/stubs/aro_names.zig", zig_root, HOST_PATHSEP),
+            "--mod", mprintf("aro:Builtins/Builtin.def,Attribute/names.def:%s%cdeps/aro/lib.zig", zig_root, HOST_PATHSEP),
             "--deps", "build_options,aro",
             "-target", host_triple,
             NULL,
@@ -152,7 +215,7 @@ int main(int argc, char **argv) {
 
     {
         const char *child_argv[] = {
-            "./zig1", "lib", "build-obj", "lib/compiler_rt.zig",
+            "./zig1", join(zig_root, "lib"), "build-obj", join(zig_root, "lib/compiler_rt.zig"),
             "-ofmt=c", "-OReleaseSmall",
             "--name", "compiler_rt", "-femit-bin=compiler_rt.c",
             "--mod", "build_options::config.zig",
@@ -167,7 +230,7 @@ int main(int argc, char **argv) {
         const char *child_argv[] = {
             cc, "-o", "zig2", "zig2.c", "compiler_rt.c",
             "-std=c99", "-O2", "-fno-stack-protector",
-            "-Istage1",
+            "-I", join(zig_root, "stage1"),
 #if defined(__APPLE__)
             "-Wl,-stack_size,0x10000000",
 #else
