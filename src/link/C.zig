@@ -103,7 +103,7 @@ pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C
     });
     errdefer file.close();
 
-    var c_file = try gpa.create(C);
+    const c_file = try gpa.create(C);
     errdefer gpa.destroy(c_file);
 
     c_file.* = .{

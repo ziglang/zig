@@ -368,7 +368,7 @@ pub fn generateSymbol(
                 .bytes => |bytes| try code.appendSlice(bytes),
                 .elems, .repeated_elem => {
                     var index: u64 = 0;
-                    var len_including_sentinel =
+                    const len_including_sentinel =
                         array_type.len + @intFromBool(array_type.sentinel != .none);
                     while (index < len_including_sentinel) : (index += 1) {
                         switch (try generateSymbol(bin_file, src_loc, .{

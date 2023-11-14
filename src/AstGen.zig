@@ -6707,7 +6707,7 @@ fn forExpr(
         };
     }
 
-    var then_node = for_full.ast.then_expr;
+    const then_node = for_full.ast.then_expr;
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer then_scope.unstack();
 
@@ -8160,7 +8160,7 @@ fn typeOf(
     }
     const payload_size: u32 = std.meta.fields(Zir.Inst.TypeOfPeer).len;
     const payload_index = try reserveExtra(astgen, payload_size + args.len);
-    var args_index = payload_index + payload_size;
+    const args_index = payload_index + payload_size;
 
     const typeof_inst = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, args.len);
 

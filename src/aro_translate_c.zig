@@ -346,7 +346,7 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
     defer block_scope.deinit();
 
     var scope = &block_scope.base;
-    _ = scope;
+    _ = &scope;
 
     var param_id: c_uint = 0;
     for (proto_payload.data.params, fn_ty.data.func.params) |*param, param_info| {
@@ -534,7 +534,7 @@ fn transFnType(
     ctx: FnProtoContext,
 ) !ZigNode {
     const param_count: usize = fn_ty.data.func.params.len;
-    var fn_params = try c.arena.alloc(ast.Payload.Param, param_count);
+    const fn_params = try c.arena.alloc(ast.Payload.Param, param_count);
 
     for (fn_ty.data.func.params, fn_params) |param_info, *param_node| {
         const param_ty = param_info.ty;

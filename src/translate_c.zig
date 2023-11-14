@@ -456,7 +456,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     block_scope.return_type = return_qt;
     defer block_scope.deinit();
 
-    var scope = &block_scope.base;
+    const scope = &block_scope.base;
 
     var param_id: c_uint = 0;
     for (proto_node.data.params) |*param| {
@@ -1363,7 +1363,7 @@ fn transSimpleOffsetOfExpr(c: *Context, expr: *const clang.OffsetOfExpr) TransEr
             if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |type_name| {
                 const type_node = try Tag.type.create(c.arena, type_name);
 
-                var raw_field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
+                const raw_field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
                 const quoted_field_name = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{raw_field_name});
                 const field_name_node = try Tag.string_literal.create(c.arena, quoted_field_name);
 
@@ -1967,7 +1967,7 @@ fn transBoolExpr(
         return Node{ .tag_if_small_enough = @intFromEnum(([2]Tag{ .true_literal, .false_literal })[@intFromBool(is_zero)]) };
     }
 
-    var res = try transExpr(c, scope, expr, used);
+    const res = try transExpr(c, scope, expr, used);
     if (isBoolRes(res)) {
         return maybeSuppressResult(c, used, res);
     }
@@ -3477,7 +3477,7 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
 
 fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result_used: ResultUsed) TransError!Node {
     const callee = stmt.getCallee();
-    var raw_fn_expr = try transExpr(c, scope, callee, .used);
+    const raw_fn_expr = try transExpr(c, scope, callee, .used);
 
     var is_ptr = false;
     const fn_ty = qualTypeGetFnProto(callee.getType(), &is_ptr);
@@ -5889,7 +5889,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
 
     const formatter = std.fmt.fmtSliceEscapeLower(zigified);
     const encoded_size = @as(usize, @intCast(std.fmt.count("{s}", .{formatter})));
-    var output = try ctx.arena.alloc(u8, encoded_size);
+    const output = try ctx.arena.alloc(u8, encoded_size);
     return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,
         else => |e| return e,

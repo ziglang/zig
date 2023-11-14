@@ -98,7 +98,7 @@ pub fn tagToId(tag: []const u8) error{InvalidLanguageTag}!?LanguageId {
     var normalized_buf: [longest_known_tag]u8 = undefined;
     // To allow e.g. `de-de_phoneb` to get looked up as `de-de`, we need to
     // omit the suffix, but only if the tag contains a valid alternate sort order.
-    var tag_to_normalize = if (parsed.isSuffixValidSortOrder()) tag[0 .. tag.len - (parsed.suffix.?.len + 1)] else tag;
+    const tag_to_normalize = if (parsed.isSuffixValidSortOrder()) tag[0 .. tag.len - (parsed.suffix.?.len + 1)] else tag;
     const normalized_tag = normalizeTag(tag_to_normalize, &normalized_buf);
     return std.meta.stringToEnum(LanguageId, normalized_tag) orelse {
         // special case for a tag that has been mapped to the same ID

@@ -967,7 +967,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // --verbose-link
     if (self.base.options.verbose_link) try self.dumpArgv(comp);
 
-    var csu = try CsuObjects.init(arena, self.base.options, comp);
+    const csu = try CsuObjects.init(arena, self.base.options, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -1493,7 +1493,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     } else null;
     const gc_sections = self.base.options.gc_sections orelse false;
 
-    var csu = try CsuObjects.init(arena, self.base.options, comp);
+    const csu = try CsuObjects.init(arena, self.base.options, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -2599,7 +2599,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         try argv.append(full_out_path);
 
         // csu prelude
-        var csu = try CsuObjects.init(arena, self.base.options, comp);
+        const csu = try CsuObjects.init(arena, self.base.options, comp);
         if (csu.crt0) |v| try argv.append(v);
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
@@ -3852,7 +3852,7 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
         backlinks[entry.phndx] = @as(u16, @intCast(i));
     }
 
-    var slice = try self.phdrs.toOwnedSlice(gpa);
+    const slice = try self.phdrs.toOwnedSlice(gpa);
     defer gpa.free(slice);
 
     try self.phdrs.ensureTotalCapacityPrecise(gpa, slice.len);
@@ -3957,7 +3957,7 @@ fn sortShdrs(self: *Elf) !void {
         backlinks[entry.shndx] = @as(u16, @intCast(i));
     }
 
-    var slice = try self.shdrs.toOwnedSlice(gpa);
+    const slice = try self.shdrs.toOwnedSlice(gpa);
     defer gpa.free(slice);
 
     try self.shdrs.ensureTotalCapacityPrecise(gpa, slice.len);

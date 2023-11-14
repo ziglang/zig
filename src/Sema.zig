@@ -22899,7 +22899,7 @@ fn checkSimdBinOp(
     const rhs_ty = sema.typeOf(uncasted_rhs);
 
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    var vec_len: ?usize = if (lhs_ty.zigTypeTag(mod) == .Vector) lhs_ty.vectorLen(mod) else null;
+    const vec_len: ?usize = if (lhs_ty.zigTypeTag(mod) == .Vector) lhs_ty.vectorLen(mod) else null;
     const result_ty = try sema.resolvePeerTypes(block, src, &.{ uncasted_lhs, uncasted_rhs }, .{
         .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
@@ -23286,8 +23286,8 @@ fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
     try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
-    var a = try sema.resolveInst(extra.a);
-    var b = try sema.resolveInst(extra.b);
+    const a = try sema.resolveInst(extra.a);
+    const b = try sema.resolveInst(extra.b);
     var mask = try sema.resolveInst(extra.mask);
     var mask_ty = sema.typeOf(mask);
 
@@ -23328,7 +23328,7 @@ fn analyzeShuffle(
         .child = elem_ty.toIntern(),
     });
 
-    var maybe_a_len = switch (sema.typeOf(a).zigTypeTag(mod)) {
+    const maybe_a_len = switch (sema.typeOf(a).zigTypeTag(mod)) {
         .Array, .Vector => sema.typeOf(a).arrayLen(mod),
         .Undefined => null,
         else => return sema.fail(block, a_src, "expected vector or array with element type '{}', found '{}'", .{
@@ -23336,7 +23336,7 @@ fn analyzeShuffle(
             sema.typeOf(a).fmt(sema.mod),
         }),
     };
-    var maybe_b_len = switch (sema.typeOf(b).zigTypeTag(mod)) {
+    const maybe_b_len = switch (sema.typeOf(b).zigTypeTag(mod)) {
         .Array, .Vector => sema.typeOf(b).arrayLen(mod),
         .Undefined => null,
         else => return sema.fail(block, b_src, "expected vector or array with element type '{}', found '{}'", .{
@@ -23801,7 +23801,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const call_src = inst_data.src();
 
     const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
-    var func = try sema.resolveInst(extra.callee);
+    const func = try sema.resolveInst(extra.callee);
 
     const modifier_ty = try sema.getBuiltinType("CallModifier");
     const air_ref = try sema.resolveInst(extra.modifier);
@@ -23859,7 +23859,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.fail(block, args_src, "expected a tuple, found '{}'", .{args_ty.fmt(sema.mod)});
     }
 
-    var resolved_args: []Air.Inst.Ref = try sema.arena.alloc(Air.Inst.Ref, args_ty.structFieldCount(mod));
+    const resolved_args: []Air.Inst.Ref = try sema.arena.alloc(Air.Inst.Ref, args_ty.structFieldCount(mod));
     for (resolved_args, 0..) |*resolved, i| {
         resolved.* = try sema.tupleFieldValByIndex(block, args_src, args, @intCast(i), args_ty);
     }
@@ -33274,8 +33274,8 @@ fn resolvePeerTypes(
         else => {},
     }
 
-    var peer_tys = try sema.arena.alloc(?Type, instructions.len);
-    var peer_vals = try sema.arena.alloc(?Value, instructions.len);
+    const peer_tys = try sema.arena.alloc(?Type, instructions.len);
+    const peer_vals = try sema.arena.alloc(?Value, instructions.len);
 
     for (instructions, peer_tys, peer_vals) |inst, *ty, *val| {
         ty.* = sema.typeOf(inst);
