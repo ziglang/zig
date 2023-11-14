@@ -42,11 +42,6 @@ static void run(char **argv) {
     if (WEXITSTATUS(status) != 0)
         panic("child process failed");
 }
-
-static void run_execv(char **argv) {
-    if (execv(argv[0], argv) == -1 && errno == ENOENT) return;
-    perror("execv failed");
-}
 #endif
 
 static void print_and_run(const char **argv) {
@@ -87,9 +82,6 @@ static const char *get_host_triple(void) {
 }
 
 int main(int argc, char **argv) {
-    argv[0] = "./zig2";
-    run_execv(argv);
-
     const char *cc = get_c_compiler();
     const char *host_triple = get_host_triple();
 
@@ -188,7 +180,4 @@ int main(int argc, char **argv) {
         };
         print_and_run(child_argv);
     }
-
-    run_execv(argv);
-    panic("build script failed to create valid zig2 executable");
 }

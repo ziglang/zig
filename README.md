@@ -70,14 +70,13 @@ In this case, the only system dependency is a C compiler.
 
 ```
 cc -o bootstrap bootstrap.c
-./bootstrap build
+./bootstrap
 ```
 
-You can pass any options to this that you would pass to `zig build` (see
-`--help` for options).
-
-[Without LLVM extensions](https://github.com/ziglang/zig/issues/16270), a Zig
-compiler is missing these features:
+This produces a `zig2` executable in the current working directory. This is a
+"stage2" build of the compiler,
+[without LLVM extensions](https://github.com/ziglang/zig/issues/16270), and is
+therefore lacking these features:
 - Release mode optimizations
 - aarch64 machine code backend
 - `@cImport` / `zig translate-c`
@@ -86,13 +85,16 @@ compiler is missing these features:
 - [Some ELF linking features](https://github.com/ziglang/zig/issues/17749)
 - [Most COFF/PE linking features](https://github.com/ziglang/zig/issues/17751)
 - [Some WebAssembly linking features](https://github.com/ziglang/zig/issues/17750)
-- [COFF linking](https://github.com/ziglang/zig/issues/17751)
 - [Ability to output LLVM bitcode](https://github.com/ziglang/zig/issues/13265)
 - [Windows resource file compilation](https://github.com/ziglang/zig/issues/17752)
 - [Ability to create import libs from def files](https://github.com/ziglang/zig/issues/17807)
 - [Automatic importlib file generation for Windows DLLs](https://github.com/ziglang/zig/issues/17753)
 - [Ability to create static archives from object files](https://github.com/ziglang/zig/issues/9828)
 - Ability to compile C++, Objective-C, and Objective-C++ files
+
+However, a compiler built this way does provide a C backend, which may be
+useful for creating system packages of Zig projects using the system C
+toolchain. In such case, LLVM is not needed!
 
 ## Contributing
 

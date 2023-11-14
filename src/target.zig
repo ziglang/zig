@@ -654,7 +654,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
-        .stage2_x86_64 => target.ofmt == .macho,
+        .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
 }

@@ -399,6 +399,11 @@ pub const Flags = packed struct {
     /// Whether the symbol contains .zig.got indirection.
     needs_zig_got: bool = false,
     has_zig_got: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    /// TODO this is really not needed if only we operated on esyms between
+    /// codegen and ZigObject.
+    is_tls: bool = false,
 };
 
 pub const Extra = struct {

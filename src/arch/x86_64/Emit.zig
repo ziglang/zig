@@ -84,6 +84,24 @@ pub fn emitMir(emit: *Emit) Error!void {
                 } else return emit.fail("TODO implement extern reloc for {s}", .{
                     @tagName(emit.lower.bin_file.tag),
                 }),
+                .linker_tlsld => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_TLSLD,
+                        .r_addend = -4,
+                    });
+                },
+                .linker_dtpoff => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_DTPOFF32,
+                        .r_addend = 0,
+                    });
+                },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
                         .Exe => false,
@@ -120,6 +138,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 link.File.Elf.R_X86_64_ZIG_GOT32
                             else if (sym.flags.needs_got)
                                 std.elf.R_X86_64_GOT32
+                            else if (sym.flags.is_tls)
+                                std.elf.R_X86_64_TPOFF32
                             else
                                 std.elf.R_X86_64_32;
                             try atom.addReloc(elf_file, .{

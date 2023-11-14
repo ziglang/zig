@@ -24,7 +24,8 @@ git fetch --tags
 git clean -fd
 rm -rf zig-out
 cc -o bootstrap bootstrap.c
-./bootstrap build -Dno-lib
+./bootstrap
+./zig2 build -Dno-lib
 # In order to run these behavior tests we need to move the `@cImport` ones to somewhere else.
 # ./zig-out/bin/zig test test/behavior.zig
 
