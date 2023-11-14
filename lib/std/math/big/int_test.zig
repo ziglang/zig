@@ -1443,6 +1443,9 @@ test "big.int divFloor #11166" {
 }
 
 test "big.int gcd #10932" {
+    // TODO https://github.com/ziglang/zig/issues/17998
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
 
