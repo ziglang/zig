@@ -781,6 +781,8 @@ fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).
             if (field.default_value) |default_ptr| {
                 const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
                 @field(r, field.name) = default;
+            } else if (@typeInfo(field.type) == .Optional) {
+                @field(r, field.name) = null;
             } else {
                 return error.MissingField;
             }
