@@ -1981,10 +1981,16 @@ pub fn addTableFunction(wasm: *Wasm, symbol_index: u32) !void {
 /// Starts at offset 1, where the value `0` represents an unresolved function pointer
 /// or null-pointer
 fn mapFunctionTable(wasm: *Wasm) void {
-    var it = wasm.function_table.valueIterator();
+    var it = wasm.function_table.iterator();
     var index: u32 = 1;
-    while (it.next()) |value_ptr| : (index += 1) {
-        value_ptr.* = index;
+    while (it.next()) |entry| {
+        const symbol = entry.key_ptr.*.getSymbol(wasm);
+        if (symbol.isAlive()) {
+            entry.value_ptr.* = index;
+            index += 1;
+        } else {
+            wasm.function_table.removeByPtr(entry.key_ptr);
+        }
     }
 
     if (wasm.base.options.import_table or wasm.base.options.output_mode == .Obj) {
@@ -2242,14 +2248,23 @@ fn allocateAtoms(wasm: *Wasm) !void {
         while (true) {
             const atom = wasm.getAtomPtr(atom_index);
             const symbol_loc = atom.symbolLoc();
-            if (wasm.code_section_index) |index| {
-                if (index == entry.key_ptr.*) {
-                    if (!wasm.resolved_symbols.contains(symbol_loc)) {
-                        // only allocate resolved function body's.
-                        atom_index = atom.prev orelse break;
-                        continue;
-                    }
+            const sym = symbol_loc.getSymbol(wasm);
+            if (sym.isDead()) {
+                // Dead symbols must be unlinked from the linked-list to prevent them
+                // from being emit into the binary.
+                if (atom.prev) |prev_index| {
+                    const prev = wasm.getAtomPtr(prev_index);
+                    prev.next = atom.next;
                 }
+                atom_index = atom.next orelse {
+                    atom.prev = null;
+                    break;
+                };
+                const next = wasm.getAtomPtr(atom_index);
+                next.prev = atom.prev;
+                atom.prev = null;
+                atom.next = null;
+                continue;
             }
             offset = @intCast(atom.alignment.forward(offset));
             atom.offset = offset;
@@ -2358,11 +2373,17 @@ fn setupInitFunctions(wasm: *Wasm) !void {
                 .file = @as(u16, @intCast(file_index)),
                 .priority = init_func.priority,
             });
+            try wasm.mark(.{ .index = init_func.symbol_index, .file = @intCast(file_index) });
         }
     }
 
     // sort the initfunctions based on their priority
     mem.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+
+    if (wasm.init_funcs.items.len > 0) {
+        const loc = wasm.findGlobalSymbol("__wasm_call_ctors").?;
+        try wasm.mark(loc);
+    }
 }
 
 /// Generates an atom containing the global error set' size.
@@ -2463,6 +2484,9 @@ fn createSyntheticFunction(
     const loc = wasm.findGlobalSymbol(symbol_name) orelse
         try wasm.createSyntheticSymbol(symbol_name, .function);
     const symbol = loc.getSymbol(wasm);
+    if (symbol.isDead()) {
+        return;
+    }
     const ty_index = try wasm.putOrGetFuncType(func_ty);
     // create function with above type
     const func_index = wasm.imported_functions_count + @as(u32, @intCast(wasm.functions.count()));
@@ -2628,10 +2652,10 @@ fn setupImports(wasm: *Wasm) !void {
         }
 
         const symbol = symbol_loc.getSymbol(wasm);
-        if (std.mem.eql(u8, symbol_loc.getName(wasm), "__indirect_function_table")) {
-            continue;
-        }
-        if (!symbol.requiresImport()) {
+        if (symbol.isDead() or
+            !symbol.requiresImport() or
+            std.mem.eql(u8, symbol_loc.getName(wasm), "__indirect_function_table"))
+        {
             continue;
         }
 
@@ -2697,7 +2721,11 @@ fn mergeSections(wasm: *Wasm) !void {
 
         const object = &wasm.objects.items[sym_loc.file.?];
         const symbol = &object.symtable[sym_loc.index];
-        if (symbol.isUndefined() or (symbol.tag != .function and symbol.tag != .global and symbol.tag != .table)) {
+
+        if (symbol.isDead() or
+            symbol.isUndefined() or
+            (symbol.tag != .function and symbol.tag != .global and symbol.tag != .table))
+        {
             // Skip undefined symbols as they go in the `import` section
             // Also skip symbols that do not need to have a section merged.
             continue;
@@ -2753,8 +2781,8 @@ fn mergeTypes(wasm: *Wasm) !void {
         }
         const object = wasm.objects.items[sym_loc.file.?];
         const symbol = object.symtable[sym_loc.index];
-        if (symbol.tag != .function) {
-            // Only functions have types
+        if (symbol.tag != .function or symbol.isDead()) {
+            // Only functions have types. Only retrieve the type of referenced functions.
             continue;
         }
 
@@ -3823,7 +3851,8 @@ fn writeToFile(
         try leb.writeULEB128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
         var symbol_it = wasm.function_table.keyIterator();
         while (symbol_it.next()) |symbol_loc_ptr| {
-            try leb.writeULEB128(binary_writer, symbol_loc_ptr.*.getSymbol(wasm).index);
+            const sym = symbol_loc_ptr.*.getSymbol(wasm);
+            try leb.writeULEB128(binary_writer, sym.index);
         }
 
         try writeVecSectionHeader(
