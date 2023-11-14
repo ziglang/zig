@@ -1923,6 +1923,8 @@ fn resolveBoundarySymbols(self: *MachO) !void {
             _ = self.unresolved.swapRemove(global_index);
             continue;
         }
+
+        next_sym += 1;
     }
 }
 
