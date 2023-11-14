@@ -933,7 +933,12 @@ fn updateTlv(
     {
         const gop = try self.tls_variables.getOrPut(gpa, atom_ptr.atom_index);
         assert(!gop.found_existing); // TODO incremental updates
-        gop.value_ptr.* = .{ .symbol_index = sym_index, .code = try gpa.dupe(u8, code) };
+        gop.value_ptr.* = .{ .symbol_index = sym_index };
+
+        // We only store the data for the TLV if it's non-zerofill.
+        if (elf_file.shdrs.items[shndx].sh_type != elf.SHT_NOBITS) {
+            gop.value_ptr.code = try gpa.dupe(u8, code);
+        }
     }
 
     {
@@ -1514,7 +1519,7 @@ const DeclMetadata = struct {
 
 const TlsVariable = struct {
     symbol_index: Symbol.Index,
-    code: []const u8,
+    code: []const u8 = &[0]u8{},
 
     fn deinit(tlv: *TlsVariable, allocator: Allocator) void {
         allocator.free(tlv.code);
