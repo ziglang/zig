@@ -4481,6 +4481,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
 
             var next_register: usize = 0;
             var next_stack_offset: u32 = 0;
+            // TODO: this is never assigned, which is a bug, but I don't know how this code works
+            // well enough to try and fix it. I *think* `next_register += next_stack_offset` is
+            // supposed to be `next_stack_offset += param_size` in every case where it appears.
+            _ = &next_stack_offset;
 
             // The caller puts the argument in %o0-%o5, which becomes %i0-%i5 inside the callee.
             const argument_registers = switch (role) {

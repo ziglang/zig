@@ -69,7 +69,7 @@ fn iterateAndFilterBySemVer(iterator: *std.fs.IterableDir.Iterator, allocator: s
         try dirs_filtered_list.append(subfolder_name_allocated);
     }
 
-    var dirs_filtered_slice = try dirs_filtered_list.toOwnedSlice();
+    const dirs_filtered_slice = try dirs_filtered_list.toOwnedSlice();
     // Keep in mind that order of these names is not guaranteed by Windows,
     // so we cannot just reverse or "while (popOrNull())" this ArrayList.
     std.mem.sortUnstable([]const u8, dirs_filtered_slice, {}, struct {
@@ -129,7 +129,7 @@ const RegistryUtf8 = struct {
         const value_utf16le = try registry_utf16le.getString(allocator, subkey_utf16le, value_name_utf16le);
         defer allocator.free(value_utf16le);
 
-        var value_utf8: []u8 = std.unicode.utf16leToUtf8Alloc(allocator, value_utf16le) catch |err| switch (err) {
+        const value_utf8: []u8 = std.unicode.utf16leToUtf8Alloc(allocator, value_utf16le) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return error.StringNotFound,
         };
@@ -246,7 +246,7 @@ const RegistryUtf16Le = struct {
             else => return error.NotAString,
         }
 
-        var value_utf16le_buf: []u16 = try allocator.alloc(u16, std.math.divCeil(u32, value_utf16le_buf_size, 2) catch unreachable);
+        const value_utf16le_buf: []u16 = try allocator.alloc(u16, std.math.divCeil(u32, value_utf16le_buf_size, 2) catch unreachable);
         errdefer allocator.free(value_utf16le_buf);
 
         return_code_int = windows.advapi32.RegGetValueW(
@@ -354,7 +354,7 @@ pub const Windows10Sdk = struct {
         defer v10_key.closeKey();
 
         const path: []const u8 = path10: {
-            var path_maybe_with_trailing_slash = v10_key.getString(allocator, "", "InstallationFolder") catch |err| switch (err) {
+            const path_maybe_with_trailing_slash = v10_key.getString(allocator, "", "InstallationFolder") catch |err| switch (err) {
                 error.NotAString => return error.Windows10SdkNotFound,
                 error.ValueNameNotFound => return error.Windows10SdkNotFound,
                 error.StringNotFound => return error.Windows10SdkNotFound,
@@ -381,7 +381,7 @@ pub const Windows10Sdk = struct {
         const version: []const u8 = version10: {
 
             // note(dimenus): Microsoft doesn't include the .0 in the ProductVersion key....
-            var version_without_0 = v10_key.getString(allocator, "", "ProductVersion") catch |err| switch (err) {
+            const version_without_0 = v10_key.getString(allocator, "", "ProductVersion") catch |err| switch (err) {
                 error.NotAString => return error.Windows10SdkNotFound,
                 error.ValueNameNotFound => return error.Windows10SdkNotFound,
                 error.StringNotFound => return error.Windows10SdkNotFound,
@@ -445,7 +445,7 @@ pub const Windows81Sdk = struct {
     /// After finishing work, call `free(allocator)`.
     fn find(allocator: std.mem.Allocator, roots_key: *const RegistryUtf8) error{ OutOfMemory, Windows81SdkNotFound, PathTooLong, VersionTooLong }!Windows81Sdk {
         const path: []const u8 = path81: {
-            var path_maybe_with_trailing_slash = roots_key.getString(allocator, "", "KitsRoot81") catch |err| switch (err) {
+            const path_maybe_with_trailing_slash = roots_key.getString(allocator, "", "KitsRoot81") catch |err| switch (err) {
                 error.NotAString => return error.Windows81SdkNotFound,
                 error.ValueNameNotFound => return error.Windows81SdkNotFound,
                 error.StringNotFound => return error.Windows81SdkNotFound,
@@ -752,7 +752,7 @@ const MsvcLibDir = struct {
 
             const config_subkey = std.fmt.bufPrint(config_subkey_buf[0..], "Software\\Microsoft\\VisualStudio\\{s}_Config", .{vs_version}) catch unreachable;
 
-            var source_directories_value = visualstudio_registry.getString(allocator, config_subkey, "Source Directories") catch |err| switch (err) {
+            const source_directories_value = visualstudio_registry.getString(allocator, config_subkey, "Source Directories") catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => continue,
             };
@@ -768,7 +768,7 @@ const MsvcLibDir = struct {
         var source_directories_splitted = std.mem.splitScalar(u8, source_directories, ';');
 
         const msvc_dir: []const u8 = msvc_dir: {
-            var msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_splitted.first());
+            const msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_splitted.first());
 
             if (msvc_include_dir_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
                 allocator.free(msvc_include_dir_maybe_with_trailing_slash);
@@ -833,7 +833,7 @@ const MsvcLibDir = struct {
             const vs7_key = RegistryUtf8.openKey("SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7") catch return error.PathNotFound;
             defer vs7_key.closeKey();
             try_vs7_key: {
-                var path_maybe_with_trailing_slash = vs7_key.getString(allocator, "", "14.0") catch |err| switch (err) {
+                const path_maybe_with_trailing_slash = vs7_key.getString(allocator, "", "14.0") catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     else => break :try_vs7_key,
                 };

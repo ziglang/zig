@@ -410,7 +410,7 @@ fn readVbr(bc: *BitcodeReader, comptime T: type, bits: u7) !T {
     var result: u64 = 0;
     var shift: u6 = 0;
     while (true) {
-        var chunk = try bc.readFixed(u64, bits);
+        const chunk = try bc.readFixed(u64, bits);
         result |= (chunk & (chunk_msb - 1)) << shift;
         if (chunk & chunk_msb == 0) break;
         shift += chunk_bits;

@@ -120,7 +120,7 @@ pub fn read(reader: anytype, max_size: u64) ReadError!BitmapInfo {
             var dib_header_buf: [@sizeOf(BITMAPCOREHEADER)]u8 align(@alignOf(BITMAPCOREHEADER)) = undefined;
             std.mem.writeInt(u32, dib_header_buf[0..4], bitmap_info.dib_header_size, .little);
             reader.readNoEof(dib_header_buf[4..]) catch return error.UnexpectedEOF;
-            var dib_header: *BITMAPCOREHEADER = @ptrCast(&dib_header_buf);
+            const dib_header: *BITMAPCOREHEADER = @ptrCast(&dib_header_buf);
             structFieldsLittleToNative(BITMAPCOREHEADER, dib_header);
 
             // > The size of the color palette is calculated from the BitsPerPixel value.
