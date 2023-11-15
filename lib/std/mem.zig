@@ -1911,6 +1911,9 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
             inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
                     .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Enum => {
+                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                    },
                     else => {
                         @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
                     },
@@ -1921,6 +1924,9 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
             for (ptr) |*item| {
                 switch (@typeInfo(@TypeOf(item.*))) {
                     .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .Enum => {
+                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
                     else => {
                         item.* = @byteSwap(item.*);
                     },
