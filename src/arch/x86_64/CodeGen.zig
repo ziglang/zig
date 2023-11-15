@@ -3235,6 +3235,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                 var callee_buf: ["__udiv?i3".len]u8 = undefined;
                 const signed_div_floor_state: struct {
                     frame_index: FrameIndex,
+                    state: State,
                     reloc: Mir.Inst.Index,
                 } = if (signed and tag == .div_floor) state: {
                     const frame_index = try self.allocFrameIndex(FrameAlloc.initType(Type.usize, mod));
@@ -3295,9 +3296,10 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         tmp_reg,
                         mat_rhs_mcv.register_pair[1],
                     );
+                    const state = try self.saveState();
                     const reloc = try self.asmJccReloc(.ns, undefined);
 
-                    break :state .{ .frame_index = frame_index, .reloc = reloc };
+                    break :state .{ .frame_index = frame_index, .state = state, .reloc = reloc };
                 } else undefined;
                 const call_mcv = try self.genCall(
                     .{ .lib = .{
@@ -3327,6 +3329,12 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         try self.asmSetccMemory(.nz, .{
                             .base = .{ .frame = signed_div_floor_state.frame_index },
                             .mod = .{ .rm = .{ .size = .byte } },
+                        });
+                        try self.restoreState(signed_div_floor_state.state, &.{}, .{
+                            .emit_instructions = true,
+                            .update_tracking = true,
+                            .resurrect = true,
+                            .close_scope = true,
                         });
                         try self.performReloc(signed_div_floor_state.reloc);
                         const dst_mcv = try self.genCall(
