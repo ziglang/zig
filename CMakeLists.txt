@@ -817,9 +817,12 @@ set(BUILD_ZIG2_ARGS
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
+  --mod "aro_options::src/stubs/aro_options.zig"
   --mod "Builtins/Builtin.def::src/stubs/aro_builtins.zig"
   --mod "Attribute/names.def::src/stubs/aro_names.zig"
-  --mod "aro:Builtins/Builtin.def,Attribute/names.def:deps/aro/lib.zig"
+  --mod "Diagnostics/messages.def::src/stubs/aro_messages.zig"
+  --mod "aro_backend:build_options=aro_options:deps/aro/backend.zig"
+  --mod "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig"
   --deps build_options,aro
   -target "${ZIG_HOST_TARGET_TRIPLE}"
 )

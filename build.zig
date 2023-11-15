@@ -590,11 +590,33 @@ fn addCompilerStep(
         .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
-    const aro_module = b.createModule(.{
-        .source_file = .{ .path = "deps/aro/lib.zig" },
+
+    const aro_options = b.addOptions();
+    aro_options.addOption([]const u8, "version_str", "aro-zig");
+    const aro_options_module = aro_options.createModule();
+    const aro_backend = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/backend.zig" },
+        .dependencies = &.{.{
+            .name = "build_options",
+            .module = aro_options_module,
+        }},
     });
-    GenerateDef.add(b, "deps/aro/Builtins/Builtin.def", "Builtins/Builtin.def", exe, aro_module);
-    GenerateDef.add(b, "deps/aro/Attribute/names.def", "Attribute/names.def", exe, aro_module);
+    const aro_module = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/aro.zig" },
+        .dependencies = &.{
+            .{
+                .name = "build_options",
+                .module = aro_options_module,
+            },
+            .{
+                .name = "backend",
+                .module = aro_backend,
+            },
+            GenerateDef.create(b, .{ .name = "Builtins/Builtin.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Attribute/names.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Diagnostics/messages.def", .src_prefix = "deps/aro/aro", .kind = .named }),
+        },
+    });
 
     exe.addModule("aro", aro_module);
     return exe;
