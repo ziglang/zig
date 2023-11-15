@@ -1208,14 +1208,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
+    try self.initOutputSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
 
     // Scan and create missing synthetic entries such as GOT indirection.
     try self.scanRelocs();
 
-    // Generate and emit non-incremental sections.
-    try self.initSections();
+    // Generate and emit synthetic sections.
+    try self.initSyntheticSections();
     try self.initSpecialPhdrs();
     try self.sortShdrs();
     for (self.objects.items) |index| {
@@ -3210,21 +3211,18 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     self.rela_iplt_start_index = try linker_defined.addGlobal("__rela_iplt_start", self);
     self.rela_iplt_end_index = try linker_defined.addGlobal("__rela_iplt_end", self);
 
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            if (self.getStartStopBasename(atom_index)) |name| {
-                const gpa = self.base.allocator;
-                try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
+    for (self.shdrs.items) |shdr| {
+        if (self.getStartStopBasename(shdr)) |name| {
+            const gpa = self.base.allocator;
+            try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
 
-                const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
-                defer gpa.free(start);
-                const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
-                defer gpa.free(stop);
+            const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+            defer gpa.free(start);
+            const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+            defer gpa.free(stop);
 
-                self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(start, self));
-                self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(stop, self));
-            }
+            self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(start, self));
+            self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(stop, self));
         }
     }
 
@@ -3354,12 +3352,14 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     }
 }
 
-fn initSections(self: *Elf) !void {
-    const ptr_size = self.ptrWidthBytes();
-
+fn initOutputSections(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
     }
+}
+
+fn initSyntheticSections(self: *Elf) !void {
+    const ptr_size = self.ptrWidthBytes();
 
     const needs_eh_frame = for (self.objects.items) |index| {
         if (self.file(index).?.object.cies.items.len > 0) break true;
@@ -5748,10 +5748,9 @@ pub fn isCIdentifier(name: []const u8) bool {
     return true;
 }
 
-fn getStartStopBasename(self: *Elf, atom_index: Atom.Index) ?[]const u8 {
-    const atom_ptr = self.atom(atom_index) orelse return null;
-    const name = atom_ptr.name(self);
-    if (atom_ptr.inputShdr(self).sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
+fn getStartStopBasename(self: *Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
+    const name = self.getShString(shdr.sh_name);
+    if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
         if (isCIdentifier(name)) return name;
     }
     return null;
