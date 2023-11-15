@@ -357,9 +357,9 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
     }
 
-    try aro_comp.include_dirs.append(include_dir);
+    try aro_comp.include_dirs.append(comp.gpa, include_dir);
 
-    const builtin_macros = try aro_comp.generateBuiltinMacros();
+    const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
     const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
@@ -368,14 +368,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
-    _ = try pp.preprocess(builtin_macros);
-    _ = try pp.preprocess(user_macros);
-    const eof = try pp.preprocess(def_file_source);
-    try pp.tokens.append(pp.comp.gpa, eof);
+    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
 
-    for (aro_comp.diag.list.items) |diagnostic| {
+    for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro_comp.renderErrors();
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
             return error.AroPreprocessorFailed;
         }
     }

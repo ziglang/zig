@@ -21,8 +21,6 @@ const AliasList = common.AliasList;
 const ResultUsed = common.ResultUsed;
 const Scope = common.ScopeExtra(Context, Type);
 
-pub const Compilation = aro.Compilation;
-
 const Context = struct {
     gpa: mem.Allocator,
     arena: mem.Allocator,
@@ -54,7 +52,7 @@ const Context = struct {
 
     pattern_list: translate_c.PatternList,
     tree: Tree,
-    comp: *Compilation,
+    comp: *aro.Compilation,
     mapper: aro.TypeMapper,
 
     fn getMangle(c: *Context) u32 {
@@ -108,7 +106,7 @@ fn warn(c: *Context, scope: *Scope, loc: TokenIndex, comptime format: []const u8
 
 pub fn translate(
     gpa: mem.Allocator,
-    comp: *Compilation,
+    comp: *aro.Compilation,
     args: []const []const u8,
 ) !std.zig.Ast {
     try comp.addDefaultPragmaHandlers();
@@ -124,23 +122,18 @@ pub fn translate(
     assert(driver.inputs.items.len == 1);
     const source = driver.inputs.items[0];
 
-    const builtin = try comp.generateBuiltinMacros();
+    const builtin_macros = try comp.generateBuiltinMacros(.include_system_defines);
     const user_macros = try comp.addSourceFromBuffer("<command line>", macro_buf.items);
 
-    var pp = aro.Preprocessor.init(comp);
+    var pp = try aro.Preprocessor.initDefault(comp);
     defer pp.deinit();
 
-    try pp.addBuiltinMacros();
+    try pp.preprocessSources(&.{ source, builtin_macros, user_macros });
 
-    _ = try pp.preprocess(builtin);
-    _ = try pp.preprocess(user_macros);
-    const eof = try pp.preprocess(source);
-    try pp.tokens.append(pp.comp.gpa, eof);
-
-    var tree = try aro.Parser.parse(&pp);
+    var tree = try pp.parse();
     defer tree.deinit();
 
-    if (driver.comp.diag.errors != 0) {
+    if (driver.comp.diagnostics.errors != 0) {
         return error.SemanticAnalyzeFail;
     }
 
@@ -441,14 +434,11 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
             };
 
             const val = c.tree.value_map.get(field_node).?;
-            const str = try std.fmt.allocPrint(c.arena, "{d}", .{val.data.int});
-            const int = try ZigTag.integer_literal.create(c.arena, str);
-
             const enum_const_def = try ZigTag.enum_constant.create(c.arena, .{
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
-                .value = int,
+                .value = try transCreateNodeAPInt(c, val),
             });
             if (toplevel)
                 try addTopLevelDecl(c, enum_val_name, enum_const_def)
@@ -565,7 +555,7 @@ fn transFnType(
 
     const linksection_string = blk: {
         if (raw_ty.getAttribute(.section)) |section| {
-            break :blk section.name.slice(c.tree.strings);
+            break :blk c.comp.interner.get(section.name.ref()).bytes;
         }
         break :blk null;
     };
@@ -659,8 +649,7 @@ fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!Z
     const ty = c.tree.nodes.items(.ty)[@intFromEnum(node)];
     if (c.tree.value_map.get(node)) |val| {
         // TODO handle other values
-        const str = try std.fmt.allocPrint(c.arena, "{d}", .{val.data.int});
-        const int = try ZigTag.integer_literal.create(c.arena, str);
+        const int = try transCreateNodeAPInt(c, val);
         const as_node = try ZigTag.as.create(c.arena, .{
             .lhs = try transType(c, undefined, ty, undefined),
             .rhs = int,
@@ -672,4 +661,18 @@ fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!Z
         else => unreachable, // Not an expression.
     }
     return .none;
+}
+
+fn transCreateNodeAPInt(c: *Context, int: aro.Value) !ZigNode {
+    var space: aro.Interner.Tag.Int.BigIntSpace = undefined;
+    var big = int.toBigInt(&space, c.comp);
+    const is_negative = !big.positive;
+    big.positive = true;
+
+    const str = big.toStringAlloc(c.arena, 10, .lower) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    const res = try ZigTag.integer_literal.create(c.arena, str);
+    if (is_negative) return ZigTag.negate.create(c.arena, res);
+    return res;
 }
