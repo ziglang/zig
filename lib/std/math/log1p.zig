@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 
 /// Returns the natural logarithm of 1 + x with greater accuracy when x is near zero.
@@ -56,7 +57,7 @@ fn log1p_32(x: f32) f32 {
         if ((ix << 1) < (0x33800000 << 1)) {
             // underflow if subnormal
             if (ix & 0x7F800000 == 0) {
-                math.doNotOptimizeAway(x * x);
+                mem.doNotOptimizeAway(x * x);
             }
             return x;
         }
