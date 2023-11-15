@@ -20895,7 +20895,14 @@ fn zirReify(
                 }
 
                 const field_ty = type_val.toType();
-                const field_align = Alignment.fromByteUnits((try alignment_val.getUnsignedIntAdvanced(mod, sema)).?);
+                const alignment_val_int = (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?;
+                if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{
+                        alignment_val_int,
+                    });
+                }
+                const field_align = Alignment.fromByteUnits(alignment_val_int);
                 any_aligned_fields = any_aligned_fields or field_align != .none;
 
                 try union_fields.append(sema.arena, .{
