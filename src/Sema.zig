@@ -20431,9 +20431,11 @@ fn zirReify(
                 return sema.fail(block, src, "alignment must fit in 'u32'", .{});
             }
 
-            const abi_align = Alignment.fromByteUnits(
-                (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?,
-            );
+            const alignment_val_int = (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?;
+            if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
+                return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{alignment_val_int});
+            }
+            const abi_align = Alignment.fromByteUnits(alignment_val_int);
 
             const elem_ty = child_val.toType();
             if (abi_align != .none) {
@@ -20898,7 +20900,7 @@ fn zirReify(
                 const alignment_val_int = (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?;
                 if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
                     // TODO: better source location
-                    return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{
+                    return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{
                         alignment_val_int,
                     });
                 }
@@ -21221,6 +21223,7 @@ fn reifyStruct(
             if (abi_align != 0) return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
             if (is_comptime_val.toBool()) return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{});
         } else {
+            if (abi_align > 0 and !math.isPowerOfTwo(abi_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{abi_align});
             struct_type.field_aligns.get(ip)[i] = Alignment.fromByteUnits(abi_align);
         }
         if (layout == .Extern and is_comptime_val.toBool()) {
