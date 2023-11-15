@@ -4819,15 +4819,12 @@ fn updateSymtabSize(self: *Elf) !void {
     const gpa = self.base.allocator;
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
-    try files.ensureTotalCapacityPrecise(self.objects.items.len + self.shared_objects.items.len + 1);
+    try files.ensureTotalCapacityPrecise(self.objects.items.len + self.shared_objects.items.len + 2);
 
     if (self.zig_object_index) |index| files.appendAssumeCapacity(index);
-    for (self.objects.items) |index| {
-        files.appendAssumeCapacity(index);
-    }
-    for (self.shared_objects.items) |index| {
-        files.appendAssumeCapacity(index);
-    }
+    for (self.objects.items) |index| files.appendAssumeCapacity(index);
+    for (self.shared_objects.items) |index| files.appendAssumeCapacity(index);
+    if (self.linker_defined_index) |index| files.appendAssumeCapacity(index);
 
     // Section symbols
     for (self.output_sections.keys()) |_| {
@@ -5166,6 +5163,11 @@ fn writeSymtab(self: *Elf) !void {
         file_ptr.writeSymtab(self);
     }
 
+    if (self.linker_defined_index) |index| {
+        const file_ptr = self.file(index).?;
+        file_ptr.writeSymtab(self);
+    }
+
     if (self.zig_got_section_index) |_| {
         self.zig_got.writeSymtab(self);
     }
@@ -5180,11 +5182,6 @@ fn writeSymtab(self: *Elf) !void {
 
     if (self.plt_got_section_index) |_| {
         self.plt_got.writeSymtab(self);
-    }
-
-    if (self.linker_defined_index) |index| {
-        const file_ptr = self.file(index).?;
-        file_ptr.writeSymtab(self);
     }
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
