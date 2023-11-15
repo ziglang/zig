@@ -186,9 +186,7 @@ test "approxEqAbs and approxEqRel" {
     }
 }
 
-pub fn doNotOptimizeAway(val: anytype) void {
-    return mem.doNotOptimizeAway(val);
-}
+pub const doNotOptimizeAway = @compileError("Deprecated: use `std.mem.doNotOptimizeAway` instead");
 
 pub fn raiseInvalid() void {
     // Raise INVALID fpu exception
