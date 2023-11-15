@@ -31504,7 +31504,10 @@ fn coerceTupleToTuple(
                 anon_struct_type.names.get(ip)[field_i]
             else
                 try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
-            .struct_type => |struct_type| struct_type.field_names.get(ip)[field_i],
+            .struct_type => |struct_type| if (struct_type.field_names.len > 0)
+                struct_type.field_names.get(ip)[field_i]
+            else
+                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
             else => unreachable,
         };
 
