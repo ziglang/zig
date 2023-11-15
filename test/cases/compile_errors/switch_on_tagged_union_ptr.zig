@@ -15,5 +15,5 @@ pub fn main() void {
 // backend=stage2
 // target=native
 //
-// :9:10: error: expected type '*const switch_on_tagged_union_ptr.foo', found '@TypeOf(.enum_literal)'
+// :9:10: error: expected type '*const tmp.foo', found '@TypeOf(.enum_literal)'
 // :8:13: note: consider using '.*'
