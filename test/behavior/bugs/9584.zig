@@ -60,6 +60,7 @@ test {
         .g = false,
         .h = false,
     };
+    _ = &flags;
     var x = X{
         .x = flags,
     };

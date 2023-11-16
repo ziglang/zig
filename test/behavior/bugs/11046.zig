@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 fn foo() !void {
     var a = true;
+    _ = &a;
     if (a) return error.Foo;
     return error.Bar;
 }

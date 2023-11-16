@@ -157,6 +157,7 @@ fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
 
 test "u0" {
     var val: u0 = 0;
+    _ = &val;
     switch (val) {
         0 => try expect(val == 0),
     }
@@ -164,6 +165,7 @@ test "u0" {
 
 test "undefined.u0" {
     var val: u0 = undefined;
+    _ = &val;
     switch (val) {
         0 => try expect(val == 0),
     }
@@ -173,6 +175,7 @@ test "switch with disjoint range" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var q: u8 = 0;
+    _ = &q;
     switch (q) {
         0...125 => {},
         127...255 => {},
@@ -183,12 +186,8 @@ test "switch with disjoint range" {
 test "switch variable for range and multiple prongs" {
     const S = struct {
         fn doTheTest() !void {
-            var u: u8 = 16;
-            try doTheSwitch(u);
-            try comptime doTheSwitch(u);
-            var v: u8 = 42;
-            try doTheSwitch(v);
-            try comptime doTheSwitch(v);
+            try doTheSwitch(16);
+            try doTheSwitch(42);
         }
         fn doTheSwitch(q: u8) !void {
             switch (q) {
@@ -198,7 +197,8 @@ test "switch variable for range and multiple prongs" {
             }
         }
     };
-    _ = S;
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var state: u32 = 0;
@@ -322,7 +322,8 @@ test "switch on union with some prongs capturing" {
     };
 
     var x: X = X{ .b = 10 };
-    var y: i32 = switch (x) {
+    _ = &x;
+    const y: i32 = switch (x) {
         .a => unreachable,
         .b => |b| b + 1,
     };
@@ -357,6 +358,7 @@ test "anon enum literal used in switch on union enum" {
     };
 
     var foo = Foo{ .a = 1234 };
+    _ = &foo;
     switch (foo) {
         .a => |x| {
             try expect(x == 1234);
@@ -406,6 +408,7 @@ test "switch on integer with else capturing expr" {
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 5;
+            _ = &x;
             switch (x + 10) {
                 14 => @panic("fail"),
                 16 => @panic("fail"),
@@ -606,6 +609,7 @@ test "switch on error set with single else" {
     const S = struct {
         fn doTheTest() !void {
             var some: error{Foo} = error.Foo;
+            _ = &some;
             try expect(switch (some) {
                 else => blk: {
                     break :blk true;
@@ -672,7 +676,8 @@ test "enum value without tag name used as switch item" {
         b = 2,
         _,
     };
-    var e: E = @as(E, @enumFromInt(0));
+    var e: E = @enumFromInt(0);
+    _ = &e;
     switch (e) {
         @as(E, @enumFromInt(0)) => {},
         .a => return error.TestFailed,
@@ -685,6 +690,7 @@ test "switch item sizeof" {
     const S = struct {
         fn doTheTest() !void {
             var a: usize = 0;
+            _ = &a;
             switch (a) {
                 @sizeOf(struct {}) => {},
                 else => return error.TestFailed,
@@ -699,6 +705,7 @@ test "comptime inline switch" {
     const U = union(enum) { a: type, b: type };
     const value = comptime blk: {
         var u: U = .{ .a = u32 };
+        _ = &u;
         break :blk switch (u) {
             inline .a, .b => |v| v,
         };
@@ -814,6 +821,7 @@ test "peer type resolution on switch captures ignores unused payload bits" {
 
     // This is runtime-known so the following store isn't comptime-known.
     var rt: u32 = 123;
+    _ = &rt;
     val = .{ .a = rt }; // will not necessarily zero remaning payload memory
 
     // Fields intentionally backwards here

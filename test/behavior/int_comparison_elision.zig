@@ -30,6 +30,7 @@ fn testIntEdges(comptime T: type) void {
     const max = maxInt(T);
 
     var runtime_val: T = undefined;
+    _ = &runtime_val;
 
     if (min > runtime_val) @compileError("analyzed impossible branch");
     if (min <= runtime_val) {} else @compileError("analyzed impossible branch");

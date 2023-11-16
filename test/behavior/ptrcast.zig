@@ -71,8 +71,8 @@ fn testReinterpretBytesAsExternStruct() !void {
         c: u8,
     };
 
-    var ptr = @as(*const S, @ptrCast(&bytes));
-    var val = ptr.c;
+    const ptr: *const S = @ptrCast(&bytes);
+    const val = ptr.c;
     try expect(val == 5);
 }
 
@@ -95,8 +95,8 @@ fn testReinterpretExternStructAsExternStruct() !void {
         a: u32 align(2),
         c: u8,
     };
-    var ptr = @as(*const S2, @ptrCast(&bytes));
-    var val = ptr.c;
+    const ptr: *const S2 = @ptrCast(&bytes);
+    const val = ptr.c;
     try expect(val == 5);
 }
 
@@ -121,8 +121,8 @@ fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
         a2: u16,
         c: u8,
     };
-    var ptr = @as(*const S2, @ptrCast(&bytes));
-    var val = ptr.c;
+    const ptr: *const S2 = @ptrCast(&bytes);
+    const val = ptr.c;
     try expect(val == 5);
 }
 
@@ -138,13 +138,13 @@ test "lower reinterpreted comptime field ptr (with under-aligned fields)" {
         c: u8,
     };
     comptime var ptr = @as(*const S, @ptrCast(&bytes));
-    var val = &ptr.c;
+    const val = &ptr.c;
     try expect(val.* == 5);
 
     // Test lowering an elem ptr
     comptime var src_value = S{ .a = 15, .c = 5 };
     comptime var ptr2 = @as(*[@sizeOf(S)]u8, @ptrCast(&src_value));
-    var val2 = &ptr2[4];
+    const val2 = &ptr2[4];
     try expect(val2.* == 5);
 }
 
@@ -160,13 +160,13 @@ test "lower reinterpreted comptime field ptr" {
         c: u8,
     };
     comptime var ptr = @as(*const S, @ptrCast(&bytes));
-    var val = &ptr.c;
+    const val = &ptr.c;
     try expect(val.* == 5);
 
     // Test lowering an elem ptr
     comptime var src_value = S{ .a = 15, .c = 5 };
     comptime var ptr2 = @as(*[@sizeOf(S)]u8, @ptrCast(&src_value));
-    var val2 = &ptr2[4];
+    const val2 = &ptr2[4];
     try expect(val2.* == 5);
 }
 
@@ -233,9 +233,9 @@ test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var buf: [4]u8 = "aoeu".*;
-    var x: ?[*]u8 = &buf;
-    var y: ?*anyopaque = x;
-    var z = @as(*[4]u8, @ptrCast(y));
+    const x: ?[*]u8 = &buf;
+    const y: ?*anyopaque = x;
+    const z: *[4]u8 = @ptrCast(y);
     try expect(std.mem.eql(u8, z, "aoeu"));
 }
 
@@ -276,7 +276,7 @@ test "@ptrCast undefined value at comptime" {
         }
     };
     comptime {
-        var x = S.transmute([]u8, i32, undefined);
+        const x = S.transmute([]u8, i32, undefined);
         _ = x;
     }
 }

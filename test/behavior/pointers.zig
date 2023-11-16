@@ -11,7 +11,7 @@ test "dereference pointer" {
 
 fn testDerefPtr() !void {
     var x: i32 = 1234;
-    var y = &x;
+    const y = &x;
     y.* += 1;
     try expect(x == 1235);
 }
@@ -53,8 +53,8 @@ test "implicit cast single item pointer to C pointer and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var y: u8 = 11;
-    var x: [*c]u8 = &y;
-    var z: *u8 = x;
+    const x: [*c]u8 = &y;
+    const z: *u8 = x;
     z.* += 1;
     try expect(y == 12);
 }
@@ -74,6 +74,7 @@ test "assigning integer to C pointer" {
     var ptr2: [*c]u8 = x;
     var ptr3: [*c]u8 = 1;
     var ptr4: [*c]u8 = y;
+    _ = .{ &x, &y, &ptr, &ptr2, &ptr3, &ptr4 };
 
     try expect(ptr == ptr2);
     try expect(ptr3 == ptr4);
@@ -88,6 +89,7 @@ test "C pointer comparison and arithmetic" {
         fn doTheTest() !void {
             var ptr1: [*c]u32 = 0;
             var ptr2 = ptr1 + 10;
+            _ = &ptr1;
             try expect(ptr1 == 0);
             try expect(ptr1 >= 0);
             try expect(ptr1 <= 0);
@@ -125,14 +127,15 @@ fn testDerefPtrOneVal() !void {
 }
 
 test "peer type resolution with C pointers" {
-    var ptr_one: *u8 = undefined;
-    var ptr_many: [*]u8 = undefined;
-    var ptr_c: [*c]u8 = undefined;
+    const ptr_one: *u8 = undefined;
+    const ptr_many: [*]u8 = undefined;
+    const ptr_c: [*c]u8 = undefined;
     var t = true;
-    var x1 = if (t) ptr_one else ptr_c;
-    var x2 = if (t) ptr_many else ptr_c;
-    var x3 = if (t) ptr_c else ptr_one;
-    var x4 = if (t) ptr_c else ptr_many;
+    _ = &t;
+    const x1 = if (t) ptr_one else ptr_c;
+    const x2 = if (t) ptr_many else ptr_c;
+    const x3 = if (t) ptr_c else ptr_one;
+    const x4 = if (t) ptr_c else ptr_many;
     try expect(@TypeOf(x1) == [*c]u8);
     try expect(@TypeOf(x2) == [*c]u8);
     try expect(@TypeOf(x3) == [*c]u8);
@@ -141,8 +144,9 @@ test "peer type resolution with C pointers" {
 
 test "peer type resolution with C pointer and const pointer" {
     var ptr_c: [*c]u8 = undefined;
-    const ptr_const: u8 = undefined;
-    try expect(@TypeOf(ptr_c, &ptr_const) == [*c]const u8);
+    var ptr_const: *const u8 = &undefined;
+    _ = .{ &ptr_c, &ptr_const };
+    try expect(@TypeOf(ptr_c, ptr_const) == [*c]const u8);
 }
 
 test "implicit casting between C pointer and optional non-C pointer" {
@@ -151,9 +155,10 @@ test "implicit casting between C pointer and optional non-C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var slice: []const u8 = "aoeu";
+    _ = &slice;
     const opt_many_ptr: ?[*]const u8 = slice.ptr;
     var ptr_opt_many_ptr = &opt_many_ptr;
-    var c_ptr: [*c]const [*c]const u8 = ptr_opt_many_ptr;
+    const c_ptr: [*c]const [*c]const u8 = ptr_opt_many_ptr;
     try expect(c_ptr.*.* == 'a');
     ptr_opt_many_ptr = c_ptr;
     try expect(ptr_opt_many_ptr.*.?[1] == 'o');
@@ -192,11 +197,12 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    var ptr = @as([*]allowzero i32, @ptrFromInt(0));
-    var opt_ptr: ?[*]allowzero i32 = ptr;
+    var ptr: [*]allowzero i32 = @ptrFromInt(0);
+    const opt_ptr: ?[*]allowzero i32 = ptr;
     try expect(opt_ptr != null);
     try expect(@intFromPtr(ptr) == 0);
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     var slice = ptr[runtime_zero..10];
     try comptime expect(@TypeOf(slice) == []allowzero i32);
     try expect(@intFromPtr(&slice[5]) == 20);
@@ -211,6 +217,7 @@ test "assign null directly to C pointer and test null equality" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: [*c]i32 = null;
+    _ = &x;
     try expect(x == null);
     try expect(null == x);
     try expect(!(x != null));
@@ -236,7 +243,7 @@ test "assign null directly to C pointer and test null equality" {
     try comptime expect((y orelse ptr_othery) == ptr_othery);
 
     var n: i32 = 1234;
-    var x1: [*c]i32 = &n;
+    const x1: [*c]i32 = &n;
     try expect(!(x1 == null));
     try expect(!(null == x1));
     try expect(x1 != null);
@@ -279,9 +286,9 @@ test "null terminated pointer" {
     const S = struct {
         fn doTheTest() !void {
             var array_with_zero = [_:0]u8{ 'h', 'e', 'l', 'l', 'o' };
-            var zero_ptr: [*:0]const u8 = @as([*:0]const u8, @ptrCast(&array_with_zero));
-            var no_zero_ptr: [*]const u8 = zero_ptr;
-            var zero_ptr_again = @as([*:0]const u8, @ptrCast(no_zero_ptr));
+            const zero_ptr: [*:0]const u8 = @ptrCast(&array_with_zero);
+            const no_zero_ptr: [*]const u8 = zero_ptr;
+            const zero_ptr_again: [*:0]const u8 = @ptrCast(no_zero_ptr);
             try expect(std.mem.eql(u8, std.mem.sliceTo(zero_ptr_again, 0), "hello"));
         }
     };
@@ -296,7 +303,7 @@ test "allow any sentinel" {
     const S = struct {
         fn doTheTest() !void {
             var array = [_:std.math.minInt(i32)]i32{ 1, 2, 3, 4 };
-            var ptr: [*:std.math.minInt(i32)]i32 = &array;
+            const ptr: [*:std.math.minInt(i32)]i32 = &array;
             try expect(ptr[4] == std.math.minInt(i32));
         }
     };
@@ -317,6 +324,7 @@ test "pointer sentinel with enums" {
 
         fn doTheTest() !void {
             var ptr: [*:.sentinel]const Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
+            _ = &ptr;
             try expect(ptr[4] == .sentinel); // TODO this should be try comptime expect, see #3731
         }
     };
@@ -332,6 +340,7 @@ test "pointer sentinel with optional element" {
     const S = struct {
         fn doTheTest() !void {
             var ptr: [*:null]const ?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
+            _ = &ptr;
             try expect(ptr[4] == null); // TODO this should be try comptime expect, see #3731
         }
     };
@@ -348,6 +357,7 @@ test "pointer sentinel with +inf" {
         fn doTheTest() !void {
             const inf_f32 = comptime std.math.inf(f32);
             var ptr: [*:inf_f32]const f32 = &[_:inf_f32]f32{ 1.1, 2.2, 3.3, 4.4 };
+            _ = &ptr;
             try expect(ptr[4] == inf_f32); // TODO this should be try comptime expect, see #3731
         }
     };
@@ -366,6 +376,7 @@ test "pointer arithmetic affects the alignment" {
     {
         var ptr: [*]align(8) u32 = undefined;
         var x: usize = 1;
+        _ = .{ &ptr, &x };
 
         try expect(@typeInfo(@TypeOf(ptr)).Pointer.alignment == 8);
         const ptr1 = ptr + 1; // 1 * 4 = 4 -> lcd(4,8) = 4
@@ -380,6 +391,7 @@ test "pointer arithmetic affects the alignment" {
     {
         var ptr: [*]align(8) [3]u8 = undefined;
         var x: usize = 1;
+        _ = .{ &ptr, &x };
 
         const ptr1 = ptr + 17; // 3 * 17 = 51
         try expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 1);
@@ -467,8 +479,8 @@ test "array slicing to slice" {
     const S = struct {
         fn doTheTest() !void {
             var str: [5]i32 = [_]i32{ 1, 2, 3, 4, 5 };
-            var sub: *[2]i32 = str[1..3];
-            var slice: []i32 = sub; // used to cause failures
+            const sub: *[2]i32 = str[1..3];
+            const slice: []i32 = sub; // used to cause failures
             try testing.expect(slice.len == 2);
             try testing.expect(slice[0] == 2);
         }
@@ -495,7 +507,8 @@ test "ptrCast comptime known slice to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s: [:0]const u8 = "foo";
-    var p = @as([*c]const u8, @ptrCast(s));
+    var p: [*c]const u8 = @ptrCast(s);
+    _ = &p;
     try std.testing.expectEqualStrings(s, std.mem.sliceTo(p, 0));
 }
 
@@ -527,6 +540,7 @@ test "pointer to array has explicit alignment" {
 test "result type preserved through multiple references" {
     const S = struct { x: u32 };
     var my_u64: u64 = 12345;
+    _ = &my_u64;
     const foo: *const *const *const S = &&&.{
         .x = @intCast(my_u64),
     };
