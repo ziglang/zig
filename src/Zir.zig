@@ -100,6 +100,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Call.Flags,
             Inst.BuiltinCall.Flags,
             Inst.SwitchBlock.Bits,
+            Inst.SwitchBlockErrUnion.Bits,
             Inst.FuncFancy.Bits,
             => @bitCast(code.extra[i]),
 
@@ -685,6 +686,9 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
         switch_block_ref,
+        /// A switch on an error union `a catch |err| switch (err) {...}`.
+        /// Uses the `pl_node` union field. AST node is the `catch`, payload is `SwitchBlockErrUnion`.
+        switch_block_err_union,
         /// Check that operand type supports the dereference operand (.*).
         /// Uses the `un_node` field.
         validate_deref,
@@ -1186,6 +1190,7 @@ pub const Inst = struct {
                 .set_eval_branch_quota,
                 .switch_block,
                 .switch_block_ref,
+                .switch_block_err_union,
                 .validate_deref,
                 .validate_destructure,
                 .union_init,
@@ -1483,6 +1488,7 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .switch_block,
                 .switch_block_ref,
+                .switch_block_err_union,
                 .union_init,
                 .field_type_ref,
                 .enum_from_int,
@@ -1735,6 +1741,7 @@ pub const Inst = struct {
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
                 .switch_block_ref = .pl_node,
+                .switch_block_err_union = .pl_node,
                 .validate_deref = .un_node,
                 .validate_destructure = .pl_node,
                 .field_type_ref = .pl_node,
@@ -2776,6 +2783,26 @@ pub const Inst = struct {
         index: u32,
     };
 
+    pub const SwitchBlockErrUnion = struct {
+        operand: Ref,
+        bits: Bits,
+
+        pub const Bits = packed struct(u32) {
+            /// If true, one or more prongs have multiple items.
+            has_multi_cases: bool,
+            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
+            has_else: bool,
+            scalar_cases_len: ScalarCasesLen,
+
+            pub const ScalarCasesLen = u30;
+        };
+
+        pub const MultiProng = struct {
+            items: []const Ref,
+            body: []const Index,
+        };
+    };
+
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
     /// 2. else_body { // If has_else or has_under is set.
@@ -2824,7 +2851,7 @@ pub const Inst = struct {
             };
         };
 
-        pub const Bits = packed struct {
+        pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
             /// If true, there is an else prong. This is mutually exclusive with `has_under`.

@@ -93,6 +93,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.Call.Flags,
             Zir.Inst.BuiltinCall.Flags,
             Zir.Inst.SwitchBlock.Bits,
+            Zir.Inst.SwitchBlockErrUnion.Bits,
             Zir.Inst.FuncFancy.Bits,
             => @bitCast(@field(extra, field.name)),
 
@@ -2640,6 +2641,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .import,
             .switch_block,
             .switch_block_ref,
+            .switch_block_err_union,
             .union_init,
             .field_type_ref,
             .error_set_decl,
