@@ -26089,7 +26089,7 @@ fn fieldVal(
                 const ptr_info = object_ty.ptrInfo(mod);
                 const result_ty = try sema.ptrType(.{
                     .child = ptr_info.child.toType().childType(mod).toIntern(),
-                    .sentinel = ptr_info.sentinel,
+                    .sentinel = if (inner_ty.sentinel(mod)) |s| s.toIntern() else .none,
                     .flags = .{
                         .size = .Many,
                         .alignment = ptr_info.flags.alignment,
