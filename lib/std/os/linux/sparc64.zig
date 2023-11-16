@@ -445,7 +445,7 @@ pub const ucontext_t = extern struct {
     sigmask: u64,
     mcontext: mcontext_t,
     stack: stack_t,
-    sigmask: sigset_t,
+    sigset: sigset_t,
 };
 
 pub const rlimit_resource = enum(c_int) {
