@@ -1723,7 +1723,10 @@ fn structInitExpr(
     }
 
     {
-        var duplicate_names = std.AutoArrayHashMap(u32, ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
+        var sfba = std.heap.stackFallback(256, astgen.arena);
+        const sfba_allocator = sfba.get();
+
+        var duplicate_names = std.AutoArrayHashMap(u32, ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
         defer duplicate_names.deinit();
         try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
@@ -1737,11 +1740,11 @@ fn structInitExpr(
             const gop = try duplicate_names.getOrPut(name_index);
 
             if (gop.found_existing) {
-                try gop.value_ptr.append(astgen.arena, name_token);
+                try gop.value_ptr.append(sfba_allocator, name_token);
                 any_duplicate = true;
             } else {
                 gop.value_ptr.* = .{};
-                try gop.value_ptr.append(astgen.arena, name_token);
+                try gop.value_ptr.append(sfba_allocator, name_token);
             }
         }
 
@@ -4922,7 +4925,10 @@ fn structDeclInner(
         }
     };
 
-    var duplicate_names = std.AutoArrayHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(astgen.arena);
+    var sfba = std.heap.stackFallback(256, astgen.arena);
+    const sfba_allocator = sfba.get();
+
+    var duplicate_names = std.AutoArrayHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
     try duplicate_names.ensureTotalCapacity(field_count);
 
     // When there aren't errors, use this to avoid a second iteration.
@@ -4950,11 +4956,11 @@ fn structDeclInner(
             const gop = try duplicate_names.getOrPut(field_name);
 
             if (gop.found_existing) {
-                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+                try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
                 any_duplicate = true;
             } else {
                 gop.value_ptr.* = .{};
-                try gop.value_ptr.append(astgen.arena, member.ast.main_token);
+                try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
             }
         } else if (!member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
