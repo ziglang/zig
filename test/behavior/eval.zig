@@ -37,6 +37,7 @@ fn gimme1or2(comptime a: bool) i32 {
     const x: i32 = 1;
     const y: i32 = 2;
     comptime var z: i32 = if (a) x else y;
+    _ = &z;
     return z;
 }
 test "inline variable gets result of const if" {
@@ -74,6 +75,7 @@ test "constant expressions" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var array: [array_size]u8 = undefined;
+    _ = &array;
     try expect(@sizeOf(@TypeOf(array)) == 20);
 }
 const array_size: u8 = 20;
@@ -129,7 +131,7 @@ test "pointer to type" {
     comptime {
         var T: type = i32;
         try expect(T == i32);
-        var ptr = &T;
+        const ptr = &T;
         try expect(@TypeOf(ptr) == *type);
         ptr.* = f32;
         try expect(T == f32);
@@ -372,6 +374,7 @@ fn doNothingWithType(comptime T: type) void {
 test "zero extend from u0 to u1" {
     var zero_u0: u0 = 0;
     var zero_u1: u1 = zero_u0;
+    _ = .{ &zero_u0, &zero_u1 };
     try expect(zero_u1 == 0);
 }
 
@@ -408,6 +411,7 @@ test "inline for with same type but different values" {
     var res: usize = 0;
     inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
         var a: T = undefined;
+        _ = &a;
         res += a.len;
     }
     try expect(res == 5);
@@ -460,9 +464,9 @@ test "comptime shl" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var a: u128 = 3;
-    var b: u7 = 63;
-    var c: u128 = 3 << 63;
+    const a: u128 = 3;
+    const b: u7 = 63;
+    const c: u128 = 3 << 63;
     try expect((a << b) == c);
 }
 
@@ -489,6 +493,7 @@ test "comptime shlWithOverflow" {
 
     const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
     var a = ~@as(u64, 0);
+    _ = &a;
     const rt_shifted = @shlWithOverflow(a, 16)[0];
 
     try expect(ct_shifted == rt_shifted);
@@ -521,7 +526,8 @@ test "runtime 128 bit integer division" {
 
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
-    var c = a / b;
+    _ = .{ &a, &b };
+    const c = a / b;
     try expect(c == 15231399999);
 }
 
@@ -555,6 +561,7 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var runtime = [1]i32{3};
+    _ = &runtime;
     comptime var i: usize = 0;
     inline while (i < 2) : (i += 1) {
         const result = if (i == 0) [1]i32{2} else runtime;
@@ -692,7 +699,7 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     };
 
     const s = S{ .a = 2 };
-    var b = s.b();
+    const b = s.b();
     try expect(b == 2);
 }
 
@@ -759,7 +766,8 @@ test "array concatenation peer resolves element types - value" {
 
     var a = [2]u3{ 1, 7 };
     var b = [3]u8{ 200, 225, 255 };
-    var c = a ++ b;
+    _ = .{ &a, &b };
+    const c = a ++ b;
     comptime assert(@TypeOf(c) == [5]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
@@ -775,7 +783,7 @@ test "array concatenation peer resolves element types - pointer" {
 
     var a = [2]u3{ 1, 7 };
     var b = [3]u8{ 200, 225, 255 };
-    var c = &a ++ &b;
+    const c = &a ++ &b;
     comptime assert(@TypeOf(c) == *[5]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
@@ -791,14 +799,15 @@ test "array concatenation sets the sentinel - value" {
 
     var a = [2]u3{ 1, 7 };
     var b = [3:69]u8{ 200, 225, 255 };
-    var c = a ++ b;
+    _ = .{ &a, &b };
+    const c = a ++ b;
     comptime assert(@TypeOf(c) == [5:69]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
     try expect(c[2] == 200);
     try expect(c[3] == 225);
     try expect(c[4] == 255);
-    var ptr: [*]const u8 = &c;
+    const ptr: [*]const u8 = &c;
     try expect(ptr[5] == 69);
 }
 
@@ -808,14 +817,14 @@ test "array concatenation sets the sentinel - pointer" {
 
     var a = [2]u3{ 1, 7 };
     var b = [3:69]u8{ 200, 225, 255 };
-    var c = &a ++ &b;
+    const c = &a ++ &b;
     comptime assert(@TypeOf(c) == *[5:69]u8);
     try expect(c[0] == 1);
     try expect(c[1] == 7);
     try expect(c[2] == 200);
     try expect(c[3] == 225);
     try expect(c[4] == 255);
-    var ptr: [*]const u8 = c;
+    const ptr: [*]const u8 = c;
     try expect(ptr[5] == 69);
 }
 
@@ -825,13 +834,14 @@ test "array multiplication sets the sentinel - value" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a = [2:7]u3{ 1, 6 };
-    var b = a ** 2;
+    _ = &a;
+    const b = a ** 2;
     comptime assert(@TypeOf(b) == [4:7]u3);
     try expect(b[0] == 1);
     try expect(b[1] == 6);
     try expect(b[2] == 1);
     try expect(b[3] == 6);
-    var ptr: [*]const u3 = &b;
+    const ptr: [*]const u3 = &b;
     try expect(ptr[4] == 7);
 }
 
@@ -841,13 +851,13 @@ test "array multiplication sets the sentinel - pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a = [2:7]u3{ 1, 6 };
-    var b = &a ** 2;
+    const b = &a ** 2;
     comptime assert(@TypeOf(b) == *[4:7]u3);
     try expect(b[0] == 1);
     try expect(b[1] == 6);
     try expect(b[2] == 1);
     try expect(b[3] == 6);
-    var ptr: [*]const u3 = b;
+    const ptr: [*]const u3 = b;
     try expect(ptr[4] == 7);
 }
 
@@ -913,8 +923,8 @@ test "comptime pointer load through elem_ptr" {
                 .x = i,
             };
         }
-        var ptr = @as([*]S, @ptrCast(&array));
-        var x = ptr[0].x;
+        var ptr: [*]S = @ptrCast(&array);
+        const x = ptr[0].x;
         assert(x == 0);
         ptr += 1;
         assert(ptr[1].x == 2);
@@ -953,11 +963,12 @@ test "closure capture type of runtime-known parameter" {
     const S = struct {
         fn b(c: anytype) !void {
             const D = struct { c: @TypeOf(c) };
-            var d = D{ .c = c };
+            const d: D = .{ .c = c };
             try expect(d.c == 1234);
         }
     };
     var c: i32 = 1234;
+    _ = &c;
     try S.b(c);
 }
 
@@ -966,6 +977,7 @@ test "closure capture type of runtime-known var" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: u32 = 1234;
+    _ = &x;
     const S = struct { val: @TypeOf(x + 100) };
     const s: S = .{ .val = x };
     try expect(s.val == 1234);
@@ -977,6 +989,7 @@ test "comptime break passing through runtime condition converted to runtime brea
     const S = struct {
         fn doTheTest() !void {
             var runtime: u8 = 'b';
+            _ = &runtime;
             inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
                 bar();
                 if (byte == runtime) {
@@ -1010,6 +1023,7 @@ test "comptime break to outer loop passing through runtime condition converted t
     const S = struct {
         fn doTheTest() !void {
             var runtime: u8 = 'b';
+            _ = &runtime;
             outer: inline for ([3]u8{ 'A', 'B', 'C' }) |outer_byte| {
                 inline for ([3]u8{ 'a', 'b', 'c' }) |byte| {
                     bar(outer_byte);
@@ -1387,6 +1401,7 @@ test "break from inline loop depends on runtime condition" {
 
 test "inline for inside a runtime condition" {
     var a = false;
+    _ = &a;
     if (a) {
         const arr = .{ 1, 2, 3 };
         inline for (arr) |val| {
@@ -1522,6 +1537,7 @@ test "non-optional and optional array elements concatenated" {
 
     const array = [1]u8{'A'} ++ [1]?u8{null};
     var index: usize = 0;
+    _ = &index;
     try expect(array[index].? == 'A');
 }
 
@@ -1556,6 +1572,7 @@ test "container level const and var have unique addresses" {
         var v: @This() = c;
     };
     var p = &S.c;
+    _ = &p;
     try std.testing.expect(p.x == S.c.x);
     S.v.x = 2;
     try std.testing.expect(p.x == S.c.x);
@@ -1625,7 +1642,8 @@ test "inline for loop of functions returning error unions" {
 test "if inside a switch" {
     var condition = true;
     var wave_type: u32 = 0;
-    var sample: i32 = switch (wave_type) {
+    _ = .{ &condition, &wave_type };
+    const sample: i32 = switch (wave_type) {
         0 => if (condition) 2 else 3,
         1 => 100,
         2 => 200,
@@ -1673,6 +1691,7 @@ test "@inComptime" {
 comptime {
     var foo = [3]u8{ 0x55, 0x55, 0x55 };
     var bar = [2]u8{ 1, 2 };
+    _ = .{ &foo, &bar };
     foo[0..2].* = bar;
     assert(foo[0] == 1);
     assert(foo[1] == 2);

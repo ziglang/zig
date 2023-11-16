@@ -9,6 +9,7 @@ test "breaking from a loop in an if statement" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var cond = true;
+    _ = &cond;
     const opt = while (cond) {
         if (retOpt()) |opt| {
             break opt;

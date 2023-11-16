@@ -6,6 +6,7 @@ fn getError() !void {
 
 fn getError2() !void {
     var a: u8 = 'c';
+    _ = &a;
     try if (a == 'a') getError() else if (a == 'b') getError() else getError();
 }
 
