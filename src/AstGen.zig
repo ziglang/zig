@@ -1015,10 +1015,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .@"catch" => {
             const catch_token = main_tokens[node];
-            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
-                catch_token + 2
-            else
-                null;
+            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe) blk: {
+                if (token_tags.len > catch_token + 6 and
+                    token_tags[catch_token + 4] == .keyword_switch)
+                {
+                    if (std.mem.eql(u8, tree.tokenSlice(catch_token + 2), tree.tokenSlice(catch_token + 6))) {
+                        return switchExprErrUnion(gz, scope, ri.br(), node);
+                    }
+                }
+                break :blk catch_token + 2;
+            } else null;
             switch (ri.rl) {
                 .ref, .ref_coerced_ty => return orelseCatchExpr(
                     gz,
@@ -6857,6 +6863,387 @@ fn forExpr(
         _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
     }
     return result;
+}
+
+fn switchExprErrUnion(
+    parent_gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    catch_node: Ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = parent_gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = astgen.tree;
+    const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
+    const operand_node = node_datas[catch_node].lhs;
+    const switch_node = node_datas[catch_node].rhs;
+    const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
+    const case_nodes = tree.extra_data[extra.start..extra.end];
+
+    const need_rl = astgen.nodes_need_rl.contains(catch_node);
+    const block_ri: ResultInfo = if (need_rl) ri else .{
+        .rl = switch (ri.rl) {
+            .ptr => .{ .ty = (try ri.rl.resultType(parent_gz, catch_node)).? },
+            .inferred_ptr => .none,
+            else => ri.rl,
+        },
+        .ctx = ri.ctx,
+    };
+
+    // We need to call `rvalue` to write through to the pointer only if we had a
+    // result pointer and aren't forwarding it.
+    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
+    var scalar_cases_len: u32 = 0;
+    var multi_cases_len: u32 = 0;
+    var inline_cases_len: u32 = 0;
+    var has_else = false;
+    var else_node: Ast.Node.Index = 0;
+    var else_src: ?Ast.TokenIndex = null;
+    for (case_nodes) |case_node| {
+        const case = tree.fullSwitchCase(case_node).?;
+
+        if (case.ast.values.len == 0) {
+            const case_src = case.ast.arrow_token - 1;
+            if (else_src) |src| {
+                return astgen.failTokNotes(
+                    case_src,
+                    "multiple else prongs in switch expression",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteTok(
+                            src,
+                            "previous else prong here",
+                            .{},
+                        ),
+                    },
+                );
+            }
+            has_else = true;
+            else_node = case_node;
+            else_src = case_src;
+            continue;
+        } else if (case.ast.values.len == 1 and
+            node_tags[case.ast.values[0]] == .identifier and
+            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"))
+        {
+            const case_src = case.ast.arrow_token - 1;
+            return astgen.failTokNotes(
+                case_src,
+                "'_' prong is not allowed when switching on errors",
+                .{},
+                &[_]u32{
+                    try astgen.errNoteTok(
+                        case_src,
+                        "consider using 'else'",
+                        .{},
+                    ),
+                },
+            );
+        }
+
+        for (case.ast.values) |val| {
+            if (node_tags[val] == .string_literal)
+                return astgen.failNode(val, "cannot switch on strings", .{});
+        }
+
+        if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] != .switch_range) {
+            scalar_cases_len += 1;
+        } else {
+            multi_cases_len += 1;
+        }
+        if (case.inline_token != null) {
+            inline_cases_len += 1;
+        }
+    }
+
+    const operand_ri: ResultInfo = .{ .rl = .none, .ctx = .error_handling_expr };
+
+    astgen.advanceSourceCursorToNode(operand_node);
+    const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
+
+    const raw_operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node_datas[catch_node].rhs);
+    const item_ri: ResultInfo = .{ .rl = .none };
+
+    // This contains the data that goes into the `extra` array for the SwitchBlockErrUnion, except
+    // the first cases_nodes.len slots are a table that indexes payloads later in the array,
+    // with the non-error and else case indices coming first, then scalar_cases_len indexes, then
+    // multi_cases_len indexes
+    const payloads = &astgen.scratch;
+    const scratch_top = astgen.scratch.items.len;
+    const case_table_start = scratch_top;
+    const scalar_case_table = case_table_start + 1 + @intFromBool(has_else);
+    const multi_case_table = scalar_case_table + scalar_cases_len;
+    const case_table_end = multi_case_table + multi_cases_len;
+
+    try astgen.scratch.resize(gpa, case_table_end);
+    defer astgen.scratch.items.len = scratch_top;
+
+    var block_scope = parent_gz.makeSubBlock(scope);
+    // block_scope not used for collecting instructions
+    block_scope.instructions_top = GenZir.unstacked_top;
+    block_scope.setBreakResultInfo(block_ri);
+
+    // Sema expects a dbg_stmt immediately before switch_block_err_union
+    try emitDbgStmt(parent_gz, operand_lc);
+    // This gets added to the parent block later, after the item expressions.
+    const switch_block = try parent_gz.makeBlockInst(.switch_block_err_union, switch_node);
+
+    // We re-use this same scope for all cases, including the special prong, if any.
+    var case_scope = parent_gz.makeSubBlock(&block_scope.base);
+    case_scope.instructions_top = GenZir.unstacked_top;
+
+    {
+        const body_len_index: u32 = @intCast(payloads.items.len);
+        payloads.items[case_table_start] = body_len_index;
+        try payloads.resize(gpa, body_len_index + 1); // body_len
+
+        case_scope.instructions_top = parent_gz.instructions.items.len;
+        defer case_scope.unstack();
+
+        try case_scope.addDbgBlockBegin();
+
+        const unwrapped_payload = try case_scope.addUnNode(.err_union_payload_unsafe, raw_operand, catch_node);
+        const case_result = switch (ri.rl) {
+            .ref, .ref_coerced_ty => unwrapped_payload,
+            else => try rvalue(&case_scope, block_scope.break_result_info, unwrapped_payload, catch_node),
+        };
+        try case_scope.addDbgBlockEnd();
+        _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, catch_node);
+
+        const case_slice = case_scope.instructionsSlice();
+        // Since we use the switch_block_err_union instruction itself to refer
+        // to the capture, which will not be added to the child block, we need
+        // to handle ref_table manually, and the same for the inline tag
+        // capture instruction.
+        const refs_len = refs: {
+            var n: usize = 0;
+            var check_inst = switch_block;
+            while (astgen.ref_table.get(check_inst)) |ref_inst| {
+                n += 1;
+                check_inst = ref_inst;
+            }
+            break :refs n;
+        };
+        const body_len = refs_len + astgen.countBodyLenAfterFixups(case_slice);
+        try payloads.ensureUnusedCapacity(gpa, body_len);
+        payloads.items[body_len_index] = @bitCast(Zir.Inst.SwitchBlock.ProngInfo{
+            .body_len = @intCast(body_len),
+            .capture = .none,
+            .is_inline = false,
+            .has_tag_capture = false,
+        });
+        if (astgen.ref_table.fetchRemove(switch_block)) |kv| {
+            appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+        }
+        appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
+    }
+
+    const err_name, const error_payload = blk: {
+        const error_payload = main_tokens[catch_node] + 2;
+        const err_str = tree.tokenSlice(error_payload);
+        if (mem.eql(u8, err_str, "_")) {
+            return astgen.failTok(error_payload, "discard of error capture; omit it instead", .{});
+        }
+        const err_name = try astgen.identAsString(error_payload);
+        try astgen.detectLocalShadowing(scope, err_name, error_payload, err_str, .capture);
+
+        break :blk .{ err_name, error_payload };
+    };
+
+    // In this pass we generate all the item and prong expressions for error cases.
+    var multi_case_index: u32 = 0;
+    var scalar_case_index: u32 = 0;
+    for (case_nodes) |case_node| {
+        const case = tree.fullSwitchCase(case_node).?;
+
+        const is_multi_case = case.ast.values.len > 1 or
+            (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .switch_range);
+
+        var dbg_var_name: ?u32 = null;
+        var dbg_var_inst: Zir.Inst.Ref = undefined;
+        var err_scope: Scope.LocalVal = undefined;
+        var tag_scope: Scope.LocalVal = undefined;
+
+        const sub_scope = blk: {
+            const tag_token = case.payload_token orelse break :blk &case_scope.base;
+            assert(token_tags[tag_token] == .identifier);
+
+            const tag_slice = tree.tokenSlice(tag_token);
+            if (mem.eql(u8, tag_slice, "_")) {
+                return astgen.failTok(tag_token, "discard of error capture; omit it instead", .{});
+            }
+            const tag_name = try astgen.identAsString(tag_token);
+            try astgen.detectLocalShadowing(&case_scope.base, tag_name, tag_token, tag_slice, .capture);
+
+            tag_scope = .{
+                .parent = &case_scope.base,
+                .gen_zir = &case_scope,
+                .name = tag_name,
+                .inst = switch_block.toRef(),
+                .token_src = tag_token,
+                .id_cat = .capture,
+            };
+            dbg_var_name = tag_name;
+            dbg_var_inst = switch_block.toRef();
+
+            break :blk &tag_scope.base;
+        };
+
+        const header_index: u32 = @intCast(payloads.items.len);
+        const body_len_index = if (is_multi_case) blk: {
+            payloads.items[multi_case_table + multi_case_index] = header_index;
+            multi_case_index += 1;
+            try payloads.resize(gpa, header_index + 3); // items_len, ranges_len, body_len
+
+            // items
+            var items_len: u32 = 0;
+            for (case.ast.values) |item_node| {
+                if (node_tags[item_node] == .switch_range) continue;
+                items_len += 1;
+
+                const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node);
+                try payloads.append(gpa, @intFromEnum(item_inst));
+            }
+
+            // ranges
+            var ranges_len: u32 = 0;
+            for (case.ast.values) |range| {
+                if (node_tags[range] != .switch_range) continue;
+                ranges_len += 1;
+
+                const first = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].lhs);
+                const last = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].rhs);
+                try payloads.appendSlice(gpa, &[_]u32{
+                    @intFromEnum(first), @intFromEnum(last),
+                });
+            }
+
+            payloads.items[header_index] = items_len;
+            payloads.items[header_index + 1] = ranges_len;
+            break :blk header_index + 2;
+        } else if (case_node == else_node) blk: {
+            payloads.items[case_table_start + 1] = header_index;
+            try payloads.resize(gpa, header_index + 1); // body_len
+            break :blk header_index;
+        } else blk: {
+            payloads.items[scalar_case_table + scalar_case_index] = header_index;
+            scalar_case_index += 1;
+            try payloads.resize(gpa, header_index + 2); // item, body_len
+            const item_node = case.ast.values[0];
+            const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node);
+            payloads.items[header_index] = @intFromEnum(item_inst);
+            break :blk header_index + 1;
+        };
+
+        {
+            // temporarily stack case_scope on parent_gz
+            case_scope.instructions_top = parent_gz.instructions.items.len;
+            defer case_scope.unstack();
+
+            const err_code_inst = try case_scope.addUnNode(.err_union_code, raw_operand, operand_node);
+            err_scope = .{
+                .parent = sub_scope,
+                .gen_zir = &case_scope,
+                .name = err_name,
+                .inst = err_code_inst,
+                .token_src = error_payload,
+                .id_cat = .capture,
+            };
+
+            try case_scope.addDbgBlockBegin();
+            if (dbg_var_name) |some| {
+                try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+            }
+            const target_expr_node = case.ast.target_expr;
+            const case_result = try expr(&case_scope, &err_scope.base, block_scope.break_result_info, target_expr_node);
+            // check sub_scope, not err_scope to avoid false positive unused error capture
+            try checkUsed(parent_gz, &case_scope.base, sub_scope);
+            try case_scope.addDbgBlockEnd();
+            if (!parent_gz.refIsNoReturn(case_result)) {
+                _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, target_expr_node);
+            }
+
+            const case_slice = case_scope.instructionsSlice();
+            // Since we use the switch_block instruction itself to refer to the
+            // capture, which will not be added to the child block, we need to
+            // handle ref_table manually, and the same for the inline tag
+            // capture instruction.
+            const refs_len = refs: {
+                var n: usize = 0;
+                var check_inst = switch_block;
+                while (astgen.ref_table.get(check_inst)) |ref_inst| {
+                    n += 1;
+                    check_inst = ref_inst;
+                }
+                break :refs n;
+            };
+            const body_len = refs_len + astgen.countBodyLenAfterFixups(case_slice);
+            try payloads.ensureUnusedCapacity(gpa, body_len);
+            payloads.items[body_len_index] = @bitCast(Zir.Inst.SwitchBlock.ProngInfo{
+                .body_len = @intCast(body_len),
+                .capture = if (case.payload_token != null) .by_val else .none,
+                .is_inline = case.inline_token != null,
+                .has_tag_capture = false,
+            });
+            if (astgen.ref_table.fetchRemove(switch_block)) |kv| {
+                appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+            }
+            appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
+        }
+    }
+    // Now that the item expressions are generated we can add this.
+    try parent_gz.instructions.append(gpa, switch_block);
+
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlockErrUnion).Struct.fields.len +
+        @intFromBool(multi_cases_len != 0) +
+        payloads.items.len - case_table_end +
+        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).Struct.fields.len);
+
+    const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlockErrUnion{
+        .operand = raw_operand,
+        .bits = Zir.Inst.SwitchBlockErrUnion.Bits{
+            .has_multi_cases = multi_cases_len != 0,
+            .has_else = has_else,
+            .scalar_cases_len = @intCast(scalar_cases_len),
+        },
+    });
+
+    if (multi_cases_len != 0) {
+        astgen.extra.appendAssumeCapacity(multi_cases_len);
+    }
+
+    const zir_datas = astgen.instructions.items(.data);
+    zir_datas[@intFromEnum(switch_block)].pl_node.payload_index = payload_index;
+
+    for (payloads.items[case_table_start..case_table_end], 0..) |start_index, i| {
+        var body_len_index = start_index;
+        var end_index = start_index;
+        const table_index = case_table_start + i;
+        if (table_index < scalar_case_table) {
+            end_index += 1;
+        } else if (table_index < multi_case_table) {
+            body_len_index += 1;
+            end_index += 2;
+        } else {
+            body_len_index += 2;
+            const items_len = payloads.items[start_index];
+            const ranges_len = payloads.items[start_index + 1];
+            end_index += 3 + items_len + 2 * ranges_len;
+        }
+        const prong_info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(payloads.items[body_len_index]);
+        end_index += prong_info.body_len;
+        astgen.extra.appendSliceAssumeCapacity(payloads.items[start_index..end_index]);
+    }
+
+    if (need_result_rvalue) {
+        return rvalue(parent_gz, ri, switch_block.toRef(), switch_node);
+    } else {
+        return switch_block.toRef();
+    }
 }
 
 fn switchExpr(
