@@ -2556,7 +2556,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
-            .as,
             .as_node,
             .as_shift_operand,
             .bit_and,

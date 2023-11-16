@@ -277,9 +277,6 @@ pub const Inst = struct {
         /// Create a `anyframe->T` type.
         /// Uses the `un_node` field.
         anyframe_type,
-        /// Type coercion. No source location attached.
-        /// Uses the `bin` field.
-        as,
         /// Type coercion to the function's return type.
         /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
         as_node,
@@ -1083,7 +1080,6 @@ pub const Inst = struct {
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
-                .as,
                 .as_node,
                 .as_shift_operand,
                 .bit_and,
@@ -1396,7 +1392,6 @@ pub const Inst = struct {
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
-                .as,
                 .as_node,
                 .as_shift_operand,
                 .bit_and,
@@ -1629,7 +1624,6 @@ pub const Inst = struct {
                 .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
-                .as = .bin,
                 .as_node = .pl_node,
                 .as_shift_operand = .pl_node,
                 .bit_and = .pl_node,

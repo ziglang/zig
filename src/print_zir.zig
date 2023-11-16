@@ -199,7 +199,6 @@ const Writer = struct {
         const tag = tags[@intFromEnum(inst)];
         try stream.print("= {s}(", .{@tagName(tags[@intFromEnum(inst)])});
         switch (tag) {
-            .as,
             .store,
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
