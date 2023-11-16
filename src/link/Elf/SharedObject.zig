@@ -191,6 +191,34 @@ pub fn globals(self: SharedObject) []const Symbol.Index {
     return self.symbols.items;
 }
 
+pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) !void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        if (global.isLocal(elf_file)) continue;
+        global.flags.output_symtab = true;
+        try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+        self.output_symtab_ctx.nglobals += 1;
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+    }
+}
+
+pub fn writeSymtab(self: SharedObject, elf_file: *Elf) void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        const idx = global.outputSymtabIndex(elf_file) orelse continue;
+        const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
+        elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
+        elf_file.strtab.appendAssumeCapacity(0);
+        const out_sym = &elf_file.symtab.items[idx];
+        out_sym.st_name = st_name;
+        global.setOutputSym(elf_file, out_sym);
+    }
+}
+
 pub fn shdrContents(self: SharedObject, index: u16) []const u8 {
     const shdr = self.shdrs.items[index];
     return self.data[shdr.sh_offset..][0..shdr.sh_size];
