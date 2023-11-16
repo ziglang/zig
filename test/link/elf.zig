@@ -25,6 +25,7 @@ pub fn testAll(b: *Build) *Step {
     elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
     elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
     elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
 
     // Exercise linker in ar mode
     elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
@@ -2271,6 +2272,33 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("exception=Oh no!");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testRelocatableNoEhFrame(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-no-eh-frame", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addCSourceBytes(obj1, "int bar() { return 42; }", &.{
+        "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables",
+    });
+
+    const obj2 = addObject(b, "obj2", opts);
+    obj2.addObject(obj1);
+
+    const check1 = obj1.checkObject();
+    check1.checkStart();
+    check1.checkExact("section headers");
+    check1.checkNotPresent(".eh_frame");
+    test_step.dependOn(&check1.step);
+
+    const check2 = obj2.checkObject();
+    check2.checkStart();
+    check2.checkExact("section headers");
+    check2.checkNotPresent(".eh_frame");
+    test_step.dependOn(&check2.step);
 
     return test_step;
 }
