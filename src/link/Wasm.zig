@@ -1309,6 +1309,31 @@ pub fn deinit(wasm: *Wasm) void {
         archive.deinit(gpa);
     }
 
+    // For decls and anon decls we free the memory of its atoms.
+    // The memory of atoms parsed from object files is managed by
+    // the object file itself, and therefore we can skip those.
+    {
+        var it = wasm.decls.valueIterator();
+        while (it.next()) |atom_index_ptr| {
+            const atom = wasm.getAtomPtr(atom_index_ptr.*);
+            for (atom.locals.items) |local_index| {
+                const local_atom = wasm.getAtomPtr(local_index);
+                local_atom.deinit(gpa);
+            }
+            atom.deinit(gpa);
+        }
+    }
+    {
+        for (wasm.anon_decls.values()) |atom_index| {
+            const atom = wasm.getAtomPtr(atom_index);
+            for (atom.locals.items) |local_index| {
+                const local_atom = wasm.getAtomPtr(local_index);
+                local_atom.deinit(gpa);
+            }
+            atom.deinit(gpa);
+        }
+    }
+
     wasm.decls.deinit(gpa);
     wasm.anon_decls.deinit(gpa);
     wasm.atom_types.deinit(gpa);
@@ -1321,9 +1346,6 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.symbol_atom.deinit(gpa);
     wasm.export_names.deinit(gpa);
     wasm.atoms.deinit(gpa);
-    for (wasm.managed_atoms.items) |*managed_atom| {
-        managed_atom.deinit(wasm);
-    }
     wasm.managed_atoms.deinit(gpa);
     wasm.segments.deinit(gpa);
     wasm.data_segments.deinit(gpa);
@@ -1342,6 +1364,10 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.exports.deinit(gpa);
 
     wasm.string_table.deinit(gpa);
+    for (wasm.synthetic_functions.items) |atom_index| {
+        const atom = wasm.getAtomPtr(atom_index);
+        atom.deinit(gpa);
+    }
     wasm.synthetic_functions.deinit(gpa);
 
     if (wasm.dwarf) |*dwarf| {
@@ -2406,7 +2432,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
             prev_atom.next = atom.next;
             atom.prev = null;
         }
-        atom.deinit(wasm);
+        atom.deinit(wasm.base.allocator);
         break :blk index;
     } else new_atom: {
         const atom_index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
@@ -2509,6 +2535,7 @@ fn createSyntheticFunction(
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
+        .original_offset = 0,
     };
     try wasm.appendAtomAtIndex(wasm.code_section_index.?, atom_index);
     try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom_index);
@@ -2545,6 +2572,7 @@ pub fn createFunction(
         .prev = null,
         .code = function_body.moveToUnmanaged(),
         .relocs = relocations.moveToUnmanaged(),
+        .original_offset = 0,
     };
     const symbol = loc.getSymbol(wasm);
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN); // ensure function does not get exported
@@ -3016,14 +3044,14 @@ fn setupMemory(wasm: *Wasm) !void {
 /// From a given object's index and the index of the segment, returns the corresponding
 /// index of the segment within the final data section. When the segment does not yet
 /// exist, a new one will be initialized and appended. The new index will be returned in that case.
-pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32) !?u32 {
+pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u32 {
     const object: Object = wasm.objects.items[object_index];
-    const relocatable_data = object.relocatable_data[relocatable_index];
+    const symbol = object.symtable[symbol_index];
     const index = @as(u32, @intCast(wasm.segments.items.len));
 
-    switch (relocatable_data.type) {
+    switch (symbol.tag) {
         .data => {
-            const segment_info = object.segment_info[relocatable_data.index];
+            const segment_info = object.segment_info[symbol.index];
             const merge_segment = wasm.base.options.output_mode != .Obj;
             const result = try wasm.data_segments.getOrPut(wasm.base.allocator, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
@@ -3041,67 +3069,67 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
                 return index;
             } else return result.value_ptr.*;
         },
-        .code => return wasm.code_section_index orelse blk: {
+        .function => return wasm.code_section_index orelse blk: {
             wasm.code_section_index = index;
             try wasm.appendDummySegment();
             break :blk index;
         },
-        .debug => {
-            const debug_name = object.getDebugName(relocatable_data);
-            if (mem.eql(u8, debug_name, ".debug_info")) {
+        .section => {
+            const section_name = object.string_table.get(symbol.name);
+            if (mem.eql(u8, section_name, ".debug_info")) {
                 return wasm.debug_info_index orelse blk: {
                     wasm.debug_info_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_line")) {
+            } else if (mem.eql(u8, section_name, ".debug_line")) {
                 return wasm.debug_line_index orelse blk: {
                     wasm.debug_line_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_loc")) {
+            } else if (mem.eql(u8, section_name, ".debug_loc")) {
                 return wasm.debug_loc_index orelse blk: {
                     wasm.debug_loc_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_ranges")) {
+            } else if (mem.eql(u8, section_name, ".debug_ranges")) {
                 return wasm.debug_line_index orelse blk: {
                     wasm.debug_ranges_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_pubnames")) {
+            } else if (mem.eql(u8, section_name, ".debug_pubnames")) {
                 return wasm.debug_pubnames_index orelse blk: {
                     wasm.debug_pubnames_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_pubtypes")) {
+            } else if (mem.eql(u8, section_name, ".debug_pubtypes")) {
                 return wasm.debug_pubtypes_index orelse blk: {
                     wasm.debug_pubtypes_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_abbrev")) {
+            } else if (mem.eql(u8, section_name, ".debug_abbrev")) {
                 return wasm.debug_abbrev_index orelse blk: {
                     wasm.debug_abbrev_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
-            } else if (mem.eql(u8, debug_name, ".debug_str")) {
+            } else if (mem.eql(u8, section_name, ".debug_str")) {
                 return wasm.debug_str_index orelse blk: {
                     wasm.debug_str_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
                 };
             } else {
-                log.warn("found unknown debug section '{s}'", .{debug_name});
-                log.warn("  debug section will be skipped", .{});
-                return null;
+                log.warn("found unknown section '{s}'", .{section_name});
+                return error.UnexpectedValue;
             }
         },
+        else => unreachable,
     }
 }
 
@@ -3468,11 +3496,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupInitFunctions();
     try wasm.setupStart();
 
-    for (wasm.objects.items, 0..) |*object, object_index| {
-        try object.parseIntoAtoms(gpa, @as(u16, @intCast(object_index)), wasm);
-    }
-
-    wasm.markReferences();
+    try wasm.markReferences();
     try wasm.setupImports();
     try wasm.allocateAtoms();
     try wasm.setupMemory();
@@ -3558,7 +3582,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.setupInitFunctions();
     try wasm.setupErrorsLen();
     try wasm.setupStart();
-    wasm.markReferences();
+    try wasm.markReferences();
     try wasm.setupImports();
     if (wasm.base.options.module) |mod| {
         var decl_it = wasm.decls.iterator();
@@ -3613,10 +3637,6 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         if (wasm.dwarf) |*dwarf| {
             try dwarf.flushModule(wasm.base.options.module.?);
         }
-    }
-
-    for (wasm.objects.items, 0..) |*object, object_index| {
-        try object.parseIntoAtoms(wasm.base.allocator, @as(u16, @intCast(object_index)), wasm);
     }
 
     try wasm.allocateAtoms();
@@ -3885,18 +3905,15 @@ fn writeToFile(
         var atom_index = wasm.atoms.get(code_index).?;
 
         // The code section must be sorted in line with the function order.
-        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(wasm.base.allocator, wasm.functions.count());
+        var sorted_atoms = try std.ArrayList(*const Atom).initCapacity(wasm.base.allocator, wasm.functions.count());
         defer sorted_atoms.deinit();
 
         while (true) {
-            var atom = wasm.getAtomPtr(atom_index);
-            if (wasm.resolved_symbols.contains(atom.symbolLoc())) {
-                if (!is_obj) {
-                    atom.resolveRelocs(wasm);
-                }
-                sorted_atoms.appendAssumeCapacity(atom);
+            const atom = wasm.getAtomPtr(atom_index);
+            if (!is_obj) {
+                atom.resolveRelocs(wasm);
             }
-            // atom = if (atom.prev) |prev| wasm.getAtomPtr(prev) else break;
+            sorted_atoms.appendAssumeCapacity(atom); // found more code atoms than functions
             atom_index = atom.prev orelse break;
         }
 
@@ -3908,7 +3925,7 @@ fn writeToFile(
             }
         }.sort;
 
-        mem.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
+        mem.sort(*const Atom, sorted_atoms.items, wasm, atom_sort_fn);
 
         for (sorted_atoms.items) |sorted_atom| {
             try leb.writeULEB128(binary_writer, sorted_atom.size);
@@ -5060,20 +5077,20 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,
 /// as well as any of its references.
-fn markReferences(wasm: *Wasm) void {
+fn markReferences(wasm: *Wasm) !void {
     const tracy = trace(@src());
     defer tracy.end();
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
         if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip()) {
-            wasm.mark(sym_loc);
+            try wasm.mark(sym_loc);
         }
     }
 }
 
 /// Marks a symbol as 'alive' recursively so itself and any references it contains to
 /// other symbols will not be omit from the binary.
-fn mark(wasm: *Wasm, loc: SymbolLoc) void {
+fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
     const symbol = loc.getSymbol(wasm);
     if (symbol.isAlive()) {
         // Symbol is already marked alive, including its references.
@@ -5082,13 +5099,20 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) void {
         return;
     }
     symbol.mark();
+    if (symbol.isUndefined()) {
+        // undefined symbols do not have an associated `Atom` and therefore also
+        // do not contain relocations.
+        return;
+    }
 
-    if (wasm.symbol_atom.get(loc)) |atom_index| {
-        const atom = wasm.getAtom(atom_index);
-        const relocations: []const types.Relocation = atom.relocs.items;
-        for (relocations) |reloc| {
-            const target_loc: SymbolLoc = .{ .index = reloc.index, .file = loc.file };
-            wasm.mark(target_loc.finalLoc(wasm));
-        }
+    const file = loc.file orelse return; // Marking synthetic and Zig symbols is done seperately
+    const object = &wasm.objects.items[file];
+    const atom_index = try Object.parseSymbolIntoAtom(object, file, loc.index, wasm);
+
+    const atom = wasm.getAtom(atom_index);
+    const relocations: []const types.Relocation = atom.relocs.items;
+    for (relocations) |reloc| {
+        const target_loc: SymbolLoc = .{ .index = reloc.index, .file = file };
+        try wasm.mark(target_loc.finalLoc(wasm));
     }
 }
