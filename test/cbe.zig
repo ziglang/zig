@@ -507,8 +507,8 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":6:10: error: duplicate field",
-            ":4:10: note: other field here",
+            ":4:10: error: duplicate field",
+            ":6:10: note: other field here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
