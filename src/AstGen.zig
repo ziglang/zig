@@ -1971,6 +1971,17 @@ fn comptimeExpr(
         .block_two, .block_two_semicolon, .block, .block_semicolon => {
             const token_tags = tree.tokens.items(.tag);
             const lbrace = main_tokens[node];
+            // Careful! We can't pass in the real result location here, since it may
+            // refer to runtime memory. A runtime-to-comptime boundary has to remove
+            // result location information, compute the result, and copy it to the true
+            // result location at runtime. We do this below as well.
+            const ty_only_ri: ResultInfo = .{
+                .ctx = ri.ctx,
+                .rl = if (try ri.rl.resultType(gz, node)) |res_ty|
+                    .{ .coerced_ty = res_ty }
+                else
+                    .none,
+            };
             if (token_tags[lbrace - 1] == .colon and
                 token_tags[lbrace - 2] == .identifier)
             {
@@ -1985,17 +1996,13 @@ fn comptimeExpr(
                         else
                             stmts[0..2];
 
-                        // Careful! We can't pass in the real result location here, since it may
-                        // refer to runtime memory. A runtime-to-comptime boundary has to remove
-                        // result location information, compute the result, and copy it to the true
-                        // result location at runtime. We do this below as well.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmt_slice, true);
+                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmt_slice, true);
                         return rvalue(gz, ri, block_ref, node);
                     },
                     .block, .block_semicolon => {
                         const stmts = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
                         // Replace result location and copy back later - see above.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmts, true);
+                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmts, true);
                         return rvalue(gz, ri, block_ref, node);
                     },
                     else => unreachable,
@@ -2013,7 +2020,14 @@ fn comptimeExpr(
 
     const block_inst = try gz.makeBlockInst(.block_comptime, node);
     // Replace result location and copy back later - see above.
-    const block_result = try expr(&block_scope, scope, .{ .rl = .none }, node);
+    const ty_only_ri: ResultInfo = .{
+        .ctx = ri.ctx,
+        .rl = if (try ri.rl.resultType(gz, node)) |res_ty|
+            .{ .coerced_ty = res_ty }
+        else
+            .none,
+    };
+    const block_result = try expr(&block_scope, scope, ty_only_ri, node);
     if (!gz.refIsNoReturn(block_result)) {
         _ = try block_scope.addBreak(.@"break", block_inst, block_result);
     }
