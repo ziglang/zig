@@ -491,6 +491,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform an `accept4(2)` on a socket.
     /// Returns a pointer to the SQE.
+    /// Available since 5.5
     pub fn accept(
         self: *IO_Uring,
         user_data: u64,
@@ -511,6 +512,8 @@ pub const IO_Uring = struct {
     /// which will repeatedly trigger a CQE when a connection request comes in.
     /// While IORING_CQE_F_MORE flag is set in CQE flags accept will generate
     /// further CQEs.
+    ///
+    /// Available since 5.19
     pub fn accept_multishot(
         self: *IO_Uring,
         user_data: u64,
@@ -534,6 +537,8 @@ pub const IO_Uring = struct {
     /// After creation, they can be used by setting IOSQE_FIXED_FILE in the SQE
     /// flags member, and setting the SQE fd field to the direct descriptor value
     /// rather than the regular file descriptor.
+    ///
+    /// Available since 5.19
     pub fn accept_direct(
         self: *IO_Uring,
         user_data: u64,
@@ -549,6 +554,7 @@ pub const IO_Uring = struct {
     }
 
     /// Queues an multishot accept using direct (registered) file descriptors.
+    /// Available since 5.19
     pub fn accept_multishot_direct(
         self: *IO_Uring,
         user_data: u64,
@@ -726,6 +732,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform an `openat(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.6.
     pub fn openat(
         self: *IO_Uring,
         user_data: u64,
@@ -749,6 +756,8 @@ pub const IO_Uring = struct {
     /// After creation, they can be used by setting IOSQE_FIXED_FILE in the SQE
     /// flags member, and setting the SQE fd field to the direct descriptor value
     /// rather than the regular file descriptor.
+    ///
+    /// Available since 5.15
     pub fn openat_direct(
         self: *IO_Uring,
         user_data: u64,
@@ -766,6 +775,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `close(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.6.
     pub fn close(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_close(sqe, fd);
@@ -774,6 +784,7 @@ pub const IO_Uring = struct {
     }
 
     /// Queues close of registered file descriptor.
+    /// Available since 5.15
     pub fn close_direct(self: *IO_Uring, user_data: u64, file_index: u32) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_close_direct(sqe, file_index);
@@ -1232,6 +1243,7 @@ pub const IO_Uring = struct {
 
     /// Prepares a socket creation request.
     /// New socket fd will be returned in completion result.
+    /// Available since 5.19
     pub fn socket(
         self: *IO_Uring,
         user_data: u64,
@@ -1247,6 +1259,7 @@ pub const IO_Uring = struct {
     }
 
     /// Prepares a socket creation request for registered file at index `file_index`.
+    /// Available since 5.19
     pub fn socket_direct(
         self: *IO_Uring,
         user_data: u64,
@@ -1264,6 +1277,7 @@ pub const IO_Uring = struct {
 
     /// Prepares a socket creation request for registered file, index chosen by kernel (file index alloc).
     /// File index will be returned in CQE res field.
+    /// Available since 5.19
     pub fn socket_direct_alloc(
         self: *IO_Uring,
         user_data: u64,
@@ -3826,22 +3840,15 @@ test "accept/connect/send_zc/recv" {
 }
 
 test "accept_direct" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
-        error.SystemOutdated => return error.SkipZigTest,
-        error.PermissionDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    var ring = try IO_Uring.init(1, 0);
     defer ring.deinit();
     var address = try net.Address.parseIp4("127.0.0.1", 0);
 
     // register direct file descriptors
     var registered_fds = [_]os.fd_t{-1} ** 2;
-    ring.register_files(registered_fds[0..]) catch |err| switch (err) {
-        error.FileDescriptorInvalid => return error.SkipZigTest,
-        else => return err,
-    };
+    try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
     defer os.closeSocket(listener_socket);
@@ -3866,10 +3873,8 @@ test "accept_direct" {
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
-            if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
             try testing.expectEqual(os.E.SUCCESS, cqe_accept.err());
             const fd_index = cqe_accept.res;
-            if (fd_index >= registered_fds.len) return error.SkipZigTest; // old kernel fallback to ordinary accept
             try testing.expect(fd_index < registered_fds.len);
             try testing.expect(cqe_accept.user_data == accept_userdata);
 
@@ -3911,21 +3916,15 @@ test "accept_direct" {
 }
 
 test "accept_multishot_direct" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
-        error.SystemOutdated => return error.SkipZigTest,
-        error.PermissionDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    var ring = try IO_Uring.init(1, 0);
     defer ring.deinit();
+
     var address = try net.Address.parseIp4("127.0.0.1", 0);
 
     var registered_fds = [_]os.fd_t{-1} ** 2;
-    ring.register_files(registered_fds[0..]) catch |err| switch (err) {
-        error.FileDescriptorInvalid => return error.SkipZigTest,
-        else => return err,
-    };
+    try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
     defer os.closeSocket(listener_socket);
@@ -3933,7 +3932,7 @@ test "accept_multishot_direct" {
     const accept_userdata: u64 = 0xaaaaaaaa;
 
     for (0..2) |_| {
-        // submit accept
+        // submit multishot accept
         // Will chose registered fd and return index of the selected registered file in cqe.
         _ = try ring.accept_multishot_direct(accept_userdata, listener_socket, null, null, 0);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -3946,7 +3945,6 @@ test "accept_multishot_direct" {
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
-            if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
             const fd_index = cqe_accept.res;
             try testing.expect(fd_index < registered_fds.len);
             try testing.expect(cqe_accept.user_data == accept_userdata);
@@ -3971,52 +3969,58 @@ test "accept_multishot_direct" {
     try ring.unregister_files();
 }
 
-test "socket/socket_direct/socket_direct_alloc/close_direct" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+test "socket" {
+    try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
-        error.SystemOutdated => return error.SkipZigTest,
-        error.PermissionDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
-    var address = try net.Address.parseIp4("127.0.0.1", 0);
 
-    // Below are 4 different ways to get socket fd.
-    // Two upfront before register_files, and two after
-    var registered_fds = [_]os.fd_t{-1} ** 4;
-    // 1. sync syscall socket call
-    registered_fds[0] = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    // 2. io_uring socket
-    const socket_userdata = 0xcccccccc;
-    _ = try ring.socket(socket_userdata, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    // prepare, submit socket operation
+    _ = try ring.socket(0, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+    // test completion
+    var cqe = try ring.copy_cqe();
+    try testing.expectEqual(os.E.SUCCESS, cqe.err());
+    const fd: os.fd_t = @intCast(cqe.res);
+    try testing.expect(fd > 2);
+
+    os.close(fd);
+}
+
+test "socket_direct/socket_direct_alloc/close_direct" {
+    try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
+
+    var ring = try IO_Uring.init(2, 0);
+    defer ring.deinit();
+
+    var registered_fds = [_]os.fd_t{-1} ** 3;
+    try ring.register_files(registered_fds[0..]);
+
+    // create socket in registered file descriptor at index 0 (last param)
+    _ = try ring.socket_direct(0, linux.AF.INET, os.SOCK.STREAM, 0, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     var cqe_socket = try ring.copy_cqe();
-    if (cqe_socket.err() == .INVAL) return error.SkipZigTest;
-    try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
-    try testing.expect(cqe_socket.res > 2);
-    registered_fds[1] = cqe_socket.res; // set index 1 to created socket
-
-    ring.register_files(registered_fds[0..]) catch |err| switch (err) {
-        error.FileDescriptorInvalid => return error.SkipZigTest,
-        else => return err,
-    };
-
-    // 3. io_uring socket_direct, create new socket on index 2
-    _ = try ring.socket_direct(socket_userdata, linux.AF.INET, os.SOCK.STREAM, 0, 0, @intCast(2));
-    try testing.expectEqual(@as(u32, 1), try ring.submit());
-    cqe_socket = try ring.copy_cqe();
     try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
     try testing.expect(cqe_socket.res == 0);
 
-    // 4. io_uring socket_direct_alloc
-    _ = try ring.socket_direct_alloc(socket_userdata, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    // create socket in registered file descriptor at index 1 (last param)
+    _ = try ring.socket_direct(0, linux.AF.INET, os.SOCK.STREAM, 0, 0, 1);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe_socket = try ring.copy_cqe();
     try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
-    try testing.expect(cqe_socket.res == 3);
+    try testing.expect(cqe_socket.res == 0); // res is 0 when index is specified
+
+    // create socket in kernel chosen file descriptor index (_alloc version)
+    // completion res has index from registered files
+    _ = try ring.socket_direct_alloc(0, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    try testing.expectEqual(@as(u32, 1), try ring.submit());
+    cqe_socket = try ring.copy_cqe();
+    try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
+    try testing.expect(cqe_socket.res == 2); // returns registered file index
 
     // use sockets from registered_fds in connect operation
+    var address = try net.Address.parseIp4("127.0.0.1", 0);
     const listener_socket = try createListenerSocket(&address);
     defer os.closeSocket(listener_socket);
     const accept_userdata: u64 = 0xaaaaaaaa;
@@ -4027,14 +4031,12 @@ test "socket/socket_direct/socket_direct_alloc/close_direct" {
         _ = try ring.accept(accept_userdata, listener_socket, null, null, 0);
         // prepare connect with fixed socket
         const connect_sqe = try ring.connect(connect_userdata, @intCast(fd_index), &address.any, address.getOsSockLen());
-        connect_sqe.flags |= linux.IOSQE_FIXED_FILE;
+        connect_sqe.flags |= linux.IOSQE_FIXED_FILE; // fd is fixed file index
         // submit both
         try testing.expectEqual(@as(u32, 2), try ring.submit());
         // get completions
         var cqe_connect = try ring.copy_cqe();
-        if (cqe_connect.err() == .INVAL) return error.SkipZigTest;
         var cqe_accept = try ring.copy_cqe();
-        if (cqe_accept.err() == .INVAL) return error.SkipZigTest;
         // ignore order
         if (cqe_connect.user_data == accept_userdata and cqe_accept.user_data == connect_userdata) {
             const a = cqe_accept;
@@ -4049,7 +4051,7 @@ test "socket/socket_direct/socket_direct_alloc/close_direct" {
         try testing.expect(cqe_accept.user_data == accept_userdata);
         try testing.expectEqual(os.E.SUCCESS, cqe_accept.err());
 
-        //  submit and test close completion
+        //  submit and test close_direct
         _ = try ring.close_direct(close_userdata, @intCast(fd_index));
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         var cqe_close = try ring.copy_cqe();
@@ -4061,20 +4063,13 @@ test "socket/socket_direct/socket_direct_alloc/close_direct" {
 }
 
 test "openat_direct/close_direct" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
-        error.SystemOutdated => return error.SkipZigTest,
-        error.PermissionDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
 
     var registered_fds = [_]os.fd_t{-1} ** 3;
-    ring.register_files(registered_fds[0..]) catch |err| switch (err) {
-        error.FileDescriptorInvalid => return error.SkipZigTest,
-        else => return err,
-    };
+    try ring.register_files(registered_fds[0..]);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -4087,8 +4082,6 @@ test "openat_direct/close_direct" {
     _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     var cqe = try ring.copy_cqe();
-    if (cqe.err() == .INVAL) return error.SkipZigTest;
-    if (cqe.res != 0) return error.SkipZigTest; // old kernel fallback to openat without direct
     try testing.expectEqual(os.E.SUCCESS, cqe.err());
     try testing.expect(cqe.res == 0);
 
@@ -4103,7 +4096,6 @@ test "openat_direct/close_direct" {
     _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, linux.IORING_FILE_INDEX_ALLOC);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe = try ring.copy_cqe();
-    if (cqe.err() == .INVAL) return error.SkipZigTest; // kernel 5.15 bug
     try testing.expectEqual(os.E.SUCCESS, cqe.err());
     try testing.expect(cqe.res == 2); // chosen index is in res
 
@@ -4115,4 +4107,21 @@ test "openat_direct/close_direct" {
         try testing.expectEqual(os.E.SUCCESS, cqe_close.err());
     }
     try ring.unregister_files();
+}
+
+/// For use in tests. Returns SkipZigTest is kernel version is less than required.
+fn skipKernelLessThan(required: std.SemanticVersion) !void {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    var uts: linux.utsname = undefined;
+    const res = linux.uname(&uts);
+    switch (linux.getErrno(res)) {
+        .SUCCESS => {},
+        else => |errno| return os.unexpectedErrno(errno),
+    }
+
+    const release = mem.sliceTo(&uts.release, 0);
+    var current = try std.SemanticVersion.parse(release);
+    current.pre = null; // don't check pre field
+    if (required.order(current) == .gt) return error.SkipZigTest;
 }
