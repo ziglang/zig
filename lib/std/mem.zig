@@ -3938,7 +3938,7 @@ pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, 
 /// undefined behavior results.
 pub fn bytesAsSliceSentinel(comptime T: type, comptime sentinel: *const T, bytes: anytype) BytesAsSliceReturnType(T, sentinel, @TypeOf(bytes)) {
     const slice = bytesAsSlice(T, bytes);
-    return slice[0..slice.len-1:sentinel.*];
+    return slice[0 .. slice.len - 1 :sentinel.*];
 }
 
 test "bytesAsSlice" {
