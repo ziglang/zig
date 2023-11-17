@@ -3479,6 +3479,9 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -3492,6 +3495,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
@@ -3600,6 +3604,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -3613,6 +3620,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
         .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
@@ -4451,6 +4459,9 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     // In the case of a generic function instance, this is the type of the
     // instance, which has comptime parameters elided. In other words, it is
     // the runtime-known parameters only, not to be confused with the
@@ -4473,6 +4484,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
